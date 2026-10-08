@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32"><Configuration>Debug</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals"><VCProjectVersion>17.0</VCProjectVersion><ProjectGuid>{DF35D829-79D7-4DEA-882A-365C76861111}</ProjectGuid><RootNamespace>A</RootNamespace><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration"><ConfigurationType>Application</ConfigurationType><UseDebugLibraries>true</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><CharacterSet>MultiByte</CharacterSet></PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration"><ConfigurationType>Application</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><CharacterSet>MultiByte</CharacterSet><WholeProgramOptimization>true</WholeProgramOptimization></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup><OutDir>$(ProjectDir)..\..\..\bin\</OutDir><IntDir>$(ProjectDir)..\..\..\_build\x86\$(Configuration)\</IntDir><TargetName>A</TargetName><LocalDebuggerWorkingDirectory>$(OutDir)</LocalDebuggerWorkingDirectory><LocalDebuggerCommand>$(TargetPath)</LocalDebuggerCommand><DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor><LinkIncremental>false</LinkIncremental></PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile><WarningLevel>Level3</WarningLevel><DisableSpecificWarnings>4100;%(DisableSpecificWarnings)</DisableSpecificWarnings><SDLCheck>true</SDLCheck><PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS;WND_TITLE=&quot;Apocalypse (xport) (xport)&quot;;WND_WIDTH=960;WND_HEIGHT=768;FIELD_RATE=50;%(PreprocessorDefinitions)</PreprocessorDefinitions><AdditionalIncludeDirectories>$(ProjectDir)..\..;$(ProjectDir)..\..\..\..\xport\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><CompileAs>CompileAsC</CompileAs><Optimization>Disabled</Optimization><RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary><DebugInformationFormat>ProgramDatabase</DebugInformationFormat><ProgramDataBaseFileName>$(IntDir)A-compile.pdb</ProgramDataBaseFileName><MultiProcessorCompilation>true</MultiProcessorCompilation></ClCompile>
+    <Link><SubSystem>Windows</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation><ProgramDatabaseFile>$(OutDir)A.pdb</ProgramDatabaseFile><ImportLibrary>$(IntDir)A.lib</ImportLibrary><AdditionalDependencies>user32.lib;gdi32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile><WarningLevel>Level3</WarningLevel><DisableSpecificWarnings>4100;%(DisableSpecificWarnings)</DisableSpecificWarnings><SDLCheck>true</SDLCheck><PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS;WND_TITLE=&quot;Apocalypse (xport) (xport)&quot;;WND_WIDTH=960;WND_HEIGHT=768;FIELD_RATE=50;%(PreprocessorDefinitions)</PreprocessorDefinitions><AdditionalIncludeDirectories>$(ProjectDir)..\..;$(ProjectDir)..\..\..\..\xport\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><CompileAs>CompileAsC</CompileAs><Optimization>MaxSpeed</Optimization><RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary><FunctionLevelLinking>true</FunctionLevelLinking><IntrinsicFunctions>true</IntrinsicFunctions><MultiProcessorCompilation>true</MultiProcessorCompilation></ClCompile>
+    <Link><SubSystem>Windows</SubSystem><GenerateDebugInformation>false</GenerateDebugInformation><ImportLibrary>$(IntDir)A.lib</ImportLibrary><EnableCOMDATFolding>true</EnableCOMDATFolding><OptimizeReferences>true</OptimizeReferences><AdditionalDependencies>user32.lib;gdi32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup><ClCompile Include="..\..\game_main.c" /><ClCompile Include="..\..\startup_frontier.c" /><ClCompile Include="..\..\..\..\xport\src\psx.c" /><ClCompile Include="..\..\..\..\xport\src\psx_gpu.c" /><ClCompile Include="..\..\..\..\xport\src\psx_spu.c" /><ClCompile Include="..\..\..\..\xport\src\xport_trace.c" /><ClCompile Include="..\..\..\..\xport\src\platform\win\main.c"><ObjectFileName>$(IntDir)xport_main.obj</ObjectFileName></ClCompile></ItemGroup>
+  <ItemGroup><ClInclude Include="..\..\..\..\xport\src\xport.h" /><ClInclude Include="..\..\..\..\xport\src\psx.h" /><ClInclude Include="..\..\..\..\xport\src\psx_gpu.h" /><ClInclude Include="..\..\..\..\xport\src\psx_spu.h" /></ItemGroup>
+  <ItemGroup><ClCompile Include="..\..\draft_first_agent1_001.c" /><ClCompile Include="..\..\draft_first_agent1_002.c" /><ClCompile Include="..\..\draft_first_agent1_003.c" /><ClCompile Include="..\..\draft_first_agent1_004.c" /><ClCompile Include="..\..\draft_first_agent1_040.c" /><ClCompile Include="..\..\draft_first_agent1_041.c" /><ClCompile Include="..\..\draft_first_agent1_042.c" /><ClCompile Include="..\..\draft_first_agent1_043.c" /><ClCompile Include="..\..\draft_first_agent1_044.c" /><ClCompile Include="..\..\draft_first_agent1_045.c" /><ClCompile Include="..\..\draft_first_agent2_001.c" /><ClCompile Include="..\..\draft_first_agent2_040.c" /><ClCompile Include="..\..\draft_first_agent2_041.c" /><ClCompile Include="..\..\draft_first_agent2_042.c" /><ClCompile Include="..\..\draft_first_agent2_043.c" /><ClCompile Include="..\..\draft_first_agent2_044.c" /><ClCompile Include="..\..\draft_first_agent2_045.c" /><ClCompile Include="..\..\draft_first_agent2_046.c" /><ClCompile Include="..\..\draft_first_agent2_047.c" /><ClCompile Include="..\..\draft_first_agent2_048.c" /><ClCompile Include="..\..\draft_first_agent3_001.c" /><ClCompile Include="..\..\draft_first_agent3_002.c" /><ClCompile Include="..\..\draft_first_agent3_020.c" /><ClCompile Include="..\..\draft_first_agent3_021.c" /><ClCompile Include="..\..\draft_first_agent3_022.c" /><ClCompile Include="..\..\draft_first_agent3_023.c" /><ClCompile Include="..\..\draft_first_agent3_024.c" /><ClCompile Include="..\..\draft_first_agent3_025.c" /><ClCompile Include="..\..\draft_first_agent3_026.c" /><ClCompile Include="..\..\draft_first_agent3_027.c" /><ClCompile Include="..\..\draft_first_agent3_060.c" /><ClCompile Include="..\..\draft_first_agent3_061.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_boot.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\draft_first_adapter_stubs.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_graphics_init.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_sdk_missing.c" /></ItemGroup>
+<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+<ItemGroup><ClCompile Include="..\..\game_link_stubs.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_startup_adapters.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_bios_bootstrap.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_pad_startup.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_sound_tick_startup.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_spu_startup.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_cd_startup.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_vram_startup.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_host_vector_math.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_movie_tables.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_cd_mix.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_str_vlc.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_mdec.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_movie_startup.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_str_startup.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_image_resource.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_pad_poll.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_gpu_present.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_menu_adapters.c" /></ItemGroup>
+<ItemGroup><ClCompile Include="..\..\game_menu_helpers.c" /></ItemGroup>
+</Project>
