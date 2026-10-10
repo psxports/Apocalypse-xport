@@ -2,6 +2,7 @@
 #include "xport.h"
 #include "psx_gpu.h"
 #include "game_gpu_present.h"
+#include "psx_press.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,7 +53,6 @@ uint32 sub_8003B948(void)
     w_u32(0x800A684Cu, 0x00000000u);
     return 0x800A6844u;
 }
-
 
 uint32 sub_800622E0(void)
 {
@@ -120,7 +120,6 @@ uint32 sub_800622E0(void)
     return 0x800FFEA0u;
 }
 
-
 uint32 sub_80063928(void)
 {
     FUNCTION_MARKER(0x80063928u, "SLUS_003.73");
@@ -163,9 +162,8 @@ static sint32 dispatch_guest_callback(void *context, uint32 address)
     (void)context;
     if (address == 0x80066458u)
     {
+        mdec_psyq_pump(33868800u / FIELD_RATE);
         sub_80066458();
-        /* Present the native GPU scanout at the hardware VBlank boundary */
-        apocalypse_gpu_present();
         return 1;
     }
     if (address == 0x8008CFFCu || address == 0x8008EC6Cu || address == 0x8008ECB8u)

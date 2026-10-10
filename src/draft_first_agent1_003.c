@@ -1,6 +1,7 @@
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 #include <stdlib.h>
+
 /* Unverified draft; TODO Implement GTE adapters separately */
 
 void sub_800879EC(uint32 A0)
@@ -83,13 +84,11 @@ void sub_80082200(uint32 lookup_index, uint32 table, uint32 ir1, uint32 ir2, uin
 
 uint32 sub_8001E650(uint32 a1)
 {
-    /* TODO Original return is inherited from the last call on paths that make no call */
     uint32 result;
     if (r_u32(0x800FF378u) != 9u)
-        result = sub_80067388(a1, 1u, 512u, 32u, 256u);
-    else
-        result = xport_draft_unknown_result_8001E650();
-    if (r_u32(0x800FF738u) == 0u)
+        sub_80067388(a1, 1u, 512u, 32u, 256u);
+    result = r_u32(0x800FF738u);
+    if (result == 0u)
     {
         sub_8001E4C8(a1, sub_80066570(20u), 10u, 750u, 80u);
         sub_8001E1B8(a1, 0u);

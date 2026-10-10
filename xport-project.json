@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "name": "Apocalypse",
+  "short_name": "A",
+  "toolset": "C:\\Projects\\xports\\xport\\tools",
+  "paths": {
+    "status": "status",
+    "project_tools": "tools",
+    "analysis_database": "status/analysis.sqlite",
+    "native_executable": "bin/A.exe",
+    "native_working_directory": "bin",
+    "native_solution": "src/platform/win/A.sln",
+    "native_build": "_build",
+    "ida_exports": "status/ida/images/coverage-first-gp-v1",
+    "ida_configs": "tools/ida",
+    "sdk_classification": "status/ghidra/classification.json",
+    "disc_image": "iso/Apocalypse (USA).cue",
+    "music_source": "iso",
+    "music_output": "bin/MUSIC",
+    "original_executable": "orig/SLUS_003.73",
+    "native_debug_executable": "bin/A_debug.exe"
+  },
+  "duckstation": {
+    "host": "127.0.0.1",
+    "gdb_port": 2420,
+    "reserved_gdb_ports": {
+      "audit": 2418,
+      "trace": 2419,
+      "user": 2420
+    },
+    "default_role": "user",
+    "data_directory": "tools/duckstation/data/user",
+    "data_directories": {
+      "audit": "tools/duckstation/data/audit",
+      "trace": "tools/duckstation/data/trace",
+      "user": "tools/duckstation/data/user"
+    }
+  },
+  "stage_pipeline": {
+    "supervisor_protocol": {
+      "schema": 1,
+      "enabled": true,
+      "mode": "enforced",
+      "one_launch": true,
+      "notify_on_revision_only": true,
+      "batch_limits": {
+        "functions": 5,
+        "instructions": 2048,
+        "modules": 2
+      },
+      "acceptance": {
+        "unchanged_model_calls": 0,
+        "interventions_per_failure": 1,
+        "submissions_per_batch": 1,
+        "fast_refreshes_per_batch": 1,
+        "provisional_replays_per_batch": 1,
+        "full_gate_after_provisional_match": true,
+        "max_control_responses": 5,
+        "max_compactions": 2,
+        "deterministic_call_reduction_percent": 90
+      }
+    }
+  },
+  "code_refresh": {
+    "build": {
+      "solution": "src/platform/win/A.sln",
+      "configuration": "Debug",
+      "platform": "x86",
+      "process_name": "A_debug.exe"
+    },
+    "tests": [],
+    "artifacts": []
+  },
+  "analysis": {
+    "images": [
+      "SLUS_003.73"
+    ],
+    "default_image": "SLUS_003.73"
+  },
+  "capabilities": {
+    "redbook_audio": {
+      "enabled": true
+    }
+  }
+}

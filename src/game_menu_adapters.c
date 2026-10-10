@@ -44,10 +44,7 @@ uint32 xport_draft_host_sub_80015614_p34(uint32 object, uint32 label, void *x, v
 
 uint32 xport_draft_host_sub_80017364_p1234(void *confirm, void *cancel, void *any, void *start)
 {
-    static const uint32 events[7] = {
-        0x800EC109u, 0x800EC119u, 0x800EC1E9u,
-        0x800EC139u, 0x800EC149u, 0x800EC159u, 0x800EC169u
-    };
+    static const uint32 events[7] = {0x800EC109u, 0x800EC119u, 0x800EC1E9u, 0x800EC139u, 0x800EC149u, 0x800EC159u, 0x800EC169u};
     uint32 value = r_u8(0x800EC1D9u);
     uint32 index;
     menu_store(start, value);

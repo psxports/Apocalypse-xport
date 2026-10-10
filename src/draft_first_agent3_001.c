@@ -1,6 +1,14 @@
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 #include <stdlib.h>
+#include <stdio.h>
+
+static void controller_global_callback(uint32 target)
+{
+    /* TODO Supply the controller global callback adapter */
+    fprintf(stderr, "Missing controller global callback target=%08X\n", target);
+    abort();
+}
 
 /* Unverified draft C; integration remains TODO */
 
@@ -83,18 +91,18 @@ uint32 sub_8009F090(uint32 controller)
     {
         switch (target)
         {
-        case 0x8009DB54u:
-            sub_8009DB54(controller);
-            break;
-        case 0x8009DED8u:
-            sub_8009DED8(controller);
-            break;
-        case 0x8009E054u:
-            sub_8009E054(controller);
-            break;
-        default:
-            /* TODO Resolve unsupported callback target or adapter */
-        abort();
+            case 0x8009DB54u:
+                sub_8009DB54(controller);
+                break;
+            case 0x8009DED8u:
+                sub_8009DED8(controller);
+                break;
+            case 0x8009E054u:
+                sub_8009E054(controller);
+                break;
+            default:
+                xport_draft_guest_call1(target, controller);
+                break;
         }
         return 0u;
     }
@@ -115,10 +123,8 @@ uint32 sub_8009E1FC(uint32 controller)
     if (first == selected && r_u32(0x800FEE30u) != 0u)
     {
         target = r_u32(0x800FEE24u);
-        /* TODO Dispatch FEE24 then FEE20 and recover carried callback argument */
-        (void)target;
-        /* TODO Resolve unsupported callback target or adapter */
-        abort();
+        controller_global_callback(target);
+        controller_global_callback(r_u32(0x800FEE20u));
     }
     if (r_u32(0x800FEE74u) != 0u)
     {
@@ -126,23 +132,23 @@ uint32 sub_8009E1FC(uint32 controller)
         target = r_u32(0x800FEE0Cu);
         switch (target)
         {
-        case 0x8009F090u:
-            sub_8009F090(argument);
-            break;
-        default:
-            /* TODO Resolve unsupported callback target or adapter */
-        abort();
+            case 0x8009F090u:
+                sub_8009F090(argument);
+                break;
+            default:
+                xport_draft_guest_call1(target, argument);
+                break;
         }
         argument = r_u32(controller + 12u);
         target = r_u32(0x800FEE0Cu);
         switch (target)
         {
-        case 0x8009F090u:
-            sub_8009F090(argument + 240u);
-            break;
-        default:
-            /* TODO Resolve unsupported callback target or adapter */
-        abort();
+            case 0x8009F090u:
+                sub_8009F090(argument + 240u);
+                break;
+            default:
+                xport_draft_guest_call1(target, argument + 240u);
+                break;
         }
     }
     command = r_u8(controller + 54u);
@@ -166,12 +172,12 @@ uint32 sub_8009E394(uint32 controller)
     target = r_u32(0x800FEDFCu);
     switch (target)
     {
-    case 0x8009EBD4u:
-        result = sub_8009EBD4(controller, mode);
-        break;
-    default:
-        /* TODO Resolve unsupported callback target or adapter */
-        abort();
+        case 0x8009EBD4u:
+            result = sub_8009EBD4(controller, mode);
+            break;
+        default:
+            result = xport_draft_guest_call2(target, controller, mode);
+            break;
     }
     result = sub_8009D54C(controller, result & 0xFFu);
     if (result == 0x5Au || result == 0u || (sint32)result < 0)
@@ -179,6 +185,18 @@ uint32 sub_8009E394(uint32 controller)
     return 0xFFFFFFF7u;
 }
 
+static void controller_transfer_missing(uint32 slot, uint32 target, uint32 argument0, uint32 argument1)
+{
+    /* TODO Supply the exact controller callback target */
+    fprintf(stderr, "Controller callback missing slot=%08X target=%08X a0=%08X a1=%08X\n", slot, target, argument0, argument1);
+    abort();
+}
+static void controller_carried_missing(uint32 target, uint32 counter, uint32 index)
+{
+    /* TODO Resolve an asynchronous transition without a carried controller */
+    fprintf(stderr, "Controller carry missing slot=800FEE14 target=%08X counter=%08X index=%08X\n", target, counter, index);
+    abort();
+}
 uint32 sub_8009E420(uint32 controller)
 {
     uint32 target;
@@ -190,17 +208,12 @@ uint32 sub_8009E420(uint32 controller)
     uint32 argument;
     uint32 result;
     uint32 counter_address;
-    /* TODO Recover inherited controller value on ambiguous callback paths */
-    uint32 previous_controller = 0u;
-    uint32 previous_controller_valid = 0u;
     uint32 offset;
     uint32 source;
     uint32 buffer;
     FUNCTION_MARKER(0x8009E420u, "SLUS_003.73");
     target = r_u32(0x800FEE00u);
-    if (target != 0x8009ECE4u)
-        /* TODO Resolve unsupported callback target or adapter */
-        abort();
+    if (target != 0x8009ECE4u) controller_transfer_missing(0x800FEE00u, target, controller, 0u);
     sub_8009ECE4(controller);
     mode = 0u;
     if (r_u32(0x800FEE40u) != 0u)
@@ -223,15 +236,11 @@ uint32 sub_8009E420(uint32 controller)
             {
                 argument = r_u32(controller + 12u);
                 target = r_u32(0x800FEE00u);
-                if (target != 0x8009ECE4u)
-                    /* TODO Resolve unsupported callback target or adapter */
-        abort();
+                if (target != 0x8009ECE4u) controller_transfer_missing(0x800FEE00u, target, argument + stride, 0u);
                 sub_8009ECE4(argument + stride);
             }
             target = r_u32(0x800FEDFCu);
-            if (target != 0x8009EBD4u)
-                /* TODO Resolve unsupported callback target or adapter */
-        abort();
+            if (target != 0x8009EBD4u) controller_transfer_missing(0x800FEDFCu, target, controller, 1u);
             result = sub_8009EBD4(controller, 1u);
             result = sub_8009D54C(controller, result & 0xFFu);
             if ((sint32)result < 0)
@@ -258,49 +267,49 @@ uint32 sub_8009E420(uint32 controller)
                 break;
             if ((sint32)count > 0)
             {
+                uint32 previous_controller;
                 pointer = r_u32(0x800FEE28u);
                 pointer = r_u32(pointer + stride + 12u);
                 previous_controller = pointer + count * 240u - 240u;
-                previous_controller_valid = 1u;
                 target = r_u32(0x800FEE14u);
                 if (target != 0x8009F240u)
-                    /* TODO Resolve unsupported callback target or adapter */
-        abort();
+                    controller_transfer_missing(0x800FEE14u, target, previous_controller, 0u);
                 sub_8009F240(previous_controller);
+                count = r_u32(counter_address);
+                if (count == 3u)
+                {
+                    target = r_u32(0x800FEE14u);
+                    if (target != 0x8009F240u)
+                        controller_transfer_missing(0x800FEE14u, target, previous_controller - 240u, 0u);
+                    sub_8009F240(previous_controller - 240u);
+                    w_u32(counter_address, 1u);
+                    goto controller_receive;
+                }
             }
-            count = r_u32(counter_address);
+            else
+                count = r_u32(counter_address);
             if (count == 3u)
             {
-                target = r_u32(0x800FEE14u);
-                if (target != 0x8009F240u || previous_controller_valid == 0u)
-                    /* TODO Resolve unsupported callback target or adapter */
-        abort();
-                sub_8009F240(previous_controller - 240u);
-                w_u32(counter_address, 1u);
+                /* TODO Define asynchronous zero-to-three counter transition */
+                controller_carried_missing(r_u32(0x800FEE14u), counter_address, count);
             }
             else if (count == 4u)
                 w_u32(counter_address, 3u);
             else if ((sint32)count >= 0 && (sint32)count < 2)
             {
                 pointer = r_u32(0x800FEE28u);
-                previous_controller = pointer + stride;
-                previous_controller_valid = 1u;
+                pointer += stride;
                 target = r_u32(0x800FEE14u);
-                if (target != 0x8009F240u)
-                    /* TODO Resolve unsupported callback target or adapter */
-        abort();
-                sub_8009F240(previous_controller);
+                if (target != 0x8009F240u) controller_transfer_missing(0x800FEE14u, target, pointer, 0u);
+                sub_8009F240(pointer);
                 target = r_u32(0x800FEE18u);
-                if (target != 0x8009EB90u)
-                    /* TODO Resolve unsupported callback target or adapter */
-        abort();
-                sub_8009EB90(previous_controller);
+                if (target != 0x8009EB90u) controller_transfer_missing(0x800FEE18u, target, pointer, 0u);
+                sub_8009EB90(pointer);
                 w_u32(counter_address, 0xFFFFFFFFu);
             }
+controller_receive:
             target = r_u32(0x800FEDFCu);
-            if (target != 0x8009EBD4u)
-                /* TODO Resolve unsupported callback target or adapter */
-        abort();
+            if (target != 0x8009EBD4u) controller_transfer_missing(0x800FEDFCu, target, controller, mode);
             result = sub_8009EBD4(controller, mode);
             result = sub_8009D374(controller, result & 0xFFu);
             if ((sint32)result < 0)
@@ -319,9 +328,7 @@ uint32 sub_8009E420(uint32 controller)
         if ((sint32)count <= 0)
             break;
         target = r_u32(0x800FEDFCu);
-        if (target != 0x8009EBD4u)
-            /* TODO Resolve unsupported callback target or adapter */
-        abort();
+        if (target != 0x8009EBD4u) controller_transfer_missing(0x800FEDFCu, target, controller, mode);
         result = sub_8009EBD4(controller, mode);
         result = sub_8009D374(controller, result & 0xFFu);
         if ((sint32)result < 0)
@@ -338,9 +345,7 @@ uint32 sub_8009E420(uint32 controller)
     result = r_u8(source);
     w_u8(buffer + offset, result);
     target = r_u32(0x800FEDF4u);
-    if (target != 0x8009EA80u)
-        /* TODO Resolve unsupported callback target or adapter */
-        abort();
+    if (target != 0x8009EA80u) controller_transfer_missing(0x800FEDF4u, target, 0u, 0u);
     sub_8009EA80(0u);
     return 0u;
 }

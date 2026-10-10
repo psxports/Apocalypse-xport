@@ -29,5 +29,13 @@ typedef struct xport_draft_polygon_strip_context
     uint32 clipping_mask;
     uint32 frustum_mask;
     uint32 remaining_segments;
+    uint32 packet_stride;
+    uint32 disposition;
 } xport_draft_polygon_strip_context;
+
+typedef struct xport_draft_bounds
+{
+    uint32 minimum[3];
+    uint32 maximum[3];
+} xport_draft_bounds;
 #endif

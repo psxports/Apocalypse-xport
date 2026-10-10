@@ -51,7 +51,7 @@ uint32 xport_draft_host_sub_80099B3C_p1(void *result, uint32 name)
 
 uint32 sub_80099B3C(uint32 result, uint32 name)
 {
-    return CdSearchFile(result, name);
+    return CdSearchFile((CdlFILE *)psx_addr(result, sizeof(CdlFILE)), (const char *)psx_addr(name, 1u)) != NULL;
 }
 
 static uint32 cd_startup_control(uint32 command, const void *parameter, void *output)
@@ -128,9 +128,12 @@ uint32 sub_8009AA6C(uint32 count, uint32 destination, uint32 mode)
     w_u32(0x800FDD60u, words);
     w_u32(0x800FDD54u, destination);
     w_u32(0x800FDD50u, count);
-    previous_sync = r_u32(0x800FDA24u); previous_ready = r_u32(0x800FDA28u);
-    w_u32(0x800FDD74u, previous_sync); w_u32(0x800FDD78u, previous_ready);
-    w_u32(0x800FDA24u, 0u); w_u32(0x800FDA28u, 0u);
+    previous_sync = r_u32(0x800FDA24u);
+    previous_ready = r_u32(0x800FDA28u);
+    w_u32(0x800FDD74u, previous_sync);
+    w_u32(0x800FDD78u, previous_ready);
+    w_u32(0x800FDA24u, 0u);
+    w_u32(0x800FDA28u, 0u);
     w_u32(0x800FDD6Cu, (uint32)VSync(-1));
     location = sub_8009835C(0x800FDA40u);
     w_u32(0x800FDD70u, location);
@@ -141,9 +144,11 @@ uint32 sub_8009AA6C(uint32 count, uint32 destination, uint32 mode)
     completed = (uint32)CdReadSync(1, &response);
     w_u32(0x800FDD64u, success != 0 && completed == 0u ? 0u : 0xFFFFFFFFu);
     w_u32(0x800FDD58u, success != 0 ? destination + count * bytes : destination);
-    if (success != 0) w_u32(0x800FDD70u, location + count);
+    if (success != 0)
+        w_u32(0x800FDD70u, location + count);
     w_u32(0x800FDD68u, (uint32)VSync(-1));
-    w_u32(0x800FDA24u, previous_sync); w_u32(0x800FDA28u, previous_ready);
+    w_u32(0x800FDA24u, previous_sync);
+    w_u32(0x800FDA28u, previous_ready);
     if (r_u32(0x800FDD4Cu) == 0x80097C20u)
         DeliverEvent(0xF0000003u, 0x40u);
     else if (r_u32(0x800FDD4Cu) != 0u)

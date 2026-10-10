@@ -1,6 +1,7 @@
 #include "xport.h"
 #include "draft_first_signatures.h"
 #include "game_startup_adapters.h"
+#include "draft_first_adapters.h"
 #include <string.h>
 
 #define IMAGE_NAME "SLUS_003.73"
@@ -40,41 +41,51 @@ static void report_wip_gap(const char *message)
     xport_message_error("Apocalypse WIP", message);
 }
 
-uint32 sub_8006B04C(uint32 name_address)
+uint32 apocalypse_resource_lookup(const char *name)
 {
-    uint32 table = RESOURCE_TABLE, input = name_address, source, destination;
+    uint32 table = RESOURCE_TABLE, destination;
+    const uint8 *input = (const uint8 *)name, *source;
     uint8 value;
     sint32 byte_count, rounded, blocks;
-    FUNCTION_MARKER(0x8006B04Cu, IMAGE_NAME);
     write32(0x800FF6FCu, 0u);
-    source = name_address;
+    source = (const uint8 *)name;
     destination = 0x800FF714u;
-    do { value = read8(source++); byte_(destination++) = value; } while (value != 0u);
-    while (read8(input) != 0u)
+    do
+    {
+        value = *source++;
+        byte_(destination++) = value;
+    } while (value != 0u);
+    while (*input != 0u)
     {
         uint32 mismatch = 0u;
         do
         {
-            uint8 left = fold_ascii(read8(input++));
+            uint8 left = fold_ascii(*input++);
             uint8 right = fold_ascii(read8(table++));
             if (left != right)
             {
                 mismatch = 1u;
                 break;
             }
-        } while (read8(input) != 0u);
+        } while (*input != 0u);
         if (mismatch != 0u)
         {
-            input = name_address;
-            do { value = read8(table++); } while (value != 0u);
+            input = (const uint8 *)name;
+            do
+            {
+                value = read8(table++);
+            } while (value != 0u);
         }
         else if (read8(table) == 0u)
             continue;
         else
         {
-            input = name_address;
+            input = (const uint8 *)name;
             ++table;
-            do { value = read8(table++); } while (value != 0u);
+            do
+            {
+                value = read8(table++);
+            } while (value != 0u);
         }
         table = ((table + 3u) & ~3u) + 8u;
         if (read8(table) == 255u)
@@ -95,6 +106,12 @@ uint32 sub_8006B04C(uint32 name_address)
     write32(0x800FFC2Cu, (uint32)blocks << 11);
     write32(0x800FF708u, 1u);
     return (uint32)blocks << 11;
+}
+
+uint32 sub_8006B04C(uint32 name_address)
+{
+    FUNCTION_MARKER(0x8006B04Cu, IMAGE_NAME);
+    return apocalypse_resource_lookup((const char *)psx_addr(name_address, 1u));
 }
 
 sint32 sub_8006B234(uint32 destination)

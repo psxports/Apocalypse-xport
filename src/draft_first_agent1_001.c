@@ -4,6 +4,8 @@
 #include "draft_first_adapters.h"
 #include "game_startup_adapters.h"
 #include <stdlib.h>
+#include <stdio.h>
+
 /* Unverified draft; TODO Refine unresolved callbacks and ABI during integration */
 
 uint32 sub_800700B0(uint32 controller)
@@ -36,7 +38,12 @@ uint32 sub_8009CD74(void)
     return 0x80107CCCu;
 }
 
-
+/* TODO Resolve only observed callback targets within the selected set */
+static uint32 apocalypse_controller_missing_callback(uint32 owner, uint32 slot, uint32 target, uint32 argument0, uint32 argument1)
+{
+    fprintf(stderr, "Missing selected callback owner=%08X slot=%08X target=%08X args=%08X,%08X\n", owner, slot, target, argument0, argument1);
+    abort();
+}
 uint32 sub_8009CE08(void)
 {
     uint32 flag;
@@ -75,12 +82,12 @@ uint32 sub_8009CE08(void)
         target = r_u32(0x800FEDF4u);
         switch (target)
         {
-        case 0x8009EA80u:
-            sub_8009EA80(0xFFFFu);
-            break;
-        default:
-            /* TODO Unknown callback target or adapter */
-            abort();
+            case 0x8009EA80u:
+                sub_8009EA80(0xFFFFu);
+                break;
+            default:
+                /* TODO Unknown callback target */
+                (void)apocalypse_controller_missing_callback(0x8009CE08u, 0x800FEDF4u, target, 0xFFFFu, 0u);
         }
     }
     first = r_u32(0x800FEE34u);
@@ -97,7 +104,6 @@ uint32 sub_8009CE08(void)
     w_u16(port + 14u, 0x88u);
     return 0u;
 }
-
 
 uint32 sub_8009D098(uint32 controller)
 {
@@ -133,12 +139,12 @@ uint32 sub_8009D098(uint32 controller)
                 target = r_u32(0x800FEE14u);
                 switch (target)
                 {
-                case 0x8009F240u:
-                    sub_8009F240(argument + count * 240u);
-                    break;
-                default:
-                    /* TODO Unknown callback target or adapter */
-            abort();
+                    case 0x8009F240u:
+                        sub_8009F240(argument + count * 240u);
+                        break;
+                    default:
+                        /* TODO Unknown callback target */
+                        (void)apocalypse_controller_missing_callback(0x8009D098u, 0x800FEE14u, target, argument + count * 240u, 0u);
                 }
                 index = r_u32(0x800FEE34u);
                 count = r_u32(0x800FEE4Cu + index * 4u);
@@ -152,22 +158,22 @@ uint32 sub_8009D098(uint32 controller)
             w_u32(counter_address, 0xFFFFFFFFu);
             switch (target)
             {
-            case 0x8009F240u:
-                sub_8009F240(controller);
-                break;
-            default:
-                /* TODO Unknown callback target or adapter */
-            abort();
+                case 0x8009F240u:
+                    sub_8009F240(controller);
+                    break;
+                default:
+                    /* TODO Unknown callback target */
+                    (void)apocalypse_controller_missing_callback(0x8009D098u, 0x800FEE14u, target, controller, 0u);
             }
             target = r_u32(0x800FEE18u);
             switch (target)
             {
-            case 0x8009EB90u:
-                sub_8009EB90(controller);
-                break;
-            default:
-                /* TODO Unknown callback target or adapter */
-            abort();
+                case 0x8009EB90u:
+                    sub_8009EB90(controller);
+                    break;
+                default:
+                    /* TODO Unknown callback target */
+                    (void)apocalypse_controller_missing_callback(0x8009D098u, 0x800FEE18u, target, controller, 0u);
             }
         }
     }
@@ -194,7 +200,6 @@ uint32 sub_8009D098(uint32 controller)
     return 1u;
 }
 
-
 uint32 sub_8009D2AC(uint32 controller)
 {
     uint32 index;
@@ -206,22 +211,33 @@ uint32 sub_8009D2AC(uint32 controller)
     w_u32(0x800FEE38u, index + 1u);
     switch (target)
     {
-    case 0x8009E1BCu: result = sub_8009E1BC(controller); break;
-    case 0x8009E1FCu: result = sub_8009E1FC(controller); break;
-    case 0x8009E2D4u: result = sub_8009E2D4(controller); break;
-    case 0x8009E394u: result = sub_8009E394(controller); break;
-    case 0x8009E420u: result = sub_8009E420(controller); break;
-    default: /* TODO Unknown callback target or adapter */
-            abort();
+        case 0x8009E1BCu:
+            result = sub_8009E1BC(controller);
+            break;
+        case 0x8009E1FCu:
+            result = sub_8009E1FC(controller);
+            break;
+        case 0x8009E2D4u:
+            result = sub_8009E2D4(controller);
+            break;
+        case 0x8009E394u:
+            result = sub_8009E394(controller);
+            break;
+        case 0x8009E420u:
+            result = sub_8009E420(controller);
+            break;
+        default: /* TODO Unknown callback target */
+            result = apocalypse_controller_missing_callback(0x8009D2ACu, 0x800FEE78u + index * 4u, target, controller, 0u);
     }
     if ((sint32)result < 0)
     {
         target = r_u32(0x800FEDF4u);
         switch (target)
         {
-        case 0x8009EA80u: return sub_8009EA80(result);
-        default: /* TODO Unknown callback target or adapter */
-            abort();
+            case 0x8009EA80u:
+                return sub_8009EA80(result);
+            default: /* TODO Unknown callback target */
+                return apocalypse_controller_missing_callback(0x8009D2ACu, 0x800FEDF4u, target, result, 0u);
         }
     }
     index = r_u32(0x800FEE38u);
@@ -233,9 +249,11 @@ uint32 sub_8009D2AC(uint32 controller)
             target = r_u32(0x800FEDF4u);
             switch (target)
             {
-            case 0x8009EA80u: sub_8009EA80(0xFFFFFFFDu); break;
-            default: /* TODO Unknown callback target or adapter */
-            abort();
+                case 0x8009EA80u:
+                    sub_8009EA80(0xFFFFFFFDu);
+                    break;
+                default: /* TODO Unknown callback target */
+                    (void)apocalypse_controller_missing_callback(0x8009D2ACu, 0x800FEDF4u, target, 0xFFFFFFFDu, 0u);
             }
         }
     }
@@ -269,7 +287,6 @@ uint32 sub_8009D780(void)
     w_u16(serial_port + 10u, control | 0x10u);
     return 1u;
 }
-
 
 uint32 sub_8009D54C(uint32 controller, uint32 command)
 {
@@ -390,8 +407,9 @@ uint32 sub_8009F5C0(uint32 a1)
                 goto busy;
     }
 update:
+    count = r_u32(a1 + 76u);
     state = r_u8(a1 + 70u);
-    w_u32(a1 + 76u, r_u32(a1 + 76u) + 1u);
+    w_u32(a1 + 76u, count + 1u);
     if (state == 1u)
     {
         count = r_u8(a1 + 74u);
@@ -419,8 +437,8 @@ update:
         w_u8(r_u32(a1 + 48u) + 1u, 0u);
         w_u8(a1 + 232u, 0u);
         w_u8(a1 + 68u, 0u);
-        /* TODO Dispatch callback at 0x800FEDF8 with controller argument */
-        abort();
+        /* TODO Missing native 9E9BC callback or unknown target */
+        (void)apocalypse_controller_missing_callback(0x8009F5C0u, 0x800FEDF8u, r_u32(0x800FEDF8u), a1, 0u);
     }
     result = 8u;
     if (type == 0u)
@@ -535,9 +553,8 @@ uint32 sub_8009A4BC(uint32 a1, uint32 a2)
     if (r_u32(0x800FDD4Cu) != 0u)
     {
         reason = r_u32(0x800FDD64u) == 0u ? 2u : 5u;
-        (void)reason;
-        /* TODO Dispatch FDD4C callback with reason and a2 */
-        abort();
+        /* TODO Missing native 97C20 callback or unknown target */
+        return apocalypse_controller_missing_callback(0x8009A4BCu, 0x800FDD4Cu, r_u32(0x800FDD4Cu), reason, a2);
     }
     return result;
 }
@@ -652,11 +669,9 @@ uint32 sub_8002E738(void)
     return 0u;
 }
 
-uint32 sub_80068270(uint32 a1, uint32 a2)
+uint32 sub_80068270(uint32 a1)
 {
     uint32 result;
-    /* TODO Resolve whether the callee consumes the second argument */
-    (void)a2;
     sub_8006BC20(a1);
     result = r_u32(0x800FF670u) - 1u;
     w_u32(0x800FF670u, result);
@@ -723,6 +738,7 @@ uint32 sub_80070100(uint32 a1)
 
 void sub_8009AD7C(void)
 {
+    uint32 retained_result;
     sub_80085E6C();
     if (r_u32(0x800FDA48u) == 1u)
     {
@@ -735,9 +751,9 @@ void sub_8009AD7C(void)
         sub_80097DE4(0u);
     }
     w_u8(r_u32(0x800FDD9Cu), 0u);
-    w_u8(r_u32(0x800FDDA8u), 0u);
-    /* TODO Critical-section bridge takes the inherited value in the existing ABI */
-    sub_80085E7C(xport_draft_unknown_critical_argument_8009AD7C());
+    retained_result = r_u32(0x800FDDA8u);
+    w_u8(retained_result, 0u);
+    sub_80085E7C(retained_result);
 }
 
 uint32 sub_80010074(void)
@@ -803,12 +819,8 @@ uint32 sub_80071054(void)
     sub_8006B04C(0x800A3AECu);
     sub_8006B234(0x800EC474u);
     sub_8006B44C();
-    sub_8006FDFC(0x800EC0F8u, (uint32)(sint32)(sint16)r_u16(0x800EC474u),
-        (uint32)(sint32)(sint16)r_u16(0x800EC476u), (uint32)(sint32)(sint16)r_u16(0x800EC478u),
-        (uint32)(sint32)(sint16)r_u16(0x800EC47Au));
-    sub_8006FE14(0x800EC0F8u, 3u, 2u, 1u, 0u,
-        (uint32)(sint32)(sint16)r_u16(0x800EC494u), (uint32)(sint32)(sint16)r_u16(0x800EC496u),
-        (uint32)(sint32)(sint16)r_u16(0x800EC498u), (uint32)(sint32)(sint16)r_u16(0x800EC49Au));
+    sub_8006FDFC(0x800EC0F8u, (uint32)(sint32)(sint16)r_u16(0x800EC474u), (uint32)(sint32)(sint16)r_u16(0x800EC476u), (uint32)(sint32)(sint16)r_u16(0x800EC478u), (uint32)(sint32)(sint16)r_u16(0x800EC47Au));
+    sub_8006FE14(0x800EC0F8u, 3u, 2u, 1u, 0u, (uint32)(sint32)(sint16)r_u16(0x800EC494u), (uint32)(sint32)(sint16)r_u16(0x800EC496u), (uint32)(sint32)(sint16)r_u16(0x800EC498u), (uint32)(sint32)(sint16)r_u16(0x800EC49Au));
     sub_8006B04C(0x800A3AF8u);
     sub_8006B234(0x800ECC74u);
     return sub_8006B44C();
@@ -827,6 +839,3 @@ uint32 sub_8006A334(uint32 a1)
         w_u32(0x800FF6CCu, 0u);
     return result;
 }
-
-
-

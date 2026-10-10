@@ -17,12 +17,8 @@ void xport_main(void)
     static uint8 image[PSX_DRAM_SIZE];
     size_t size;
     uint32 payload_size;
-    const GpuPsyqStateBinding gpu_binding = {
-        0x800FCF18u, 0x800FCEBCu, 0x800FCEACu,
-        0x800FCEAFu, 0x800FCE4Cu, 0u
-    };
-    if (!xport_file_read("../orig/SLUS_003.73", image, sizeof(image), &size) ||
-        size < 2048u || memcmp(image, "PS-X EXE", 8u) != 0)
+    const GpuPsyqStateBinding gpu_binding = {0x800FCF18u, 0x800FCEBCu, 0x800FCEACu, 0x800FCEAFu, 0x800FCE4Cu, 0u};
+    if (!xport_file_read("../orig/SLUS_003.73", image, sizeof(image), &size) || size < 2048u || memcmp(image, "PS-X EXE", 8u) != 0)
     {
         xport_message_error("Apocalypse", "Cannot load ../orig/SLUS_003.73");
         xport_set_exit_code(1);
@@ -34,8 +30,7 @@ void xport_main(void)
         xport_set_exit_code(1);
         return;
     }
-    payload_size = (uint32)image[28] | ((uint32)image[29] << 8) |
-                   ((uint32)image[30] << 16) | ((uint32)image[31] << 24);
+    payload_size = (uint32)image[28] | ((uint32)image[29] << 8) | ((uint32)image[30] << 16) | ((uint32)image[31] << 24);
     if (payload_size > size - 2048u || payload_size > PSX_DRAM_SIZE - 0x10000u)
     {
         xport_message_error("Apocalypse", "Invalid original executable payload");
@@ -71,7 +66,7 @@ extern uint32 sub_8006B44C(void);
 extern uint32 sub_80067724(uint32, uint32);
 extern uint32 sub_8008BF9C(uint32, uint32);
 extern uint32 sub_80067808(uint32, uint32);
-extern uint32 sub_8006613C(uint32 *position, uint32 index);
+extern uint32 xport_draft_host_sub_8006613C_p1(void *position, uint32 index);
 extern uint32 sub_80065DE8(void);
 extern uint32 sub_800625AC(uint32);
 extern uint32 sub_8005C5C0(uint32);
@@ -123,7 +118,7 @@ extern uint32 sub_8009FA6C(uint32);
 extern uint32 sub_8009FAD8(void);
 extern uint32 _bu_init(void);
 extern uint32 sub_80085E6C(void);
-extern sint32 OpenEvent(uint32, uint32, uint32, uint32);
+extern sint32 OpenEventGuest(uint32, uint32, uint32, uint32);
 extern uint32 sub_80085E7C(uint32);
 extern sint32 EnableEvent(uint32);
 extern uint32 ChangeClearPAD(uint32);
@@ -225,7 +220,7 @@ restart:
             {
                 if ((sint16)r_u16(r_u32(r_u32(0x800FF624u) + index * 4u)) == 8)
                 {
-                    filename = sub_8006613C(position, index) + 6u;
+                    filename = xport_draft_host_sub_8006613C_p1(position, index) + 6u;
                     sub_80071288(1u);
                     sub_80065DE8();
                     object = sub_800625AC(0x244u);
@@ -340,96 +335,96 @@ frame:
     w_u32(0x800FF818u, 0u);
     switch (state)
     {
-    case 1u:
-        w_u32(0x800FEF00u, 5u);
-        goto restart;
-    case 2u:
-        count = r_u32(0x800FF874u);
-        if (count != 0u)
-        {
-            if (r_u32(0x800FF320u) == 0u)
-            {
-                w_u32(0x800FF874u, count - 1u);
-                count = r_u32(0x800FF874u);
-            }
-            w_u32(0x800A5440u, count);
+        case 1u:
+            w_u32(0x800FEF00u, 5u);
+            goto restart;
+        case 2u:
+            count = r_u32(0x800FF874u);
             if (count != 0u)
             {
-                sub_80071288(1u);
-                sub_80065DE8();
-                object = sub_800625AC(0x244u);
-                if (object != 0u)
+                if (r_u32(0x800FF320u) == 0u)
                 {
-                    resource = sub_800625AC(0x290u);
-                    if (resource != 0u)
-                        resource = sub_8005C5C0(resource);
-                    object = sub_800772B8(object, resource);
+                    w_u32(0x800FF874u, count - 1u);
+                    count = r_u32(0x800FF874u);
                 }
-                w_u32(object + 0x234u, 3u);
-                sub_80018B70(0x800A53D4u);
-                goto restore;
+                w_u32(0x800A5440u, count);
+                if (count != 0u)
+                {
+                    sub_80071288(1u);
+                    sub_80065DE8();
+                    object = sub_800625AC(0x244u);
+                    if (object != 0u)
+                    {
+                        resource = sub_800625AC(0x290u);
+                        if (resource != 0u)
+                            resource = sub_8005C5C0(resource);
+                        object = sub_800772B8(object, resource);
+                    }
+                    w_u32(object + 0x234u, 3u);
+                    sub_80018B70(0x800A53D4u);
+                    goto restore;
+                }
             }
-        }
-        count = (uint32)(sint32)(sint16)r_u16(0x800EC522u);
-        w_u32(0x800FEF00u, 20u);
-        w_u32(0x800FF874u, count);
-        goto restart;
-    case 3u:
-        sub_80071288(0u);
-        resource = sub_80018948(r_u32(0x800FF83Cu));
-        sub_8002E814(r_u8(resource + 0x14u));
-        if (r_u32(0x800A53D4u) == 0u)
-        {
-            refresh = 1u;
+            count = (uint32)(sint32)(sint16)r_u16(0x800EC522u);
+            w_u32(0x800FEF00u, 20u);
+            w_u32(0x800FF874u, count);
             goto restart;
-        }
-        source = 0x800A53D4u;
-        destination = 0x800A545Cu;
-        do
-        {
+        case 3u:
+            sub_80071288(0u);
+            resource = sub_80018948(r_u32(0x800FF83Cu));
+            sub_8002E814(r_u8(resource + 0x14u));
+            if (r_u32(0x800A53D4u) == 0u)
+            {
+                refresh = 1u;
+                goto restart;
+            }
+            source = 0x800A53D4u;
+            destination = 0x800A545Cu;
+            do
+            {
+                word0 = r_u32(source);
+                word1 = r_u32(source + 4u);
+                word2 = r_u32(source + 8u);
+                word3 = r_u32(source + 12u);
+                w_u32(destination, word0);
+                w_u32(destination + 4u, word1);
+                w_u32(destination + 8u, word2);
+                w_u32(destination + 12u, word3);
+                source += 16u;
+                destination += 16u;
+            } while (source != 0x800A5454u);
             word0 = r_u32(source);
             word1 = r_u32(source + 4u);
-            word2 = r_u32(source + 8u);
-            word3 = r_u32(source + 12u);
             w_u32(destination, word0);
             w_u32(destination + 4u, word1);
-            w_u32(destination + 8u, word2);
-            w_u32(destination + 12u, word3);
-            source += 16u;
-            destination += 16u;
-        } while (source != 0x800A5454u);
-        word0 = r_u32(source);
-        word1 = r_u32(source + 4u);
-        w_u32(destination, word0);
-        w_u32(destination + 4u, word1);
-        goto load_default;
-    case 4u:
-    case 5u:
-        sub_80071288(0u);
-        index = r_u8(0x800FF2E9u) + 1u;
-        w_u8(0x800FF2E9u, index);
-        index &= 0xFFu;
-        if (r_u8(r_u32(0x800A6600u + index * 0x8Cu)) == 0u)
-            w_u8(0x800FF2E9u, 0u);
-        goto restart;
-    case 6u:
-        sub_80071288(1u);
-        sub_80065DE8();
-        object = sub_800625AC(0x244u);
-        if (object != 0u)
-        {
-            resource = sub_800625AC(0x290u);
-            if (resource != 0u)
-                resource = sub_8005C5C0(resource);
-            object = sub_800772B8(object, resource);
-        }
-        w_u32(object + 0x234u, 3u);
-        goto restore;
-    case 7u:
-        w_u32(0x800FEF00u, 20u);
-        goto restart;
-    default:
-        goto restart;
+            goto load_default;
+        case 4u:
+        case 5u:
+            sub_80071288(0u);
+            index = r_u8(0x800FF2E9u) + 1u;
+            w_u8(0x800FF2E9u, index);
+            index &= 0xFFu;
+            if (r_u8(r_u32(0x800A6600u + index * 0x8Cu)) == 0u)
+                w_u8(0x800FF2E9u, 0u);
+            goto restart;
+        case 6u:
+            sub_80071288(1u);
+            sub_80065DE8();
+            object = sub_800625AC(0x244u);
+            if (object != 0u)
+            {
+                resource = sub_800625AC(0x290u);
+                if (resource != 0u)
+                    resource = sub_8005C5C0(resource);
+                object = sub_800772B8(object, resource);
+            }
+            w_u32(object + 0x234u, 3u);
+            goto restore;
+        case 7u:
+            w_u32(0x800FEF00u, 20u);
+            goto restart;
+        default:
+            goto restart;
     }
 restore:
     sub_80063E7C();
@@ -515,7 +510,13 @@ uint32 sub_800713E8(void)
     uint32 heap_split;
     uint32 first_word;
     uint32 second_word;
-    union { uint32 words[2]; PSX_RECT value; } rectangle;
+
+    union
+    {
+        uint32 words[2];
+        PSX_RECT value;
+    } rectangle;
+
     uint32 start_tick;
     uint32 resource;
     uint32 first_count;
@@ -536,7 +537,7 @@ uint32 sub_800713E8(void)
     apocalypse_set_disp_mask(0u);
     sub_8006FE4C();
     InitGeom();
-    ResetGraph(0u);
+    apocalypse_reset_graph(0u);
     SetGraphDebug(0u);
     apocalypse_gs_init_graph(0x200u, 0xF0u, 0u, 0u, 0u);
     apocalypse_gs_def_disp_buff(0u, 0u, 0u, 0xF0u);
@@ -583,8 +584,7 @@ uint32 sub_800713E8(void)
     w_u8(0x800EAF03u + (resource << 6), 1u);
     sub_8006F7D8();
     sub_8006AED8(4u);
-    if (r_u32(0x800FF64Cu) - start_tick < 0x12Cu &&
-        (r_u8(0x800EC138u) == 0u || r_u8(0x800EC158u) == 0u))
+    if (r_u32(0x800FF64Cu) - start_tick < 0x12Cu && (r_u8(0x800EC138u) == 0u || r_u8(0x800EC158u) == 0u))
     {
         do
         {
@@ -729,21 +729,21 @@ uint32 sub_80010610(uint32 requested_mode)
     sub_8009FAD8();
     _bu_init();
     sub_80085E6C();
-    result = OpenEvent(0xF4000001u, 0x4u, 0x2000u, 0u);
+    result = OpenEventGuest(0xF4000001u, 0x4u, 0x2000u, 0u);
     w_u32(0x800FEED4u, result);
-    result = OpenEvent(0xF4000001u, 0x8000u, 0x2000u, 0u);
+    result = OpenEventGuest(0xF4000001u, 0x8000u, 0x2000u, 0u);
     w_u32(0x800FEED8u, result);
-    result = OpenEvent(0xF4000001u, 0x100u, 0x2000u, 0u);
+    result = OpenEventGuest(0xF4000001u, 0x100u, 0x2000u, 0u);
     w_u32(0x800FEEDCu, result);
-    result = OpenEvent(0xF4000001u, 0x2000u, 0x2000u, 0u);
+    result = OpenEventGuest(0xF4000001u, 0x2000u, 0x2000u, 0u);
     w_u32(0x800FEEE0u, result);
-    result = OpenEvent(0xF0000011u, 0x4u, 0x2000u, 0u);
+    result = OpenEventGuest(0xF0000011u, 0x4u, 0x2000u, 0u);
     w_u32(0x800FEEE4u, result);
-    result = OpenEvent(0xF0000011u, 0x8000u, 0x2000u, 0u);
+    result = OpenEventGuest(0xF0000011u, 0x8000u, 0x2000u, 0u);
     w_u32(0x800FEEE8u, result);
-    result = OpenEvent(0xF0000011u, 0x100u, 0x2000u, 0u);
+    result = OpenEventGuest(0xF0000011u, 0x100u, 0x2000u, 0u);
     w_u32(0x800FEEECu, result);
-    result = OpenEvent(0xF0000011u, 0x2000u, 0x2000u, 0u);
+    result = OpenEventGuest(0xF0000011u, 0x2000u, 0x2000u, 0u);
     w_u32(0x800FEEF0u, result);
     sub_80085E7C(result);
     result = EnableEvent(r_u32(0x800FEED4u));
@@ -865,8 +865,7 @@ uint32 sub_8006FDFC(uint32 destination, uint32 x, uint32 y, uint32 width, uint32
     return height;
 }
 
-uint32 sub_8006FE14(uint32 destination, uint32 red, uint32 green, uint32 blue,
-                     uint32 mode, uint32 x, uint32 y, uint32 width, uint32 height)
+uint32 sub_8006FE14(uint32 destination, uint32 red, uint32 green, uint32 blue, uint32 mode, uint32 x, uint32 y, uint32 width, uint32 height)
 {
     FUNCTION_MARKER(0x8006FE14u, "SLUS_003.73");
     w_u8(destination + 0x160u, red);

@@ -3,8 +3,8 @@
 #include "psx_spu.h"
 #include <string.h>
 
-/* Existing physical sector backend, declared locally for native destinations */
-extern sint32 cd_read_sector_native(uint8 output[2352]);
+extern sint32 CdRead(sint32 count, uint32 *destination, sint32 mode);
+
 static uint8 *native_destination;
 static sint32 native_read_error;
 
@@ -39,19 +39,13 @@ uint32 game_startup_read_step(void)
     }
     else if (state == 2u)
     {
-        uint8 sector[2352];
-        uint32 count = r_u32(0x800FFC44u), index;
+        uint32 count = r_u32(0x800FFC44u);
         uint8 *destination = native_destination;
         native_read_error = count == 0u ? -1 : 0;
         if (destination == NULL && count != 0u)
             destination = (uint8 *)psx_addr(r_u32(0x800FFC40u), count * 2048u);
-        for (index = 0u; index < count && native_read_error == 0; ++index)
-        {
-            if (!cd_read_sector_native(sector))
-                native_read_error = -1;
-            else
-                memcpy(destination + index * 2048u, sector + 24u, 2048u);
-        }
+        if (native_read_error == 0 && !CdRead((sint32)count, (uint32 *)destination, 0))
+            native_read_error = -1;
         if (native_read_error == 0)
             w_u32(0x800FF700u, 3u);
         else

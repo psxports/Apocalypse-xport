@@ -1,6 +1,7 @@
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 #include <stdlib.h>
+
 /* Unverified drafts; TODO Resolve adapter and ABI details during integration */
 
 uint32 sub_80096E14(void)
@@ -15,6 +16,12 @@ uint32 sub_80096C4C(uint32 a1, uint32 a2, uint32 a3)
     if (r_u32(0x800FD274u) == 0u)
         w_u32(0x800FD270u, 0u);
     return size;
+}
+
+static void timer_8E9FC_divide_by_zero(void)
+{
+    /* TODO MIPS BREAK7 on a zero timer divisor */
+    abort();
 }
 
 void sub_8008E9FC(uint32 a1)
@@ -52,8 +59,7 @@ void sub_8008E9FC(uint32 a1)
         setting = r_u32(0x800FD05Cu);
         if (setting == 0u)
         {
-            /* TODO BIOS BREAK 7 adapter */
-            abort();
+            timer_8E9FC_divide_by_zero();
         }
         if ((sint32)setting < 70)
         {

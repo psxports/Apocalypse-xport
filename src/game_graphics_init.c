@@ -1,6 +1,29 @@
 #include "psx.h"
 #include "psx_gpu.h"
+#include "game_gpu_present.h"
 #include <stdlib.h>
+#include <string.h>
+
+sint32 apocalypse_reset_graph(sint32 mode)
+{
+    uint32 kind = (uint32)mode & 7u;
+    uint32 graph_type;
+    sint32 result;
+    extern uint32 apocalypse_reset_callbacks(void);
+    if (kind != 0u && kind != 3u && kind != 5u)
+        return ResetGraph(mode);
+    memset(psx_addr(0x800FCEACu, 128u), 0, 128u);
+    apocalypse_reset_callbacks();
+    result = ResetGraph(mode);
+    graph_type = (uint8)GetGraphType();
+    w_u8(0x800FCEACu, graph_type);
+    w_u8(0x800FCEADu, 1u);
+    w_u16(0x800FCEB0u, r_u16(0x800FCF2Cu + 4u * graph_type));
+    w_u16(0x800FCEB2u, r_u16(0x800FCF38u + 4u * graph_type));
+    memset(psx_addr(0x800FCEBCu, 92u), 255, 92u);
+    memset(psx_addr(0x800FCF18u, 20u), 255, 20u);
+    return result < 0 ? result : (sint32)graph_type;
+}
 
 static void update_draw_clip(void)
 {
@@ -34,8 +57,7 @@ static void update_draw_offset(void)
     }
 }
 
-void apocalypse_gs_init_graph(uint32 width, uint32 height, uint32 attributes,
-                              uint32 dither, uint32 rgb24)
+void apocalypse_gs_init_graph(uint32 width, uint32 height, uint32 attributes, uint32 dither, uint32 rgb24)
 {
     uint32 address;
     uint32 word;
@@ -44,7 +66,7 @@ void apocalypse_gs_init_graph(uint32 width, uint32 height, uint32 attributes,
     attributes &= 0xFFFFu;
     dither &= 0xFFFFu;
     rgb24 &= 0xFFFFu;
-    ResetGraph(((attributes >> 4) & 3u) == 3u ? 3 : 0);
+    apocalypse_reset_graph(((attributes >> 4) & 3u) == 3u ? 3 : 0);
     for (address = 0x80104398u; address <= 0x801043A4u; address += 2u)
         w_u16(address, 0u);
     w_u8(0x801043A6u, dither);

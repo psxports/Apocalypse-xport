@@ -6,4 +6,3 @@ uint32 apocalypse_pad_normalize(void);
 void apocalypse_pad_stop(void);
 void sub_8009C7EC(void);
 #endif
-

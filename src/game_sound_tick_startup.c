@@ -175,14 +175,12 @@ uint32 apocalypse_music_tick(void)
                         }
                         ++track;
                         offset += 176u;
-                    }
-                    while (track < (sint16)r_u16(0x80104E12u));
+                    } while (track < (sint16)r_u16(0x80104E12u));
                 }
             }
             ++sequence;
             result = sequence < (sint16)r_u16(0x80104E10u);
-        }
-        while (result);
+        } while (result);
     }
     w_u32(0x80104584u, 0u);
     return result;

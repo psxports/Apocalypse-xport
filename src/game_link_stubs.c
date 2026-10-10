@@ -1,9 +1,8 @@
-#include "xport.h"
+#include "psx.h"
 #include <stdlib.h>
-#include <stdio.h>
 
 #define XPORT_LINK_STUB(symbol, address, image) \
-    uint32 symbol() { FUNCTION_MARKER(address, image); fprintf(stderr, "Unimplemented game function: " #symbol "\n"); abort(); return 0; }
+    uint32 symbol() { FUNCTION_MARKER(address, image); abort(); return 0; }
 
 XPORT_LINK_STUB(sub_800103E4, 0x800103E4u, "SLUS_003.73")
 XPORT_LINK_STUB(sub_80010530, 0x80010530u, "SLUS_003.73")
@@ -38,7 +37,6 @@ XPORT_LINK_STUB(sub_80028578, 0x80028578u, "SLUS_003.73")
 XPORT_LINK_STUB(sub_8002A5C0, 0x8002A5C0u, "SLUS_003.73")
 XPORT_LINK_STUB(sub_8002B4EC, 0x8002B4ECu, "SLUS_003.73")
 XPORT_LINK_STUB(sub_8002EF58, 0x8002EF58u, "SLUS_003.73")
-
 XPORT_LINK_STUB(sub_8002FB18, 0x8002FB18u, "SLUS_003.73")
 XPORT_LINK_STUB(sub_8002FBE4, 0x8002FBE4u, "SLUS_003.73")
 XPORT_LINK_STUB(nullsub_17, 0x8002FF88u, "SLUS_003.73")
@@ -82,7 +80,17 @@ XPORT_LINK_STUB(sub_80061D8C, 0x80061D8Cu, "SLUS_003.73")
 XPORT_LINK_STUB(sub_80063A38, 0x80063A38u, "SLUS_003.73")
 XPORT_LINK_STUB(sub_80064B24, 0x80064B24u, "SLUS_003.73")
 XPORT_LINK_STUB(sub_80064FC8, 0x80064FC8u, "SLUS_003.73")
-XPORT_LINK_STUB(sub_800681FC, 0x800681FCu, "SLUS_003.73")
+uint32 sub_800681FC(void)
+{
+    extern uint32 sub_80087F7C(uint32 mode);
+    extern uint32 sub_8008895C(uint32 environment);
+    extern uint32 sub_80088B28(uint32 environment);
+    extern uint32 sub_800888EC(uint32 ordering_table);
+    sub_80087F7C(1u);
+    sub_8008895C(r_u32(0x800FF66Cu));
+    sub_80088B28(r_u32(0x800FF66Cu) + 92u);
+    return sub_800888EC(r_u32(0x800FF66Cu) + 16492u);
+}
 XPORT_LINK_STUB(sub_80069FAC, 0x80069FACu, "SLUS_003.73")
 XPORT_LINK_STUB(sub_8006A490, 0x8006A490u, "SLUS_003.73")
 XPORT_LINK_STUB(sub_8006A890, 0x8006A890u, "SLUS_003.73")
@@ -131,4 +139,3 @@ XPORT_LINK_STUB(sub_80083E54, 0x80083E54u, "SLUS_003.73")
 XPORT_LINK_STUB(sub_80085A08, 0x80085A08u, "SLUS_003.73")
 XPORT_LINK_STUB(sub_800981F4, 0x800981F4u, "SLUS_003.73")
 XPORT_LINK_STUB(sub_8009C760, 0x8009C760u, "SLUS_003.73")
-
