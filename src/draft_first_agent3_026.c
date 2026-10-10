@@ -193,53 +193,37 @@ uint32 sub_800626F8(uint32 object, uint32 duration, uint32 red, uint32 green, ui
     return result;
 }
 
-/* TODO Resolve original data label 0x800FF398u */
-uint32 sub_800326E8(uint32 a1)
+uint32 sub_800326E8(uint32 object)
 {
-    sint32 v2;
-    sint32 v3;
-    sint32 v4;
-    sint32 result;
-    sint32 v6;
-    sint32 v7;
-    sint32 v8;
-    sint32 v9;
-    sint32 v10;
-    v2 = 0;
-    v8 = 0;
-    v9 = 0;
-    v10 = 0;
-    while ((v2 < r_u32(((uint32)((a1 + 72))))))
+    sint32 index = 0;
+    uint32 age;
+    while (index < (sint32)r_u32(object + 72u))
     {
-        v9 = (-4096 * (r_u32(((uint32)((a1 + 80)))) + sub_80066570(r_u32(((uint32)((a1 + 84)))))));
-        v3 = sub_80032DC0(112);
-        if (v3)
+        uint32 velocity[3] = {0u, 0u, 0u};
+        uint32 child;
+        uint32 random = sub_80066570(r_u32(object + 84u));
+        velocity[1] = (0u - (r_u32(object + 80u) + random)) << 12;
+        child = sub_80032DC0(112u);
+        if (child)
         {
-            {
-                uint32 lifetime = r_u32(a1 + 88) + sub_80066570(r_u32(a1 + 92));
-                sint32 velocity[3] = {v8, v9, v10};
-                v3 = xport_draft_host_sub_80035638_p3(v3, a1 + 24, velocity, 0x800FF398u, lifetime, 0, 10);
-            }
+            uint32 lifetime = r_u32(object + 88u) + sub_80066570(r_u32(object + 92u));
+            child = xport_draft_host_sub_80035638_p3(child, object + 24u, velocity,
+                0x800FF398u, lifetime, 0u, 10u);
         }
-        w_u16(((uint32)((v3 + 64))), 100);
-        w_u16(((uint32)((v3 + 96))), sub_80066570(4096));
-        ++v2;
-        sub_800332FC(v3, r_u8(((uint32)((a1 + 76)))), r_u8(((uint32)((a1 + 77)))), r_u8(((uint32)((a1 + 78)))));
+        w_u16(child + 64u, 100u);
+        random = sub_80066570(4096u);
+        w_u16(child + 96u, (uint16)random);
+        ++index;
+        sub_800332FC(child, r_u8(object + 76u), r_u8(object + 77u), r_u8(object + 78u));
     }
-
-    v4 = r_u16(((uint32)((a1 + 10))));
-    result = ((result & 0xFFFF0000u) | ((((r_u16(((uint32)((a1 + 8)))) + 1)) & 0xFFFFu) << 0));
-    w_u16(((uint32)((a1 + 8))), result);
-    result = ((short)(result));
-    v6 = (((short)(result)) != v4);
-    v7 = ((unsigned short)(result));
-    if (!v6)
+    age = (uint16)(r_u16(object + 8u) + 1u);
+    w_u16(object + 8u, (uint16)age);
+    if ((sint32)(sint16)age == (sint32)r_u16(object + 10u))
     {
-        result = 0xFFFF;
-        if ((v7 != 0xFFFF))
-            return sub_80032ED8(a1);
+        if (age != 0xFFFFu) return sub_80032ED8(object);
+        return 0xFFFFu;
     }
-    return result;
+    return (uint32)(sint32)(sint16)age;
 }
 
 uint32 sub_80032694(uint32 a1, uint32 a2)

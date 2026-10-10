@@ -118,6 +118,8 @@ void apocalypse_object_virtual20(uint32 target, uint32 receiver)
         case 0x800236D4u: sub_800236D4(receiver); break;
         case 0x80035A54u: sub_80035A54(receiver); break;
         case 0x800355A0u: sub_800355A0(receiver); break;
+        case 0x800326E8u: sub_800326E8(receiver); break;
+        case 0x80035758u: sub_80035758(receiver); break;
         default: player_update_missing("Object virtual slot20 target");
     }
 }

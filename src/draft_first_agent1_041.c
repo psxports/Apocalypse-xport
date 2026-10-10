@@ -949,14 +949,16 @@ uint32 sub_8006C0B8(uint32 a1, uint32 a2)
     return result;
 }
 
-uint32 sub_8006C270(uint32 a1, uint32 a2)
+uint32 sub_8006C270(uint32 vector, uint32 shifts)
 {
-    uint32 result;
-    result = a1;
-    w_u32(a1, (r_u32(a1) - ((r_u32(a1) >> r_u8(a2)))));
-    w_u32((a1 + (1) * 4u), (r_u32((a1 + (1) * 4u)) - ((r_u32((a1 + (1) * 4u)) >> r_u8((a2 + (1) * 1u))))));
-    w_u32((a1 + (2) * 4u), (r_u32((a1 + (2) * 4u)) - ((r_u32((a1 + (2) * 4u)) >> r_u8((a2 + (2) * 1u))))));
-    return result;
+    uint32 axis, shift, value;
+    for (axis = 0u; axis < 3u; ++axis)
+    {
+        shift = r_u8(shifts + axis) & 31u;
+        value = r_u32(vector + 4u * axis);
+        w_u32(vector + 4u * axis, value - (uint32)((sint32)value >> shift));
+    }
+    return vector;
 }
 
 uint32 sub_8006C05C(uint32 a1)

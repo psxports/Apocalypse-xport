@@ -188,7 +188,7 @@ static uint32 collision_object_record(uint32 a1, void *record)
     sint32 translation[3];
     if (result)
         return result;
-    SetLightMatrix((MATRIX *)((uint8 *)record + 72u));
+    SetColorMatrix((MATRIX *)((uint8 *)record + 72u));
     entry = r_u32(0x800EAEF8u + 64u * r_u8(a1 + 27u) + 16u) + 4u * r_u16(a1 + 22u);
     geometry = r_u32(entry);
     count = r_u32(geometry + 4u);
@@ -235,7 +235,7 @@ static uint32 collision_object_record(uint32 a1, void *record)
                 (void)xport_draft_host_sub_80085A08_p2(a1, psx_addr(0x800ED720u, 20u));
         }
         sub_800855B4(0x800ED720u, 0x800ED720u);
-        SetLightMatrix((MATRIX *)psx_addr(0x800ED720u, 32u));
+        SetColorMatrix((MATRIX *)psx_addr(0x800ED720u, 32u));
     }
     w_u16(0x800FFA32u, xport_draft_host_sub_80084D4C_p4(r_u32(0x800FF9E8u), output, collision_object_read32(record, 68u), translation));
     result = r_u16(0x800FFA32u) & 0x60Fu;

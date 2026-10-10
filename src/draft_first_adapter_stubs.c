@@ -347,8 +347,12 @@ uint32 xport_draft_host_sub_8007CD74_p13(void *argument1, uint32 argument2, void
 
 uint32 xport_draft_host_sub_80032EE4_p2(uint32 argument1, void *argument2)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_80032EE4_p2\n");
-    abort();
+    uint32 position[3];
+    memcpy(position, argument2, sizeof(position));
+    w_u32(argument1 + 24u, position[0]);
+    w_u32(argument1 + 28u, position[1]);
+    w_u32(argument1 + 32u, position[2]);
+    return position[0];
 }
 
 uint32 xport_draft_host_sub_800762A8_p1(void *argument1, uint32 argument2)
@@ -372,14 +376,26 @@ uint32 xport_draft_host_sub_80075F80_p12(void *argument1, void *argument2, uint3
 
 uint32 xport_draft_host_sub_80076274_p1(void *argument1, uint32 argument2)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_80076274_p1\n");
-    abort();
+    uint32 table = 0x800F863Cu + ((argument2 << 1) & 0x3FFCu);
+    uint32 values[4];
+    values[3] = (uint32)(sint32)(sint16)r_u16(table + 2u);
+    values[0] = (uint32)(sint32)(sint16)r_u16(table);
+    values[1] = values[2] = 0u;
+    memcpy(argument1, values, sizeof(values));
+    return (uint32)(uintptr_t)argument1;
 }
 
 uint32 xport_draft_host_sub_80075F80_p123(void *argument1, void *argument2, void *argument3)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_80075F80_p123\n");
-    abort();
+    uint32 a[4], b[4], result[4];
+    memcpy(b, argument3, sizeof(b));
+    memcpy(a, argument2, sizeof(a));
+    result[0] = (uint32)((sint32)(b[3]*a[0] + b[0]*a[3] + b[1]*a[2] - b[2]*a[1]) >> 12);
+    result[1] = (uint32)((sint32)(b[3]*a[1] + b[1]*a[3] + b[2]*a[0] - b[0]*a[2]) >> 12);
+    result[2] = (uint32)((sint32)(b[3]*a[2] + b[2]*a[3] + b[0]*a[1] - b[1]*a[0]) >> 12);
+    result[3] = (uint32)((sint32)(b[3]*a[3] - b[0]*a[0] - b[1]*a[1] - b[2]*a[2]) >> 12);
+    memcpy(argument1, result, sizeof(result));
+    return (uint32)(uintptr_t)argument1;
 }
 
 uint32 xport_draft_host_sub_800762DC_p1(void *argument1, uint32 argument2)
@@ -1110,8 +1126,17 @@ uint32 xport_draft_host_sub_80067388_p1(const void *position, uint32 a2, uint32 
 
 uint32 xport_draft_host_sub_80069EF4_p2(uint32 sound, const void *position, uint32 parameter)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_80069EF4_p2\n");
-    abort();
+    uint32 origin[3], balance, gain, left, right;
+    if ((sint32)sound < 0) return 0u;
+    memcpy(origin, position, sizeof(origin));
+    balance = apocalypse_sound_balance_native(origin, 256u, 12000u);
+    gain = (uint32)(sint32)(sint16)r_u16(0x800ECC7Au);
+    left = ((balance & 0xFFFu) * gain) >> 12;
+    right = (((balance >> 16) & 0xFFFu) * gain) >> 12;
+    if ((sint32)balance < 0) left = 0u - left;
+    return sub_8006A4C4(r_u32(0x800E53A8u + sound * 8u),
+        r_u8(0x800E53A8u + ((sound * 8u) | 4u)),
+        (sint16)left, (sint16)right, parameter);
 }
 
 uint32 xport_draft_host_sub_8001E4C8_p1(const void *position, uint32 a2, uint32 a3, uint32 a4, uint32 a5)
@@ -1219,8 +1244,22 @@ uint32 xport_draft_unknown_cleanup_result_80017914(void)
 
 uint32 xport_draft_host_sub_80035638_p3(uint32 object, uint32 position, const void *velocity, uint32 name, uint32 field5E, uint32 field4A, uint32 field48)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_80035638_p3\n");
-    abort();
+    uint32 words[3];
+    memcpy(words, velocity, sizeof(words));
+    sub_80034D88(object);
+    w_u32(object + 68u, 0x800A1C60u);
+    w_u32(object + 24u, r_u32(position));
+    w_u32(object + 28u, r_u32(position + 4u));
+    w_u32(object + 32u, r_u32(position + 8u));
+    w_u32(object + 36u, words[0]);
+    w_u32(object + 40u, words[1]);
+    w_u32(object + 44u, words[2]);
+    sub_80033354(object, name);
+    sub_800332A4(object);
+    w_u16(object + 94u, (uint16)field5E);
+    w_u16(object + 74u, (uint16)field4A);
+    w_u16(object + 72u, (uint16)field48);
+    return object;
 }
 
 uint32 xport_draft_host_sub_80022454_p2345(uint32 kind, const void *vertex0, const void *vertex1, const void *vertex2, const void *offset, uint32 red, uint32 green, uint32 blue)

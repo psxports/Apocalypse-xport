@@ -54,7 +54,7 @@ static uint32 collision_missing(const char *operation, uint32 object, void *reco
 static uint32 collision_init_record(void *record, uint32 guest_address)
 {
     sint16 dx, dy, dz;
-    uint32 horizontal, shift, normalization;
+    uint32 horizontal, shift, full_shift, normalization;
     sint32 horizontal_length, length, sine, cosine;
     MATRIX rotation;
     uint32 axis;
@@ -91,9 +91,10 @@ static uint32 collision_init_record(void *record, uint32 guest_address)
         horizontal += (uint32)((sint32)dy * dy);
         normalization = collision_leading_bits(horizontal);
         length = (sint32)sub_80085B54(horizontal << ((normalization - 1u) & 30u));
-        cosine = collision_divide((uint32)horizontal_length << 12, length);
-        sine = collision_divide((uint32)(sint32)dy << ((shift + 12u) & 31u), length);
-        collision_write32(record, 68u, (uint32)(length >> (shift & 31u)));
+        full_shift = (uint32)((sint32)(normalization - 1u) >> 1);
+        cosine = collision_divide((uint32)horizontal_length << 12, (uint32)length << ((shift - full_shift) & 31u));
+        sine = collision_divide((uint32)(sint32)dy << ((full_shift + 12u) & 31u), length);
+        collision_write32(record, 68u, (uint32)(length >> (full_shift & 31u)));
         w_u16(0x800FFA2Cu, cosine);
         w_u16(0x800FFA2Eu, sine);
         rotation.m[0][0] = 4096; rotation.m[0][1] = 0; rotation.m[0][2] = 0;

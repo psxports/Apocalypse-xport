@@ -2,6 +2,7 @@
 #define A_DRAFT_FIRST_ADAPTERS_H
 #include "psx.h"
 #include "draft_first_contexts.h"
+uint32 apocalypse_sound_balance_native(const uint32 origin[3], uint32 minimum, uint32 maximum);
 uint32 apocalypse_collision_sphere_segment_native_end(uint32 start, const void *endpoint, void *output, uint32 list, uint32 excluded_object);
 sint32 apocalypse_reset_graph(sint32 mode);
 uint32 apocalypse_resource_lookup(const char *name);

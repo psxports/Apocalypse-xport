@@ -643,223 +643,154 @@ uint32 sub_8007FDF0(uint32 object)
     return y;
 }
 
-uint32 sub_8007D148(uint32 a1)
+static void pose_load_rotation(const uint8 *matrix)
 {
-    sint32 v1;
-    sint32 result;
-    uint32 v3;
-    uint32 v4;
-    uint32 v5;
-    sint32 v6;
-    uint32 v7;
-    sint32 v8;
-    sint32 v9;
-    uint32 v10;
-    uint32 v11;
-    uint32 v12;
-    uint32 v13;
-    sint32 v14;
-    unsigned short i;
-    sint32 v16;
-    sint32 v17;
-    sint32 v18;
-    sint32 v19;
-    uint32 v20;
-    uint32 v21;
-    sint32 v22;
-    sint32 v23;
-    uint32 v24;
-    sint32 v25;
-    sint32 v26;
-    sint32 v27;
-    sint32 v28;
-    uint32 v29;
-    uint32 v30;
-    sint32 v31;
-    sint32 v32;
-    uint32 v33;
-    sint32 v34;
-    uint32 v35;
-    uint32 v36;
-    sint32 v37;
-    sint32 v38;
-    sint32 v39;
-    sint32 v40;
-    sint8 v41;
-    char v42[144];
-    char v43[18];
-    short v44;
-    short v45;
-    short v46;
-    uint32 v47;
-    sint32 v48;
-    sint32 v49;
-    sint32 v50;
-    sint32 v51;
-    v50 = a1;
-    v1 = r_u32(((uint32)((a1 + 356))));
-    result = (r_u16(((uint32)(a1))) & 4);
-    v47 = ((uint32)(v1));
-    v3 = r_u32(((uint32)((a1 + 364))));
-    v4 = r_u32(((uint32)((a1 + 360))));
-    if (result)
-    {
-        if (v1)
-        {
-            result = -2146500608;
-            if (v4)
-            {
-                v5 = (0x800EAEF8u + ((16 * r_u8(((uint32)((a1 + 27)))))) * 4u);
-                v49 = r_u32(((uint32)((((sint32)(r_u32((v5 + (4) * 4u)))) - 4))));
-                v6 = 0;
-                v51 = ((sint32)(r_u32((v5 + (6) * 4u))));
-                if ((v49 > 0))
-                {
-                    v7 = ((uint32)(v1));
-                    do
-                    {
-                        w_u16(v7, 0x8000);
-                        ++v6;
-                        v7 += (12) * 2u;
-                    } while ((v6 < v49));
-                }
-                v8 = ((8 * r_u8(((uint32)((v50 + 26))))) + v51);
-                v9 = r_u16(((uint32)((v8 + 10))));
-                v48 = r_u16((v3 - (1) * 2u));
-                if (v9)
-                    v10 = r_u32(0x800ED760u);
-                else
-                    v10 = ((uint32)(((v51 + r_u32(((uint32)((v8 + 4))))) + ((24 * r_u8(((uint32)((v50 + 24))))) * v49))));
-                v11 = &v41;
-                v12 = v3;
-                v13 = v4;
-                v14 = 0;
-                if (v48)
-                {
-                    do
-                    {
-                        for (i = r_u16(v12); (v11 >= v42); v11 -= (28) * 1u)
-                        {
-                            if ((((uint32)(r_u16((v12 + (5) * 2u)))) >= r_u32((((uint32)(v11)) + (6) * 4u))))
-                                break;
-                        }
+    uint32 words[5], i;
+    for (i = 0; i < 5u; ++i) words[i] = xport_load_le32(matrix + 4u * i);
+    for (i = 0; i < 5u; ++i) xport_gte_write_control(i, words[i]);
+}
 
-                        if (((r_u16(v13) || r_u16((v13 + (1) * 2u))) || r_u16((v13 + (2) * 2u))))
-                        {
-                            sub_800858FC(v13, v43);
-                            v16 = (6 * i);
-                            v46 = 0;
-                            v45 = 0;
-                            v44 = 0;
-                            sub_80085674(v43, (v10 + (v16) * 4u), v43);
-                            if ((v11 >= v42))
-                                sub_80085674(v43, v11, v43);
-                            v11 += (28) * 1u;
-                            sub_800857A8(v11, v43, (v10 + (v16) * 4u));
-                            v17 = 0;
-                            v18 = 0;
-                            w_u32((((uint32)(v11)) + (6) * 4u), v14);
-                            v19 = 0;
-                            v20 = (v47 + (v16) * 4u);
-                            v21 = (v47 + (v16) * 4u);
-                            do
-                            {
-                                v22 = 0;
-                                v23 = v19;
-                                do
-                                {
-                                    ++v22;
-                                    w_u16(((uint32)((((uint32)(v21)) + (v23) * 1u))), r_u16(((uint32)(&v43[v23]))));
-                                    v23 += 2;
-                                } while ((v22 < 3));
-                                v24 = &v43[v18];
-                                v18 += 2;
-                                v19 += 6;
-                                ++v17;
-                                w_u16((((uint32)(v20)) + (9) * 2u), r_u16((((uint32)(v24)) + (9) * 2u)));
-                                v20 = ((uint32)((((uint32)(v20)) + (2) * 1u)));
-                            } while ((v17 < 3));
-                            ++v14;
-                        }
-                        else
-                        {
-                            v25 = 0;
-                            if ((v11 < v42))
-                            {
-                                v26 = (6 * r_u16(v12));
-                                v27 = 0;
-                                v28 = 0;
-                                v29 = (v47 + (v26) * 4u);
-                                v30 = (v47 + (v26) * 4u);
-                                do
-                                {
-                                    v31 = 0;
-                                    v32 = v28;
-                                    do
-                                    {
-                                        ++v31;
-                                        w_u16(((uint32)((((uint32)(v30)) + (v32) * 1u))), r_u16(((uint32)((((uint32)((v10 + (v26) * 4u))) + (v32) * 1u)))));
-                                        v32 += 2;
-                                    } while ((v31 < 3));
-                                    v33 = (((uint32)((v10 + (v26) * 4u))) + (v27) * 1u);
-                                    v27 += 2;
-                                    v28 += 6;
-                                    ++v25;
-                                    w_u16((((uint32)(v29)) + (9) * 2u), r_u16((((uint32)(v33)) + (9) * 2u)));
-                                    v29 = ((uint32)((((uint32)(v29)) + (2) * 1u)));
-                                } while ((v25 < 3));
-                                ++v14;
-                            }
-                            else
-                            {
-                                sub_80085674((v47 + ((6 * r_u16(v12))) * 4u), v11, (v10 + ((6 * r_u16(v12))) * 4u));
-                                ++v14;
-                            }
-                        }
-                        v12 += (6) * 2u;
-                        v13 += (6) * 2u;
-                    } while ((v14 < v48));
-                }
-                result = r_u16(((uint32)((((8 * r_u8(((uint32)((v50 + 26))))) + v51) + 10))));
-                if (!(r_u16(((uint32)((((8 * r_u8(((uint32)((v50 + 26))))) + v51) + 10))))))
-                {
-                    v34 = 0;
-                    if ((v49 > 0))
-                    {
-                        v35 = v47;
-                        v36 = v10;
-                        do
-                        {
-                            if ((((sint16)(r_u16(((uint32)(v35))))) == -32768))
-                            {
-                                v37 = ((sint32)(r_u32((v36 + (1) * 4u))));
-                                v38 = ((sint32)(r_u32((v36 + (2) * 4u))));
-                                v39 = ((sint32)(r_u32((v36 + (3) * 4u))));
-                                w_u32(v35, ((sint32)(r_u32(v36))));
-                                w_u32((v35 + (1) * 4u), v37);
-                                w_u32((v35 + (2) * 4u), v38);
-                                w_u32((v35 + (3) * 4u), v39);
-                                v40 = ((sint32)(r_u32((v36 + (5) * 4u))));
-                                w_u32((v35 + (4) * 4u), ((sint32)(r_u32((v36 + (4) * 4u)))));
-                                w_u32((v35 + (5) * 4u), v40);
-                            }
-                            v35 += (6) * 4u;
-                            result = (++v34 < v49);
-                            v36 += (6) * 4u;
-                        } while ((v34 < v49));
-                    }
-                }
+static void pose_store_column(uint8 *output, uint32 column)
+{
+    uint32 values[3], row;
+    for (row = 0; row < 3u; ++row) values[row] = xport_gte_read_data(9u + row);
+    for (row = 0; row < 3u; ++row) xport_store_le16(output + 6u * row + 2u * column, (uint16)values[row]);
+}
+
+/* Compact pose matrices contain nine rotation and three translation halfwords */
+static void pose_compose(uint8 *output, const uint8 *left, const uint8 *right)
+{
+    uint32 words[5], i;
+    pose_load_rotation(left);
+    for (i = 0; i < 3u; ++i)
+        xport_gte_write_control(5u + i, (uint32)(sint32)(sint16)xport_load_le16(left + 18u + 2u * i));
+    for (i = 0; i < 5u; ++i) words[i] = xport_load_le32(right + 4u * i);
+    xport_gte_write_data(0u, (words[0] & 0xffffu) | (words[1] & 0xffff0000u));
+    xport_gte_write_data(1u, words[3]);
+    xport_gte_write_data(2u, (words[0] >> 16) | (words[2] << 16));
+    xport_gte_write_data(3u, words[3] >> 16);
+    xport_gte_write_data(4u, (words[1] & 0xffffu) | (words[2] & 0xffff0000u));
+    xport_gte_write_data(5u, words[4]);
+    xport_gte_execute(0x486012u); pose_store_column(output, 0u);
+    xport_gte_execute(0x48E012u); pose_store_column(output, 1u);
+    xport_gte_execute(0x496012u); pose_store_column(output, 2u);
+    for (i = 0; i < 3u; ++i)
+        xport_gte_write_data(9u + i, (uint32)(sint32)(sint16)xport_load_le16(right + 18u + 2u * i));
+    xport_gte_execute(0x498012u);
+    for (i = 0; i < 3u; ++i)
+        words[i] = xport_gte_read_data(9u + i);
+    for (i = 0; i < 3u; ++i) xport_store_le16(output + 18u + 2u * i, (uint16)words[i]);
+}
+
+static void pose_relative(uint8 *output, const uint8 *left, const uint8 *right)
+{
+    uint32 first, second, third, values[3], i;
+    pose_load_rotation(left);
+    first = xport_load_le32(right); second = xport_load_le32(right + 4u);
+    xport_gte_write_data(0u, first); xport_gte_write_data(1u, second);
+    xport_gte_execute(0x486012u); pose_store_column(output, 0u);
+    third = xport_load_le32(right + 8u);
+    xport_gte_write_data(0u, (third << 16) | (second >> 16));
+    xport_gte_write_data(1u, third >> 16);
+    xport_gte_execute(0x486012u); pose_store_column(output, 1u);
+    first = xport_load_le32(right + 12u); second = xport_load_le32(right + 16u);
+    xport_gte_write_data(0u, first); xport_gte_write_data(1u, second);
+    xport_gte_execute(0x486012u); pose_store_column(output, 2u);
+    pose_load_rotation(output);
+    for (i = 0; i < 3u; ++i)
+        xport_gte_write_data(9u + i, (uint32)(sint32)(sint16)xport_load_le16(right + 18u + 2u * i));
+    xport_gte_execute(0x49E012u);
+    for (i = 0; i < 3u; ++i) values[i] = (uint32)(sint32)(sint16)xport_load_le16(left + 18u + 2u * i);
+    for (i = 0; i < 3u; ++i) values[i] -= xport_gte_read_data(9u + i);
+    for (i = 0; i < 3u; ++i) xport_store_le16(output + 18u + 2u * i, (uint16)values[i]);
+}
+
+uint32 sub_8007D148(uint32 object)
+{
+    uint8 parents[144], matrix[24];
+    sint32 top = -1, count, ordinal, total;
+    uint32 output = r_u32(object + 356u), links = r_u32(object + 364u);
+    uint32 angles = r_u32(object + 360u), table, models, poses, entry, source, joint, row, column;
+    uint32 result = r_u16(object) & 4u;
+    if (!result || !output || !angles) return result;
+    table = 0x800EAEF8u + 64u * r_u8(object + 27u);
+    models = r_u32(table + 16u);
+    total = (sint32)r_u32(models - 4u);
+    poses = r_u32(table + 24u);
+    for (ordinal = 0; ordinal < total; ++ordinal) w_u16(output + 24u * ordinal, 0x8000u);
+    entry = poses + 8u * r_u8(object + 26u);
+    count = r_u16(links - 2u);
+    source = r_u16(entry + 10u) ? 0x800ED760u
+        : poses + r_u32(entry + 4u) + 24u * r_u8(object + 24u) * (uint32)total;
+    for (ordinal = 0; ordinal < count; ++ordinal, links += 12u, angles += 12u)
+    {
+        const uint8 *base;
+        joint = r_u16(links);
+        while (top >= 0 && r_u16(links + 10u) < xport_load_le32(parents + 28u * top + 24u)) --top;
+        base = (const uint8 *)psx_addr(source + 24u * joint, 24u);
+        if (r_u16(angles) || r_u16(angles + 2u) || r_u16(angles + 4u))
+        {
+            xport_draft_host_sub_800858FC_p2(angles, matrix);
+            xport_store_le16(matrix + 18u, 0u); xport_store_le16(matrix + 20u, 0u); xport_store_le16(matrix + 22u, 0u);
+            pose_compose(matrix, base, matrix);
+            if (top >= 0) pose_compose(matrix, parents + 28u * top, matrix);
+            ++top;
+            if (28u * (uint32)top + 28u > sizeof(parents))
+            {
+                fprintf(stderr, "Pose hierarchy exceeds original local buffer\n"); abort();
+            }
+            pose_relative(parents + 28u * top, matrix, base);
+            xport_store_le32(parents + 28u * top + 24u, (uint32)ordinal);
+            for (row = 0; row < 3u; ++row)
+            {
+                for (column = 0; column < 3u; ++column)
+                    w_u16(output + 24u * joint + row * 6u + column * 2u, xport_load_le16(matrix + row * 6u + column * 2u));
+                w_u16(output + 24u * joint + 18u + row * 2u, xport_load_le16(matrix + 18u + row * 2u));
             }
         }
+        else if (top < 0)
+        {
+            for (row = 0; row < 3u; ++row)
+            {
+                for (column = 0; column < 3u; ++column)
+                    w_u16(output + 24u * joint + row * 6u + column * 2u, r_u16(source + 24u * joint + row * 6u + column * 2u));
+                w_u16(output + 24u * joint + 18u + row * 2u, r_u16(source + 24u * joint + 18u + row * 2u));
+            }
+        }
+        else pose_compose((uint8 *)psx_addr(output + 24u * joint, 24u), parents + 28u * top, base);
     }
+    result = r_u16(poses + 8u * r_u8(object + 26u) + 10u);
+    if (!result)
+        for (ordinal = 0; ordinal < total; ++ordinal)
+        {
+            uint32 destination = output + 24u * ordinal, from = source + 24u * ordinal, words[4];
+            if ((sint16)r_u16(destination) == -32768)
+            {
+                for (column = 0; column < 4u; ++column) words[column] = r_u32(from + column * 4u);
+                for (column = 0; column < 4u; ++column) w_u32(destination + column * 4u, words[column]);
+                words[0] = r_u32(from + 16u); words[1] = r_u32(from + 20u);
+                w_u32(destination + 16u, words[0]); w_u32(destination + 20u, words[1]);
+            }
+            result = ordinal + 1 < total;
+        }
     return result;
 }
 
-static uint32 weapon_setup_325B0_missing(uint32 object, const sint32 position[3], uint32 kind, uint32 enabled, uint32 red, uint32 green, uint32 blue, uint32 count, uint32 mode, uint32 extent0, uint32 extent1)
+static uint32 weapon_setup_325B0_native(uint32 object, const sint32 position[3], uint32 kind, uint32 enabled, uint32 red, uint32 green, uint32 blue, uint32 count, uint32 mode, uint32 extent0, uint32 extent1)
 {
-    /* TODO Connect native position input for 800325B0 */
-    fprintf(stderr, "800325B0 missing object=%08X position=%p kind=%08X enabled=%08X rgb=%08X/%08X/%08X count=%08X mode=%08X extents=%08X/%08X\n", object, (const void *)position, kind, enabled, red, green, blue, count, mode, extent0, extent1);
-    abort();
+    uint32 values[3];
+    sub_800330F4(object);
+    w_u32(object + 68u, 0x800A1B20u);
+    memcpy(values, position, sizeof(values));
+    w_u32(object + 24u, values[0]);
+    w_u32(object + 28u, values[1]);
+    w_u32(object + 32u, values[2]);
+    w_u16(object + 10u, kind);
+    w_u32(object + 72u, enabled);
+    w_u8(object + 76u, red); w_u8(object + 77u, green); w_u8(object + 78u, blue);
+    w_u32(object + 80u, count); w_u32(object + 84u, mode);
+    w_u32(object + 88u, extent0); w_u32(object + 92u, extent1);
+    return object;
 }
 uint32 apocalypse_weapon_tick_23380(uint32 weapon, const sint32 position[3])
 {
@@ -881,7 +812,7 @@ uint32 apocalypse_weapon_tick_23380(uint32 weapon, const sint32 position[3])
         {
             child = sub_80032DC0(96u);
             if (child)
-                child = weapon_setup_325B0_missing(child, position, 0xFFFFFFFFu, 1u, 100u, 100u, 100u, 3u, 8u, 188u, 188u);
+                child = weapon_setup_325B0_native(child, position, 0xFFFFFFFFu, 1u, 100u, 100u, 100u, 3u, 8u, 188u, 188u);
             w_u32(weapon + 32u, child);
             w_u8(child + 66u, 1u);
             result = r_u32(0x800FF2F0u);
@@ -1164,14 +1095,14 @@ uint32 sub_8003D0F0(uint32 a1, uint32 a2)
 }
 
 /* Unverified native spatial volume draft */
-uint32 sub_80067E9C(uint32 origin, uint32 minimum, uint32 maximum)
+uint32 apocalypse_sound_balance_native(const uint32 origin[3], uint32 minimum, uint32 maximum)
 {
     uint32 object = r_u32(0x800FF904u), position[3], numerator, weight, angle, flag = 0u;
     uint32 left, right, delta, magnitude;
     sint32 distance, divisor = (sint32)maximum, product;
     if (!object) return 0u;
     position[0] = r_u32(object + 4u); position[1] = r_u32(object + 8u); position[2] = r_u32(object + 12u);
-    distance = (sint32)xport_draft_host_sub_8006696C_p2(origin, position);
+    distance = (sint32)xport_draft_host_sub_8006696C_p2(object + 4u, (void *)origin);
     if ((sint32)minimum >= distance) return 0x0FFF0FFFu;
     if (distance >= divisor) return 0u;
     delta = maximum - (uint32)distance; numerator = (delta << 12) - delta;
@@ -1182,7 +1113,7 @@ uint32 sub_80067E9C(uint32 origin, uint32 minimum, uint32 maximum)
     delta = (uint32)(sint32)(sint16)r_u16(object + 16u) - 1024u;
     magnitude = (delta ^ (uint32)((sint32)delta >> 31)) - (uint32)((sint32)delta >> 31);
     if ((sint32)magnitude < 64) return weight | (weight << 16);
-    angle = 1024u - (uint32)ratan2((sint32)(r_u32(origin + 8u) - position[2]), (sint32)(r_u32(origin) - position[0]));
+    angle = 1024u - (uint32)ratan2((sint32)(origin[2] - position[2]), (sint32)(origin[0] - position[0]));
     object = r_u32(0x800FF904u);
     angle = (angle - ((uint32)r_u16(object + 494u) - 2048u)) & 4095u;
     if (angle - 1025u < 2047u) { flag = 0x80000000u; weight -= (uint32)((sint32)weight >> 4); }
@@ -1190,6 +1121,12 @@ uint32 sub_80067E9C(uint32 origin, uint32 minimum, uint32 maximum)
     if (angle < 2048u) { left = weight; right = weight - (uint32)product; }
     else { right = weight; left = weight + (uint32)product; }
     return right | (left << 16) | flag;
+}
+
+uint32 sub_80067E9C(uint32 origin, uint32 minimum, uint32 maximum)
+{
+    uint32 position[3] = {r_u32(origin), r_u32(origin + 4u), r_u32(origin + 8u)};
+    return apocalypse_sound_balance_native(position, minimum, maximum);
 }
 
 /* TODO Missing call adapter sub_8003A21C */

@@ -45,11 +45,28 @@ uint32 sub_80061F54(uint32 a1)
     return result;
 }
 
-/* TODO Missing call adapter sub_80090034 */
 static void voices_6A294_stop(sint16 voice)
 {
-    fprintf(stderr, "TODO PsyQ voice stop 80090034: voice=%d\n", voice);
-    abort();
+    uint32 index = (uint16)voice, low, high, offset;
+    if (r_u32(0x80104584u) == 1u) return;
+    w_u32(0x80104584u, 1u);
+    if (index < 24u)
+    {
+        w_u16(0x80105638u, index);
+        offset = index * 54u;
+        low = index < 16u ? 1u << index : 0u;
+        high = index >= 16u ? 1u << (index - 16u) : 0u;
+        w_u8(0x80104E45u + offset, 0u);
+        low |= r_u16(0x80105520u);
+        high |= r_u16(0x80105522u);
+        w_u16(0x80104E2Cu + offset, 0u);
+        w_u16(0x80104E28u + offset, 0u);
+        w_u16(0x80105520u, low);
+        w_u16(0x80104E18u, r_u16(0x80104E18u) & ~low);
+        w_u16(0x80105522u, high);
+        w_u16(0x80104E1Au, r_u16(0x80104E1Au) & ~high);
+    }
+    w_u32(0x80104584u, 0u);
 }
 
 void sub_8006A294(uint32 mask)
