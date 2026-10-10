@@ -355,9 +355,6 @@ uint32 sub_8006F500(void)
 static void texture_6E4A0_missing_output(uint32 format, uint32 texture, uint32 resource)
 {
     /* TODO Native XY output is undefined for unsupported original formats */
-    (void)format;
-    (void)texture;
-    (void)resource;
     abort();
 }
 
@@ -918,36 +915,66 @@ uint32 apocalypse_object_cleanup(uint32 target, uint32 receiver, uint32 reason)
 {
     switch (target)
     {
-        case 0x8001C51Cu: return sub_8001C51C(receiver, reason);
-        case 0x8001C9ECu: return sub_8001C9EC(receiver, reason);
-        case 0x8001D918u: return sub_8001D918(receiver, reason);
-        case 0x8001EC58u: return sub_8001EC58(receiver, reason);
-        case 0x8001FCD4u: return sub_8001FCD4(receiver, reason);
-        case 0x800201F8u: return sub_800201F8(receiver, reason);
-        case 0x800290F4u: return sub_800290F4(receiver, reason);
-        case 0x80029ED4u: return sub_80029ED4(receiver, reason);
-        case 0x8002BBF0u: return sub_8002BBF0(receiver, reason);
-        case 0x8002BC44u: return sub_8002BC44(receiver, reason);
-        case 0x800318C0u: return sub_800318C0(receiver, reason);
-        case 0x80032128u: return sub_80032128(receiver, reason);
-        case 0x80032694u: return sub_80032694(receiver, reason);
-        case 0x80032FB8u: return sub_80032FB8(receiver, reason);
-        case 0x800331ECu: return sub_800331EC(receiver, reason);
-        case 0x800348A8u: return sub_800348A8(receiver, reason);
-        case 0x8003525Cu: return sub_8003525C(receiver, reason);
-        case 0x8003554Cu: return sub_8003554C(receiver, reason);
-        case 0x80035704u: return sub_80035704(receiver, reason);
-        case 0x80035A00u: return sub_80035A00(receiver, reason);
-        case 0x8004B868u: return sub_8004B868(receiver, reason);
-        case 0x8004D6B4u: return sub_8004D6B4(receiver, reason);
-        case 0x8004E508u: return sub_8004E508(receiver, reason);
-        case 0x8005BCE4u: return sub_8005BCE4(receiver, reason);
-        case 0x80061EF0u: return sub_80061EF0(receiver, reason);
-        case 0x80062254u: return sub_80062254(receiver, reason);
-        case 0x80062650u: return sub_80062650(receiver, reason);
-        case 0x800629BCu: return sub_800629BC(receiver, reason);
-        case 0x80062FB8u: return sub_80062FB8(receiver, reason);
-        case 0x8007741Cu: return sub_8007741C(receiver, reason);
+        case 0x8001C51Cu:
+            return sub_8001C51C(receiver, reason);
+        case 0x8001C9ECu:
+            return sub_8001C9EC(receiver, reason);
+        case 0x8001D918u:
+            return sub_8001D918(receiver, reason);
+        case 0x8001EC58u:
+            return sub_8001EC58(receiver, reason);
+        case 0x8001FCD4u:
+            return sub_8001FCD4(receiver, reason);
+        case 0x800201F8u:
+            return sub_800201F8(receiver, reason);
+        case 0x800290F4u:
+            return sub_800290F4(receiver, reason);
+        case 0x80029ED4u:
+            return sub_80029ED4(receiver, reason);
+        case 0x8002BBF0u:
+            return sub_8002BBF0(receiver, reason);
+        case 0x8002BC44u:
+            return sub_8002BC44(receiver, reason);
+        case 0x800318C0u:
+            return sub_800318C0(receiver, reason);
+        case 0x80032128u:
+            return sub_80032128(receiver, reason);
+        case 0x80032694u:
+            return sub_80032694(receiver, reason);
+        case 0x80032FB8u:
+            return sub_80032FB8(receiver, reason);
+        case 0x800331ECu:
+            return sub_800331EC(receiver, reason);
+        case 0x800348A8u:
+            return sub_800348A8(receiver, reason);
+        case 0x8003525Cu:
+            return sub_8003525C(receiver, reason);
+        case 0x8003554Cu:
+            return sub_8003554C(receiver, reason);
+        case 0x80035704u:
+            return sub_80035704(receiver, reason);
+        case 0x80035A00u:
+            return sub_80035A00(receiver, reason);
+        case 0x8004B868u:
+            return sub_8004B868(receiver, reason);
+        case 0x8004D6B4u:
+            return sub_8004D6B4(receiver, reason);
+        case 0x8004E508u:
+            return sub_8004E508(receiver, reason);
+        case 0x8005BCE4u:
+            return sub_8005BCE4(receiver, reason);
+        case 0x80061EF0u:
+            return sub_80061EF0(receiver, reason);
+        case 0x80062254u:
+            return sub_80062254(receiver, reason);
+        case 0x80062650u:
+            return sub_80062650(receiver, reason);
+        case 0x800629BCu:
+            return sub_800629BC(receiver, reason);
+        case 0x80062FB8u:
+            return sub_80062FB8(receiver, reason);
+        case 0x8007741Cu:
+            return sub_8007741C(receiver, reason);
         default:
             /* TODO Bind other object classes when native execution requires them */
             fprintf(stderr, "Unimplemented object cleanup %08X receiver %08X reason %u\n", target, receiver, reason);
@@ -1369,6 +1396,7 @@ uint32 sub_8007FE68(void)
     w_u32(0x800FFAB0u, 1u);
     return 1u;
 }
+
 void sub_800854D8(uint32 a1)
 {
     w_u32(a1, 4096);
@@ -1697,63 +1725,63 @@ uint32 sub_80010AC8(uint32 port, uint32 slot)
     sint32 event;
     switch (r_u32(0x800FEED0u))
     {
-    case 0:
-        _card_info((sint32)channel);
-        w_u32(0x800FEED0u, 1u);
-        w_u32(0x800FEEF4u, 0u);
-        w_u32(0x800FEEC4u, 0u);
-        break;
-    case 1:
-        event = (sint32)sub_8001081C();
-        if (!event)
+        case 0:
+            _card_info((sint32)channel);
+            w_u32(0x800FEED0u, 1u);
+            w_u32(0x800FEEF4u, 0u);
+            w_u32(0x800FEEC4u, 0u);
             break;
-        if (event == 1)
-        {
-            w_u32(0x800FEECCu, 1u);
-            w_u32(0x800FEED0u, r_u32(0x800FEEC8u) == 1u ? 4u : 2u);
-            break;
-        }
-        if (event == 4)
-        {
-            w_u32(0x800FEECCu, 2u);
-            /* TODO Outside selected set: drain card events and wait for event */
-            card_missing_boundary(0x800109F0u, channel);
-            _new_card();
-            psx_bios_card_write_guest(channel, 63u, 0u);
-            card_missing_boundary(0x80010980u, channel);
-            w_u32(0x800FEED0u, 2u);
+        case 1:
+            event = (sint32)sub_8001081C();
+            if (!event)
+                break;
+            if (event == 1)
+            {
+                w_u32(0x800FEECCu, 1u);
+                w_u32(0x800FEED0u, r_u32(0x800FEEC8u) == 1u ? 4u : 2u);
+                break;
+            }
+            if (event == 4)
+            {
+                w_u32(0x800FEECCu, 2u);
+                /* TODO Outside selected set: drain card events and wait for event */
+                card_missing_boundary(0x800109F0u, channel);
+                _new_card();
+                psx_bios_card_write_guest(channel, 63u, 0u);
+                card_missing_boundary(0x80010980u, channel);
+                w_u32(0x800FEED0u, 2u);
+                w_u32(0x800FEEC8u, 0u);
+                break;
+            }
+            w_u32(0x800FEECCu, event == 3 ? 0xFFFFFFFFu : 0xFFFFFFFDu);
+            w_u32(0x800FEED0u, 4u);
             w_u32(0x800FEEC8u, 0u);
             break;
-        }
-        w_u32(0x800FEECCu, event == 3 ? 0xFFFFFFFFu : 0xFFFFFFFDu);
-        w_u32(0x800FEED0u, 4u);
-        w_u32(0x800FEEC8u, 0u);
-        break;
-    case 2:
-        sub_80010938();
-        psx_bios_card_load_guest(channel);
-        w_u32(0x800FEED0u, 3u);
-        w_u32(0x800FEEF4u, 0u);
-        break;
-    case 3:
-        event = (sint32)sub_8001081C();
-        if (!event)
+        case 2:
+            sub_80010938();
+            psx_bios_card_load_guest(channel);
+            w_u32(0x800FEED0u, 3u);
+            w_u32(0x800FEEF4u, 0u);
             break;
-        w_u32(0x800FEED0u, 4u);
-        if (event == 1)
-        {
-            w_u32(0x800FEEC8u, 1u);
+        case 3:
+            event = (sint32)sub_8001081C();
+            if (!event)
+                break;
+            w_u32(0x800FEED0u, 4u);
+            if (event == 1)
+            {
+                w_u32(0x800FEEC8u, 1u);
+                break;
+            }
+            w_u32(0x800FEECCu, event == 3 ? 0xFFFFFFFFu : event == 4 ? 0xFFFFFFFEu : 0xFFFFFFFDu);
+            w_u32(0x800FEEC8u, 0u);
             break;
-        }
-        w_u32(0x800FEECCu, event == 3 ? 0xFFFFFFFFu : event == 4 ? 0xFFFFFFFEu : 0xFFFFFFFDu);
-        w_u32(0x800FEEC8u, 0u);
-        break;
-    case 4:
-        w_u32(0x800FEED0u, 0u);
-        w_u32(0x800FEEC4u, r_u32(0x800FEECCu));
-        break;
-    default:
-        break;
+        case 4:
+            w_u32(0x800FEED0u, 0u);
+            w_u32(0x800FEEC4u, r_u32(0x800FEECCu));
+            break;
+        default:
+            break;
     }
     return r_u32(0x800FEEC4u);
 }

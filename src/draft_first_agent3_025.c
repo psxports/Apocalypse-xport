@@ -19,54 +19,71 @@ uint32 sub_80080EF4(uint32 input, uint32 count)
 {
     uint32 bounds, bx, by, bz, output, vectors, reference, cache, packed, tagged;
     uint32 common = 0xFFFFu;
-    if (!count) return 255u;
+    if (!count)
+        return 255u;
     bounds = r_u32(0x800FFB08u);
-    bx = r_u32(bounds); by = r_u32(bounds + 4u); bz = r_u32(bounds + 8u);
-    output = r_u32(0x800FFAC0u); vectors = r_u32(0x800FFAC4u);
-    reference = output + 7992u; cache = r_u32(0x800FFB18u);
-    packed = r_u32(input); tagged = r_u32(input + 4u);
+    bx = r_u32(bounds);
+    by = r_u32(bounds + 4u);
+    bz = r_u32(bounds + 8u);
+    output = r_u32(0x800FFAC0u);
+    vectors = r_u32(0x800FFAC4u);
+    reference = output + 7992u;
+    cache = r_u32(0x800FFB18u);
+    packed = r_u32(input);
+    tagged = r_u32(input + 4u);
     do
     {
         uint32 tag = tagged >> 16;
-        xport_gte_write_data(0u, packed); xport_gte_write_data(1u, tagged);
-        input += 8u; --count;
+        xport_gte_write_data(0u, packed);
+        xport_gte_write_data(1u, tagged);
+        input += 8u;
+        --count;
         xport_gte_execute(0x180001u);
         if (tag & 2u)
         {
             uint32 previous = reference - packed;
             uint32 xy = r_u32(previous), depth_flags = r_u32(previous + 4u);
             uint32 irxy = r_u32(previous + vectors - output);
-            w_u32(output, xy); w_u32(output + 4u, depth_flags); w_u32(vectors, irxy);
+            w_u32(output, xy);
+            w_u32(output + 4u, depth_flags);
+            w_u32(vectors, irxy);
             common &= depth_flags >> 16;
-            packed = r_u32(input); tagged = r_u32(input + 4u);
+            packed = r_u32(input);
+            tagged = r_u32(input + 4u);
         }
         else
         {
             uint32 irxy, xy, flags, depth_flags;
             sint32 x, y, depth;
-            packed = r_u32(input); tagged = r_u32(input + 4u);
+            packed = r_u32(input);
+            tagged = r_u32(input + 4u);
             irxy = (xport_gte_read_data(9u) & 0xFFFFu) | (xport_gte_read_data(10u) << 16);
-            depth = (sint32)xport_gte_read_data(11u); xy = xport_gte_read_data(14u);
-            x = (sint16)xy; y = (sint32)xy >> 16;
-            flags = ((sint32)(bx & 0xFFFFu) < x)
-                  | ((uint32)(x < (sint32)(by & 0xFFFFu)) << 1)
-                  | ((uint32)((sint32)(bx >> 16) < y) << 2)
-                  | ((uint32)(y < (sint32)(by >> 16)) << 3)
-                  | ((uint32)(depth < (sint32)(bz & 0xFFFFu)) << 4)
-                  | ((uint32)((sint32)(bz >> 16) < depth) << 5);
-            if (depth < 0) flags ^= 15u;
-            flags |= (flags << 8) ^ 0xFF00u; common &= flags;
+            depth = (sint32)xport_gte_read_data(11u);
+            xy = xport_gte_read_data(14u);
+            x = (sint16)xy;
+            y = (sint32)xy >> 16;
+            flags = ((sint32)(bx & 0xFFFFu) < x) | ((uint32)(x < (sint32)(by & 0xFFFFu)) << 1) | ((uint32)((sint32)(bx >> 16) < y) << 2) | ((uint32)(y < (sint32)(by >> 16)) << 3) | ((uint32)(depth < (sint32)(bz & 0xFFFFu)) << 4) | ((uint32)((sint32)(bz >> 16) < depth) << 5);
+            if (depth < 0)
+                flags ^= 15u;
+            flags |= (flags << 8) ^ 0xFF00u;
+            common &= flags;
             depth_flags = (flags << 16) | ((uint32)depth & 0xFFFFu);
-            w_u32(output, xy); w_u32(output + 4u, depth_flags); w_u32(vectors, irxy);
+            w_u32(output, xy);
+            w_u32(output + 4u, depth_flags);
+            w_u32(vectors, irxy);
             if (tag & 1u)
             {
-                w_u32(cache, xy); w_u32(cache + 4u, depth_flags);
-                w_u32(cache + vectors - output, irxy); cache -= 8u;
+                w_u32(cache, xy);
+                w_u32(cache + 4u, depth_flags);
+                w_u32(cache + vectors - output, irxy);
+                cache -= 8u;
             }
         }
-        output += 8u; vectors += 8u;
+        output += 8u;
+        vectors += 8u;
     } while (count);
-    w_u32(0x800FFB18u, cache); w_u32(0x1F8001D4u, output);
+    w_u32(0x800FFB18u, cache);
+    w_u32(0x1F8001D4u, output);
     return common;
 }
 
@@ -86,13 +103,17 @@ void sub_800821E0(uint32 geometry)
 static void apocalypse_projection_ir_load(const sint16 v[3])
 {
     uint32 i;
-    for (i = 0u; i < 3u; ++i) xport_gte_write_data(9u + i, (uint32)(sint32)v[i]);
+    for (i = 0u; i < 3u; ++i)
+        xport_gte_write_data(9u + i, (uint32)(sint32)v[i]);
 }
+
 static void apocalypse_projection_ir_store(sint16 v[3])
 {
     uint32 i;
-    for (i = 0u; i < 3u; ++i) v[i] = (sint16)xport_gte_read_data(9u + i);
+    for (i = 0u; i < 3u; ++i)
+        v[i] = (sint16)xport_gte_read_data(9u + i);
 }
+
 static void apocalypse_projection_matrix(const MATRIX *m, uint32 opcode)
 {
     uint32 i;
@@ -103,6 +124,7 @@ static void apocalypse_projection_matrix(const MATRIX *m, uint32 opcode)
     xport_gte_write_control(4u, (uint16)v[8]);
     xport_gte_execute(opcode);
 }
+
 static void apocalypse_projection_cross(const sint16 v[3])
 {
     (void)xport_gte_read_data(9u);
@@ -111,21 +133,27 @@ static void apocalypse_projection_cross(const sint16 v[3])
     xport_gte_write_control(4u, (uint16)v[2]);
     xport_gte_execute(0x178000Cu);
 }
+
 static sint32 apocalypse_projection_div(sint32 a, sint32 b)
 {
     /* Raw MIPS DIV has defined zero and overflow results */
-    if (!b) return a < 0 ? 1 : -1;
-    if ((uint32)a == 0x80000000u && b == -1) return a;
+    if (!b)
+        return a < 0 ? 1 : -1;
+    if ((uint32)a == 0x80000000u && b == -1)
+        return a;
     return a / b;
 }
+
 static void apocalypse_projection_scale(const sint16 v[3], uint32 factor)
 {
     uint32 i;
     (void)xport_gte_read_data(9u);
     xport_gte_write_data(8u, factor);
-    for (i = 0u; i < 3u; ++i) xport_gte_write_data(25u + i, (uint32)(sint32)v[i]);
+    for (i = 0u; i < 3u; ++i)
+        xport_gte_write_data(25u + i, (uint32)(sint32)v[i]);
     xport_draft_gte_execute(0x1A8003Eu);
 }
+
 static void apocalypse_projection_vertex(uint32 slot, const sint16 c[3], const sint16 a[3], const sint16 b[3], sint32 sa, sint32 sb)
 {
     sint16 x = (sint16)((uint32)(sint32)c[0] + (uint32)(sa * a[0]) + (uint32)(sb * b[0]));
@@ -134,6 +162,7 @@ static void apocalypse_projection_vertex(uint32 slot, const sint16 c[3], const s
     xport_gte_write_data(slot, (uint16)x | ((uint32)(uint16)y << 16));
     xport_gte_write_data(slot + 1u, (uint16)z);
 }
+
 void apocalypse_model_effect_native(uint32 model, const void *matrix32, uint32 vector, uint32 position, uint32 direction, uint32 color)
 {
     MATRIX forward, inverse, diagonal, projection;
@@ -146,7 +175,8 @@ void apocalypse_model_effect_native(uint32 model, const void *matrix32, uint32 v
     {
         sint32 low, high, half;
         packed = r_u32(model + 20u + 4u * i);
-        low = (sint32)(packed & 0xFFFFu); high = (sint16)(packed >> 16);
+        low = (sint32)(packed & 0xFFFFu);
+        high = (sint16)(packed >> 16);
         center[i] = (sint16)((low + high) >> 1);
         half = (low - high) >> 1;
         extent[i] = (sint16)((half * (i == 1u ? 11 : 5)) >> (i == 1u ? 3 : 2));
@@ -156,7 +186,8 @@ void apocalypse_model_effect_native(uint32 model, const void *matrix32, uint32 v
         uint32 words[5];
         memcpy(words, matrix32, sizeof(words));
         (void)xport_gte_read_data(9u);
-        for (i = 0u; i < 5u; ++i) xport_gte_write_control(i, words[i]);
+        for (i = 0u; i < 5u; ++i)
+            xport_gte_write_control(i, words[i]);
         xport_gte_execute(0x49E012u);
     }
     apocalypse_projection_ir_store(center);
@@ -170,50 +201,68 @@ void apocalypse_model_effect_native(uint32 model, const void *matrix32, uint32 v
     numerator = (sint32)((uint32)average << 16) >> 4;
     /* Original 85C04 copies only the nine rotation halfwords */
     memcpy(&forward.m[0][0], matrix32, 18u);
-    for (i = 0u; i < 3u; ++i) for (j = 0u; j < 3u; ++j)
-    {
-        inverse.m[i][j] = forward.m[j][i];
-        diagonal.m[i][j] = i == j ? (sint16)apocalypse_projection_div(numerator, extent[i]) : 0;
-    }
-    for (i = 0u; i < 3u; ++i) dir[i] = (sint16)r_u16(direction + 2u * i);
+    for (i = 0u; i < 3u; ++i)
+        for (j = 0u; j < 3u; ++j)
+        {
+            inverse.m[i][j] = forward.m[j][i];
+            diagonal.m[i][j] = i == j ? (sint16)apocalypse_projection_div(numerator, extent[i]) : 0;
+        }
+    for (i = 0u; i < 3u; ++i)
+        dir[i] = (sint16)r_u16(direction + 2u * i);
     apocalypse_projection_ir_load(dir);
     apocalypse_projection_matrix(&inverse, 0x49E012u);
     (void)sub_80085D64();
     apocalypse_projection_matrix(&diagonal, 0x49E012u);
     apocalypse_projection_ir_store(normal);
     length = (sint16)sub_80085D14();
-    for (i = 0u; i < 3u; ++i) squares[i] = xport_gte_read_data(25u + i);
-    if (squares[1] >= squares[0] && squares[2] >= squares[0]) axis[0] = 4096;
-    else if (squares[0] >= squares[1] && squares[2] >= squares[1]) axis[1] = 4096;
-    else axis[2] = 4096;
+    for (i = 0u; i < 3u; ++i)
+        squares[i] = xport_gte_read_data(25u + i);
+    if (squares[1] >= squares[0] && squares[2] >= squares[0])
+        axis[0] = 4096;
+    else if (squares[0] >= squares[1] && squares[2] >= squares[1])
+        axis[1] = 4096;
+    else
+        axis[2] = 4096;
     apocalypse_projection_ir_load(normal);
     apocalypse_projection_cross(axis);
     apocalypse_projection_ir_store(cross);
     (void)sub_80085D64();
     scale = (uint32)((sint32)extent[0] * extent[1]);
     scale = (uint32)apocalypse_projection_div((sint32)scale, (sint16)average);
-    scale *= (uint32)(sint32)extent[2]; scale *= (uint32)(sint32)length;
+    scale *= (uint32)(sint32)extent[2];
+    scale *= (uint32)(sint32)length;
     scale = (uint32)(apocalypse_projection_div((sint32)scale, (sint16)average) >> 12);
     apocalypse_projection_matrix(&diagonal, 0x49E012u);
     apocalypse_projection_matrix(&forward, 0x49E012u);
-    sub_80085D30(direction); sub_80085DBC(scale); apocalypse_projection_ir_store(basis1);
-    apocalypse_projection_ir_load(normal); apocalypse_projection_cross(cross); (void)sub_80085D64();
+    sub_80085D30(direction);
+    sub_80085DBC(scale);
+    apocalypse_projection_ir_store(basis1);
+    apocalypse_projection_ir_load(normal);
+    apocalypse_projection_cross(cross);
+    (void)sub_80085D64();
     apocalypse_projection_matrix(&diagonal, 0x49E012u);
     apocalypse_projection_matrix(&forward, 0x49E012u);
-    sub_80085D30(direction); sub_80085DBC(scale); apocalypse_projection_ir_store(basis2);
-    xport_gte_write_data(0u, r_u32(vector)); xport_gte_write_data(1u, r_u32(vector + 4u));
+    sub_80085D30(direction);
+    sub_80085DBC(scale);
+    apocalypse_projection_ir_store(basis2);
+    xport_gte_write_data(0u, r_u32(vector));
+    xport_gte_write_data(1u, r_u32(vector + 4u));
     sub_80085CD4(direction);
     distance = (sint32)xport_gte_read_data(25u);
-    if (distance < (sint32)r_u32(0x800FF964u)) return;
+    if (distance < (sint32)r_u32(0x800FF964u))
+        return;
     for (i = 0u; i < 3u; ++i)
     {
         projection.m[0][i] = (sint16)((uint32)((sint32)r_u32(position + 4u * i) >> 12) - (uint32)(sint32)center[i]);
-        projection.m[1][i] = basis1[i]; projection.m[2][i] = basis2[i];
+        projection.m[1][i] = basis1[i];
+        projection.m[2][i] = basis2[i];
     }
     apocalypse_projection_matrix(&projection, 0x486012u);
     apocalypse_projection_ir_store(coefficients);
-    if (coefficients[0] > 0) return;
-    for (i = 0u; i < 3u; ++i) center[i] = (sint16)((uint32)(sint32)center[i] - r_u16(r_u32(0x800FFB0Cu) + 4u + 4u * i));
+    if (coefficients[0] > 0)
+        return;
+    for (i = 0u; i < 3u; ++i)
+        center[i] = (sint16)((uint32)(sint32)center[i] - r_u16(r_u32(0x800FFB0Cu) + 4u + 4u * i));
     apocalypse_projection_ir_load(dir);
     apocalypse_projection_scale(center, (uint32)apocalypse_projection_div((sint32)((uint32)(sint32)coefficients[0] << 12), distance));
     apocalypse_projection_ir_store(projected);
@@ -224,35 +273,62 @@ void apocalypse_model_effect_native(uint32 model, const void *matrix32, uint32 v
     apocalypse_projection_scale(basis2, (uint32)apocalypse_projection_div((sint32)(0u - ((uint32)(sint32)coefficients[2] << 12)), distance));
     apocalypse_projection_ir_store(edge2);
     SetRotMatrix((MATRIX *)psx_addr(r_u32(0x800FFB0Cu) + 116u, 20u));
-    for (i = 0u; i < 3u; ++i) xport_gte_write_control(5u + i, 0u);
+    for (i = 0u; i < 3u; ++i)
+        xport_gte_write_control(5u + i, 0u);
     apocalypse_projection_vertex(0u, projected, edge1, edge2, -1, -1);
     apocalypse_projection_vertex(2u, projected, edge1, edge2, 1, -1);
     apocalypse_projection_vertex(4u, projected, edge1, edge2, -1, 1);
     xport_gte_execute(0x280030u);
     screens = r_u32(0x800FFAC0u);
-    for (i = 0u; i < 3u; ++i) w_u32(screens + 8u * i, xport_gte_read_data(12u + i));
+    for (i = 0u; i < 3u; ++i)
+        w_u32(screens + 8u * i, xport_gte_read_data(12u + i));
     apocalypse_projection_vertex(0u, projected, edge1, edge2, 1, 1);
-    xport_gte_execute(0x180001u); w_u32(screens + 24u, xport_gte_read_data(14u));
-    xport_gte_execute(0x168002Eu); depth = xport_gte_read_data(7u);
-    if (depth >= 4096u) depth = 4095u;
-    packet = r_u32(0x800FF668u); w_u32(0x800FF668u, packet + 40u);
-    if (r_u32(0x800FF374u) < packet + 40u) { w_u32(0x800FF668u, packet); return; }
-    (void)sub_8008AFFC(packet); w_u8(packet + 7u, r_u8(packet + 7u) | 2u);
+    xport_gte_execute(0x180001u);
+    w_u32(screens + 24u, xport_gte_read_data(14u));
+    xport_gte_execute(0x168002Eu);
+    depth = xport_gte_read_data(7u);
+    if (depth >= 4096u)
+        depth = 4095u;
+    packet = r_u32(0x800FF668u);
+    w_u32(0x800FF668u, packet + 40u);
+    if (r_u32(0x800FF374u) < packet + 40u)
+    {
+        w_u32(0x800FF668u, packet);
+        return;
+    }
+    (void)sub_8008AFFC(packet);
+    w_u8(packet + 7u, r_u8(packet + 7u) | 2u);
     screens = r_u32(0x800FFAC0u);
-    for (i = 0u; i < 4u; ++i) { w_u16(packet + 8u + i * 8u, r_u16(screens + i * 8u)); w_u16(packet + 10u + i * 8u, r_u16(screens + i * 8u + 2u)); }
-    w_u8(packet + 4u, color); w_u8(packet + 5u, color >> 8); w_u8(packet + 6u, color >> 16);
-    texture = r_u32(0x800FF408u); w_u8(packet + 12u, r_u8(texture));
-    texture = r_u32(0x800FF408u); w_u8(packet + 13u, r_u8(texture + 1u));
-    texture = r_u32(0x800FF408u); w_u8(packet + 20u, r_u8(texture + 4u) - 1u);
-    texture = r_u32(0x800FF408u); w_u8(packet + 21u, r_u8(texture + 5u));
-    texture = r_u32(0x800FF408u); w_u8(packet + 28u, r_u8(texture + 8u));
-    texture = r_u32(0x800FF408u); w_u8(packet + 29u, r_u8(texture + 9u) - 1u);
-    texture = r_u32(0x800FF408u); w_u8(packet + 36u, r_u8(texture + 10u) - 1u);
-    texture = r_u32(0x800FF408u); w_u8(packet + 37u, r_u8(texture + 11u) - 1u);
-    texture = r_u32(0x800FF408u); w_u16(packet + 14u, r_u16(texture + 2u));
+    for (i = 0u; i < 4u; ++i)
+    {
+        w_u16(packet + 8u + i * 8u, r_u16(screens + i * 8u));
+        w_u16(packet + 10u + i * 8u, r_u16(screens + i * 8u + 2u));
+    }
+    w_u8(packet + 4u, color);
+    w_u8(packet + 5u, color >> 8);
+    w_u8(packet + 6u, color >> 16);
+    texture = r_u32(0x800FF408u);
+    w_u8(packet + 12u, r_u8(texture));
+    texture = r_u32(0x800FF408u);
+    w_u8(packet + 13u, r_u8(texture + 1u));
+    texture = r_u32(0x800FF408u);
+    w_u8(packet + 20u, r_u8(texture + 4u) - 1u);
+    texture = r_u32(0x800FF408u);
+    w_u8(packet + 21u, r_u8(texture + 5u));
+    texture = r_u32(0x800FF408u);
+    w_u8(packet + 28u, r_u8(texture + 8u));
+    texture = r_u32(0x800FF408u);
+    w_u8(packet + 29u, r_u8(texture + 9u) - 1u);
+    texture = r_u32(0x800FF408u);
+    w_u8(packet + 36u, r_u8(texture + 10u) - 1u);
+    texture = r_u32(0x800FF408u);
+    w_u8(packet + 37u, r_u8(texture + 11u) - 1u);
+    texture = r_u32(0x800FF408u);
+    w_u16(packet + 14u, r_u16(texture + 2u));
     w_u16(packet + 22u, (r_u16(texture + 6u) & 0xFF9Fu) | 0x40u);
     bucket = r_u32(0x800FF660u) + 4u * depth + 112u;
-    header = r_u32(bucket); w_u32(packet, (r_u32(packet) & 0xFF000000u) | (header & 0xFFFFFFu));
+    header = r_u32(bucket);
+    w_u32(packet, (r_u32(packet) & 0xFF000000u) | (header & 0xFFFFFFu));
     w_u32(bucket, (r_u32(bucket) & 0xFF000000u) | (packet & 0xFFFFFFu));
 }
 
@@ -260,6 +336,7 @@ void sub_8007A8F8(uint32 model, uint32 matrix, uint32 vector, uint32 position, u
 {
     apocalypse_model_effect_native(model, psx_addr(matrix, 32u), vector, position, direction, color);
 }
+
 uint32 sub_80085D64(void)
 {
     uint32 saved[3], result, divided[3], axis;
@@ -303,6 +380,7 @@ void sub_80085CD4(uint32 input)
         xport_gte_write_control(index, words[index]);
     xport_gte_execute(0x486012u);
 }
+
 uint32 sub_8008AFFC(uint32 a1)
 {
     sint32 result;
@@ -394,16 +472,19 @@ static uint32 playback_pause_missing(uint32 command, uint32 parameter, uint32 re
     fprintf(stderr, "80098068 missing command=%08X parameter=%08X result=%08X\n", command, parameter, result);
     abort();
 }
+
 static uint32 playback_resume_missing(uint32 delay)
 {
     /* TODO Connect 8009AC6C resume delay */
     fprintf(stderr, "8009AC6C missing delay=%08X\n", delay);
     abort();
 }
+
 uint32 sub_8002F284(void)
 {
     uint32 result = r_u32(0x800FF250u);
-    if (!result) return result;
+    if (!result)
+        return result;
     if (!r_u32(0x800FF26Cu))
     {
         if (r_u32(0x800FF24Cu))
@@ -442,7 +523,11 @@ uint32 sub_8002F284(void)
                 while ((sint32)index < (sint32)r_u32(0x800FF294u))
                 {
                     sint32 distance = (sint32)sub_8006696C(r_u32(0x800FF904u) + 4u, point);
-                    if (distance < best) { best = distance; selected = index; }
+                    if (distance < best)
+                    {
+                        best = distance;
+                        selected = index;
+                    }
                     point += 12u;
                     ++index;
                 }
@@ -453,7 +538,8 @@ uint32 sub_8002F284(void)
     }
     if (r_u32(0x800FF008u) || r_u32(0x800FF300u))
     {
-        if (r_u32(0x800FF26Cu)) return 1u;
+        if (r_u32(0x800FF26Cu))
+            return 1u;
         w_u32(0x800FF26Cu, 1u);
         sub_8009B12C(1u, 0u, 0xFFFFFFFFu);
         return playback_pause_missing(9u, 0u, 0u);
@@ -467,12 +553,14 @@ uint32 sub_8002F284(void)
     }
     return result;
 }
+
 /* TODO Missing call adapter indirect */
 /* TODO Missing call adapter indirect */
 uint32 sub_8005F1B0(uint32 object)
 {
     uint32 threshold, distance, numerator, denominator, damage, table, input, sound;
-    if (!(r_u16(object + 216u) & 2u)) return 0u;
+    if (!(r_u16(object + 216u) & 2u))
+        return 0u;
     threshold = r_u32(object + 484u);
     w_u8(object + 578u, 4u);
     distance = 0u;
@@ -482,14 +570,19 @@ uint32 sub_8005F1B0(uint32 object)
     {
         numerator = (distance - threshold) * (uint32)(sint32)(sint16)r_u16(0x800EC526u);
         denominator = r_u32(object + 488u) - threshold;
-        if (!denominator) damage = (sint32)numerator < 0 ? 1u : 0xFFFFFFFFu;
-        else if (numerator == 0x80000000u && denominator == 0xFFFFFFFFu) damage = numerator;
-        else damage = (uint32)((sint32)numerator / (sint32)denominator);
+        if (!denominator)
+            damage = (sint32)numerator < 0 ? 1u : 0xFFFFFFFFu;
+        else if (numerator == 0x80000000u && denominator == 0xFFFFFFFFu)
+            damage = numerator;
+        else
+            damage = (uint32)((sint32)numerator / (sint32)denominator);
         table = r_u32(object + 68u);
         apocalypse_object_virtual52(r_u32(table + 52u), object + (uint32)(sint32)(sint16)r_u16(table + 48u), damage, 0x800A71CCu, 0u);
-        if ((sint16)r_u16(object + 218u) <= 0) return 1u;
+        if ((sint16)r_u16(object + 218u) <= 0)
+            return 1u;
     }
-    else if (r_u32(0x800FF2FCu)) sub_8007011C(0u, 4u, 0u, 1u);
+    else if (r_u32(0x800FF2FCu))
+        sub_8007011C(0u, 4u, 0u, 1u);
     sub_80063038(object, 2u, (uint32)(sint32)(sint16)r_u16(0x800EC4D6u) + 1u, 0xFFFFFFFFu);
     sound = (r_u16(object) & 8u) ? 56u : 19u;
     sub_80069DF0(sound, 0x2000u, 0u);
@@ -726,18 +819,22 @@ void sub_800303F4(void)
         w_u32((i + (34) * 4u), v24);
         w_u32((i + (35) * 4u), v25);
     }
+}
 
+uint32 apocalypse_effect_angles_native(const void *angles)
+{
+    uint32 packed;
+    uint16 last;
+    memcpy(&packed, angles, sizeof(packed));
+    memcpy(&last, (const unsigned char *)angles + 4u, sizeof(last));
+    w_u32(0x800FF41Cu, packed);
+    w_u16(0x800FF420u, last);
+    return packed;
 }
 
 uint32 sub_80034FC4(uint32 a1)
 {
-    sint32 result;
-    short v2;
-    result = r_u32(((uint32)(a1)));
-    v2 = r_u16(((uint32)((a1 + 4))));
-    w_u32(0x800FF41Cu, r_u32(((uint32)(a1))));
-    w_u16(0x800FF420u, v2);
-    return result;
+    return apocalypse_effect_angles_native(psx_addr(a1, 6u));
 }
 
 void sub_80035110(uint32 a1, uint32 a2, uint32 a3)
@@ -841,7 +938,8 @@ uint32 sub_8004D6B4(uint32 object, uint32 reason)
     w_u32(object + 68u, 0x800A2AC0u);
     sub_80062A64(object, 0x800FF4E8u);
     child = r_u32(object + 512u);
-    if (child) sub_8006A294(child);
+    if (child)
+        sub_8006A294(child);
     child = r_u32(object + 496u);
     if (child)
     {
@@ -950,7 +1048,7 @@ uint32 sub_80034A18(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
 {
     sint32 result;
     result = 838860800;
-    w_u32(((uint32)((a1 + 88))), ((((a4 << 16) | (a3 << 8)) | 0x32000000) | a2));
+    w_u32(((uint32)((a1 + 88))), (((a4 & 255u) << 16) | ((a3 & 255u) << 8) | 0x32000000u | (a2 & 255u)));
     return result;
 }
 
@@ -1152,7 +1250,7 @@ uint32 sub_8003319C(uint32 a1)
 uint32 sub_800332FC(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
 {
     uint32 result;
-    result = ((((r_u32(((uint32)((a1 + 76)))) & 0xFF000000) | (a4 << 16)) | (a3 << 8)) | a2);
+    result = (r_u32(a1 + 76u) & 0xFF000000u) | ((a4 & 255u) << 16) | ((a3 & 255u) << 8) | (a2 & 255u);
     w_u32(((uint32)((a1 + 76))), result);
     return result;
 }
@@ -1243,64 +1341,91 @@ uint32 sub_800850A4(uint32 line)
     packed = ((uint32)((sint32)r_u32(line) >> 12) - camera_position[0]) & 0xFFFFu;
     packed |= ((uint32)((sint32)r_u32(line + 4u) >> 12) - camera_position[1]) << 16;
     z = (uint32)((sint32)r_u32(line + 8u) >> 12) - camera_position[2];
-    xport_gte_write_data(0u, packed); xport_gte_write_data(1u, z);
+    xport_gte_write_data(0u, packed);
+    xport_gte_write_data(1u, z);
     xport_gte_execute(0x180001u);
     packed = ((uint32)((sint32)r_u32(line + 12u) >> 12) - camera_position[0]) & 0xFFFFu;
     packed |= ((uint32)((sint32)r_u32(line + 16u) >> 12) - camera_position[1]) << 16;
     z = (uint32)((sint32)r_u32(line + 20u) >> 12) - camera_position[2];
-    first_flags = xport_draft_gte_control_read(31u); first_xy = xport_gte_read_data(14u);
-    for (axis = 0u; axis < 3u; ++axis) first[axis] = xport_gte_read_data(25u + axis);
-    xport_gte_write_data(0u, packed); xport_gte_write_data(1u, z);
+    first_flags = xport_draft_gte_control_read(31u);
+    first_xy = xport_gte_read_data(14u);
+    for (axis = 0u; axis < 3u; ++axis)
+        first[axis] = xport_gte_read_data(25u + axis);
+    xport_gte_write_data(0u, packed);
+    xport_gte_write_data(1u, z);
     xport_gte_execute(0x180001u);
-    w_u32(line + 24u, first_xy); w_u32(line + 40u, first[2]);
-    w_u32(line + 32u, 0u); w_u32(line + 36u, 4096u);
-    second_flags = xport_draft_gte_control_read(31u); second_xy = xport_gte_read_data(14u);
-    for (axis = 0u; axis < 3u; ++axis) second[axis] = xport_gte_read_data(25u + axis);
+    w_u32(line + 24u, first_xy);
+    w_u32(line + 40u, first[2]);
+    w_u32(line + 32u, 0u);
+    w_u32(line + 36u, 4096u);
+    second_flags = xport_draft_gte_control_read(31u);
+    second_xy = xport_gte_read_data(14u);
+    for (axis = 0u; axis < 3u; ++axis)
+        second[axis] = xport_gte_read_data(25u + axis);
     carrier = first_flags | second_flags;
     if ((sint32)carrier >= 0)
     {
-        dx = (sint16)(second_xy - first_xy); carrier = (uint32)dx;
+        dx = (sint16)(second_xy - first_xy);
+        carrier = (uint32)dx;
         if (dx < 1024 && dx >= -1023)
         {
             dy = ((sint32)second_xy >> 16) - ((sint32)first_xy >> 16);
             carrier = (uint32)dy;
             if (dy < 512 && dy >= -511)
             {
-                w_u32(line + 28u, second_xy); w_u32(line + 44u, second[2]);
+                w_u32(line + 28u, second_xy);
+                w_u32(line + 44u, second[2]);
                 result = (sint32)first[2] < (sint32)second[2] ? first[2] >> 2 : second[2] >> 2;
                 return (sint32)(result - 4096u) < 0 ? result : 4095u;
             }
         }
     }
-    if (((carrier >> 22) & 7u) || (sint32)(first[2] & second[2]) < 0) return 0xFFFFFFFFu;
+    if (((carrier >> 22) & 7u) || (sint32)(first[2] & second[2]) < 0)
+        return 0xFFFFFFFFu;
     xport_gte_write_data(0u, (first[0] & 0xFFFFu) | (first[1] << 16));
     xport_gte_write_data(1u, first[2]);
     xport_gte_write_data(2u, (second[0] & 0xFFFFu) | (second[1] << 16));
     xport_gte_write_data(3u, second[2]);
-    for (axis = 0u; axis < 5u; ++axis) planes[axis] = r_u32(0x800F25D0u + axis * 4u);
+    for (axis = 0u; axis < 5u; ++axis)
+        planes[axis] = r_u32(0x800F25D0u + axis * 4u);
     planes[5] = r_u16(0x800F25E4u);
     xport_gte_write_control(8u, planes[0]);
     xport_gte_write_control(9u, (planes[2] << 16) | (planes[1] & 0xFFFFu));
     xport_gte_write_control(10u, (planes[2] >> 16) | (planes[3] << 16));
-    xport_gte_write_control(11u, planes[4]); xport_gte_write_control(12u, planes[5]);
+    xport_gte_write_control(11u, planes[4]);
+    xport_gte_write_control(12u, planes[5]);
     xport_gte_write_control(13u, (uint32)((sint32)planes[1] >> 16));
-    xport_gte_write_control(14u, (uint32)((sint32)planes[3] >> 16)); xport_gte_write_control(15u, 0u);
-    planes[0] = r_u32(0x800F25E8u); planes[1] = r_u16(0x800F25ECu);
-    planes[2] = r_u32(0x800F2600u); planes[3] = r_u16(0x800F2604u);
-    planes[4] = r_u32(0x800F2608u); planes[5] = r_u16(0x800F260Cu);
+    xport_gte_write_control(14u, (uint32)((sint32)planes[3] >> 16));
+    xport_gte_write_control(15u, 0u);
+    planes[0] = r_u32(0x800F25E8u);
+    planes[1] = r_u16(0x800F25ECu);
+    planes[2] = r_u32(0x800F2600u);
+    planes[3] = r_u16(0x800F2604u);
+    planes[4] = r_u32(0x800F2608u);
+    planes[5] = r_u16(0x800F260Cu);
     xport_gte_write_control(16u, planes[0]);
     xport_gte_write_control(17u, (planes[2] << 16) | planes[1]);
     xport_gte_write_control(18u, (planes[2] >> 16) | (planes[3] << 16));
-    xport_gte_write_control(19u, planes[4]); xport_gte_write_control(20u, planes[5]);
-    xport_gte_execute(0x4A2412u); first_flags = (xport_draft_gte_control_read(31u) >> 19) & 0x38u;
-    for (axis = 0u; axis < 3u; ++axis) w_u32(line + 48u + axis * 4u, xport_gte_read_data(25u + axis));
-    xport_gte_execute(0x4C6412u); first_flags |= (xport_draft_gte_control_read(31u) >> 22) & 7u;
-    for (axis = 0u; axis < 3u; ++axis) w_u32(line + 60u + axis * 4u, xport_gte_read_data(25u + axis));
-    xport_gte_execute(0x4AA412u); second_flags = (xport_draft_gte_control_read(31u) >> 19) & 0x38u;
-    for (axis = 0u; axis < 3u; ++axis) w_u32(line + 72u + axis * 4u, xport_gte_read_data(25u + axis));
-    xport_gte_execute(0x4CE412u); second_flags |= (xport_draft_gte_control_read(31u) >> 22) & 7u;
-    for (axis = 0u; axis < 3u; ++axis) w_u32(line + 84u + axis * 4u, xport_gte_read_data(25u + axis));
-    if ((first_flags & second_flags) || ((first_flags | second_flags) & 0x20u)) return 0xFFFFFFFFu;
+    xport_gte_write_control(19u, planes[4]);
+    xport_gte_write_control(20u, planes[5]);
+    xport_gte_execute(0x4A2412u);
+    first_flags = (xport_draft_gte_control_read(31u) >> 19) & 0x38u;
+    for (axis = 0u; axis < 3u; ++axis)
+        w_u32(line + 48u + axis * 4u, xport_gte_read_data(25u + axis));
+    xport_gte_execute(0x4C6412u);
+    first_flags |= (xport_draft_gte_control_read(31u) >> 22) & 7u;
+    for (axis = 0u; axis < 3u; ++axis)
+        w_u32(line + 60u + axis * 4u, xport_gte_read_data(25u + axis));
+    xport_gte_execute(0x4AA412u);
+    second_flags = (xport_draft_gte_control_read(31u) >> 19) & 0x38u;
+    for (axis = 0u; axis < 3u; ++axis)
+        w_u32(line + 72u + axis * 4u, xport_gte_read_data(25u + axis));
+    xport_gte_execute(0x4CE412u);
+    second_flags |= (xport_draft_gte_control_read(31u) >> 22) & 7u;
+    for (axis = 0u; axis < 3u; ++axis)
+        w_u32(line + 84u + axis * 4u, xport_gte_read_data(25u + axis));
+    if ((first_flags & second_flags) || ((first_flags | second_flags) & 0x20u))
+        return 0xFFFFFFFFu;
     cursor = line;
     for (mask = 32u; mask; mask >>= 1, cursor += 4u)
     {
@@ -1310,31 +1435,46 @@ uint32 sub_800850A4(uint32 line)
             uint32 parameter = vector_signed_quotient(distance << 12, distance - other);
             if (first_flags & mask)
             {
-                if ((sint32)(parameter - low) > 0) low = parameter;
+                if ((sint32)(parameter - low) > 0)
+                    low = parameter;
             }
-            else if ((sint32)(parameter - high) < 0) high = parameter;
+            else if ((sint32)(parameter - high) < 0)
+                high = parameter;
         }
     }
-    if ((sint32)(low - high) >= 0) return 0xFFFFFFFFu;
-    w_u32(line + 32u, low); w_u32(line + 36u, high);
-    for (axis = 0u; axis < 5u; ++axis) rotation[axis] = xport_draft_gte_control_read(axis);
+    if ((sint32)(low - high) >= 0)
+        return 0xFFFFFFFFu;
+    w_u32(line + 32u, low);
+    w_u32(line + 36u, high);
+    for (axis = 0u; axis < 5u; ++axis)
+        rotation[axis] = xport_draft_gte_control_read(axis);
     packed = (xport_gte_read_data(0u) << 3) & 0xFFF8FFF8u;
     first[2] = xport_gte_read_data(1u) << 3;
     z = (xport_gte_read_data(2u) << 3) & 0xFFF8FFF8u;
     second[2] = xport_gte_read_data(3u) << 3;
-    xport_gte_write_control(0u, packed); xport_gte_write_control(2u, z);
+    xport_gte_write_control(0u, packed);
+    xport_gte_write_control(2u, z);
     xport_gte_write_control(1u, packed ^ ((packed ^ z) & 0xFFFFu));
-    xport_gte_write_control(3u, first[2]); xport_gte_write_control(4u, second[2]);
-    xport_gte_write_data(0u, 4096u - low); xport_gte_write_data(1u, low);
+    xport_gte_write_control(3u, first[2]);
+    xport_gte_write_control(4u, second[2]);
+    xport_gte_write_data(0u, 4096u - low);
+    xport_gte_write_data(1u, low);
     xport_gte_execute(0x180001u);
-    first_xy = xport_gte_read_data(14u); first[2] = xport_gte_read_data(11u);
-    xport_gte_write_data(0u, 4096u - high); xport_gte_write_data(1u, high);
+    first_xy = xport_gte_read_data(14u);
+    first[2] = xport_gte_read_data(11u);
+    xport_gte_write_data(0u, 4096u - high);
+    xport_gte_write_data(1u, high);
     first[2] >>= 3;
     xport_gte_execute(0x180001u);
-    w_u32(line + 24u, first_xy); w_u32(line + 40u, first[2]);
-    second_xy = xport_gte_read_data(14u); second[2] = xport_gte_read_data(11u);
-    w_u32(line + 28u, second_xy); second[2] >>= 3; w_u32(line + 44u, second[2]);
-    for (axis = 0u; axis < 5u; ++axis) xport_gte_write_control(axis, rotation[axis]);
+    w_u32(line + 24u, first_xy);
+    w_u32(line + 40u, first[2]);
+    second_xy = xport_gte_read_data(14u);
+    second[2] = xport_gte_read_data(11u);
+    w_u32(line + 28u, second_xy);
+    second[2] >>= 3;
+    w_u32(line + 44u, second[2]);
+    for (axis = 0u; axis < 5u; ++axis)
+        xport_gte_write_control(axis, rotation[axis]);
     result = (sint32)first[2] < (sint32)second[2] ? first[2] >> 2 : second[2] >> 2;
     return (sint32)(result - 4096u) < 0 ? result : 4095u;
 }
@@ -1381,6 +1521,7 @@ static void polygon_vertex(uint32 output[3], uint32 geometry, uint32 indices, ui
         output[axis] = xport_draft_gte_data_read(25u + axis);
     xport_draft_host_sub_8006C22C_p12(output, &shift);
 }
+
 uint32 sub_80021CA8(uint32 object, uint32 polygon, uint32 parameter, uint32 effect, uint32 test, uint32 mark, uint32 render)
 {
     uint32 table = 0x800EAEF8u + ((uint32)r_u8(object + 27u) << 6);
@@ -1392,7 +1533,8 @@ uint32 sub_80021CA8(uint32 object, uint32 polygon, uint32 parameter, uint32 effe
     if (test)
     {
         uint32 touched = r_u16(polygon + 18u);
-        if (!(touched & 8u) || (touched & 1u)) return 0u;
+        if (!(touched & 8u) || (touched & 1u))
+            return 0u;
         if (mark)
         {
             flags = r_u16(polygon);
@@ -1402,7 +1544,8 @@ uint32 sub_80021CA8(uint32 object, uint32 polygon, uint32 parameter, uint32 effe
                 w_u16(polygon, flags & 0xFE3Fu);
         }
     }
-    if (!render) return 1u;
+    if (!render)
+        return 1u;
     flags = r_u16(polygon);
     if (flags & 1u)
     {
@@ -1418,7 +1561,8 @@ uint32 sub_80021CA8(uint32 object, uint32 polygon, uint32 parameter, uint32 effe
         polygon_vertex(vertices[vertex], geometry, polygon + 4u, vertex);
     flags = r_u16(polygon);
     count = flags & 0x10u ? 3u : 4u;
-    if (count == 4u) polygon_vertex(vertices[3], geometry, polygon + 4u, 3u);
+    if (count == 4u)
+        polygon_vertex(vertices[3], geometry, polygon + 4u, 3u);
     table = 0x800EAEF8u + ((uint32)r_u8(object + 27u) << 6);
     sub_80021B3C(r_u16(polygon) & 0x800u, r_u32(polygon + 12u), count, r_u32(table + 32u));
     for (axis = 0u; axis < 3u; ++axis)
@@ -1455,12 +1599,14 @@ uint32 sub_80021CA8(uint32 object, uint32 polygon, uint32 parameter, uint32 effe
             green = count == 3u ? r_u8(0x800FFB81u) : blue;
             xport_draft_host_sub_80022454_p2345(count == 3u ? 15u : 30u, vertices[0], vertices[1], vertices[2], offset, red, green, blue);
         }
-        if (mark) w_u16(polygon, r_u16(polygon) & 0xFFBFu);
+        if (mark)
+            w_u16(polygon, r_u16(polygon) & 0xFFBFu);
     }
     if (effect && !r_u32(0x800FF738u))
         sub_8001D320(0x800FFD58u, 100u, r_u8(0x800FFB80u), r_u8(0x800FFB81u), r_u8(0x800FFB82u), 4u, 1u, 100u);
     return result;
 }
+
 /* TODO Missing call adapter xport_draft_missing_gte_adapter */
 uint32 sub_80021ADC(uint32 output, uint32 geometry, uint32 indices, uint32 index)
 {
@@ -1474,6 +1620,7 @@ uint32 sub_80021ADC(uint32 output, uint32 geometry, uint32 indices, uint32 index
         w_u32(output + axis * 4u, xport_draft_gte_data_read(25u + axis));
     return xport_draft_host_sub_8006C22C_p2(output, &shift);
 }
+
 /* TODO Missing call adapter sub_800878DC */
 /* TODO Missing call adapter xport_draft_missing_gte_adapter */
 uint32 sub_800344BC(uint32 object)
@@ -1494,6 +1641,7 @@ uint32 sub_800344BC(uint32 object)
     }
     return object + 96u;
 }
+
 uint32 sub_80034314(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
 {
     sint32 v5;
@@ -1593,7 +1741,3 @@ void sub_80033290(uint32 a1, uint32 a2)
 {
     w_u16(((uint32)((a1 + 94))), a2);
 }
-
-
-
-

@@ -11,11 +11,13 @@
 /* TODO Postincrement memory expressions may require ordering refinement */
 static uint32 collision_angle_divide(uint32 numerator, uint32 denominator);
 static uint32 behavior_signed_remainder(uint32 numerator, uint32 denominator);
+
 /* TODO Additional player classes require a reviewed slot-52 extent */
 static void moving_platform_player_damage(uint32 player)
 {
     uint32 table = r_u32(player + 68u);
-    if (table != 0x800A32A4u) abort();
+    if (table != 0x800A32A4u)
+        abort();
     apocalypse_object_virtual52(r_u32(table + 52u), player + (sint16)r_u16(table + 48u), 2u, 0x800A71CCu, 0u);
 }
 
@@ -94,7 +96,13 @@ uint32 sub_8003BBD8(uint32 a1)
     sint32 v72;
     sint32 direction[3];
     uint32 angles[2];
-    union { uint32 words[4]; sint16 halves[8]; } temporary;
+
+    union
+    {
+        uint32 words[4];
+        sint16 halves[8];
+    } temporary;
+
     uint32 v79[4];
     v2 = r_u16(((uint32)((a1 + 496))));
     v3 = (v2 == 0);
@@ -367,15 +375,20 @@ LABEL_64:
             uint32 rx = r_u32(a1 + 528u), ry = r_u32(a1 + 532u), rz = r_u32(a1 + 536u);
             uint32 px = r_u32(player + 4u), py = r_u32(player + 8u), pz = r_u32(player + 12u);
             result = (sint32)px < (sint32)(x + rx);
-            if (!result) return result;
+            if (!result)
+                return result;
             result = (sint32)(x - rx) < (sint32)px;
-            if (!result) return result;
+            if (!result)
+                return result;
             result = (sint32)pz < (sint32)(z + rz);
-            if (!result) return result;
+            if (!result)
+                return result;
             result = (sint32)(z - rz) < (sint32)pz;
-            if (!result) return result;
+            if (!result)
+                return result;
             result = (sint32)py < (sint32)(y + ry);
-            if (!result) return result;
+            if (!result)
+                return result;
             result = (sint32)(y - ry) < (sint32)py;
             if (result)
             {
@@ -449,9 +462,11 @@ uint32 sub_8003C558(uint32 a1)
 uint32 sub_8005C11C(uint32 object, uint32 position);
 uint32 sub_80069FAC(uint32 sound, uint32 position, uint32 mode);
 uint32 sub_8003A8B0(uint32 object);
+
 static uint32 behavior_signed_remainder(uint32 numerator, uint32 denominator)
 {
-    if (!denominator) return numerator;
+    if (!denominator)
+        return numerator;
     return (uint32)((long long)(sint32)numerator % (long long)(sint32)denominator);
 }
 
@@ -549,7 +564,6 @@ uint32 sub_8004D800(uint32 a1)
     v14 = 0;
     if (result)
     {
-
         v15 = r_u32(((uint32)((r_u32(0x800FF5A0u) + 188))));
         while (1)
         {
@@ -563,9 +577,13 @@ uint32 sub_8004D800(uint32 a1)
             v29 = r_u32((v17 + (20) * 4u));
             v30 = v18;
             v31 = v19;
-            local_position[0] = v29; local_position[1] = v30; local_position[2] = v31;
+            local_position[0] = v29;
+            local_position[1] = v30;
+            local_position[2] = v31;
             xport_draft_host_sub_8006C0B8_p1(local_position, v16);
-            v29 = local_position[0]; v30 = local_position[1]; v31 = local_position[2];
+            v29 = local_position[0];
+            v30 = local_position[1];
+            v31 = local_position[2];
             if ((v15 < v30))
             {
                 v20 = ((sub_80066570(2400) - 1200u) << 12);
@@ -574,7 +592,9 @@ uint32 sub_8004D800(uint32 a1)
                 v32 = v20;
                 v33 = v22;
                 v34 = (((uint32)v21 - 1200u) << 12);
-                local_offset[0] = v32; local_offset[1] = v33; local_offset[2] = v34;
+                local_offset[0] = v32;
+                local_offset[1] = v33;
+                local_offset[2] = v34;
                 xport_draft_host_sub_8006C34C_p13(v35, r_u32(0x800FF5A0u) + 4u, local_offset);
                 v29 = v35[0];
                 v30 = v35[1];
@@ -588,12 +608,16 @@ uint32 sub_8004D800(uint32 a1)
             w_u32((v23 + (22) * 4u), v25);
             v26 = r_u32(((uint32)((r_u32(((uint32)((v16 + 12)))) + 76))));
             ++v14;
-            local_position[0] = v29; local_position[1] = v30; local_position[2] = v31;
+            local_position[0] = v29;
+            local_position[1] = v30;
+            local_position[2] = v31;
             xport_draft_host_sub_8006C3AC_p123(v36, local_position, psx_addr(v16, 12));
             v38 = 1;
             xport_draft_host_sub_8006C564_p13(v37, r_u32(0x800FF904u) + 104u, &v38);
             xport_draft_host_sub_8006C34C_p123(local_offset, v36, v37);
-            v32 = local_offset[0]; v33 = local_offset[1]; v34 = local_offset[2];
+            v32 = local_offset[0];
+            v33 = local_offset[1];
+            v34 = local_offset[2];
             v27 = v33;
             v28 = v34;
             w_u32(v26, v32);
@@ -620,6 +644,7 @@ uint32 sub_8003A214(uint32 object, uint32 position);
 uint32 sub_8003A228(uint32 object, uint32 rotation);
 uint32 sub_8005ABF8(uint32 object, uint32 position, uint32 kind, uint32 mode, uint32 auxiliary, sint32 angle);
 uint32 sub_80010D3C(uint32 object, uint32 position, uint32 rotation, uint32 kind, uint32 mask, uint32 p5, uint32 p6, uint32 p7, uint32 p8, uint32 p9, uint32 identity);
+
 uint32 sub_8004DC40(uint32 object, uint32 incoming_event)
 {
     uint32 event = (uint16)incoming_event;
@@ -631,36 +656,52 @@ uint32 sub_8004DC40(uint32 object, uint32 incoming_event)
         uint32 player;
         sint32 shift;
         w_u16(object + 500u, count);
-        w_u32(object + 504u, sub_8006B864(count * 16u, 0, 1));
+        allocated = sub_8006B864(count * 16u, 0, 1);
         player = r_u32(0x800FF5A0u);
+        w_u32(object + 504u, allocated);
         w_u32(0x800FF3ACu, 0u);
-        origin[0] = r_u32(player + 4u); origin[1] = r_u32(player + 8u); origin[2] = r_u32(player + 12u);
+        origin[0] = r_u32(player + 4u);
+        origin[1] = r_u32(player + 8u);
+        origin[2] = r_u32(player + 12u);
         while (index < r_u16(object + 500u))
         {
             uint32 entry = r_u32(object + 504u) + 16u * index;
             uint32 x = (sub_80066570(2400u) - 1200u) << 12;
             uint32 y = (sub_80066570(400u) - 1200u) << 12;
             uint32 z = (sub_80066570(2400u) - 1200u) << 12;
-            position[0] = x; position[1] = y; position[2] = z;
+            position[0] = x;
+            position[1] = y;
+            position[2] = z;
             xport_draft_host_sub_8006C0B8_p12(position, origin);
             x = (sub_80066570(16u) - 8u) << 12;
             y = (sub_80066570(48u) + 48u) << 12;
             z = (sub_80066570(16u) - 8u) << 12;
-            w_u32(entry, x); w_u32(entry + 4u, y); w_u32(entry + 8u, z);
+            w_u32(entry, x);
+            w_u32(entry + 4u, y);
+            w_u32(entry + 8u, z);
             allocated = sub_80032DC0(100u);
-            if (allocated) allocated = sub_800322F4(allocated, 1u);
+            if (allocated)
+                allocated = sub_800322F4(allocated, 1u);
             w_u32(entry + 12u, allocated);
             w_u8(allocated + 66u, 1u);
-            w_u32(allocated + 80u, position[0]); w_u32(allocated + 84u, position[1]); w_u32(allocated + 88u, position[2]);
+            w_u32(allocated + 80u, position[0]);
+            w_u32(allocated + 84u, position[1]);
+            w_u32(allocated + 88u, position[2]);
             pointer = r_u32(allocated + 76u);
             xport_draft_host_sub_8006C3AC_p123(difference, position, psx_addr(entry, 12));
             ++index;
             shift = 1;
             xport_draft_host_sub_8006C564_p13(scaled, r_u32(0x800FF904u) + 104u, &shift);
             xport_draft_host_sub_8006C34C_p123(output, difference, scaled);
-            w_u32(pointer, output[0]); w_u32(pointer + 4u, output[1]); w_u32(pointer + 8u, output[2]);
-            w_u8(allocated + 92u, 64u); w_u8(allocated + 93u, 64u); w_u8(allocated + 94u, 80u);
-            w_u8(r_u32(allocated + 76u) + 12u, 16u); w_u8(r_u32(allocated + 76u) + 13u, 16u); w_u8(r_u32(allocated + 76u) + 14u, 32u);
+            w_u32(pointer, output[0]);
+            w_u32(pointer + 4u, output[1]);
+            w_u32(pointer + 8u, output[2]);
+            w_u8(allocated + 92u, 64u);
+            w_u8(allocated + 93u, 64u);
+            w_u8(allocated + 94u, 80u);
+            w_u8(r_u32(allocated + 76u) + 12u, 16u);
+            w_u8(r_u32(allocated + 76u) + 13u, 16u);
+            w_u8(r_u32(allocated + 76u) + 14u, 32u);
             sub_8003243C(allocated);
         }
         w_u32(0x800FF3ACu, 1u);
@@ -669,8 +710,10 @@ uint32 sub_8004DC40(uint32 object, uint32 incoming_event)
     if (event == 0x4507u || event == 0x4508u || event == 0x4509u)
     {
         sound = r_u32(object + 512u);
-        if (sound) sub_8006A294(sound);
-        if (event == 0x4509u) w_u32(object + 512u, 0u);
+        if (sound)
+            sub_8006A294(sound);
+        if (event == 0x4509u)
+            w_u32(object + 512u, 0u);
         else
         {
             pointer = r_u32(object + 400u);
@@ -695,7 +738,8 @@ uint32 sub_8004DC40(uint32 object, uint32 incoming_event)
     }
     if (event == 0x4700u)
     {
-        pointer = r_u32(object + 400u); value = r_u16(pointer);
+        pointer = r_u32(object + 400u);
+        value = r_u16(pointer);
         w_u32(object + 400u, pointer + 2u);
         w_u32(object + 396u, value ? r_u32(object + 396u) | 0x100u : r_u32(object + 396u) & ~0x100u);
         return 1u;
@@ -706,21 +750,30 @@ uint32 sub_8004DC40(uint32 object, uint32 incoming_event)
         if (player)
         {
             uint32 x = r_u32(player + 4u), y = r_u32(player + 8u), z = r_u32(player + 12u);
-            w_u32(object + 4u, x); w_u32(object + 8u, y); w_u32(object + 12u, z);
+            w_u32(object + 4u, x);
+            w_u32(object + 8u, y);
+            w_u32(object + 12u, z);
         }
         return 1u;
     }
     if (event == 0x4504u)
     {
-        uint32 p0, p1, p2, p3, player = r_u32(0x800FF5A0u);
-        pointer = r_u32(object + 400u); p0 = r_u16(pointer); w_u32(object + 400u, pointer + 2u);
-        p1 = r_u16(pointer + 2u); w_u32(object + 400u, pointer + 4u);
-        p2 = r_u16(pointer + 4u); w_u32(object + 400u, pointer + 6u);
-        p3 = r_u16(pointer + 6u); w_u32(object + 400u, pointer + 8u);
+        uint32 p0, p1, p2, p3, player;
+        pointer = r_u32(object + 400u);
+        player = r_u32(0x800FF5A0u);
+        p0 = r_u16(pointer);
+        w_u32(object + 400u, pointer + 2u);
+        p1 = r_u16(pointer + 2u);
+        w_u32(object + 400u, pointer + 4u);
+        p2 = r_u16(pointer + 4u);
+        w_u32(object + 400u, pointer + 6u);
+        p3 = r_u16(pointer + 6u);
+        w_u32(object + 400u, pointer + 8u);
         if (player && sub_80066918(object + 4u, player + 4u) < 4096u)
         {
             allocated = sub_800625AC(504u);
-            if (allocated) sub_8005ABF8(allocated, object + 4u, p0, p1, p2, (sint16)p3);
+            if (allocated)
+                sub_8005ABF8(allocated, object + 4u, p0, p1, p2, (sint16)p3);
         }
         return 1u;
     }
@@ -730,12 +783,11 @@ uint32 sub_8004DC40(uint32 object, uint32 incoming_event)
         if (allocated)
         {
             pointer = r_u32(object + 400u);
-            allocated = sub_80010D3C(allocated, object + 4u, object + 16u, r_u16(pointer), 0xFFFFu,
-                r_u16(pointer + 2u), r_u16(pointer + 4u), r_u16(pointer + 6u), r_u16(pointer + 8u), r_u8(pointer + 10u),
-                event == 0x429Bu ? 0xCCE0187Cu : 0x68B7B136u);
+            allocated = sub_80010D3C(allocated, object + 4u, object + 16u, r_u16(pointer), 0xFFFFu, r_u16(pointer + 2u), r_u16(pointer + 4u), r_u16(pointer + 6u), r_u16(pointer + 8u), r_u8(pointer + 10u), event == 0x429Bu ? 0xCCE0187Cu : 0x68B7B136u);
         }
         w_u32(object + 508u, allocated);
-        if (event == 0x429Bu) w_u8(allocated + 66u, 1u);
+        if (event == 0x429Bu)
+            w_u8(allocated + 66u, 1u);
         w_u32(object + 400u, r_u32(object + 400u) + 12u);
         return 1u;
     }
@@ -753,7 +805,8 @@ uint32 sub_8004DC40(uint32 object, uint32 incoming_event)
     if (event == 0x4500u || event == 0x4501u || event == 0x4502u || event == 0x4505u)
     {
         allocated = sub_8002FED8(40u);
-        if (allocated) allocated = sub_8003A154(allocated, event == 0x4505u ? 3u : event - 0x4500u, object, 0x800FF5A0u, 0u);
+        if (allocated)
+            allocated = sub_8003A154(allocated, event == 0x4505u ? 3u : event - 0x4500u, object, 0x800FF5A0u, 0u);
         w_u32(object + 496u, allocated);
         sub_8003A214(allocated, object + 4u);
         sub_8003A228(r_u32(object + 496u), object + 16u);
@@ -761,7 +814,6 @@ uint32 sub_8004DC40(uint32 object, uint32 incoming_event)
     }
     return sub_8004BF3C(object, event);
 }
-
 
 uint32 sub_80033688(uint32 a1)
 {
@@ -871,7 +923,10 @@ void sub_80032C88(void)
     sub_80032C18(r_u32(0x800FF450u));
     sub_80032C18(r_u32(0x800FF454u));
     sub_80032C18(r_u32(0x800FF464u));
-    { (void)(sub_80032C18(r_u32(0x800FF458u))); return; }
+    {
+        (void)(sub_80032C18(r_u32(0x800FF458u)));
+        return;
+    }
 }
 
 /* TODO Missing call adapter indirect */
@@ -898,7 +953,6 @@ uint32 sub_80076D6C(void);
 
 static uint32 missing_80067724_native(const uint8 prefix[4], uint32 limit)
 {
-    (void)prefix; (void)limit;
     fprintf(stderr, "Missing native adapter 80067724 prefix4 guest limit\n");
     abort();
     return 0u;
@@ -953,9 +1007,7 @@ void sub_80017914(void)
     sint32 v37;
     sint32 v38;
     uint8 prefix[4];
-    
-    
-    
+
     sint32 v43 = 0;
     sint32 v44 = 0;
     sint32 v45 = 0;
@@ -1744,21 +1796,16 @@ uint32 sub_80076420(uint32 matrix, uint32 output)
         selected = 2;
     next = (sint32)r_u32(0x800ED4C8u + 4u * (uint32)selected);
     last = (sint32)r_u32(0x800ED4C8u + 4u * (uint32)next);
-    root = SquareRoot0((sint32)(((uint32)quaternion_element(matrix, 4u * selected)
-        - (uint32)quaternion_element(matrix, 4u * next)
-        - (uint32)quaternion_element(matrix, 4u * last) + 4096u) << 12));
+    root = SquareRoot0((sint32)(((uint32)quaternion_element(matrix, 4u * selected) - (uint32)quaternion_element(matrix, 4u * next) - (uint32)quaternion_element(matrix, 4u * last) + 4096u) << 12));
     w_u32(output + 4u * (uint32)selected, (uint32)((sint32)root >> 1));
     factor = collision_angle_divide(0x800000u, root);
-    w_u32(output + 12u, quaternion_product(quaternion_element(matrix, 3u * next + last)
-        - quaternion_element(matrix, 3u * last + next), factor));
+    w_u32(output + 12u, quaternion_product(quaternion_element(matrix, 3u * next + last) - quaternion_element(matrix, 3u * last + next), factor));
     if (next >= 0 && next < 3)
-        w_u32(output + 4u * (uint32)next, quaternion_product(quaternion_element(matrix, 3u * selected + next)
-            + quaternion_element(matrix, 3u * next + selected), factor));
+        w_u32(output + 4u * (uint32)next, quaternion_product(quaternion_element(matrix, 3u * selected + next) + quaternion_element(matrix, 3u * next + selected), factor));
     result = (uint32)(last < 2);
     if (last == 0 || last == 1 || last == 2)
     {
-        result = quaternion_product(quaternion_element(matrix, 3u * selected + last)
-            + quaternion_element(matrix, 3u * last + selected), factor);
+        result = quaternion_product(quaternion_element(matrix, 3u * selected + last) + quaternion_element(matrix, 3u * last + selected), factor);
         w_u32(output + 4u * (uint32)last, result);
     }
     else if (last >= 2)

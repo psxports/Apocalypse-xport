@@ -82,17 +82,47 @@ void sub_80082200(uint32 lookup_index, uint32 table, uint32 ir1, uint32 ir2, uin
     xport_draft_gte_data_write(6u, color);
 }
 
-uint32 sub_8001E650(uint32 a1)
+static uint32 explosion_entry(uint32 position, const void *host_position, uint32 kind)
 {
     uint32 result;
     if (r_u32(0x800FF378u) != 9u)
-        sub_80067388(a1, 1u, 512u, 32u, 256u);
+    {
+        if (host_position)
+            xport_draft_host_sub_80067388_p1(host_position, 1u, 512u, 32u, 256u);
+        else
+            sub_80067388(position, 1u, 512u, 32u, 256u);
+    }
     result = r_u32(0x800FF738u);
     if (result == 0u)
     {
-        sub_8001E4C8(a1, sub_80066570(20u), 10u, 750u, 80u);
-        sub_8001E1B8(a1, 0u);
-        result = sub_8001D320(a1, 70u, 240u, 200u, 0u, 5u, 0u, 100u);
+        uint32 count = sub_80066570(20u);
+        if (host_position)
+        {
+            xport_draft_host_sub_8001E4C8_p1(host_position, count, 10u, 750u, 80u);
+            apocalypse_explosion_proximity_native(host_position, kind);
+            result = apocalypse_explosion_sprite_native(host_position, kind ? 200u : 70u, 240u, 200u, 0u, 5u, 0u, 100u);
+        }
+        else
+        {
+            sub_8001E4C8(position, count, 10u, 750u, 80u);
+            sub_8001E1B8(position, kind);
+            result = sub_8001D320(position, kind ? 200u : 70u, 240u, 200u, 0u, 5u, 0u, 100u);
+        }
     }
     return result;
+}
+
+uint32 sub_8001E650(uint32 position)
+{
+    return explosion_entry(position, NULL, 0u);
+}
+
+uint32 sub_8001E598(uint32 position)
+{
+    return explosion_entry(position, NULL, 1u);
+}
+
+uint32 apocalypse_explosion_native(const void *position, uint32 large)
+{
+    return explosion_entry(0u, position, large ? 1u : 0u);
 }

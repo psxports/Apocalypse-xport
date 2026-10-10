@@ -48,8 +48,7 @@ static void missing_800875DC_native(MATRIX *matrix, const uint32 input[3], uint3
     for (axis = 0u; axis < 4u; ++axis)
     {
         uint32 first = axis * 2u, second = first + 1u;
-        packed[axis] = (uint16)matrix->m[first / 3u][first % 3u]
-            | ((uint32)(uint16)matrix->m[second / 3u][second % 3u] << 16);
+        packed[axis] = (uint16)matrix->m[first / 3u][first % 3u] | ((uint32)(uint16)matrix->m[second / 3u][second % 3u] << 16);
     }
     packed[4] = (uint16)matrix->m[2][2];
     for (axis = 0u; axis < 5u; ++axis)
@@ -86,7 +85,6 @@ static void missing_800875DC_native(MATRIX *matrix, const uint32 input[3], uint3
 /* TODO Connect the native quaternion interpolation boundary */
 static uint32 missing_80076800_native(const uint32 from[4], const uint32 to[4], uint32 amount, uint32 output)
 {
-    (void)from; (void)to; (void)amount; (void)output;
     fprintf(stderr, "Missing native adapter 80076800 quaternion16 interpolation\n");
     abort();
     return 0u;
@@ -98,7 +96,8 @@ static uint32 camera_77748_collision_angle(uint32 record[35], sint16 strength, u
 {
     uint32 numerator, ratio, product;
     sint32 divisor = (sint32)record[17];
-    if (!divisor) record[17] = 1u;
+    if (!divisor)
+        record[17] = 1u;
     divisor = (sint32)record[17];
     numerator = (record[17] - record[16]) << 12;
     if (numerator == 0x80000000u && divisor == -1)
@@ -116,10 +115,10 @@ static void camera_77748_apply_quaternion(uint32 object, const uint32 q[4])
 {
     uint32 x = r_u32(object + 444u), y = r_u32(object + 448u);
     uint32 z = r_u32(object + 452u), w = r_u32(object + 456u);
-    uint32 out_x = w*q[0] + x*q[3] + y*q[2] - z*q[1];
-    uint32 out_y = w*q[1] + y*q[3] + z*q[0] - x*q[2];
-    uint32 out_z = w*q[2] + z*q[3] + x*q[1] - y*q[0];
-    uint32 out_w = w*q[3] - x*q[0] - y*q[1] - z*q[2];
+    uint32 out_x = w * q[0] + x * q[3] + y * q[2] - z * q[1];
+    uint32 out_y = w * q[1] + y * q[3] + z * q[0] - x * q[2];
+    uint32 out_z = w * q[2] + z * q[3] + x * q[1] - y * q[0];
+    uint32 out_w = w * q[3] - x * q[0] - y * q[1] - z * q[2];
     w_u32(object + 444u, (uint32)((sint32)out_x >> 12));
     w_u32(object + 448u, (uint32)((sint32)out_y >> 12));
     w_u32(object + 452u, (uint32)((sint32)out_z >> 12));
@@ -140,52 +139,64 @@ uint32 sub_80077748(uint32 object)
     previous[2] = r_u32(object + 12u);
     if (!r_u32(0x800FF008u))
     {
-        for (index = 0u; index < 4u; ++index) q[index] = r_u32(object + 428u + 4u*index);
-        for (index = 0u; index < 4u; ++index) w_u32(object + 460u + 4u*index, q[index]);
-        input[0] = 0u; input[1] = 0u; input[2] = 0u - (r_u32(0x800FF8FCu) << 12);
+        for (index = 0u; index < 4u; ++index)
+            q[index] = r_u32(object + 428u + 4u * index);
+        for (index = 0u; index < 4u; ++index)
+            w_u32(object + 460u + 4u * index, q[index]);
+        input[0] = 0u;
+        input[1] = 0u;
+        input[2] = 0u - (r_u32(0x800FF8FCu) << 12);
         missing_80076310_native(object + 444u, &matrix);
         missing_800875DC_native(&matrix, input, transformed);
         distance = (sint32)r_u32(object + 540u);
+        /* Invalid negative distances select the default camera distance */
+        if (distance < -1)
+            distance = -1;
         if (distance == -1)
         {
-            forward[0] = transformed[0]; forward[1] = 0u; forward[2] = transformed[2];
+            forward[0] = transformed[0];
+            forward[1] = 0u;
+            forward[2] = transformed[2];
         }
         else if (distance > 0)
         {
-            input[0] = 0u; input[1] = 0u; input[2] = 0u - ((uint32)distance << 12);
+            input[0] = 0u;
+            input[1] = 0u;
+            input[2] = 0u - ((uint32)distance << 12);
             missing_800875DC_native(&matrix, input, forward);
         }
-        else if (distance)
-        {
-            /* TODO Negative distances other than -1 read undefined original locals */
-            fprintf(stderr, "Unresolved 80077748 forward distance %d\n", distance); abort();
-        }
         distance = (sint32)r_u32(object + 536u);
+        /* Invalid negative distances select the default camera distance */
+        if (distance < -1)
+            distance = -1;
         if (distance == -1 || distance > 0)
         {
             input[0] = 0u - ((distance == -1 ? r_u32(0x800FF8FCu) : (uint32)distance) << 12);
-            input[1] = 0u; input[2] = 0u;
+            input[1] = 0u;
+            input[2] = 0u;
             missing_800875DC_native(&matrix, input, lateral);
-            opposite[0] = 0u - lateral[0]; opposite[1] = 0u - lateral[1]; opposite[2] = 0u - lateral[2];
-        }
-        else if (distance)
-        {
-            /* TODO Negative distances other than -1 read undefined original locals */
-            fprintf(stderr, "Unresolved 80077748 lateral distance %d\n", distance); abort();
+            opposite[0] = 0u - lateral[0];
+            opposite[1] = 0u - lateral[1];
+            opposite[2] = 0u - lateral[2];
         }
         target[0] = r_u32(object + 308u) + transformed[0];
         target[1] = r_u32(object + 312u) + transformed[1];
         target[2] = r_u32(object + 316u) + transformed[2];
-        w_u32(0x801028C8u, target[0]); w_u32(0x801028CCu, target[1]); w_u32(0x801028D0u, target[2]);
+        w_u32(0x801028C8u, target[0]);
+        w_u32(0x801028CCu, target[1]);
+        w_u32(0x801028D0u, target[2]);
         xport_draft_host_sub_8006C3AC_p123(difference, target, previous);
         if (r_u32(object + 536u))
         {
             for (index = 0u; index < 2u; ++index)
             {
                 uint32 *offset = index ? opposite : lateral;
-                collision[0] = r_u32(object + 308u); collision[1] = r_u32(object + 312u); collision[2] = r_u32(object + 316u);
+                collision[0] = r_u32(object + 308u);
+                collision[1] = r_u32(object + 312u);
+                collision[2] = r_u32(object + 316u);
                 collision[3] = r_u32(object + 308u) + offset[0];
-                collision[4] = r_u32(object + 312u); collision[5] = r_u32(object + 316u) + offset[2];
+                collision[4] = r_u32(object + 312u);
+                collision[5] = r_u32(object + 316u) + offset[2];
                 apocalypse_collision_init(collision);
                 ((uint8 *)collision)[136] = 0u;
                 w_u32(0x800FF96Cu, 1u);
@@ -201,9 +212,12 @@ uint32 sub_80077748(uint32 object)
         }
         if (r_u32(object + 540u))
         {
-            collision[0] = r_u32(object + 308u); collision[1] = r_u32(object + 312u); collision[2] = r_u32(object + 316u);
+            collision[0] = r_u32(object + 308u);
+            collision[1] = r_u32(object + 312u);
+            collision[2] = r_u32(object + 316u);
             collision[3] = r_u32(object + 308u) + (forward[0] << 1);
-            collision[4] = r_u32(object + 312u); collision[5] = r_u32(object + 316u) + (forward[2] << 1);
+            collision[4] = r_u32(object + 312u);
+            collision[5] = r_u32(object + 316u) + (forward[2] << 1);
             apocalypse_collision_init(collision);
             ((uint8 *)collision)[136] = 0u;
             w_u32(0x800FF96Cu, 1u);
@@ -214,12 +228,15 @@ uint32 sub_80077748(uint32 object)
                 angle = camera_77748_collision_angle(collision, (sint16)r_u16(object + 546u), 0u);
                 xport_draft_host_sub_80076274_p1(q, angle);
                 xport_draft_host_sub_80075F80_p123(rotated, psx_addr(object + 444u, 16u), q);
-                for (index = 0u; index < 4u; ++index) w_u32(object + 444u + 4u*index, rotated[index]);
+                for (index = 0u; index < 4u; ++index)
+                    w_u32(object + 444u + 4u * index, rotated[index]);
             }
         }
     }
     sub_80076800(object + 460u, object + 444u, 1023u, object + 428u);
-    input[0] = 0u; input[1] = 0u; input[2] = 0u - (r_u32(0x800FF8FCu) << 12);
+    input[0] = 0u;
+    input[1] = 0u;
+    input[2] = 0u - (r_u32(0x800FF8FCu) << 12);
     missing_80076310_native(object + 428u, &matrix);
     missing_800875DC_native(&matrix, input, transformed);
     w_u32(object + 4u, r_u32(object + 308u) + transformed[0]);
@@ -227,7 +244,9 @@ uint32 sub_80077748(uint32 object)
     w_u32(object + 12u, r_u32(object + 316u) + transformed[2]);
     xport_draft_host_sub_8006C3AC_p123(difference, psx_addr(object + 4u, 12u), previous);
     result = r_u32(0x800FF008u);
-    w_u32(object + 104u, difference[0]); w_u32(object + 108u, difference[1]); w_u32(object + 112u, difference[2]);
+    w_u32(object + 104u, difference[0]);
+    w_u32(object + 108u, difference[1]);
+    w_u32(object + 112u, difference[2]);
     if (!result)
     {
         result = r_u32(object + 336u);
@@ -236,23 +255,27 @@ uint32 sub_80077748(uint32 object)
             apocalypse_rotation_between(first_angles, psx_addr(object + 308u, 12u), target);
             apocalypse_rotation_between(second_angles, psx_addr(r_u32(0x800FF4ECu) + 4u, 12u), target);
             angle = sub_80077274(first_angles[1], second_angles[1]);
-            desired_q[0] = desired_q[1] = desired_q[2] = 0u; desired_q[3] = 4096u;
-            for (index = 0u; index < 4u; ++index) q[index] = r_u32(object + 428u + 4u*index);
-            for (index = 0u; index < 4u; ++index) w_u32(object + 476u + 4u*index, q[index]);
+            desired_q[0] = desired_q[1] = desired_q[2] = 0u;
+            desired_q[3] = 4096u;
+            for (index = 0u; index < 4u; ++index)
+                q[index] = r_u32(object + 428u + 4u * index);
+            for (index = 0u; index < 4u; ++index)
+                w_u32(object + 476u + 4u * index, q[index]);
             apocalypse_rotation_between(first_angles, psx_addr(object + 4u, 12u), psx_addr(object + 308u, 12u));
             apocalypse_rotation_between(second_angles, psx_addr(object + 4u, 12u), psx_addr(r_u32(0x800FF4ECu) + 4u, 12u));
             xport_draft_host_sub_800762A8_p1(pitch_q, (uint32)(sint32)(sint16)(4096u - angle));
             xport_draft_host_sub_80075F80_p123(combined, pitch_q, psx_addr(object + 428u, 16u));
             xport_draft_host_sub_80076274_p1(yaw_q, ((uint32)(uint16)second_angles[0] - (uint32)(uint16)first_angles[0]) & 0xFFFu);
             xport_draft_host_sub_80075F80_p123(rotated, combined, yaw_q);
-            for (index = 0u; index < 4u; ++index) desired_q[index] = rotated[index];
-            for (index = 0u; index < 4u; ++index) old_q[index] = r_u32(object + 428u + 4u*index);
+            for (index = 0u; index < 4u; ++index)
+                desired_q[index] = rotated[index];
+            for (index = 0u; index < 4u; ++index)
+                old_q[index] = r_u32(object + 428u + 4u * index);
             return missing_80076800_native(old_q, desired_q, 1023u, object + 428u);
         }
     }
     return result;
 }
-
 
 void sub_80082750(uint32 count, uint32 corner0, uint32 corner1, uint32 corner2, uint32 corner3)
 {
@@ -305,7 +328,13 @@ uint32 sub_8005CF0C(uint32 a1)
     short v13;
     sint32 result;
     uint32 v15[4];
-    union { uint32 words[4]; sint16 halves[8]; } vector;
+
+    union
+    {
+        uint32 words[4];
+        sint16 halves[8];
+    } vector;
+
     unsigned char v17;
     unsigned char v18;
     char v19[2];
@@ -429,7 +458,10 @@ void sub_8007FB34(uint32 geometry)
     {
         result = flags & 0xBFu;
         if (!result)
-            { (void)(sub_800817FC(faces + (r_u32(geometry + 8u) << 3), faces, r_u32(geometry + 12u))); return; }
+        {
+            (void)(sub_800817FC(faces + (r_u32(geometry + 8u) << 3), faces, r_u32(geometry + 12u)));
+            return;
+        }
     }
     return;
 }
@@ -460,7 +492,8 @@ void sub_8007F138(uint32 object)
 {
     uint32 entry, flags, color, render_flags, geometry;
     MATRIX rotation, combined;
-    if (!object) return;
+    if (!object)
+        return;
     w_u32(0x1F800164u, 0x7FFFFFFFu);
     do
     {
@@ -762,70 +795,44 @@ uint32 sub_80034EF4(uint32 a1)
     return a1;
 }
 
-uint32 sub_800667CC(uint32 a1, uint32 a2, uint32 a3)
+uint32 sub_800667CC(uint32 output, uint32 scale, uint32 angles)
 {
-    sint32 result;
-    w_u32(a1, (0u - ((((a2 * ((sint16)((r_u32((0x800F863Cu + ((r_u16(a3) & 0xFFF)) * 4u))) >> 16))) >> 12) * ((sint16)((r_u32((0x800F863Cu + ((r_u16((a3 + (1) * 2u)) & 0xFFF)) * 4u))) >> 0))))));
-    w_u32((a1 + (1) * 4u), (a2 * ((sint16)((r_u32((0x800F863Cu + ((r_u16(a3) & 0xFFF)) * 4u))) >> 0))));
-    result = (0u - ((((a2 * ((sint16)((r_u32((0x800F863Cu + ((r_u16(a3) & 0xFFF)) * 4u))) >> 16))) >> 12) * ((sint16)((r_u32((0x800F863Cu + ((r_u16((a3 + (1) * 2u)) & 0xFFF)) * 4u))) >> 16)))));
-    w_u32((a1 + (2) * 4u), result);
-    return result;
+    return xport_draft_host_sub_800667CC_p3(output, scale, psx_addr(angles, 4u));
 }
 
-uint32 sub_800352B0(uint32 a1)
+uint32 sub_800352B0(uint32 object)
 {
-    sint32 v2;
-    sint32 v3;
-    sint32 v4;
-    sint32 v5;
-    sint32 v6;
-    sint32 v7;
-    sint32 v8;
-    sint32 v9;
-    sint32 v10;
-    sint32 v11;
-    sint32 v12;
-    sint32 v13;
-    sint32 v14;
-    sint32 v15;
-    sint32 v16;
-    sint32 v17;
-    sint8 v18;
-    sint32 result;
-    sint8 v20;
-    v2 = (r_u32(((uint32)((a1 + 24)))) + r_u32(((uint32)((a1 + 36)))));
-    v3 = (r_u32(((uint32)((a1 + 28)))) + r_u32(((uint32)((a1 + 40)))));
-    v4 = r_u32(((uint32)((a1 + 36))));
-    v5 = r_u32(((uint32)((a1 + 32))));
-    v6 = r_u32(((uint32)((a1 + 44))));
-    v7 = r_u32(((uint32)((a1 + 48))));
-    w_u32(((uint32)((a1 + 24))), v2);
-    v8 = (v5 + v6);
-    v9 = (v4 + v7);
-    v10 = r_u32(((uint32)((a1 + 40))));
-    v11 = r_u32(((uint32)((a1 + 52))));
-    v12 = r_u32(((uint32)((a1 + 44))));
-    v13 = r_u32(((uint32)((a1 + 56))));
-    w_u32(((uint32)((a1 + 28))), v3);
-    w_u32(((uint32)((a1 + 32))), v8);
-    v14 = ((v10 + v11) - ((v10 + v11) >> 3));
-    v15 = ((v12 + v13) - ((v12 + v13) >> 3));
-    v11 = ((v11 & 0xFFFF0000u) | (((r_u16(((uint32)((a1 + 8))))) & 0xFFFFu) << 0));
-    v16 = r_u16(((uint32)((a1 + 10))));
-    w_u32(((uint32)((a1 + 36))), (v9 - (v9 >> 3)));
-    w_u32(((uint32)((a1 + 40))), v14);
-    w_u32(((uint32)((a1 + 44))), v15);
-    v11 = ((v11 & 0xFFFF0000u) | ((((v11 + 1)) & 0xFFFFu) << 0));
-    w_u16(((uint32)((a1 + 8))), v11);
-    if ((((short)(v11)) >= v16))
-        sub_80032ED8(a1);
-    v17 = r_u8(((uint32)((a1 + 85))));
-    v18 = r_u8(((uint32)((a1 + 86))));
-    w_u8(((uint32)((a1 + 76))), (r_u8(((uint32)((a1 + 76)))) - (r_u8(((uint32)((a1 + 84)))))));
-    result = (r_u8(((uint32)((a1 + 77)))) - v17);
-    v20 = (r_u8(((uint32)((a1 + 78)))) - v18);
-    w_u8(((uint32)((a1 + 77))), result);
-    w_u8(((uint32)((a1 + 78))), v20);
+    uint32 px = r_u32(object + 24u) + r_u32(object + 36u);
+    uint32 py = r_u32(object + 28u) + r_u32(object + 40u);
+    uint32 vx = r_u32(object + 36u);
+    uint32 pz = r_u32(object + 32u) + r_u32(object + 44u);
+    uint32 ax = r_u32(object + 48u);
+    uint32 vy, ay, vz, az, age, lifetime, fade_y, fade_z, result;
+    w_u32(object + 24u, px);
+    vx += ax;
+    vy = r_u32(object + 40u);
+    ay = r_u32(object + 52u);
+    vz = r_u32(object + 44u);
+    az = r_u32(object + 56u);
+    w_u32(object + 28u, py);
+    w_u32(object + 32u, pz);
+    vy += ay;
+    vz += az;
+    age = r_u16(object + 8u);
+    lifetime = r_u16(object + 10u);
+    w_u32(object + 36u, vx - (uint32)((sint32)vx >> 3));
+    w_u32(object + 40u, vy - (uint32)((sint32)vy >> 3));
+    w_u32(object + 44u, vz - (uint32)((sint32)vz >> 3));
+    age = (age + 1u) & 0xFFFFu;
+    w_u16(object + 8u, age);
+    if ((sint32)(sint16)age >= (sint32)lifetime)
+        sub_80032ED8(object);
+    fade_y = r_u8(object + 85u);
+    fade_z = r_u8(object + 86u);
+    w_u8(object + 76u, r_u8(object + 76u) - r_u8(object + 84u));
+    result = r_u8(object + 77u) - fade_y;
+    w_u8(object + 77u, result);
+    w_u8(object + 78u, r_u8(object + 78u) - fade_z);
     return result;
 }
 
@@ -929,9 +936,11 @@ uint32 sub_800629BC(uint32 object, uint32 reason)
 /* TODO Selected host-buffer callees and unknown class callbacks retain explicit boundaries */
 static sint32 projectile_divide(uint32 n, uint32 d)
 {
-    if (!d) return (sint32)n < 0 ? 1 : -1;
+    if (!d)
+        return (sint32)n < 0 ? 1 : -1;
     return (sint32)((long long)(sint32)n / (long long)(sint32)d);
 }
+
 static void projectile_rotation_prepare(sint16 rotation[3])
 {
     uint16 first, third, second;
@@ -945,25 +954,25 @@ static void projectile_rotation_prepare(sint16 rotation[3])
     second &= 4095u;
     memcpy(rotation + 1, &second, 2u);
 }
+
 static void projectile_virtual52(uint32 object, uint32 damage, const sint32 vector[3], uint32 reason)
 {
-    (void)object; (void)damage; (void)vector; (void)reason; abort();
+    uint32 table = r_u32(object + 68u);
+    uint32 receiver = object + (uint32)(sint32)(sint16)r_u16(table + 48u);
+    apocalypse_object_virtual52_native(r_u32(table + 52u), receiver, damage, vector, reason);
 }
+
 static void projectile_spawn_host(uint32 object, const sint32 start[3], const sint32 end[3])
 {
     apocalypse_projectile_spawn_234CC(object, start, end);
 }
+
 static void projectile_impact_host(uint32 effect, const sint32 position[3])
 {
     apocalypse_projectile_impact_2289C(effect, position);
 }
 
 /* TODO Selected host-buffer callees and unknown class callbacks retain explicit boundaries */
-
-
-
-
-
 
 uint32 sub_80022C90(uint32 a1, uint32 a2, uint32 a3)
 {
@@ -1001,7 +1010,13 @@ uint32 apocalypse_weapon_fire_22C90(uint32 a1, const sint32 position[3], const s
     sint32 v26;
     sint32 result;
     sint32 v28;
-    union { uint32 words[2]; sint16 halves[4]; } rotation;
+
+    union
+    {
+        uint32 words[2];
+        sint16 halves[4];
+    } rotation;
+
     sint32 endpoint[3];
     uint32 v34[4];
     int v35[4];
@@ -1192,18 +1207,25 @@ LABEL_37:
 
 uint32 sub_8001CF9C(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8, uint32 a9, uint32 a10, uint32 a11, uint32 a12, uint32 a13, uint32 a14, uint32 a15, uint32 a16, uint32 a17, uint32 a18, uint32 a19, uint32 a20)
 {
+    return xport_draft_host_sub_8001CF9C_p2(a1, psx_addr(a2, 12u), a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20);
+}
+
+uint32 xport_draft_host_sub_8001CF9C_p2(uint32 a1, const void *position, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8, uint32 a9, uint32 a10, uint32 a11, uint32 a12, uint32 a13, uint32 a14, uint32 a15, uint32 a16, uint32 a17, uint32 a18, uint32 a19, uint32 a20)
+{
+    uint32 first;
     sint32 v27;
     sint32 v28;
     sub_80034598(a1, a3, 1);
     w_u32(((uint32)((a1 + 68))), 0x800A1154u);
-    v27 = r_u32((a2 + (1) * 4u));
-    v28 = r_u32((a2 + (2) * 4u));
-    w_u32(((uint32)((a1 + 24))), r_u32(a2));
+    memcpy(&first, position, 4u);
+    memcpy(&v27, (const uint8 *)position + 4u, 4u);
+    memcpy(&v28, (const uint8 *)position + 8u, 4u);
+    w_u32(((uint32)((a1 + 24))), first);
     w_u32(((uint32)((a1 + 28))), v27);
     w_u32(((uint32)((a1 + 32))), v28);
-    sub_80034A18(a1, a4, a5, a6);
+    sub_80034A18(a1, a4 & 255u, a5 & 255u, a6 & 255u);
     w_u16(((uint32)((a1 + 104))), a7);
-    sub_80034A44(a1, a8, a9, a10);
+    sub_80034A44(a1, a8 & 255u, a9 & 255u, a10 & 255u);
     w_u16(((uint32)((a1 + 106))), a11);
     sub_80034A9C(a1, 0, 0, 0, 0);
     sub_800349D0(a1, 0, a12);
@@ -1229,7 +1251,7 @@ uint32 sub_80034598(uint32 a1, uint32 a2, uint32 a3)
     w_u32(((uint32)((a1 + 80))), a2);
     w_u32(((uint32)((a1 + 68))), 0x800A1D08u);
     w_u32(((uint32)((a1 + 84))), a3);
-    w_u16(((uint32)((a1 + 92))), (0x1000 / a2));
+    w_u16(((uint32)((a1 + 92))), (a2 ? 0x1000u / a2 : 0xFFFFFFFFu));
     v6 = sub_8006B864((8 * (a2 + (a2 * a3))), 0, 1);
     v7 = (r_u32(((uint32)((a1 + 80)))) * r_u32(((uint32)((a1 + 84)))));
     w_u32(((uint32)((a1 + 72))), v6);
@@ -1400,8 +1422,6 @@ static uint32 impact_particles_host(uint32 object, const sint32 position[3], uin
 
 static uint32 impact_325B0_native_position_missing(uint32 object, const sint32 position[3], uint32 mode, uint32 kind, uint32 red, uint32 green, uint32 blue, uint32 count, uint32 speed, uint32 scale, uint32 lifetime)
 {
-    (void)object; (void)position; (void)mode; (void)kind; (void)red; (void)green;
-    (void)blue; (void)count; (void)speed; (void)scale; (void)lifetime;
     fprintf(stderr, "TODO 800325B0 native position constructor\n");
     abort();
 }
@@ -1578,16 +1598,6 @@ uint32 sub_8002BC44(uint32 a1, uint32 a2)
     return result;
 }
 
-/* TODO Missing call adapter sub_8001E598 */
-/* TODO Postincrement memory expressions may require ordering refinement */
-/* TODO Restore the two selected effect callees with semantic host-position inputs */
-static void missing_explosion_host_position(uint32 target, const int position[3])
-{
-    (void)target;
-    (void)position;
-    abort();
-}
-
 uint32 sub_8001CC1C(uint32 a1)
 {
     sint32 v1;
@@ -1683,11 +1693,11 @@ uint32 sub_8001CC1C(uint32 a1)
         {
             if (!sub_80066570(5))
             {
-                missing_explosion_host_position(0x8001E598u, v17);
+                apocalypse_explosion_native(v17, 1u);
                 v7 = 512;
                 goto LABEL_18;
             }
-            missing_explosion_host_position(0x8001E650u, v17);
+            apocalypse_explosion_native(v17, 0u);
         }
         v7 = 512;
         goto LABEL_18;

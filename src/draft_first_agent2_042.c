@@ -67,6 +67,7 @@ void sub_800858FC(uint32 input, uint32 output)
     for (index = 0u; index < 9u; ++index)
         w_u16(output + offsets[index], xport_load_le16(matrix + offsets[index]));
 }
+
 static uint32 menu_signed_quotient(uint32 numerator, uint32 denominator)
 {
     sint32 left = (sint32)numerator, right = (sint32)denominator;
@@ -228,6 +229,7 @@ uint32 sub_8007E63C(uint32 a1, uint32 a2, uint32 a3)
     w_u16(0x800FFB16u, result);
     return result;
 }
+
 uint32 sub_8007E57C(uint32 a1, uint32 a2)
 {
     sint16 rectangle[4];
@@ -247,6 +249,7 @@ uint32 sub_8007E57C(uint32 a1, uint32 a2)
     w_u32(0x800FF668u, next_packet);
     return result;
 }
+
 uint32 sub_80080398(uint32 a1)
 {
     uint32 model, current, end, step = 1u, old_tick, tick;
@@ -312,10 +315,10 @@ uint32 sub_80080398(uint32 a1)
     }
     return 0u;
 }
+
 static void menu_wrap_uv(uint32 values[4], uint32 adjustment)
 {
-    while (((values[0] & values[1] & values[2] & values[3]) ^
-            (values[0] | values[1] | values[2] | values[3])) & 0x10000u)
+    while (((values[0] & values[1] & values[2] & values[3]) ^ (values[0] | values[1] | values[2] | values[3])) & 0x10000u)
     {
         uint32 vertex;
         for (vertex = 0u; vertex < 4u; ++vertex)
@@ -378,8 +381,7 @@ uint32 sub_8007FF70(uint32 a1)
                 w_u16(packet + 20u, ((x[0] & 0xFF00u) >> 8) | (y[0] & 0xFF00u));
                 w_u16(packet + 24u, ((x[1] & 0xFF00u) >> 8) | (y[1] & 0xFF00u));
                 stride = r_u16(packet + 2u);
-                w_u32(packet + 28u, ((x[2] & 0xFF00u) >> 8) | (y[2] & 0xFF00u) |
-                                      ((x[3] & 0xFF00u) << 8) | ((y[3] & 0xFF00u) << 16));
+                w_u32(packet + 28u, ((x[2] & 0xFF00u) >> 8) | (y[2] & 0xFF00u) | ((x[3] & 0xFF00u) << 8) | ((y[3] & 0xFF00u) << 16));
                 packet += stride & 0xFFFCu;
             }
             records = coordinates;
@@ -388,6 +390,7 @@ uint32 sub_8007FF70(uint32 a1)
     }
     return result;
 }
+
 /* TODO Missing call adapter JUMPOUT */
 /* TODO Missing call adapter sub_800821B8 */
 /* TODO Missing call adapter sub_80082224 */
@@ -412,7 +415,8 @@ __declspec(noreturn)
 #elif defined(__GNUC__)
 __attribute__((noreturn))
 #endif
-static void apocalypse_agent2_renderer_boundary(uint32 target, uint32 descriptor, uint32 packet, uint32 scratch, const uint32 offsets[4])
+static void
+apocalypse_agent2_renderer_boundary(uint32 target, uint32 descriptor, uint32 packet, uint32 scratch, const uint32 offsets[4])
 {
     /* TODO Native renderer helper context */
     fprintf(stderr, "Missing renderer helper target=%08X descriptor=%08X packet=%08X scratch=%08X vertices=%04X/%04X/%04X/%04X\n", target, descriptor, packet, scratch, offsets[0], offsets[1], offsets[2], offsets[3]);
@@ -440,31 +444,40 @@ near_800837C0:;
 near_800837C4:;
     temporary = flags & 16u;
 near_800837C8:;
-    if (temporary == 0u) {  goto near_800838A8; }
+    if (temporary == 0u)
+    {
+        goto near_800838A8;
+    }
 near_800837CC:;
-    
+
 near_800837D0:;
-    if (outside0 != 0u) {  goto near_80083838; }
+    if (outside0 != 0u)
+    {
+        goto near_80083838;
+    }
 near_800837D4:;
-    
+
 near_800837D8:;
-    if (outside1 != 0u) {  goto near_80083808; }
+    if (outside1 != 0u)
+    {
+        goto near_80083808;
+    }
 near_800837DC:;
-    
+
 near_800837E0:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C24u, descriptor, packet, scratch, offsets);
 near_800837E4:;
-    
+
 near_800837E8:;
     edge_value = edge_value >> 16u;
 near_800837EC:;
     w_u16((queued + 20u), edge_value);
 near_800837F0:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C0Cu, descriptor, packet, scratch, offsets);
 near_800837F4:;
-    
+
 near_800837F8:;
     w_u16((queued + 24u), edge_value);
 near_800837FC:;
@@ -475,23 +488,26 @@ near_80083800:;
 near_80083804:;
     value1 = offsets[1];
 near_80083808:;
-    if (outside2 != 0u) {  goto near_80083A94; }
+    if (outside2 != 0u)
+    {
+        goto near_80083A94;
+    }
 near_8008380C:;
-    
+
 near_80083810:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C0Cu, descriptor, packet, scratch, offsets);
 near_80083814:;
-    
+
 near_80083818:;
     edge_value = edge_value >> 16u;
 near_8008381C:;
     w_u16((queued + 20u), edge_value);
 near_80083820:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083BF4u, descriptor, packet, scratch, offsets);
 near_80083824:;
-    
+
 near_80083828:;
     w_u16((queued + 24u), edge_value);
 near_8008382C:;
@@ -502,27 +518,33 @@ near_80083830:;
 near_80083834:;
     value1 = offsets[0];
 near_80083838:;
-    if (outside1 != 0u) {  goto near_8008388C; }
+    if (outside1 != 0u)
+    {
+        goto near_8008388C;
+    }
 near_8008383C:;
-    
+
 near_80083840:;
-    if (outside2 != 0u) {  goto near_80083870; }
+    if (outside2 != 0u)
+    {
+        goto near_80083870;
+    }
 near_80083844:;
-    
+
 near_80083848:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083BF4u, descriptor, packet, scratch, offsets);
 near_8008384C:;
-    
+
 near_80083850:;
     edge_value = edge_value >> 16u;
 near_80083854:;
     w_u16((queued + 20u), edge_value);
 near_80083858:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C24u, descriptor, packet, scratch, offsets);
 near_8008385C:;
-    
+
 near_80083860:;
     w_u16((queued + 24u), edge_value);
 near_80083864:;
@@ -533,34 +555,34 @@ near_80083868:;
 near_8008386C:;
     value1 = offsets[2];
 near_80083870:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C0Cu, descriptor, packet, scratch, offsets);
 near_80083874:;
-    
+
 near_80083878:;
     w_u16((queued + 20u), edge_value);
 near_8008387C:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083BF4u, descriptor, packet, scratch, offsets);
 near_80083880:;
-    
+
 near_80083884:;
     value0 = offsets[1];
     goto near_80083DE4;
 near_80083888:;
     value0 = offsets[1];
 near_8008388C:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C24u, descriptor, packet, scratch, offsets);
 near_80083890:;
-    
+
 near_80083894:;
     w_u16((queued + 20u), edge_value);
 near_80083898:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C0Cu, descriptor, packet, scratch, offsets);
 near_8008389C:;
-    
+
 near_800838A0:;
     value0 = offsets[2];
     goto near_80083DE4;
@@ -569,23 +591,32 @@ near_800838A4:;
 near_800838A8:;
     edge_value = value3 & edge_value;
 near_800838AC:;
-    if (outside0 != 0u) {  goto near_80083AB0; }
+    if (outside0 != 0u)
+    {
+        goto near_80083AB0;
+    }
 near_800838B0:;
-    
+
 near_800838B4:;
-    if (outside1 != 0u) {  goto near_800839E4; }
+    if (outside1 != 0u)
+    {
+        goto near_800839E4;
+    }
 near_800838B8:;
-    
+
 near_800838BC:;
-    if (outside2 != 0u) {  goto near_8008393C; }
+    if (outside2 != 0u)
+    {
+        goto near_8008393C;
+    }
 near_800838C0:;
-    
+
 near_800838C4:;
     value0 = offsets[0] + projection;
 near_800838C8:;
     value1 = r_u16((value0 + 6u));
 near_800838CC:;
-    
+
 near_800838D0:;
     value1 = value1 & 65407u;
 near_800838D4:;
@@ -593,10 +624,10 @@ near_800838D4:;
 near_800838D8:;
     w_u16((value0 + 6u), value1);
 near_800838DC:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083E54u, descriptor, packet, scratch, offsets);
 near_800838E0:;
-    
+
 near_800838E4:;
     w_u16((queued + 4u), offsets[2]);
 near_800838E8:;
@@ -622,19 +653,19 @@ near_8008390C:;
 near_80083910:;
     queued = queued + value0;
 near_80083914:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C54u, descriptor, packet, scratch, offsets);
 near_80083918:;
-    
+
 near_8008391C:;
     edge_value = edge_value >> 16u;
 near_80083920:;
     w_u16((queued + 20u), edge_value);
 near_80083924:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C3Cu, descriptor, packet, scratch, offsets);
 near_80083928:;
-    
+
 near_8008392C:;
     w_u16((queued + 24u), edge_value);
 near_80083930:;
@@ -645,15 +676,18 @@ near_80083934:;
 near_80083938:;
     value1 = offsets[1];
 near_8008393C:;
-    if (edge_value != 0u) {  goto near_800839BC; }
+    if (edge_value != 0u)
+    {
+        goto near_800839BC;
+    }
 near_80083940:;
-    
+
 near_80083944:;
     value0 = offsets[1] + projection;
 near_80083948:;
     value1 = r_u16((value0 + 6u));
 near_8008394C:;
-    
+
 near_80083950:;
     value1 = value1 & 65407u;
 near_80083954:;
@@ -661,10 +695,10 @@ near_80083954:;
 near_80083958:;
     w_u16((value0 + 6u), value1);
 near_8008395C:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083E54u, descriptor, packet, scratch, offsets);
 near_80083960:;
-    
+
 near_80083964:;
     w_u16((queued + 4u), offsets[0]);
 near_80083968:;
@@ -690,19 +724,19 @@ near_8008398C:;
 near_80083990:;
     queued = queued + value0;
 near_80083994:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C24u, descriptor, packet, scratch, offsets);
 near_80083998:;
-    
+
 near_8008399C:;
     edge_value = edge_value >> 16u;
 near_800839A0:;
     w_u16((queued + 20u), edge_value);
 near_800839A4:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C54u, descriptor, packet, scratch, offsets);
 near_800839A8:;
-    
+
 near_800839AC:;
     w_u16((queued + 24u), edge_value);
 near_800839B0:;
@@ -713,19 +747,19 @@ near_800839B4:;
 near_800839B8:;
     value1 = offsets[3];
 near_800839BC:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C24u, descriptor, packet, scratch, offsets);
 near_800839C0:;
-    
+
 near_800839C4:;
     edge_value = edge_value >> 16u;
 near_800839C8:;
     w_u16((queued + 20u), edge_value);
 near_800839CC:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C3Cu, descriptor, packet, scratch, offsets);
 near_800839D0:;
-    
+
 near_800839D4:;
     w_u16((queued + 24u), edge_value);
 near_800839D8:;
@@ -736,19 +770,25 @@ near_800839DC:;
 near_800839E0:;
     value1 = offsets[1];
 near_800839E4:;
-    if (outside2 != 0u) {  goto near_80083A94; }
+    if (outside2 != 0u)
+    {
+        goto near_80083A94;
+    }
 near_800839E8:;
-    
+
 near_800839EC:;
-    if (edge_value != 0u) {  goto near_80083A6C; }
+    if (edge_value != 0u)
+    {
+        goto near_80083A6C;
+    }
 near_800839F0:;
-    
+
 near_800839F4:;
     value0 = offsets[2] + projection;
 near_800839F8:;
     value1 = r_u16((value0 + 6u));
 near_800839FC:;
-    
+
 near_80083A00:;
     value1 = value1 & 65407u;
 near_80083A04:;
@@ -756,10 +796,10 @@ near_80083A04:;
 near_80083A08:;
     w_u16((value0 + 6u), value1);
 near_80083A0C:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083E54u, descriptor, packet, scratch, offsets);
 near_80083A10:;
-    
+
 near_80083A14:;
     w_u16((queued + 4u), offsets[3]);
 near_80083A18:;
@@ -785,19 +825,19 @@ near_80083A3C:;
 near_80083A40:;
     queued = queued + value0;
 near_80083A44:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C3Cu, descriptor, packet, scratch, offsets);
 near_80083A48:;
-    
+
 near_80083A4C:;
     edge_value = edge_value >> 16u;
 near_80083A50:;
     w_u16((queued + 20u), edge_value);
 near_80083A54:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083BF4u, descriptor, packet, scratch, offsets);
 near_80083A58:;
-    
+
 near_80083A5C:;
     w_u16((queued + 24u), edge_value);
 near_80083A60:;
@@ -808,19 +848,19 @@ near_80083A64:;
 near_80083A68:;
     value1 = offsets[0];
 near_80083A6C:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C54u, descriptor, packet, scratch, offsets);
 near_80083A70:;
-    
+
 near_80083A74:;
     edge_value = edge_value >> 16u;
 near_80083A78:;
     w_u16((queued + 20u), edge_value);
 near_80083A7C:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083BF4u, descriptor, packet, scratch, offsets);
 near_80083A80:;
-    
+
 near_80083A84:;
     w_u16((queued + 24u), edge_value);
 near_80083A88:;
@@ -831,36 +871,42 @@ near_80083A8C:;
 near_80083A90:;
     value1 = offsets[0];
 near_80083A94:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083BF4u, descriptor, packet, scratch, offsets);
 near_80083A98:;
-    
+
 near_80083A9C:;
     w_u16((queued + 20u), edge_value);
 near_80083AA0:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C24u, descriptor, packet, scratch, offsets);
 near_80083AA4:;
-    
+
 near_80083AA8:;
     value0 = offsets[0];
     goto near_80083DE4;
 near_80083AAC:;
     value0 = offsets[0];
 near_80083AB0:;
-    if (outside1 != 0u) {  goto near_80083B84; }
+    if (outside1 != 0u)
+    {
+        goto near_80083B84;
+    }
 near_80083AB4:;
-    
+
 near_80083AB8:;
-    if (outside2 != 0u) {  goto near_80083B38; }
+    if (outside2 != 0u)
+    {
+        goto near_80083B38;
+    }
 near_80083ABC:;
-    
+
 near_80083AC0:;
     value0 = offsets[3] + projection;
 near_80083AC4:;
     value1 = r_u16((value0 + 6u));
 near_80083AC8:;
-    
+
 near_80083ACC:;
     value1 = value1 & 65407u;
 near_80083AD0:;
@@ -868,10 +914,10 @@ near_80083AD0:;
 near_80083AD4:;
     w_u16((value0 + 6u), value1);
 near_80083AD8:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083E54u, descriptor, packet, scratch, offsets);
 near_80083ADC:;
-    
+
 near_80083AE0:;
     w_u16((queued + 4u), offsets[1]);
 near_80083AE4:;
@@ -897,19 +943,19 @@ near_80083B08:;
 near_80083B0C:;
     queued = queued + value0;
 near_80083B10:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083BF4u, descriptor, packet, scratch, offsets);
 near_80083B14:;
-    
+
 near_80083B18:;
     edge_value = edge_value >> 16u;
 near_80083B1C:;
     w_u16((queued + 20u), edge_value);
 near_80083B20:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C24u, descriptor, packet, scratch, offsets);
 near_80083B24:;
-    
+
 near_80083B28:;
     w_u16((queued + 24u), edge_value);
 near_80083B2C:;
@@ -920,23 +966,26 @@ near_80083B30:;
 near_80083B34:;
     value1 = offsets[2];
 near_80083B38:;
-    if (edge_value != 0u) {  goto near_80083B68; }
+    if (edge_value != 0u)
+    {
+        goto near_80083B68;
+    }
 near_80083B3C:;
-    
+
 near_80083B40:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083BF4u, descriptor, packet, scratch, offsets);
 near_80083B44:;
-    
+
 near_80083B48:;
     edge_value = edge_value >> 16u;
 near_80083B4C:;
     w_u16((queued + 20u), edge_value);
 near_80083B50:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C54u, descriptor, packet, scratch, offsets);
 near_80083B54:;
-    
+
 near_80083B58:;
     w_u16((queued + 24u), edge_value);
 near_80083B5C:;
@@ -947,44 +996,50 @@ near_80083B60:;
 near_80083B64:;
     value1 = offsets[3];
 near_80083B68:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C3Cu, descriptor, packet, scratch, offsets);
 near_80083B6C:;
-    
+
 near_80083B70:;
     w_u16((queued + 20u), edge_value);
 near_80083B74:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083BF4u, descriptor, packet, scratch, offsets);
 near_80083B78:;
-    
+
 near_80083B7C:;
     value0 = offsets[1];
     goto near_80083DE4;
 near_80083B80:;
     value0 = offsets[1];
 near_80083B84:;
-    if (outside2 != 0u) {  goto near_80083BD8; }
+    if (outside2 != 0u)
+    {
+        goto near_80083BD8;
+    }
 near_80083B88:;
-    
+
 near_80083B8C:;
-    if (edge_value != 0u) {  goto near_80083BBC; }
+    if (edge_value != 0u)
+    {
+        goto near_80083BBC;
+    }
 near_80083B90:;
-    
+
 near_80083B94:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C3Cu, descriptor, packet, scratch, offsets);
 near_80083B98:;
-    
+
 near_80083B9C:;
     edge_value = edge_value >> 16u;
 near_80083BA0:;
     w_u16((queued + 20u), edge_value);
 near_80083BA4:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C24u, descriptor, packet, scratch, offsets);
 near_80083BA8:;
-    
+
 near_80083BAC:;
     w_u16((queued + 24u), edge_value);
 near_80083BB0:;
@@ -995,34 +1050,34 @@ near_80083BB4:;
 near_80083BB8:;
     value1 = offsets[2];
 near_80083BBC:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C24u, descriptor, packet, scratch, offsets);
 near_80083BC0:;
-    
+
 near_80083BC4:;
     w_u16((queued + 20u), edge_value);
 near_80083BC8:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C54u, descriptor, packet, scratch, offsets);
 near_80083BCC:;
-    
+
 near_80083BD0:;
     value0 = offsets[2];
     goto near_80083DE4;
 near_80083BD4:;
     value0 = offsets[2];
 near_80083BD8:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C54u, descriptor, packet, scratch, offsets);
 near_80083BDC:;
-    
+
 near_80083BE0:;
     w_u16((queued + 20u), edge_value);
 near_80083BE4:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80083C3Cu, descriptor, packet, scratch, offsets);
 near_80083BE8:;
-    
+
 near_80083BEC:;
     value0 = offsets[3];
     goto near_80083DE4;
@@ -1079,10 +1134,10 @@ near_80083E44:;
 near_80083E48:;
     w_u32((queued + 32u), outside1);
 near_80083E4C:;
-    
+
     goto near_80083F10;
 near_80083E50:;
-    
+
 near_80083EA0:;
     temporary = r_u32(0x800FFAC0u);
 near_80083EA8:;
@@ -1140,7 +1195,7 @@ near_80083F0C:;
 near_80083F10:;
     temporary = r_u32((scratch + 500u));
 near_80083F14:;
-    
+
 near_80083F18:;
     temporary = temporary + 1u;
 near_80083F1C:;
@@ -1154,10 +1209,9 @@ near_80083F28:;
 near_80083F2C:;
     w_u32((scratch + 484u), queued);
 near_80083F30:;
-    
+
     return;
 near_80083F34:;
-    
 }
 
 static uint32 apocalypse_agent2_subdivide(uint32 descriptor, uint32 packet, uint32 scratch, uint32 limit, uint32 flags, uint32 offsets[4], uint32 source_count, uint32 area, const uint32 geometry[3])
@@ -1168,15 +1222,18 @@ static uint32 apocalypse_agent2_subdivide(uint32 descriptor, uint32 packet, uint
     /* TODO Excluded setup helpers supply subdivision parts and interpolation context */
     if (flags & 1u)
     {
-        if (flags & 0x10u) goto subdivision_80082B90;
+        if (flags & 0x10u)
+            goto subdivision_80082B90;
         goto subdivision_80082C7C;
     }
     if ((flags & 0x800u) || ((flags & 12u) == 12u))
     {
-        if (flags & 0x10u) goto subdivision_800829A0;
+        if (flags & 0x10u)
+            goto subdivision_800829A0;
         goto subdivision_80082A7C;
     }
-    if (flags & 0x10u) goto subdivision_80082800;
+    if (flags & 0x10u)
+        goto subdivision_80082800;
     goto subdivision_800828B4;
 subdivision_80082800:;
     value0 = 8064u << 16;
@@ -1214,7 +1271,12 @@ subdivision_80082838:;
 subdivision_8008283C:;
     available = packet < limit;
 subdivision_80082840:;
-    if (available == 0u) { value1 = r_u32((work + 0u)); apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets); return packet; }
+    if (available == 0u)
+    {
+        value1 = r_u32((work + 0u));
+        apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
+        return packet;
+    }
 subdivision_80082844:;
     value1 = r_u32((work + 0u));
 subdivision_80082848:;
@@ -1228,7 +1290,11 @@ subdivision_80082854:;
 subdivision_80082858:;
     clipped = value1 & value4;
 subdivision_8008285C:;
-    if ((sint32)temporary >= 0) { clipped = clipped & clip_mask; apocalypse_agent2_renderer_boundary(0x800827A4u, work, packet, scratch, offsets); }
+    if ((sint32)temporary >= 0)
+    {
+        clipped = clipped & clip_mask;
+        apocalypse_agent2_renderer_boundary(0x800827A4u, work, packet, scratch, offsets);
+    }
 subdivision_80082860:;
     clipped = clipped & clip_mask;
 subdivision_80082864:;
@@ -1244,7 +1310,11 @@ subdivision_80082874:;
 subdivision_80082878:;
     clipped = clipped & value1;
 subdivision_8008287C:;
-    if (clipped != 0u) { w_u32((packet + 4u), value3); goto subdivision_8008289C; }
+    if (clipped != 0u)
+    {
+        w_u32((packet + 4u), value3);
+        goto subdivision_8008289C;
+    }
 subdivision_80082880:;
     w_u32((packet + 4u), value3);
 subdivision_80082884:;
@@ -1264,15 +1334,19 @@ subdivision_8008289C:;
 subdivision_800828A0:;
     work = work + 1u;
 subdivision_800828A4:;
-    if (remaining != 0u) { remaining = remaining + (0u - 1u); goto subdivision_8008283C; }
+    if (remaining != 0u)
+    {
+        remaining = remaining + (0u - 1u);
+        goto subdivision_8008283C;
+    }
 subdivision_800828A8:;
     remaining = remaining + (0u - 1u);
 subdivision_800828AC:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
     return packet;
 subdivision_800828B0:;
-    
+
 subdivision_800828B4:;
     value0 = 8064u << 16;
     packet = sub_80082394(packet, area, &step, &parts);
@@ -1284,10 +1358,10 @@ subdivision_800828BC:;
 subdivision_800828C0:;
     clip_mask = 0u;
 subdivision_800828C4:;
-    
+
     apocalypse_agent2_renderer_boundary(0x8008267Cu, work, packet, scratch, offsets);
 subdivision_800828C8:;
-    
+
 subdivision_800828CC:;
     value0 = r_u32((packet + 8u));
 subdivision_800828D0:;
@@ -1314,7 +1388,12 @@ subdivision_800828F4:;
 subdivision_800828F8:;
     available = packet < limit;
 subdivision_800828FC:;
-    if (available == 0u) { value1 = r_u32((work + 0u)); apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets); return packet; }
+    if (available == 0u)
+    {
+        value1 = r_u32((work + 0u));
+        apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
+        return packet;
+    }
 subdivision_80082900:;
     value1 = r_u32((work + 0u));
 subdivision_80082904:;
@@ -1333,15 +1412,19 @@ subdivision_80082918:;
 subdivision_8008291C:;
     work = work + 1u;
 subdivision_80082920:;
-    if (remaining != 0u) { remaining = remaining + (0u - 1u); goto subdivision_800828F8; }
+    if (remaining != 0u)
+    {
+        remaining = remaining + (0u - 1u);
+        goto subdivision_800828F8;
+    }
 subdivision_80082924:;
     remaining = remaining + (0u - 1u);
 subdivision_80082928:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
     return packet;
 subdivision_8008292C:;
-    
+
 subdivision_800829A0:;
     value0 = 8064u << 16;
     packet = sub_80082394(packet, area, &step, &parts);
@@ -1390,7 +1473,12 @@ subdivision_800829F0:;
 subdivision_800829F4:;
     available = packet < limit;
 subdivision_800829F8:;
-    if (available == 0u) { value0 = r_u32((work + 12u)); apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets); return packet; }
+    if (available == 0u)
+    {
+        value0 = r_u32((work + 12u));
+        apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
+        return packet;
+    }
 subdivision_800829FC:;
     value0 = r_u32((work + 12u));
 subdivision_80082A00:;
@@ -1404,7 +1492,11 @@ subdivision_80082A0C:;
 subdivision_80082A10:;
     clipped = value1 & value4;
 subdivision_80082A14:;
-    if ((sint32)temporary >= 0) { clipped = clipped & clip_mask; apocalypse_agent2_renderer_boundary(0x80082930u, work, packet, scratch, offsets); }
+    if ((sint32)temporary >= 0)
+    {
+        clipped = clipped & clip_mask;
+        apocalypse_agent2_renderer_boundary(0x80082930u, work, packet, scratch, offsets);
+    }
 subdivision_80082A18:;
     clipped = clipped & clip_mask;
 subdivision_80082A1C:;
@@ -1426,7 +1518,11 @@ subdivision_80082A38:;
 subdivision_80082A3C:;
     clipped = clipped & value1;
 subdivision_80082A40:;
-    if (clipped != 0u) { w_u32((packet + 16u), value4); goto subdivision_80082A64; }
+    if (clipped != 0u)
+    {
+        w_u32((packet + 16u), value4);
+        goto subdivision_80082A64;
+    }
 subdivision_80082A44:;
     w_u32((packet + 16u), value4);
 subdivision_80082A48:;
@@ -1448,15 +1544,19 @@ subdivision_80082A64:;
 subdivision_80082A68:;
     work = work + 1u;
 subdivision_80082A6C:;
-    if (remaining != 0u) { remaining = remaining + (0u - 1u); goto subdivision_800829F4; }
+    if (remaining != 0u)
+    {
+        remaining = remaining + (0u - 1u);
+        goto subdivision_800829F4;
+    }
 subdivision_80082A70:;
     remaining = remaining + (0u - 1u);
 subdivision_80082A74:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
     return packet;
 subdivision_80082A78:;
-    
+
 subdivision_80082A7C:;
     value0 = 8064u << 16;
     packet = sub_80082394(packet, area, &step, &parts);
@@ -1508,7 +1608,12 @@ subdivision_80082AD0:;
 subdivision_80082AD4:;
     available = packet < limit;
 subdivision_80082AD8:;
-    if (available == 0u) { value0 = r_u32((work + 12u)); apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets); return packet; }
+    if (available == 0u)
+    {
+        value0 = r_u32((work + 12u));
+        apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
+        return packet;
+    }
 subdivision_80082ADC:;
     value0 = r_u32((work + 12u));
 subdivision_80082AE0:;
@@ -1531,15 +1636,19 @@ subdivision_80082AFC:;
 subdivision_80082B00:;
     work = work + 1u;
 subdivision_80082B04:;
-    if (remaining != 0u) { remaining = remaining + (0u - 1u); goto subdivision_80082AD4; }
+    if (remaining != 0u)
+    {
+        remaining = remaining + (0u - 1u);
+        goto subdivision_80082AD4;
+    }
 subdivision_80082B08:;
     remaining = remaining + (0u - 1u);
 subdivision_80082B0C:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
     return packet;
 subdivision_80082B10:;
-    
+
 subdivision_80082B90:;
     value0 = 8064u << 16;
     packet = sub_80082394(packet, area, &step, &parts);
@@ -1588,7 +1697,12 @@ subdivision_80082BE0:;
 subdivision_80082BE4:;
     available = packet < limit;
 subdivision_80082BE8:;
-    if (available == 0u) { value1 = r_u32((work + 0u)); apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets); return packet; }
+    if (available == 0u)
+    {
+        value1 = r_u32((work + 0u));
+        apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
+        return packet;
+    }
 subdivision_80082BEC:;
     value1 = r_u32((work + 0u));
 subdivision_80082BF0:;
@@ -1606,7 +1720,11 @@ subdivision_80082C04:;
 subdivision_80082C08:;
     clipped = value1 & value4;
 subdivision_80082C0C:;
-    if ((sint32)temporary >= 0) { clipped = clipped & clip_mask; apocalypse_agent2_renderer_boundary(0x80082B14u, work, packet, scratch, offsets); }
+    if ((sint32)temporary >= 0)
+    {
+        clipped = clipped & clip_mask;
+        apocalypse_agent2_renderer_boundary(0x80082B14u, work, packet, scratch, offsets);
+    }
 subdivision_80082C10:;
     clipped = clipped & clip_mask;
 subdivision_80082C14:;
@@ -1632,7 +1750,11 @@ subdivision_80082C38:;
 subdivision_80082C3C:;
     clipped = clipped & value1;
 subdivision_80082C40:;
-    if (clipped != 0u) { w_u32((packet + 20u), value5); goto subdivision_80082C64; }
+    if (clipped != 0u)
+    {
+        w_u32((packet + 20u), value5);
+        goto subdivision_80082C64;
+    }
 subdivision_80082C44:;
     w_u32((packet + 20u), value5);
 subdivision_80082C48:;
@@ -1654,15 +1776,19 @@ subdivision_80082C64:;
 subdivision_80082C68:;
     work = work + 1u;
 subdivision_80082C6C:;
-    if (remaining != 0u) { remaining = remaining + (0u - 1u); goto subdivision_80082BE4; }
+    if (remaining != 0u)
+    {
+        remaining = remaining + (0u - 1u);
+        goto subdivision_80082BE4;
+    }
 subdivision_80082C70:;
     remaining = remaining + (0u - 1u);
 subdivision_80082C74:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
     return packet;
 subdivision_80082C78:;
-    
+
 subdivision_80082C7C:;
     value0 = 8064u << 16;
     packet = sub_80082394(packet, area, &step, &parts);
@@ -1718,7 +1844,12 @@ subdivision_80082CD8:;
 subdivision_80082CDC:;
     available = packet < limit;
 subdivision_80082CE0:;
-    if (available == 0u) { value1 = r_u32((work + 0u)); apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets); return packet; }
+    if (available == 0u)
+    {
+        value1 = r_u32((work + 0u));
+        apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
+        return packet;
+    }
 subdivision_80082CE4:;
     value1 = r_u32((work + 0u));
 subdivision_80082CE8:;
@@ -1741,15 +1872,19 @@ subdivision_80082D04:;
 subdivision_80082D08:;
     work = work + 1u;
 subdivision_80082D0C:;
-    if (remaining != 0u) { remaining = remaining + (0u - 1u); goto subdivision_80082CDC; }
+    if (remaining != 0u)
+    {
+        remaining = remaining + (0u - 1u);
+        goto subdivision_80082CDC;
+    }
 subdivision_80082D10:;
     remaining = remaining + (0u - 1u);
 subdivision_80082D14:;
-    
+
     apocalypse_agent2_renderer_boundary(0x80082F60u, work, packet, scratch, offsets);
     return packet;
 subdivision_80082D18:;
-    
+
     return packet;
 }
 
@@ -1762,7 +1897,9 @@ static uint32 apocalypse_agent2_subdivide_textured(uint32 packet, uint32 limit, 
     sub_80082638(packet, 12u, 0xC0000000u, geometry, parts, step);
     if (quad)
     {
-        geometry[0] = points[3]; geometry[1] = points[2]; geometry[2] = points[1];
+        geometry[0] = points[3];
+        geometry[1] = points[2];
+        geometry[2] = points[1];
         sub_8008267C(packet + 36u, 0xFFFFFFF4u, 0xC0000000u, geometry, parts, step, scratch + (parts + 1u) * 128u);
         sub_80082750(parts, r_u32(packet + 8u), r_u32(packet + 20u), r_u32(packet + 32u), r_u32(packet + 44u));
     }
@@ -1836,7 +1973,9 @@ static uint32 apocalypse_agent2_subdivide_flat_textured_quad(uint32 packet, uint
     xport_draft_polygon_strip_context strip;
     packet = sub_80082394(packet, area, &step, &parts);
     sub_80082638(packet, 8u, 0x40000000u, geometry, parts, step);
-    geometry[0] = points[3]; geometry[1] = points[2]; geometry[2] = points[1];
+    geometry[0] = points[3];
+    geometry[1] = points[2];
+    geometry[2] = points[1];
     sub_8008267C(packet + 24u, 0xFFFFFFF8u, 0x40000000u, geometry, parts, step, scratch + (parts + 1u) * 128u);
     sub_80082750(parts, r_u32(packet + 8u), r_u32(packet + 16u), r_u32(packet + 24u), r_u32(packet + 32u));
     command = r_u32(packet + 4u);
@@ -1871,6 +2010,7 @@ static uint32 apocalypse_agent2_subdivide_flat_textured_quad(uint32 packet, uint
     xport_draft_gte_data_write(6u, 0u);
     return packet;
 }
+
 static uint32 apocalypse_agent2_subdivide_flat_quad(uint32 packet, uint32 limit, uint32 scratch, const uint32 points[4], uint32 area, uint32 *last_stride)
 {
     uint32 parts, step, row, work = scratch, command, before;
@@ -1878,7 +2018,9 @@ static uint32 apocalypse_agent2_subdivide_flat_quad(uint32 packet, uint32 limit,
     xport_draft_polygon_strip_context strip;
     packet = sub_80082394(packet, area, &step, &parts);
     sub_80082638(packet, scratch, 0u, geometry, parts, step);
-    geometry[0] = points[3]; geometry[1] = points[2]; geometry[2] = points[1];
+    geometry[0] = points[3];
+    geometry[1] = points[2];
+    geometry[2] = points[1];
     sub_8008267C(packet, scratch, 0u, geometry, parts, step, scratch + (parts + 1u) * 128u);
     sub_80082750(parts, r_u32(packet + 8u), r_u32(packet + 12u), r_u32(packet + 16u), r_u32(packet + 20u));
     command = r_u32(packet + 4u);
@@ -1909,12 +2051,12 @@ static uint32 apocalypse_agent2_subdivide_flat_quad(uint32 packet, uint32 limit,
     xport_draft_gte_data_write(6u, 0u);
     return packet;
 }
+
 void sub_800817FC(uint32 descriptor, uint32 unused, uint32 count)
 {
     const uint32 scratch = 0x1F800000u;
     const uint32 normals = 0x800F3E70u;
     uint32 packet, projection, table, ordering, limit;
-    (void)unused;
     if (!count)
         return;
     packet = r_u32(0x800FF668u) & 0xFFFFFFu;
@@ -2334,7 +2476,6 @@ uint32 sub_800166AC(void)
     return v0;
 }
 
-
 uint32 sub_80069BC4(uint32 name)
 {
     char filename[24];
@@ -2477,10 +2618,7 @@ uint32 sub_80065DE8(void)
             w_u32(0x800FF3ACu, 0u);
             object = sub_80032DC0(100u);
             if (object)
-                xport_draft_host_sub_8001C8E8_p2(object, position, index,
-                    r_u16(cursor), r_u16(cursor + 2u), r_u16(cursor + 4u), r_u16(cursor + 6u),
-                    r_u8(cursor + 8u), r_u8(cursor + 10u), r_u8(cursor + 12u),
-                    r_u8(cursor + 14u), r_u8(cursor + 16u), r_u8(cursor + 18u));
+                xport_draft_host_sub_8001C8E8_p2(object, position, index, r_u16(cursor), r_u16(cursor + 2u), r_u16(cursor + 4u), r_u16(cursor + 6u), r_u8(cursor + 8u), r_u8(cursor + 10u), r_u8(cursor + 12u), r_u8(cursor + 14u), r_u8(cursor + 16u), r_u8(cursor + 18u));
             w_u32(0x800FF3ACu, 1u);
         }
         ++index;

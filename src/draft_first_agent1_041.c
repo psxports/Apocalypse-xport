@@ -2,9 +2,7 @@
 #include "draft_first_adapters.h"
 #include <stdlib.h>
 
-void sub_80084814(uint32 geometry, uint32 mirror_flags,
-    const xport_draft_bounds *reference, const uint32 translation[3],
-    xport_draft_bounds *result)
+void sub_80084814(uint32 geometry, uint32 mirror_flags, const xport_draft_bounds *reference, const uint32 translation[3], xport_draft_bounds *result)
 {
     uint32 packed[3], minimum[3], maximum[3], axis;
     FUNCTION_MARKER(0x80084814u, "SLUS_003.73");
@@ -29,6 +27,7 @@ void sub_80084814(uint32 geometry, uint32 mirror_flags,
         result->maximum[axis] = maximum[axis];
     }
 }
+
 #include <stdio.h>
 #include <string.h>
 
@@ -283,7 +282,7 @@ uint32 sub_80062B50(uint32 a1, uint32 a2)
     v2 = r_u16(a2);
     v3 = (a2 + (1) * 2u);
     w_u16((a1 + (8) * 2u), v2);
-    v4 = r_u32(((v3 += 2u) - 2u));
+    v4 = r_u16(((v3 += 2u) - 2u));
     w_u16((a1 + (9) * 2u), v4);
     w_u16((a1 + (10) * 2u), r_u16(v3));
     return (v3 + (1) * 2u);
@@ -300,6 +299,7 @@ void sub_80029CC4(uint32 a1)
 
 /* TODO The unrecorded controller constructor remains a named fail-fast boundary */
 uint32 sub_80023B2C(uint32 object, uint32 target, uint32 flags);
+
 uint32 sub_80051740(uint32 a1, uint32 a2)
 {
     sint32 v4;
@@ -724,6 +724,8 @@ uint32 sub_80051740(uint32 a1, uint32 a2)
 uint32 sub_8004BDCC(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
 {
     sint32 result;
+    a2 &= 255u;
+    a3 &= 255u;
     result = (((2 * a2) * r_u8(((uint32)((a1 + 453))))) + r_u32(((uint32)((a1 + 448)))));
     w_u16(((uint32)(((2 * a3) + result))), a4);
     return result;
@@ -764,6 +766,7 @@ uint32 sub_80063118(uint32 a1, uint32 a2, uint32 a3)
 {
     sint32 v3;
     sint32 result;
+    a2 &= 255u;
     v3 = r_u8(((uint32)((a1 + 27))));
     w_u8(((uint32)((a1 + 26))), a2);
     v3 = ((v3 & 0xFFFFFF00u) | (((r_u8(((uint32)((((8 * a2) + r_u32((0x800EAEF8u + (((16 * v3) + 6)) * 4u))) + 8))))) & 0xFFu) << 0));
@@ -1505,9 +1508,7 @@ uint32 apocalypse_player_action(uint32 a1, const sint16 *a2, uint32 a3)
         else
             v37 = a2;
 
-        apocalypse_select_aim_target((sint16 *)angles, (const uint32 *)v54, v37, 4096u,
-            ((r_u8(0x800EC0F8u) || r_u8(0x800EC128u)) && (r_u8(0x800EC108u) || r_u8(0x800EC118u))) ? 1536u : 768u,
-            3072u, 0u, 0u, r_u32(0x800FF4E8u));
+        apocalypse_select_aim_target((sint16 *)angles, (const uint32 *)v54, v37, 4096u, ((r_u8(0x800EC0F8u) || r_u8(0x800EC128u)) && (r_u8(0x800EC108u) || r_u8(0x800EC118u))) ? 1536u : 768u, 3072u, 0u, 0u, r_u32(0x800FF4E8u));
         goto LABEL_93;
     }
     if (((v36 < 9) && (v36 >= 7)))
@@ -1518,13 +1519,17 @@ LABEL_93:
     if ((r_u8(((uint32)((a1 + 536)))) < 2u))
     {
         v40 = r_u32(((uint32)(((a1 + (4 * r_u32(((uint32)((a1 + 644)))))) + 612))));
-            player_action_virtual(r_u32(r_u32(v40) + 28u), v40 + (uint32)(sint32)(sint16)r_u16(r_u32(v40) + 24u), v54, (const sint16 *)angles);
+        player_action_virtual(r_u32(r_u32(v40) + 28u), v40 + (uint32)(sint32)(sint16)r_u16(r_u32(v40) + 24u), v54, (const sint16 *)angles);
     }
     else
     {
         v39 = r_u32(((uint32)((a1 + 644))));
         w_u8(((uint32)((a1 + 536))), 1);
-        { uint32 weapon = r_u32(a1 + 612u + 4u * v39); uint32 table = r_u32(weapon); v38 = player_action_virtual(r_u32(table + 20u), weapon + (uint32)(sint32)(sint16)r_u16(table + 16u), v54, (const sint16 *)angles); }
+        {
+            uint32 weapon = r_u32(a1 + 612u + 4u * v39);
+            uint32 table = r_u32(weapon);
+            v38 = player_action_virtual(r_u32(table + 20u), weapon + (uint32)(sint32)(sint16)r_u16(table + 16u), v54, (const sint16 *)angles);
+        }
     }
     if (r_u32(0x800FF2FCu))
     {
@@ -1617,7 +1622,7 @@ LABEL_127:
         {
             v49 = r_u32(((uint32)((v48 + 612))));
             if (v49)
-            player_action_virtual(r_u32(r_u32(v49) + 28u), v49 + (uint32)(sint32)(sint16)r_u16(r_u32(v49) + 24u), v54, a2);
+                player_action_virtual(r_u32(r_u32(v49) + 28u), v49 + (uint32)(sint32)(sint16)r_u16(r_u32(v49) + 24u), v54, a2);
         }
         ++v45;
         v48 += 4;
@@ -1645,19 +1650,20 @@ void sub_800372B8(void)
     sub_80037258(r_u32(0x800FF45Cu));
     sub_80037258(r_u32(0x800FF460u));
     sub_80037258(r_u32(0x800FF464u));
-    { (void)(sub_80037258(r_u32(0x800FF458u))); return; }
+    {
+        (void)(sub_80037258(r_u32(0x800FF458u)));
+        return;
+    }
 }
-
 
 void sub_80084778(uint32 bounds, sint32 low[3], sint32 high[3], uint32 *flip_bits)
 {
-  uint32 axis;
-  for (axis=0u;axis<3u;++axis) {
-    low[axis]=(sint32)r_u32(bounds+axis*4u)>>12;
-    high[axis]=(sint32)r_u32(bounds+12u+axis*4u)>>12;
-  }
-  *flip_bits=0u;
-  sub_800847AC(low,high,flip_bits);
+    uint32 axis;
+    for (axis = 0u; axis < 3u; ++axis)
+    {
+        low[axis] = (sint32)r_u32(bounds + axis * 4u) >> 12;
+        high[axis] = (sint32)r_u32(bounds + 12u + axis * 4u) >> 12;
+    }
+    *flip_bits = 0u;
+    sub_800847AC(low, high, flip_bits);
 }
-
-

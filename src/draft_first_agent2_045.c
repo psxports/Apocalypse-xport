@@ -21,7 +21,8 @@ uint32 sub_8006AAB8(void)
     for (;; row += 32u)
     {
         uint32 sentinel = r_u32(row), text, command, x, y, depth = 0u;
-        if (sentinel) return sentinel;
+        if (sentinel)
+            return sentinel;
         text = r_u32(row + 8u);
         if (r_u8(row + 16u))
         {
@@ -50,13 +51,20 @@ uint32 sub_8006AAB8(void)
             uint32 character = r_u8(text++), glyph = r_u8(0x800E6888u + (character & 127u));
             uint32 metrics, uv, packet, bucket, right, top, bottom;
             sint32 width, height;
-            if (character == 95u) glyph = r_u8(0x800E6888u + 45u);
-            if (glyph == 255u) { x += 5u; continue; }
+            if (character == 95u)
+                glyph = r_u8(0x800E6888u + 45u);
+            if (glyph == 255u)
+            {
+                x += 5u;
+                continue;
+            }
             metrics = r_u32(0x800FF6DCu) + glyph * 8u;
             uv = r_u32(metrics + 4u);
-            if (r_u8(metrics + 2u) < 4u) ++x;
+            if (r_u8(metrics + 2u) < 4u)
+                ++x;
             packet = r_u32(0x800FF668u);
-            if (r_u32(0x800FF374u) < packet + 40u) return 0x09000000u;
+            if (r_u32(0x800FF374u) < packet + 40u)
+                return 0x09000000u;
             w_u32(0x800FF668u, packet + 40u);
             w_u32(packet, 0x09000000u);
             w_u32(packet + 4u, command);
@@ -78,15 +86,20 @@ uint32 sub_8006AAB8(void)
             right = x + (uint32)width;
             top = y + (glyph == 30u ? (character == 95u ? 5u : 2u) : 0u);
             bottom = top + (uint32)height;
-            w_u16(packet + 8u, x); w_u16(packet + 10u, top);
-            w_u16(packet + 16u, right); w_u16(packet + 18u, top);
-            w_u16(packet + 24u, x); w_u16(packet + 26u, bottom);
-            w_u16(packet + 32u, right); w_u16(packet + 34u, bottom);
+            w_u16(packet + 8u, x);
+            w_u16(packet + 10u, top);
+            w_u16(packet + 16u, right);
+            w_u16(packet + 18u, top);
+            w_u16(packet + 24u, x);
+            w_u16(packet + 26u, bottom);
+            w_u16(packet + 32u, right);
+            w_u16(packet + 34u, bottom);
             bucket = r_u32(0x800FF660u) + (r_u8(row + 16u) ? depth & 0x3FFCu : 0u) + 112u;
             w_u32(packet, (r_u32(packet) & 0xFF000000u) | (r_u32(bucket) & 0xFFFFFFu));
             w_u32(bucket, (r_u32(bucket) & 0xFF000000u) | (packet & 0xFFFFFFu));
             x += 3u + (uint32)width;
-            if (width < 4) ++x;
+            if (width < 4)
+                ++x;
         }
     }
 }
@@ -546,7 +559,8 @@ uint32 sub_80016884(void)
             v2 = r_u32(0x800FF084u);
             {
                 uint32 product = r_u32(0x800FF00Cu) * (uint32)(sint32)(sint16)r_u16(0x800F863Eu + (r_u32(0x800FF010u) & 0xFFFu) * 4u);
-                if ((sint32)product < 0) product += 4095u;
+                if ((sint32)product < 0)
+                    product += 4095u;
                 w_u32((uint32)v2 + 12u, (uint32)((sint32)product >> 12) + 256u);
             }
             sub_800156E0(v2);
@@ -892,17 +906,23 @@ uint32 apocalypse_select_aim_target(sint16 output[3], const uint32 origin[3], co
             if (distance <= (sint32)distance_limit)
             {
                 yaw = (sint32)angles[1] - (sint32)(sint16)(uint16)original_angles[1];
-                if (yaw < -2048) yaw += 4096;
-                if (yaw >= 2049) yaw -= 4096;
-                if (yaw < 0) yaw = (sint32)(0u - (uint32)yaw);
+                if (yaw < -2048)
+                    yaw += 4096;
+                if (yaw >= 2049)
+                    yaw -= 4096;
+                if (yaw < 0)
+                    yaw = (sint32)(0u - (uint32)yaw);
                 if ((sint32)distance_limit > 0)
                     yaw = (sint32)((uint32)yaw + (uint32)((sint32)(((uint32)yaw * (uint32)distance) << 4) / (sint32)distance_limit));
                 if (yaw <= (sint32)yaw_limit)
                 {
                     pitch = (sint32)angles[0] - (sint32)(sint16)(uint16)original_angles[0];
-                    if (pitch < -2048) pitch += 4096;
-                    if (pitch >= 2049) pitch -= 4096;
-                    if (pitch < 0) pitch = (sint32)(0u - (uint32)pitch);
+                    if (pitch < -2048)
+                        pitch += 4096;
+                    if (pitch >= 2049)
+                        pitch -= 4096;
+                    if (pitch < 0)
+                        pitch = (sint32)(0u - (uint32)pitch);
                     if ((sint32)distance_limit > 0)
                         pitch = (sint32)((uint32)pitch + (uint32)((sint32)(((uint32)pitch * (uint32)distance) << 4) / (sint32)distance_limit));
                     if (pitch <= (sint32)pitch_limit && distance < best_distance)
@@ -938,7 +958,7 @@ uint32 sub_80034A44(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
     sint32 v6;
     v4 = 0;
     result = r_u32(((uint32)(((uint32)(a1) + (uint32)(80)))));
-    v6 = ((((uint32)(a4) << (uint32)(16)) | ((uint32)(a3) << (uint32)(8))) | a2);
+    v6 = (((a4 & 255u) << 16) | ((a3 & 255u) << 8) | (a2 & 255u));
     if (result)
     {
         do
@@ -961,7 +981,7 @@ uint32 sub_80034A9C(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5)
     v10 = r_u32(((uint32)(((uint32)(a1) + (uint32)(80)))));
     v11 = ((sint32)(((uint32)(a2) * (uint32)(v10))));
     v12 = 0;
-    v13 = (((((uint32)(a5) << (uint32)(16)) | ((uint32)(a4) << (uint32)(8))) | 0x3A000000) | a3);
+    v13 = (((a5 & 255u) << 16) | ((a4 & 255u) << 8) | 0x3A000000u | (a3 & 255u));
     result = ((uint32)(8) * (uint32)(v11));
     v15 = ((uint32)(r_u32(((uint32)(((uint32)(a1) + (uint32)(76)))))) + (uint32)(((uint32)(8) * (uint32)(v11))));
     if (v10)
@@ -1158,7 +1178,13 @@ uint32 sub_8002396C(uint32 a1)
     sint32 v13;
     sint32 v14;
     sint32 result;
-    union { uint32 words[3]; uint16 halves[6]; } scratch;
+
+    union
+    {
+        uint32 words[3];
+        uint16 halves[6];
+    } scratch;
+
     int v18[4];
     sint32 v19;
     v2 = r_u32((a1 + (28) * 4u));
@@ -1547,9 +1573,12 @@ uint32 sub_800330F4(uint32 a1)
     return a1;
 }
 
-uint32 sub_8001D320(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8)
+static uint32 explosion_sprite_emitter(uint32 a1, const void *host_position, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8)
 {
     sint32 result;
+    a3 &= 255u;
+    a4 &= 255u;
+    a5 &= 255u;
     result = r_u32(0x800FF738u);
     if (!r_u32(0x800FF738u))
     {
@@ -1557,16 +1586,30 @@ uint32 sub_8001D320(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
         {
             result = sub_80032DC0(124);
             if (result)
-                return sub_8001CF9C(result, a1, a6, a3, a4, a5, 2, a3, a4, a5, 20, a8, 0, 0, a2, a2, (((sint32)(a2)) / 2), (((sint32)(a2)) / 2), 0, 0);
+                return host_position
+                    ? xport_draft_host_sub_8001CF9C_p2(result, host_position, a6, a3, a4, a5, 2, a3, a4, a5, 20, a8, 0, 0, a2, a2, (((sint32)(a2)) / 2), (((sint32)(a2)) / 2), 0, 0)
+                    : sub_8001CF9C(result, a1, a6, a3, a4, a5, 2, a3, a4, a5, 20, a8, 0, 0, a2, a2, (((sint32)(a2)) / 2), (((sint32)(a2)) / 2), 0, 0);
         }
         else
         {
             result = sub_80032DC0(124);
             if (result)
-                return sub_8001CF9C(result, a1, a6, a3, a4, a5, 2, a3, a4, a5, 20, a8, 0, 0, a2, 0, a2, 0, 0, 0);
+                return host_position
+                    ? xport_draft_host_sub_8001CF9C_p2(result, host_position, a6, a3, a4, a5, 2, a3, a4, a5, 20, a8, 0, 0, a2, 0, a2, 0, 0, 0)
+                    : sub_8001CF9C(result, a1, a6, a3, a4, a5, 2, a3, a4, a5, 20, a8, 0, 0, a2, 0, a2, 0, 0, 0);
         }
     }
     return result;
+}
+
+uint32 sub_8001D320(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8)
+{
+    return explosion_sprite_emitter(a1, NULL, a2, a3, a4, a5, a6, a7, a8);
+}
+
+uint32 apocalypse_explosion_sprite_native(const void *position, uint32 size, uint32 red, uint32 green, uint32 blue, uint32 segments, uint32 mode, uint32 scale)
+{
+    return explosion_sprite_emitter(0u, position, size, red, green, blue, segments, mode, scale);
 }
 
 uint32 sub_800369F8(uint32 a1, uint32 a2)

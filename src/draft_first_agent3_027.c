@@ -48,7 +48,8 @@ uint32 sub_80061F54(uint32 a1)
 static void voices_6A294_stop(sint16 voice)
 {
     uint32 index = (uint16)voice, low, high, offset;
-    if (r_u32(0x80104584u) == 1u) return;
+    if (r_u32(0x80104584u) == 1u)
+        return;
     w_u32(0x80104584u, 1u);
     if (index < 24u)
     {
@@ -176,8 +177,10 @@ uint32 sub_800293D8(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
 /* Preserve signed DIV edge results without a guest frame */
 static sint32 cluster_027_div(sint32 numerator, sint32 denominator)
 {
-    if (!denominator) return numerator < 0 ? 1 : -1;
-    if ((uint32)numerator == 0x80000000u && denominator == -1) return numerator;
+    if (!denominator)
+        return numerator < 0 ? 1 : -1;
+    if ((uint32)numerator == 0x80000000u && denominator == -1)
+        return numerator;
     return numerator / denominator;
 }
 
@@ -345,14 +348,11 @@ uint32 sub_800290F4(uint32 a1, uint32 a2)
 
 uint32 sub_80020EF8(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5)
 {
-    short v12;
+    uint32 v12;
     sint32 v13;
     sint32 result;
     sint32 v15;
-    sint32 vars0;
-    sint32 vars4;
-    sint8 vars8;
-    short varsC;
+    a1 &= 65535u;
     v12 = a1;
     if ((r_u32(0x800FF384u) == 2))
     {
@@ -402,7 +402,6 @@ static void beam_27978_hit(uint32 object, uint32 source, const sint32 vector[3],
     uint32 target = r_u32(table + 52u);
     uint32 receiver = object + (sint16)r_u16(table + 48u);
     /* TODO Exact virtual48 dispatcher with native vector */
-    (void)vector;
     fprintf(stderr, "Missing 27978 virtual48: target=%08X receiver=%08X source=%08X amount=%u\n", target, receiver, source, amount);
     abort();
 }
@@ -618,7 +617,10 @@ uint32 sub_800202CC(uint32 a1)
         w_u32(((uint32)((a1 + 8))), v15);
         w_u32(((uint32)((a1 + 12))), v16);
         (v17 = (r_u16(((uint32)((a1 + 328)))) + r_u16(((uint32)((a1 + 334))))));
-        { sint32 product = (sint32)r_u16(a1 + 332u) * (sint32)(sint16)r_u16(0x800F863Cu + (r_u16(a1 + 328u) & 0xFFFu) * 4u); w_u32(a1 + 8u, r_u32(a1 + 8u) + ((uint32)(product / 4096) << 12)); }
+        {
+            sint32 product = (sint32)r_u16(a1 + 332u) * (sint32)(sint16)r_u16(0x800F863Cu + (r_u16(a1 + 328u) & 0xFFFu) * 4u);
+            w_u32(a1 + 8u, r_u32(a1 + 8u) + ((uint32)(product / 4096) << 12));
+        }
         w_u16(((uint32)((a1 + 328))), v17);
         goto LABEL_17;
     }
@@ -837,9 +839,7 @@ uint32 sub_80067ABC(uint32 lower, uint32 upper, uint32 object, uint32 trigger)
             sint32 x = (sint32)r_u32(object + 4u);
             sint32 y = (sint32)r_u32(object + 8u);
             sint32 z = (sint32)r_u32(object + 12u);
-            if (x >= (sint32)r_u32(lower) && x <= (sint32)r_u32(upper)
-                && z >= (sint32)r_u32(lower + 8u) && z <= (sint32)r_u32(upper + 8u)
-                && y >= (sint32)r_u32(lower + 4u) && y <= (sint32)r_u32(upper + 4u))
+            if (x >= (sint32)r_u32(lower) && x <= (sint32)r_u32(upper) && z >= (sint32)r_u32(lower + 8u) && z <= (sint32)r_u32(upper + 8u) && y >= (sint32)r_u32(lower + 4u) && y <= (sint32)r_u32(upper + 4u))
             {
                 uint32 table = r_u32(object + 68u);
                 if (trigger)
@@ -870,7 +870,7 @@ uint32 sub_80061EF0(uint32 a1, uint32 a2)
 static void pickup_206C4_missing_kind(uint32 kind)
 {
     /* TODO Mutated kind requires an inherited MIPS value */
-    (void)kind; abort();
+    abort();
 }
 
 uint32 sub_800206C4(uint32 a1, uint32 a2)
@@ -1564,7 +1564,7 @@ uint32 sub_800318C0(uint32 a1, uint32 a2)
         apocalypse_object_cleanup(r_u32(r_u32((uint32)v4 + 68u) + 12u), (uint32)v4 + (uint32)(sint32)(sint16)r_u16(r_u32((uint32)v4 + 68u) + 8u), 3u);
         v5 = r_u32((a1 + (19) * 4u));
         if (v5)
-        apocalypse_object_cleanup(r_u32(r_u32((uint32)v5 + 68u) + 12u), (uint32)v5 + (uint32)(sint32)(sint16)r_u16(r_u32((uint32)v5 + 68u) + 8u), 3u);
+            apocalypse_object_cleanup(r_u32(r_u32((uint32)v5 + 68u) + 12u), (uint32)v5 + (uint32)(sint32)(sint16)r_u16(r_u32((uint32)v5 + 68u) + 8u), 3u);
     }
     w_u32((a1 + (17) * 4u), 0x800A1AA8u);
     sub_80033138(a1, 0);
@@ -1616,13 +1616,13 @@ uint32 sub_8002E600(uint32 resource)
     if (!result)
     {
         uint32 texture = sub_8006E278(resource);
-        sint16 rectangle[4] = {(sint16)r_u16(texture + 28u), (sint16)r_u16(texture + 30u),
-            (sint16)r_u16(0x800FF290u), (sint16)r_u16(0x800FF292u)};
+        sint16 rectangle[4] = {(sint16)r_u16(texture + 28u), (sint16)r_u16(texture + 30u), (sint16)r_u16(0x800FF290u), (sint16)r_u16(0x800FF292u)};
         w_u16(0x800FF28Au, rectangle[0]);
         w_u16(0x800FF28Cu, rectangle[1]);
         xport_draft_host_sub_8008847C_p1(rectangle, 1, 1, 1);
         uint32 width = r_u16(0x800FF290u);
-        if (r_u8(0x800FF298u)) width = 3u * width / 2u;
+        if (r_u8(0x800FF298u))
+            width = 3u * width / 2u;
         w_u16(0x800FF28Eu, r_u16(0x800FF28Au) + width);
         uint32 x = r_u16(0x800FF28Au), y = r_u16(0x800FF28Cu);
         return sub_8002F50C(((y & 0x100u) >> 4) | ((x & 0x3FFu) >> 6) | 0x100u | ((y & 0x200u) << 2), texture);
@@ -1662,13 +1662,17 @@ uint32 sub_80067930(uint32 value)
 {
     uint32 angle = 512u, negative = (sint32)value < 0;
     sint32 step = 256;
-    if (negative) value = 0u - value;
+    if (negative)
+        value = 0u - value;
     do
     {
         sint32 cosine = (sint16)r_u16(0x800F863Cu + angle * 4u + 2u);
-        if ((sint32)value < cosine) angle += (uint32)step;
-        else if ((sint32)value == cosine) break;
-        else angle -= (uint32)step;
+        if ((sint32)value < cosine)
+            angle += (uint32)step;
+        else if ((sint32)value == cosine)
+            break;
+        else
+            angle -= (uint32)step;
         step >>= 1;
     } while (step);
     return negative ? 2048u - angle : angle;
@@ -1677,7 +1681,7 @@ uint32 sub_80067930(uint32 value)
 uint32 sub_80053950(uint32 a1, uint32 a2)
 {
     sint32 result;
-    sub_8006613C((a1 + 496), a2);
+    sub_8006613C((a1 + 496), (uint16)a2);
     result = (r_u32(((uint32)((a1 + 396)))) | 0x40);
     w_u32(((uint32)((a1 + 396))), result);
     return result;
@@ -1705,11 +1709,28 @@ uint32 sub_8005E708(uint32 object)
     w_u16(object + 218u, 0);
     switch (state)
     {
-        case 1: case 16: case 32: case 256: case 512: case 1024: case 2048:
-            animation = 15; break;
-        case 2: case 4: case 8: case 128: case 4096: case 8192: case 16384:
-        case 32768: case 65536: case 131072: case 524288:
-            animation = 16; break;
+        case 1:
+        case 16:
+        case 32:
+        case 256:
+        case 512:
+        case 1024:
+        case 2048:
+            animation = 15;
+            break;
+        case 2:
+        case 4:
+        case 8:
+        case 128:
+        case 4096:
+        case 8192:
+        case 16384:
+        case 32768:
+        case 65536:
+        case 131072:
+        case 524288:
+            animation = 16;
+            break;
         case 262144:
             return 0x80000u;
         default:
@@ -1778,8 +1799,7 @@ uint32 sub_80022C04(uint32 a1, uint32 a2)
 /* TODO Implement the missing PsyQ voice pause service */
 static void apocalypse_missing_voice_pause(sint32 voice, uint32 first, uint32 second)
 {
-    fprintf(stderr, "Missing PsyQ voice pause 8009020C: voice=%d first=%08X second=%08X\n",
-            voice, first, second);
+    fprintf(stderr, "Missing PsyQ voice pause 8009020C: voice=%d first=%08X second=%08X\n", voice, first, second);
     abort();
 }
 

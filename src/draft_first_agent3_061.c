@@ -115,8 +115,7 @@ void sub_8007EBDC(uint32 owner)
         if (r_u32(geometry) & 1u)
             xport_draft_host_sub_80081458_p12(matrix, transformed, 0x800F3E70u, geometry);
         else if (r_u16(owner) & 0x80u)
-            sub_80081794(geometry + 32u + (r_u32(geometry + 4u) << 3),
-                         r_u32(geometry + 8u) == r_u32(geometry + 12u) ? r_u32(geometry + 8u) : r_u32(geometry + 4u));
+            sub_80081794(geometry + 32u + (r_u32(geometry + 4u) << 3), r_u32(geometry + 8u) == r_u32(geometry + 12u) ? r_u32(geometry + 8u) : r_u32(geometry + 4u));
         if (r_u32(0x800FFB44u))
             xport_draft_host_sub_8007F9E0_p2(geometry, position);
         else if (r_u32(owner + 16u) || r_u16(owner + 20u) || (r_u16(owner) & 0x200u))
@@ -127,10 +126,11 @@ void sub_8007EBDC(uint32 owner)
         }
         else
             xport_draft_host_sub_8007FC60_p2(geometry, position);
-NextObject:
+    NextObject:
         owner = r_u32(owner + 28u);
     }
 }
+
 uint32 sub_80080560(uint32 a1)
 {
     sint32 gte_S0;

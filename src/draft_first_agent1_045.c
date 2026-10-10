@@ -53,11 +53,16 @@ void sub_800284A4(uint32 a1)
     sub_800278D0(a1);
 }
 
-uint32 sub_80066918(uint32 a1, uint32 a2)
+uint32 sub_80066918(uint32 left, uint32 right)
 {
-    sint32 v2;
-    v2 = ((r_u32((a1 + (2) * 4u)) - r_u32((a2 + (2) * 4u))) >> 12);
-    return sub_80085B54(((((r_u32(a1) - r_u32(a2)) >> 12) * ((r_u32(a1) - r_u32(a2)) >> 12)) + (v2 * v2)));
+    uint32 x = r_u32(left);
+    uint32 other_x = r_u32(right);
+    uint32 z, other_z;
+    x = (uint32)((sint32)(x - other_x) >> 12);
+    z = r_u32(left + 8u);
+    other_z = r_u32(right + 8u);
+    z = (uint32)((sint32)(z - other_z) >> 12);
+    return sub_80085B54(x * x + z * z);
 }
 
 uint32 sub_800346A8(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8, uint32 a9, uint32 a10)

@@ -1,26 +1,31 @@
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 #include <stdlib.h>
+#include <string.h>
 #include <stdio.h>
 
 static uint32 quaternion_divide(uint32 numerator, sint32 denominator);
+
 static uint32 collision_velocity_square(uint32 object, uint32 offset)
 {
     uint32 component = (uint32)((sint32)r_u32(object + offset) >> 9);
     return component * component;
 }
+
 static void collision_link_missing(uint32 hit, uint32 object, uint32 point, uint32 normal)
 {
     /* TODO Connect 8003C79C collision attachment */
     fprintf(stderr, "8003C79C missing hit=%08X object=%08X point=%08X normal=%08X\n", hit, object, point, normal);
     abort();
 }
+
 static void collision_owner_missing(uint32 hit)
 {
     /* TODO Connect 8003BB60 collision owner update */
     fprintf(stderr, "8003BB60 missing hit=%08X\n", hit);
     abort();
 }
+
 uint32 sub_8003ACB8(uint32 a1)
 {
     union
@@ -572,13 +577,22 @@ uint32 sub_8006C22C(uint32 a1, uint32 a2)
     return result;
 }
 
-uint32 sub_8006C304(uint32 a1, uint32 a2)
+uint32 apocalypse_vector_different_native(uint32 left, const void *right)
 {
-    sint32 v2;
-    v2 = 0;
-    if ((((r_u32(a1) != r_u32(a2)) || (r_u32((a1 + (1) * 4u)) != r_u32((a2 + (1) * 4u)))) || (r_u32((a1 + (2) * 4u)) != r_u32((a2 + (2) * 4u)))))
-        return 1;
-    return v2;
+    uint32 axis, first, second;
+    for (axis = 0u; axis < 3u; ++axis)
+    {
+        first = r_u32(left + axis * 4u);
+        memcpy(&second, (const uint8 *)right + axis * 4u, sizeof(second));
+        if (first != second)
+            return 1u;
+    }
+    return 0u;
+}
+
+uint32 sub_8006C304(uint32 left, uint32 right)
+{
+    return apocalypse_vector_different_native(left, psx_addr(right, 12u));
 }
 
 uint32 sub_80067508(uint32 a1, uint32 a2, uint32 a3)
@@ -631,8 +645,7 @@ uint32 sub_8007FDF0(uint32 object)
         xport_draft_host_sub_80085A08_p2(object, matrix);
         for (column = 0u; column < 3u; ++column)
             for (row = 0u; row < 3u; ++row)
-                w_u16(object + 324u + row * 6u + column * 2u,
-                      xport_load_le16(matrix + row * 6u + column * 2u));
+                w_u16(object + 324u + row * 6u + column * 2u, xport_load_le16(matrix + row * 6u + column * 2u));
     }
     z = r_u32(object + 12u);
     w_u32(object + 344u, (uint32)((sint32)r_u32(object + 4u) >> 12));
@@ -646,15 +659,19 @@ uint32 sub_8007FDF0(uint32 object)
 static void pose_load_rotation(const uint8 *matrix)
 {
     uint32 words[5], i;
-    for (i = 0; i < 5u; ++i) words[i] = xport_load_le32(matrix + 4u * i);
-    for (i = 0; i < 5u; ++i) xport_gte_write_control(i, words[i]);
+    for (i = 0; i < 5u; ++i)
+        words[i] = xport_load_le32(matrix + 4u * i);
+    for (i = 0; i < 5u; ++i)
+        xport_gte_write_control(i, words[i]);
 }
 
 static void pose_store_column(uint8 *output, uint32 column)
 {
     uint32 values[3], row;
-    for (row = 0; row < 3u; ++row) values[row] = xport_gte_read_data(9u + row);
-    for (row = 0; row < 3u; ++row) xport_store_le16(output + 6u * row + 2u * column, (uint16)values[row]);
+    for (row = 0; row < 3u; ++row)
+        values[row] = xport_gte_read_data(9u + row);
+    for (row = 0; row < 3u; ++row)
+        xport_store_le16(output + 6u * row + 2u * column, (uint16)values[row]);
 }
 
 /* Compact pose matrices contain nine rotation and three translation halfwords */
@@ -664,45 +681,60 @@ static void pose_compose(uint8 *output, const uint8 *left, const uint8 *right)
     pose_load_rotation(left);
     for (i = 0; i < 3u; ++i)
         xport_gte_write_control(5u + i, (uint32)(sint32)(sint16)xport_load_le16(left + 18u + 2u * i));
-    for (i = 0; i < 5u; ++i) words[i] = xport_load_le32(right + 4u * i);
+    for (i = 0; i < 5u; ++i)
+        words[i] = xport_load_le32(right + 4u * i);
     xport_gte_write_data(0u, (words[0] & 0xffffu) | (words[1] & 0xffff0000u));
     xport_gte_write_data(1u, words[3]);
     xport_gte_write_data(2u, (words[0] >> 16) | (words[2] << 16));
     xport_gte_write_data(3u, words[3] >> 16);
     xport_gte_write_data(4u, (words[1] & 0xffffu) | (words[2] & 0xffff0000u));
     xport_gte_write_data(5u, words[4]);
-    xport_gte_execute(0x486012u); pose_store_column(output, 0u);
-    xport_gte_execute(0x48E012u); pose_store_column(output, 1u);
-    xport_gte_execute(0x496012u); pose_store_column(output, 2u);
+    xport_gte_execute(0x486012u);
+    pose_store_column(output, 0u);
+    xport_gte_execute(0x48E012u);
+    pose_store_column(output, 1u);
+    xport_gte_execute(0x496012u);
+    pose_store_column(output, 2u);
     for (i = 0; i < 3u; ++i)
         xport_gte_write_data(9u + i, (uint32)(sint32)(sint16)xport_load_le16(right + 18u + 2u * i));
     xport_gte_execute(0x498012u);
     for (i = 0; i < 3u; ++i)
         words[i] = xport_gte_read_data(9u + i);
-    for (i = 0; i < 3u; ++i) xport_store_le16(output + 18u + 2u * i, (uint16)words[i]);
+    for (i = 0; i < 3u; ++i)
+        xport_store_le16(output + 18u + 2u * i, (uint16)words[i]);
 }
 
 static void pose_relative(uint8 *output, const uint8 *left, const uint8 *right)
 {
     uint32 first, second, third, values[3], i;
     pose_load_rotation(left);
-    first = xport_load_le32(right); second = xport_load_le32(right + 4u);
-    xport_gte_write_data(0u, first); xport_gte_write_data(1u, second);
-    xport_gte_execute(0x486012u); pose_store_column(output, 0u);
+    first = xport_load_le32(right);
+    second = xport_load_le32(right + 4u);
+    xport_gte_write_data(0u, first);
+    xport_gte_write_data(1u, second);
+    xport_gte_execute(0x486012u);
+    pose_store_column(output, 0u);
     third = xport_load_le32(right + 8u);
     xport_gte_write_data(0u, (third << 16) | (second >> 16));
     xport_gte_write_data(1u, third >> 16);
-    xport_gte_execute(0x486012u); pose_store_column(output, 1u);
-    first = xport_load_le32(right + 12u); second = xport_load_le32(right + 16u);
-    xport_gte_write_data(0u, first); xport_gte_write_data(1u, second);
-    xport_gte_execute(0x486012u); pose_store_column(output, 2u);
+    xport_gte_execute(0x486012u);
+    pose_store_column(output, 1u);
+    first = xport_load_le32(right + 12u);
+    second = xport_load_le32(right + 16u);
+    xport_gte_write_data(0u, first);
+    xport_gte_write_data(1u, second);
+    xport_gte_execute(0x486012u);
+    pose_store_column(output, 2u);
     pose_load_rotation(output);
     for (i = 0; i < 3u; ++i)
         xport_gte_write_data(9u + i, (uint32)(sint32)(sint16)xport_load_le16(right + 18u + 2u * i));
     xport_gte_execute(0x49E012u);
-    for (i = 0; i < 3u; ++i) values[i] = (uint32)(sint32)(sint16)xport_load_le16(left + 18u + 2u * i);
-    for (i = 0; i < 3u; ++i) values[i] -= xport_gte_read_data(9u + i);
-    for (i = 0; i < 3u; ++i) xport_store_le16(output + 18u + 2u * i, (uint16)values[i]);
+    for (i = 0; i < 3u; ++i)
+        values[i] = (uint32)(sint32)(sint16)xport_load_le16(left + 18u + 2u * i);
+    for (i = 0; i < 3u; ++i)
+        values[i] -= xport_gte_read_data(9u + i);
+    for (i = 0; i < 3u; ++i)
+        xport_store_le16(output + 18u + 2u * i, (uint16)values[i]);
 }
 
 uint32 sub_8007D148(uint32 object)
@@ -712,32 +744,38 @@ uint32 sub_8007D148(uint32 object)
     uint32 output = r_u32(object + 356u), links = r_u32(object + 364u);
     uint32 angles = r_u32(object + 360u), table, models, poses, entry, source, joint, row, column;
     uint32 result = r_u16(object) & 4u;
-    if (!result || !output || !angles) return result;
+    if (!result || !output || !angles)
+        return result;
     table = 0x800EAEF8u + 64u * r_u8(object + 27u);
     models = r_u32(table + 16u);
     total = (sint32)r_u32(models - 4u);
     poses = r_u32(table + 24u);
-    for (ordinal = 0; ordinal < total; ++ordinal) w_u16(output + 24u * ordinal, 0x8000u);
+    for (ordinal = 0; ordinal < total; ++ordinal)
+        w_u16(output + 24u * ordinal, 0x8000u);
     entry = poses + 8u * r_u8(object + 26u);
     count = r_u16(links - 2u);
-    source = r_u16(entry + 10u) ? 0x800ED760u
-        : poses + r_u32(entry + 4u) + 24u * r_u8(object + 24u) * (uint32)total;
+    source = r_u16(entry + 10u) ? 0x800ED760u : poses + r_u32(entry + 4u) + 24u * r_u8(object + 24u) * (uint32)total;
     for (ordinal = 0; ordinal < count; ++ordinal, links += 12u, angles += 12u)
     {
         const uint8 *base;
         joint = r_u16(links);
-        while (top >= 0 && r_u16(links + 10u) < xport_load_le32(parents + 28u * top + 24u)) --top;
+        while (top >= 0 && r_u16(links + 10u) < xport_load_le32(parents + 28u * top + 24u))
+            --top;
         base = (const uint8 *)psx_addr(source + 24u * joint, 24u);
         if (r_u16(angles) || r_u16(angles + 2u) || r_u16(angles + 4u))
         {
             xport_draft_host_sub_800858FC_p2(angles, matrix);
-            xport_store_le16(matrix + 18u, 0u); xport_store_le16(matrix + 20u, 0u); xport_store_le16(matrix + 22u, 0u);
+            xport_store_le16(matrix + 18u, 0u);
+            xport_store_le16(matrix + 20u, 0u);
+            xport_store_le16(matrix + 22u, 0u);
             pose_compose(matrix, base, matrix);
-            if (top >= 0) pose_compose(matrix, parents + 28u * top, matrix);
+            if (top >= 0)
+                pose_compose(matrix, parents + 28u * top, matrix);
             ++top;
             if (28u * (uint32)top + 28u > sizeof(parents))
             {
-                fprintf(stderr, "Pose hierarchy exceeds original local buffer\n"); abort();
+                fprintf(stderr, "Pose hierarchy exceeds original local buffer\n");
+                abort();
             }
             pose_relative(parents + 28u * top, matrix, base);
             xport_store_le32(parents + 28u * top + 24u, (uint32)ordinal);
@@ -757,7 +795,8 @@ uint32 sub_8007D148(uint32 object)
                 w_u16(output + 24u * joint + 18u + row * 2u, r_u16(source + 24u * joint + 18u + row * 2u));
             }
         }
-        else pose_compose((uint8 *)psx_addr(output + 24u * joint, 24u), parents + 28u * top, base);
+        else
+            pose_compose((uint8 *)psx_addr(output + 24u * joint, 24u), parents + 28u * top, base);
     }
     result = r_u16(poses + 8u * r_u8(object + 26u) + 10u);
     if (!result)
@@ -766,10 +805,14 @@ uint32 sub_8007D148(uint32 object)
             uint32 destination = output + 24u * ordinal, from = source + 24u * ordinal, words[4];
             if ((sint16)r_u16(destination) == -32768)
             {
-                for (column = 0; column < 4u; ++column) words[column] = r_u32(from + column * 4u);
-                for (column = 0; column < 4u; ++column) w_u32(destination + column * 4u, words[column]);
-                words[0] = r_u32(from + 16u); words[1] = r_u32(from + 20u);
-                w_u32(destination + 16u, words[0]); w_u32(destination + 20u, words[1]);
+                for (column = 0; column < 4u; ++column)
+                    words[column] = r_u32(from + column * 4u);
+                for (column = 0; column < 4u; ++column)
+                    w_u32(destination + column * 4u, words[column]);
+                words[0] = r_u32(from + 16u);
+                words[1] = r_u32(from + 20u);
+                w_u32(destination + 16u, words[0]);
+                w_u32(destination + 20u, words[1]);
             }
             result = ordinal + 1 < total;
         }
@@ -787,11 +830,16 @@ static uint32 weapon_setup_325B0_native(uint32 object, const sint32 position[3],
     w_u32(object + 32u, values[2]);
     w_u16(object + 10u, kind);
     w_u32(object + 72u, enabled);
-    w_u8(object + 76u, red); w_u8(object + 77u, green); w_u8(object + 78u, blue);
-    w_u32(object + 80u, count); w_u32(object + 84u, mode);
-    w_u32(object + 88u, extent0); w_u32(object + 92u, extent1);
+    w_u8(object + 76u, red);
+    w_u8(object + 77u, green);
+    w_u8(object + 78u, blue);
+    w_u32(object + 80u, count);
+    w_u32(object + 84u, mode);
+    w_u32(object + 88u, extent0);
+    w_u32(object + 92u, extent1);
     return object;
 }
+
 uint32 apocalypse_weapon_tick_23380(uint32 weapon, const sint32 position[3])
 {
     uint32 child = r_u32(weapon + 32u), result, sound;
@@ -806,7 +854,8 @@ uint32 apocalypse_weapon_tick_23380(uint32 weapon, const sint32 position[3])
     {
         sound = r_u32(weapon + 52u);
         w_u32(weapon + 20u, 0u);
-        if (sound) sub_8006A294(sound);
+        if (sound)
+            sub_8006A294(sound);
         result = r_u32(0x800FF2F0u) - r_u32(weapon + 28u) < 46u;
         if (!result)
         {
@@ -821,10 +870,12 @@ uint32 apocalypse_weapon_tick_23380(uint32 weapon, const sint32 position[3])
     }
     return result;
 }
+
 uint32 sub_80023380(uint32 weapon, uint32 position)
 {
     return apocalypse_weapon_tick_23380(weapon, (const sint32 *)psx_addr(position, 12u));
 }
+
 uint32 sub_80062D84(uint32 a1)
 {
     uint32 child = r_u32(a1 + 196u), table;
@@ -833,8 +884,7 @@ uint32 sub_80062D84(uint32 a1)
     if (child)
     {
         table = r_u32(child + 68u);
-        result = apocalypse_object_cleanup(r_u32(table + 12u),
-                    child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
+        result = apocalypse_object_cleanup(r_u32(table + 12u), child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
         w_u32(a1 + 196u, 0u);
     }
     return result;
@@ -848,8 +898,7 @@ void sub_80037258(uint32 a1)
         if (!r_u8(node + 63u))
         {
             table = r_u32(node + 68u);
-            apocalypse_object_virtual20(r_u32(table + 20u),
-                node + (uint32)(sint32)(sint16)r_u16(table + 16u));
+            apocalypse_object_virtual20(r_u32(table + 20u), node + (uint32)(sint32)(sint16)r_u16(table + 16u));
         }
     }
 }
@@ -862,12 +911,9 @@ static uint32 behavior_stream_half(uint32 object)
     return value;
 }
 
-static void behavior_position_missing(uint32 object, const uint32 position[3])
+static void behavior_position_native(uint32 object, const uint32 position[3])
 {
-    /* TODO Connect sub_8003C684 with a native twelve-byte position */
-    fprintf(stderr, "Missing native sub_8003C684 (%08X,[%08X,%08X,%08X])\n",
-            object, position[0], position[1], position[2]);
-    abort();
+    apocalypse_object_target_native(object, position);
 }
 
 uint32 sub_8003C7B4(uint32 object, uint32 command)
@@ -877,125 +923,128 @@ uint32 sub_8003C7B4(uint32 object, uint32 command)
     command = (uint16)command;
     switch (command)
     {
-    case 0x4303u:
-        w_u16(object + 508u, behavior_stream_half(object));
-        return 1u;
-    case 0x4305u:
-        value = behavior_stream_half(object);
-        w_u16(object, value ? r_u16(object) | 8u : r_u16(object) & 0xFFF7u);
-        return 1u;
-    case 0x4304u:
-    case 0x4306u:
-    case 0x4307u:
-    case 0x4308u:
-        if (!(r_u16(object) & 0x200u))
-        {
-            w_u16(object, r_u16(object) | 0x200u);
-            w_u16(object + 40u, 4096u);
-            w_u16(object + 38u, 4096u);
-            w_u16(object + 36u, 4096u);
-        }
-        value = behavior_stream_half(object);
-        duration = behavior_stream_half(object);
-        axis = command == 0x4304u ? 0u : command - 0x4306u;
-        w_u16(object + 496u + axis * 2u, duration);
-        if (command == 0x4304u)
-        {
-            w_u16(object + 500u, duration);
-            w_u16(object + 498u, duration);
-        }
-        step = (uint32)(((sint32)(value << 16) >> 4) / (sint32)(duration ? 100u * r_u16(object + 496u + axis * 2u) : 100u));
-        w_u16(object + 502u + axis * 2u, step);
-        if (command == 0x4304u)
-        {
-            w_u16(object + 506u, step);
-            w_u16(object + 504u, step);
-            y = r_u16(object + 504u);
-            z = r_u16(object + 506u);
-            w_u16(object + 36u, r_u16(object + 36u) + r_u16(object + 502u));
-            x = r_u16(object + 40u) + z;
-            w_u16(object + 38u, r_u16(object + 38u) + y);
-            w_u16(object + 40u, x);
-        }
-        else
-            w_u16(object + 36u + axis * 2u, r_u16(object + 36u + axis * 2u) + r_u16(object + 502u + axis * 2u));
-        return 1u;
-    case 0x4507u:
-        sound = r_u32(object + 520u);
-        if (sound) sub_8006A294(sound);
-        value = behavior_stream_half(object);
-        w_u32(object + 520u, sub_80069DF0(value, 0x2000u, 0u));
-        w_u32(object + 524u, 0xFFFFFFFFu);
-        return 1u;
-    case 0x4508u:
-        sound = r_u32(object + 520u);
-        if (sound) sub_8006A294(sound);
-        value = behavior_stream_half(object);
-        duration = behavior_stream_half(object);
-        w_u32(object + 524u, duration);
-        w_u32(object + 520u, sub_80069EF4(value, object + 4u, 0u));
-        return 1u;
-    case 0x4509u:
-        sound = r_u32(object + 520u);
-        if (sound) sub_8006A294(sound);
-        w_u32(object + 520u, 0u);
-        return 1u;
-    case 0x4300u:
-        if (r_u32(object + 512u)) return 1u;
-        w_u32(object + 400u, r_u32(object + 400u) - 2u);
-        return 0u;
-    case 0x4301u:
-        player = r_u32(0x800FF5A0u);
-        if (r_u32(player + 428u) == object) w_u32(player + 428u, 0u);
-        table = r_u32(object + 68u);
-        w_u16(object, r_u16(object) | 1u);
-        apocalypse_object_virtual20(r_u32(table + 20u), object + (uint32)(sint32)(sint16)r_u16(table + 16u));
-        sub_80022318(object, 0u, 0u);
-        return 0u;
-    case 0x4302u:
-        x = behavior_stream_half(object);
-        y = behavior_stream_half(object);
-        z = behavior_stream_half(object);
-        w_u32(object + 396u, r_u32(object + 396u) | 4u);
-        w_u32(object + 528u, x << 11);
-        w_u32(object + 532u, y << 11);
-        w_u32(object + 536u, z << 11);
-        return 1u;
-    case 0x4220u:
-    case 0x4222u:
-        cursor = (r_u32(object + 400u) + 3u) & 0xFFFFFFFCu;
-        position[0] = r_u32(cursor);
-        position[1] = r_u32(cursor + 4u);
-        position[2] = r_u32(cursor + 8u);
-        xport_draft_host_sub_8006C22C_p12(position, &shift);
-        if (command == 0x4222u)
-            xport_draft_host_sub_8006C0B8_p1(position, object + 4u);
-        w_u32(object + 400u, cursor + 12u);
-        behavior_position_missing(object, position);
-        return 1u;
-    case 0x4221u:
-        value = behavior_stream_half(object);
-        if (value & 0x2000u)
-        {
+        case 0x4303u:
+            w_u16(object + 508u, behavior_stream_half(object));
+            return 1u;
+        case 0x4305u:
+            value = behavior_stream_half(object);
+            w_u16(object, value ? r_u16(object) | 8u : r_u16(object) & 0xFFF7u);
+            return 1u;
+        case 0x4304u:
+        case 0x4306u:
+        case 0x4307u:
+        case 0x4308u:
+            if (!(r_u16(object) & 0x200u))
+            {
+                w_u16(object, r_u16(object) | 0x200u);
+                w_u16(object + 40u, 4096u);
+                w_u16(object + 38u, 4096u);
+                w_u16(object + 36u, 4096u);
+            }
+            value = behavior_stream_half(object);
+            duration = behavior_stream_half(object);
+            axis = command == 0x4304u ? 0u : command - 0x4306u;
+            w_u16(object + 496u + axis * 2u, duration);
+            if (command == 0x4304u)
+            {
+                w_u16(object + 500u, duration);
+                w_u16(object + 498u, duration);
+            }
+            step = (uint32)(((sint32)(value << 16) >> 4) / (sint32)(duration ? 100u * r_u16(object + 496u + axis * 2u) : 100u));
+            w_u16(object + 502u + axis * 2u, step);
+            if (command == 0x4304u)
+            {
+                w_u16(object + 506u, step);
+                w_u16(object + 504u, step);
+                y = r_u16(object + 504u);
+                z = r_u16(object + 506u);
+                w_u16(object + 36u, r_u16(object + 36u) + r_u16(object + 502u));
+                x = r_u16(object + 40u) + z;
+                w_u16(object + 38u, r_u16(object + 38u) + y);
+                w_u16(object + 40u, x);
+            }
+            else
+                w_u16(object + 36u + axis * 2u, r_u16(object + 36u + axis * 2u) + r_u16(object + 502u + axis * 2u));
+            return 1u;
+        case 0x4507u:
+            sound = r_u32(object + 520u);
+            if (sound)
+                sub_8006A294(sound);
+            value = behavior_stream_half(object);
+            w_u32(object + 520u, sub_80069DF0(value, 0x2000u, 0u));
+            w_u32(object + 524u, 0xFFFFFFFFu);
+            return 1u;
+        case 0x4508u:
+            sound = r_u32(object + 520u);
+            if (sound)
+                sub_8006A294(sound);
+            value = behavior_stream_half(object);
+            duration = behavior_stream_half(object);
+            w_u32(object + 524u, duration);
+            w_u32(object + 520u, sub_80069EF4(value, object + 4u, 0u));
+            return 1u;
+        case 0x4509u:
+            sound = r_u32(object + 520u);
+            if (sound)
+                sub_8006A294(sound);
+            w_u32(object + 520u, 0u);
+            return 1u;
+        case 0x4300u:
+            if (r_u32(object + 512u))
+                return 1u;
+            w_u32(object + 400u, r_u32(object + 400u) - 2u);
+            return 0u;
+        case 0x4301u:
+            player = r_u32(0x800FF5A0u);
+            if (r_u32(player + 428u) == object)
+                w_u32(player + 428u, 0u);
+            value = r_u16(object);
             table = r_u32(object + 68u);
-            receiver = object + (uint32)(sint32)(sint16)r_u16(table + 80u);
-            target = r_u32(table + 84u);
-            /* TODO Resolve the original virtual slot84 target */
-            fprintf(stderr, "Missing behavior virtual84 target%08X (%08X,%08X)\n", target, receiver, value);
-            abort();
-        }
-        apocalypse_trigger_position(position, (uint16)value);
-        behavior_position_missing(object, position);
-        return 1u;
-    case 0x4205u:
-        table = r_u32(object + 68u);
-        apocalypse_object_virtual20(r_u32(table + 20u), object + (uint32)(sint32)(sint16)r_u16(table + 16u));
-        return 0u;
-    default:
-        return sub_8004BF3C(object, command);
+            w_u16(object, value | 1u);
+            apocalypse_object_virtual20(r_u32(table + 20u), object + (uint32)(sint32)(sint16)r_u16(table + 16u));
+            sub_80022318(object, 0u, 0u);
+            return 0u;
+        case 0x4302u:
+            x = behavior_stream_half(object);
+            y = behavior_stream_half(object);
+            z = behavior_stream_half(object);
+            w_u32(object + 396u, r_u32(object + 396u) | 4u);
+            w_u32(object + 528u, x << 11);
+            w_u32(object + 532u, y << 11);
+            w_u32(object + 536u, z << 11);
+            return 1u;
+        case 0x4220u:
+        case 0x4222u:
+            cursor = (r_u32(object + 400u) + 3u) & 0xFFFFFFFCu;
+            position[0] = r_u32(cursor);
+            position[1] = r_u32(cursor + 4u);
+            position[2] = r_u32(cursor + 8u);
+            xport_draft_host_sub_8006C22C_p12(position, &shift);
+            if (command == 0x4222u)
+                xport_draft_host_sub_8006C0B8_p1(position, object + 4u);
+            w_u32(object + 400u, cursor + 12u);
+            behavior_position_native(object, position);
+            return 1u;
+        case 0x4221u:
+            value = behavior_stream_half(object);
+            if (value & 0x2000u)
+            {
+                table = r_u32(object + 68u);
+                receiver = object + (uint32)(sint32)(sint16)r_u16(table + 80u);
+                target = r_u32(table + 84u);
+                value = xport_draft_guest_call2(target, receiver, value);
+            }
+            apocalypse_trigger_position(position, (uint16)value);
+            behavior_position_native(object, position);
+            return 1u;
+        case 0x4205u:
+            table = r_u32(object + 68u);
+            apocalypse_object_virtual20(r_u32(table + 20u), object + (uint32)(sint32)(sint16)r_u16(table + 16u));
+            return 0u;
+        default:
+            return sub_8004BF3C(object, command);
     }
 }
-
 
 uint32 sub_8003CF3C(uint32 a1, uint32 a2)
 {
@@ -1013,6 +1062,7 @@ uint32 sub_8003CF3C(uint32 a1, uint32 a2)
     uint32 v14;
     short v15;
     short v16;
+    a2 &= 0xFFFFu;
     switch (a2)
     {
         case 0x2123u:
@@ -1059,9 +1109,9 @@ uint32 sub_8003CF3C(uint32 a1, uint32 a2)
         case 0x2134u:
             v10 = sub_8004CF78(a1);
             v11 = sub_8004CF78(a1);
-            result = ((sub_8004CF78(a1) << 16) >> 4);
-            w_u32((((uint32)(a1)) + (26) * 4u), ((v10 << 16) >> 4));
-            w_u32((((uint32)(a1)) + (27) * 4u), ((v11 << 16) >> 4));
+            result = ((sint32)(sub_8004CF78(a1) << 16) >> 4);
+            w_u32((((uint32)(a1)) + (26) * 4u), ((sint32)((uint32)v10 << 16) >> 4));
+            w_u32((((uint32)(a1)) + (27) * 4u), ((sint32)((uint32)v11 << 16) >> 4));
             w_u32((((uint32)(a1)) + (28) * 4u), result);
             return result;
 
@@ -1100,26 +1150,48 @@ uint32 apocalypse_sound_balance_native(const uint32 origin[3], uint32 minimum, u
     uint32 object = r_u32(0x800FF904u), position[3], numerator, weight, angle, flag = 0u;
     uint32 left, right, delta, magnitude;
     sint32 distance, divisor = (sint32)maximum, product;
-    if (!object) return 0u;
-    position[0] = r_u32(object + 4u); position[1] = r_u32(object + 8u); position[2] = r_u32(object + 12u);
+    if (!object)
+        return 0u;
+    position[0] = r_u32(object + 4u);
+    position[1] = r_u32(object + 8u);
+    position[2] = r_u32(object + 12u);
     distance = (sint32)xport_draft_host_sub_8006696C_p2(object + 4u, (void *)origin);
-    if ((sint32)minimum >= distance) return 0x0FFF0FFFu;
-    if (distance >= divisor) return 0u;
-    delta = maximum - (uint32)distance; numerator = (delta << 12) - delta;
-    if (!divisor) weight = (sint32)numerator < 0 ? 1u : 0xFFFFFFFFu;
-    else if ((sint32)numerator == (-2147483647 - 1) && divisor == -1) weight = numerator;
-    else weight = (uint32)((sint32)numerator / divisor);
+    if ((sint32)minimum >= distance)
+        return 0x0FFF0FFFu;
+    if (distance >= divisor)
+        return 0u;
+    delta = maximum - (uint32)distance;
+    numerator = (delta << 12) - delta;
+    if (!divisor)
+        weight = (sint32)numerator < 0 ? 1u : 0xFFFFFFFFu;
+    else if ((sint32)numerator == (-2147483647 - 1) && divisor == -1)
+        weight = numerator;
+    else
+        weight = (uint32)((sint32)numerator / divisor);
     object = r_u32(0x800FF904u);
     delta = (uint32)(sint32)(sint16)r_u16(object + 16u) - 1024u;
     magnitude = (delta ^ (uint32)((sint32)delta >> 31)) - (uint32)((sint32)delta >> 31);
-    if ((sint32)magnitude < 64) return weight | (weight << 16);
+    if ((sint32)magnitude < 64)
+        return weight | (weight << 16);
     angle = 1024u - (uint32)ratan2((sint32)(origin[2] - position[2]), (sint32)(origin[0] - position[0]));
     object = r_u32(0x800FF904u);
     angle = (angle - ((uint32)r_u16(object + 494u) - 2048u)) & 4095u;
-    if (angle - 1025u < 2047u) { flag = 0x80000000u; weight -= (uint32)((sint32)weight >> 4); }
+    if (angle - 1025u < 2047u)
+    {
+        flag = 0x80000000u;
+        weight -= (uint32)((sint32)weight >> 4);
+    }
     product = (sint32)(weight * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + angle * 4u)) >> 12;
-    if (angle < 2048u) { left = weight; right = weight - (uint32)product; }
-    else { right = weight; left = weight + (uint32)product; }
+    if (angle < 2048u)
+    {
+        left = weight;
+        right = weight - (uint32)product;
+    }
+    else
+    {
+        right = weight;
+        left = weight + (uint32)product;
+    }
     return right | (left << 16) | flag;
 }
 
@@ -1162,8 +1234,7 @@ void sub_8004DB90(uint32 a1, uint32 a2)
         if (v6)
         {
             /* TODO Implement excluded game function sub_8003A21C */
-            fprintf(stderr, "Missing sub_8003A21C (%08X,%08X,%08X)\n", (uint32)v6,
-                    (uint32)(sint32)(sint16)v7, (uint32)(uint8)v8);
+            fprintf(stderr, "Missing sub_8003A21C (%08X,%08X,%08X)\n", (uint32)v6, (uint32)(sint32)(sint16)v7, (uint32)(uint8)v8);
             abort();
         }
     }
@@ -1210,8 +1281,7 @@ void sub_80032C18(uint32 a1)
         if (r_u8(node + 63u))
         {
             table = r_u32(node + 68u);
-            (void)apocalypse_object_cleanup(r_u32(table + 12u),
-                node + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
+            (void)apocalypse_object_cleanup(r_u32(table + 12u), node + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
         }
         node = next;
     }
@@ -1466,26 +1536,31 @@ static void render_matrix_missing(uint32 left, uint32 right, void *output)
 {
     MulMatrix0((MATRIX *)psx_addr(left, 20u), (MATRIX *)psx_addr(right, 20u), (MATRIX *)output);
 }
+
 static void render_setup_missing(const void *rotation, const void *light, uint32 pose)
 {
     apocalypse_model_gte_setup_native(rotation, light, pose);
 }
+
 static void render_shadow_missing(uint32 model, const void *matrix, uint32 rgb, uint32 uv0, uint32 uv1, uint32 texture)
 {
     /* TODO Connect native 8007B2E4 matrix input */
     fprintf(stderr, "8007B2E4 missing model=%08X matrix=%p rgb=%08X uv0=%08X uv1=%08X texture=%08X\n", model, matrix, rgb, uv0, uv1, texture);
     abort();
 }
+
 static void render_effect_missing(uint32 model, const void *matrix, uint32 normal, uint32 point, uint32 effect, uint32 color)
 {
     apocalypse_model_effect_native(model, matrix, normal, point, effect, color);
 }
+
 static void render_packet_missing(uint32 model)
 {
     /* TODO Connect 8007FBD4 packet renderer */
     fprintf(stderr, "8007FBD4 missing model=%08X\n", model);
     abort();
 }
+
 uint32 sub_8007F340(uint32 object)
 {
     uint32 flags = r_u16(object), camera, table, models, count, pose;
@@ -1535,7 +1610,8 @@ uint32 sub_8007F340(uint32 object)
     {
         sint32 divisor, dividend, remainder;
         uint32 animation_index = (mode - 1u) & 0x7Fu;
-        if (animation_index >= 15u) animation_index = 14u;
+        if (animation_index >= 15u)
+            animation_index = 14u;
         animation = r_u32(0x800A6808u + animation_index * 4u);
         if (r_u32(0x800FFAB8u) != r_u32(0x800FF650u))
         {
@@ -1568,10 +1644,13 @@ uint32 sub_8007F340(uint32 object)
             sub_80081794(model + 32u + r_u32(model + 4u) * 8u, r_u32(model + 8u) == r_u32(model + 12u) ? r_u32(model + 8u) : r_u32(model + 4u));
         if (!(mode & 0x80u))
         {
-            if (r_u32(0x800FFB44u)) render_packet_missing(model);
-            else sub_8007FB34(model);
+            if (r_u32(0x800FFB44u))
+                render_packet_missing(model);
+            else
+                sub_8007FB34(model);
         }
-        if (r_u32(0x800FFB38u)) continue;
+        if (r_u32(0x800FFB38u))
+            continue;
         effects = r_u8(object + 314u) != 0u;
         if ((mode & 0x7Fu) || effects)
         {
@@ -1596,6 +1675,7 @@ uint32 sub_8007F340(uint32 object)
     }
     return 0u;
 }
+
 /* TODO Missing call adapter xport_draft_missing_gte_adapter */
 void sub_80081794(uint32 vertices, uint32 count)
 {
@@ -1620,6 +1700,3 @@ void sub_80081794(uint32 vertices, uint32 count)
         output += 8u;
     } while ((sint32)count > 0);
 }
-
-
-

@@ -159,7 +159,6 @@ uint32 apocalypse_dispatch_music_target(uint32 address)
 
 static sint32 dispatch_guest_callback(void *context, uint32 address)
 {
-    (void)context;
     if (address == 0x80066458u)
     {
         mdec_psyq_pump(33868800u / FIELD_RATE);

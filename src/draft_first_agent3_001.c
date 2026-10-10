@@ -191,12 +191,14 @@ static void controller_transfer_missing(uint32 slot, uint32 target, uint32 argum
     fprintf(stderr, "Controller callback missing slot=%08X target=%08X a0=%08X a1=%08X\n", slot, target, argument0, argument1);
     abort();
 }
+
 static void controller_carried_missing(uint32 target, uint32 counter, uint32 index)
 {
     /* TODO Resolve an asynchronous transition without a carried controller */
     fprintf(stderr, "Controller carry missing slot=800FEE14 target=%08X counter=%08X index=%08X\n", target, counter, index);
     abort();
 }
+
 uint32 sub_8009E420(uint32 controller)
 {
     uint32 target;
@@ -213,7 +215,8 @@ uint32 sub_8009E420(uint32 controller)
     uint32 buffer;
     FUNCTION_MARKER(0x8009E420u, "SLUS_003.73");
     target = r_u32(0x800FEE00u);
-    if (target != 0x8009ECE4u) controller_transfer_missing(0x800FEE00u, target, controller, 0u);
+    if (target != 0x8009ECE4u)
+        controller_transfer_missing(0x800FEE00u, target, controller, 0u);
     sub_8009ECE4(controller);
     mode = 0u;
     if (r_u32(0x800FEE40u) != 0u)
@@ -236,11 +239,13 @@ uint32 sub_8009E420(uint32 controller)
             {
                 argument = r_u32(controller + 12u);
                 target = r_u32(0x800FEE00u);
-                if (target != 0x8009ECE4u) controller_transfer_missing(0x800FEE00u, target, argument + stride, 0u);
+                if (target != 0x8009ECE4u)
+                    controller_transfer_missing(0x800FEE00u, target, argument + stride, 0u);
                 sub_8009ECE4(argument + stride);
             }
             target = r_u32(0x800FEDFCu);
-            if (target != 0x8009EBD4u) controller_transfer_missing(0x800FEDFCu, target, controller, 1u);
+            if (target != 0x8009EBD4u)
+                controller_transfer_missing(0x800FEDFCu, target, controller, 1u);
             result = sub_8009EBD4(controller, 1u);
             result = sub_8009D54C(controller, result & 0xFFu);
             if ((sint32)result < 0)
@@ -300,16 +305,19 @@ uint32 sub_8009E420(uint32 controller)
                 pointer = r_u32(0x800FEE28u);
                 pointer += stride;
                 target = r_u32(0x800FEE14u);
-                if (target != 0x8009F240u) controller_transfer_missing(0x800FEE14u, target, pointer, 0u);
+                if (target != 0x8009F240u)
+                    controller_transfer_missing(0x800FEE14u, target, pointer, 0u);
                 sub_8009F240(pointer);
                 target = r_u32(0x800FEE18u);
-                if (target != 0x8009EB90u) controller_transfer_missing(0x800FEE18u, target, pointer, 0u);
+                if (target != 0x8009EB90u)
+                    controller_transfer_missing(0x800FEE18u, target, pointer, 0u);
                 sub_8009EB90(pointer);
                 w_u32(counter_address, 0xFFFFFFFFu);
             }
-controller_receive:
+        controller_receive:
             target = r_u32(0x800FEDFCu);
-            if (target != 0x8009EBD4u) controller_transfer_missing(0x800FEDFCu, target, controller, mode);
+            if (target != 0x8009EBD4u)
+                controller_transfer_missing(0x800FEDFCu, target, controller, mode);
             result = sub_8009EBD4(controller, mode);
             result = sub_8009D374(controller, result & 0xFFu);
             if ((sint32)result < 0)
@@ -328,7 +336,8 @@ controller_receive:
         if ((sint32)count <= 0)
             break;
         target = r_u32(0x800FEDFCu);
-        if (target != 0x8009EBD4u) controller_transfer_missing(0x800FEDFCu, target, controller, mode);
+        if (target != 0x8009EBD4u)
+            controller_transfer_missing(0x800FEDFCu, target, controller, mode);
         result = sub_8009EBD4(controller, mode);
         result = sub_8009D374(controller, result & 0xFFu);
         if ((sint32)result < 0)
@@ -345,8 +354,8 @@ controller_receive:
     result = r_u8(source);
     w_u8(buffer + offset, result);
     target = r_u32(0x800FEDF4u);
-    if (target != 0x8009EA80u) controller_transfer_missing(0x800FEDF4u, target, 0u, 0u);
+    if (target != 0x8009EA80u)
+        controller_transfer_missing(0x800FEDF4u, target, 0u, 0u);
     sub_8009EA80(0u);
     return 0u;
 }
-

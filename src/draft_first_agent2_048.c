@@ -169,7 +169,6 @@ void sub_800849FC(uint32 list, uint32 unused, uint32 guest_bounds, uint32 mark)
     sint32 bounds[6];
     uint32 axis;
     FUNCTION_MARKER(0x800849FCu, "SLUS_003.73");
-    (void)unused;
     for (axis = 0u; axis < 6u; ++axis)
         bounds[axis] = (sint32)r_u32(guest_bounds + axis * 4u);
     apocalypse_mark_linked_collision_candidates(list, bounds, mark);

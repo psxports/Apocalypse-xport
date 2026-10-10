@@ -86,8 +86,7 @@ uint32 xport_draft_host_sub_800890BC_p2(uint32 packet, const void *rectangle)
                 y = 0;
             else if (y > height - 1)
                 y = (sint16)(height - 1);
-            words[index + 1u] = (index ? 0xE4000000u : 0xE3000000u) |
-                                  ((uint32)x & 0x3FFu) | (((uint32)y & 0x3FFu) << 10);
+            words[index + 1u] = (index ? 0xE4000000u : 0xE3000000u) | ((uint32)x & 0x3FFu) | (((uint32)y & 0x3FFu) << 10);
         }
     }
     w_u8(packet + 3u, 2u);
@@ -95,6 +94,7 @@ uint32 xport_draft_host_sub_800890BC_p2(uint32 packet, const void *rectangle)
     w_u32(packet + 8u, words[2]);
     return words[2];
 }
+
 void xport_draft_gte_control_write(uint32 index, uint32 value)
 {
     xport_gte_write_control(index, value);
@@ -142,10 +142,10 @@ void xport_draft_gte_square_vector(const sint32 input[3], uint32 output[3])
     for (axis = 0u; axis < 3u; ++axis)
         output[axis] = xport_gte_read_data(25u + axis);
 }
+
 uint32 xport_draft_host_sub_80033900_p3(uint32 a1, uint32 a2, const void *a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_80033900_p3\n");
-    abort();
+    return apocalypse_shadow_quad_native(a1, a2, a3, a4, a5, a6, a7);
 }
 
 uint32 xport_draft_unknown_critical_argument_8008E9FC(void)
@@ -274,8 +274,7 @@ uint32 xport_draft_host_sub_80020EF8_p2(uint32 object, void *position, uint32 a3
 
 uint32 xport_draft_host_sub_800679A4_p1(void *argument1, uint32 argument2)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_800679A4_p1\n");
-    abort();
+    return apocalypse_visibility_native(argument1, argument2);
 }
 
 uint32 xport_draft_host_sub_8006C3AC_p1(void *argument1, uint32 argument2, uint32 argument3)
@@ -335,8 +334,12 @@ uint32 xport_draft_host_sub_8007DD04_p1(void *argument1, uint32 argument2)
 
 uint32 xport_draft_host_sub_800872BC_p12(void *argument1, void *argument2)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_800872BC_p12\n");
-    abort();
+    VECTOR input = {0}, output = {0};
+    sint32 result;
+    memcpy(&input, argument1, 12u);
+    result = VectorNormal(&input, &output);
+    memcpy(argument2, &output, 12u);
+    return (uint32)result;
 }
 
 uint32 xport_draft_host_sub_8007CD74_p13(void *argument1, uint32 argument2, void *argument3)
@@ -390,10 +393,10 @@ uint32 xport_draft_host_sub_80075F80_p123(void *argument1, void *argument2, void
     uint32 a[4], b[4], result[4];
     memcpy(b, argument3, sizeof(b));
     memcpy(a, argument2, sizeof(a));
-    result[0] = (uint32)((sint32)(b[3]*a[0] + b[0]*a[3] + b[1]*a[2] - b[2]*a[1]) >> 12);
-    result[1] = (uint32)((sint32)(b[3]*a[1] + b[1]*a[3] + b[2]*a[0] - b[0]*a[2]) >> 12);
-    result[2] = (uint32)((sint32)(b[3]*a[2] + b[2]*a[3] + b[0]*a[1] - b[1]*a[0]) >> 12);
-    result[3] = (uint32)((sint32)(b[3]*a[3] - b[0]*a[0] - b[1]*a[1] - b[2]*a[2]) >> 12);
+    result[0] = (uint32)((sint32)(b[3] * a[0] + b[0] * a[3] + b[1] * a[2] - b[2] * a[1]) >> 12);
+    result[1] = (uint32)((sint32)(b[3] * a[1] + b[1] * a[3] + b[2] * a[0] - b[0] * a[2]) >> 12);
+    result[2] = (uint32)((sint32)(b[3] * a[2] + b[2] * a[3] + b[0] * a[1] - b[1] * a[0]) >> 12);
+    result[3] = (uint32)((sint32)(b[3] * a[3] - b[0] * a[0] - b[1] * a[1] - b[2] * a[2]) >> 12);
     memcpy(argument1, result, sizeof(result));
     return (uint32)(uintptr_t)argument1;
 }
@@ -442,12 +445,9 @@ uint32 xport_draft_host_sub_80076420_p1(void *argument1, uint32 argument2)
         root = SquareRoot0((sint32)(((uint32)trace + 4096u) << 12));
         w_u32(argument2 + 12u, (uint32)((sint32)root >> 1));
         factor = native_quaternion_inverse_root(root);
-        w_u32(argument2, native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 5u)
-            - native_quaternion_matrix_element(argument1, 7u), factor));
-        w_u32(argument2 + 4u, native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 6u)
-            - native_quaternion_matrix_element(argument1, 2u), factor));
-        result = native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 1u)
-            - native_quaternion_matrix_element(argument1, 3u), factor);
+        w_u32(argument2, native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 5u) - native_quaternion_matrix_element(argument1, 7u), factor));
+        w_u32(argument2 + 4u, native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 6u) - native_quaternion_matrix_element(argument1, 2u), factor));
+        result = native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 1u) - native_quaternion_matrix_element(argument1, 3u), factor);
         w_u32(argument2 + 8u, result);
         return result;
     }
@@ -455,21 +455,16 @@ uint32 xport_draft_host_sub_80076420_p1(void *argument1, uint32 argument2)
         selected = 2;
     next = (sint32)r_u32(0x800ED4C8u + 4u * (uint32)selected);
     last = (sint32)r_u32(0x800ED4C8u + 4u * (uint32)next);
-    root = SquareRoot0((sint32)(((uint32)native_quaternion_matrix_element(argument1, 4u * selected)
-        - (uint32)native_quaternion_matrix_element(argument1, 4u * next)
-        - (uint32)native_quaternion_matrix_element(argument1, 4u * last) + 4096u) << 12));
+    root = SquareRoot0((sint32)(((uint32)native_quaternion_matrix_element(argument1, 4u * selected) - (uint32)native_quaternion_matrix_element(argument1, 4u * next) - (uint32)native_quaternion_matrix_element(argument1, 4u * last) + 4096u) << 12));
     w_u32(argument2 + 4u * (uint32)selected, (uint32)((sint32)root >> 1));
     factor = native_quaternion_inverse_root(root);
-    w_u32(argument2 + 12u, native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 3u * next + last)
-        - native_quaternion_matrix_element(argument1, 3u * last + next), factor));
+    w_u32(argument2 + 12u, native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 3u * next + last) - native_quaternion_matrix_element(argument1, 3u * last + next), factor));
     if (next >= 0 && next < 3)
-        w_u32(argument2 + 4u * (uint32)next, native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 3u * selected + next)
-            + native_quaternion_matrix_element(argument1, 3u * next + selected), factor));
+        w_u32(argument2 + 4u * (uint32)next, native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 3u * selected + next) + native_quaternion_matrix_element(argument1, 3u * next + selected), factor));
     result = (uint32)(last < 2);
     if (last >= 0 && last < 3)
     {
-        result = native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 3u * selected + last)
-            + native_quaternion_matrix_element(argument1, 3u * last + selected), factor);
+        result = native_quaternion_scaled_product(native_quaternion_matrix_element(argument1, 3u * selected + last) + native_quaternion_matrix_element(argument1, 3u * last + selected), factor);
         w_u32(argument2 + 4u * (uint32)last, result);
     }
     else if (last >= 2)
@@ -490,8 +485,7 @@ uint32 xport_draft_host_sub_8006C40C_p1(void *argument1, uint32 argument2, uint3
 
 uint32 xport_draft_host_sub_80066B8C_p13(void *argument1, uint32 argument2, void *argument3)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_80066B8C_p13\n");
-    abort();
+    return apocalypse_rotation_between((sint16 *)argument1, (const uint32 *)psx_addr(argument2, 12u), (const uint32 *)argument3);
 }
 
 uint32 xport_draft_host_sub_8006C1E8_p2(uint32 argument1, void *argument2)
@@ -598,8 +592,7 @@ uint32 xport_draft_host_sub_800666DC_p12(void *argument1, void *argument2)
     for (axis = 0u; axis < 3u; ++axis)
     {
         memcpy(&component, (const uint8 *)argument2 + axis * 4u, 4u);
-        result = component == 0x80000000u && divisor == -1
-            ? component : (uint32)((sint32)component / divisor);
+        result = component == 0x80000000u && divisor == -1 ? component : (uint32)((sint32)component / divisor);
         memcpy((uint8 *)argument1 + axis * 4u, &result, 4u);
     }
     return result;
@@ -652,8 +645,7 @@ uint32 xport_draft_host_sub_8005CEE0_p2(uint32 argument1, void *argument2, uint3
 
 uint32 xport_draft_host_sub_80066B8C_p1(void *output, uint32 origin, uint32 target)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_80066B8C_p1\n");
-    abort();
+    return apocalypse_rotation_between((sint16 *)output, (const uint32 *)psx_addr(origin, 12u), (const uint32 *)psx_addr(target, 12u));
 }
 
 uint32 xport_draft_host_sub_8001C158_p23(uint32 a1, const void *a2, const void *a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8, uint32 a9, uint32 a10, uint32 a11, uint32 a12, uint32 a13)
@@ -676,8 +668,13 @@ uint32 xport_draft_host_sub_800666DC_p1(void *argument1, uint32 argument2)
 
 uint32 xport_draft_host_sub_8006C0B8_p2(uint32 argument1, void *argument2)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_8006C0B8_p2\n");
-    abort();
+    uint32 index, value;
+    for (index = 0u; index < 3u; ++index)
+    {
+        memcpy(&value, (const uint8 *)argument2 + 4u * index, sizeof(value));
+        w_u32(argument1 + 4u * index, r_u32(argument1 + 4u * index) + value);
+    }
+    return argument1;
 }
 
 uint32 xport_draft_host_sub_8006C47C_p13(void *argument1, uint32 argument2, void *argument3)
@@ -848,9 +845,38 @@ void xport_draft_gte_execute(uint32 opcode)
     xport_gte_execute(opcode);
 }
 
+uint32 sub_8004CFDC(uint32 object, uint32 command);
+uint32 sub_800529AC(uint32 object, uint32 command);
+uint32 sub_8004D2B4(uint32 object, uint32 opcode);
+uint32 sub_8003C7B4(uint32 object, uint32 command);
+uint32 sub_8003CF3C(uint32 object, uint32 command);
+uint32 sub_8003D0F0(uint32 object, uint32 command);
+uint32 sub_8004DC40(uint32 object, uint32 command);
+void sub_8004DB90(uint32 object, uint32 command);
+
 uint32 xport_draft_guest_call2(uint32 target, uint32 argument1, uint32 argument2)
 {
-    fprintf(stderr, "Unimplemented adapter: xport_draft_guest_call2\n");
+    if (target == 0x8004CFDCu)
+        return sub_8004CFDC(argument1, argument2);
+    if (target == 0x800529ACu)
+        return sub_800529AC(argument1, argument2);
+    if (target == 0x8004D2B4u)
+        return sub_8004D2B4(argument1, argument2);
+    if (target == 0x8003C7B4u)
+        return sub_8003C7B4(argument1, argument2);
+    if (target == 0x8003CF3Cu)
+        return sub_8003CF3C(argument1, argument2);
+    if (target == 0x8003D0F0u)
+        return sub_8003D0F0(argument1, argument2);
+    if (target == 0x8004DC40u)
+        return sub_8004DC40(argument1, argument2);
+    if (target == 0x8004DB90u)
+    {
+        /* The script setter caller ignores the return register */
+        sub_8004DB90(argument1, argument2);
+        return 0u;
+    }
+    fprintf(stderr, "Unimplemented adapter: xport_draft_guest_call2 target=%08X object=%08X command=%08X\n", target, argument1, argument2);
     abort();
 }
 
@@ -1018,6 +1044,7 @@ uint32 xport_draft_host_sub_800858FC_p2(uint32 input, void *output)
     apocalypse_rotation_matrix(input, output);
     return 0u;
 }
+
 uint32 xport_draft_host_sub_800854D8_p1(void *output)
 {
     uint32 index;
@@ -1103,7 +1130,10 @@ uint32 xport_draft_host_sub_8007F9E0_p2(uint32 model, const void *vector)
 
 void xport_draft_host_sub_8007FC60_p2(uint32 model, const void *vector)
 {
-    { (void)(apocalypse_render_geometry(model, (const sint32 *)vector)); return; }
+    {
+        (void)(apocalypse_render_geometry(model, (const sint32 *)vector));
+        return;
+    }
 }
 
 uint32 xport_draft_unknown_result_800817FC(void)
@@ -1118,37 +1148,19 @@ uint32 xport_draft_unknown_result_8006EE94(void)
     abort();
 }
 
-uint32 xport_draft_host_sub_80067388_p1(const void *position, uint32 a2, uint32 a3, uint32 a4, uint32 priority)
-{
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_80067388_p1\n");
-    abort();
-}
-
 uint32 xport_draft_host_sub_80069EF4_p2(uint32 sound, const void *position, uint32 parameter)
 {
     uint32 origin[3], balance, gain, left, right;
-    if ((sint32)sound < 0) return 0u;
+    if ((sint32)sound < 0)
+        return 0u;
     memcpy(origin, position, sizeof(origin));
     balance = apocalypse_sound_balance_native(origin, 256u, 12000u);
     gain = (uint32)(sint32)(sint16)r_u16(0x800ECC7Au);
     left = ((balance & 0xFFFu) * gain) >> 12;
     right = (((balance >> 16) & 0xFFFu) * gain) >> 12;
-    if ((sint32)balance < 0) left = 0u - left;
-    return sub_8006A4C4(r_u32(0x800E53A8u + sound * 8u),
-        r_u8(0x800E53A8u + ((sound * 8u) | 4u)),
-        (sint16)left, (sint16)right, parameter);
-}
-
-uint32 xport_draft_host_sub_8001E4C8_p1(const void *position, uint32 a2, uint32 a3, uint32 a4, uint32 a5)
-{
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_8001E4C8_p1\n");
-    abort();
-}
-
-uint32 xport_draft_host_sub_8001CF9C_p2(uint32 a1, const void *position, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8, uint32 a9, uint32 a10, uint32 a11, uint32 a12, uint32 a13, uint32 a14, uint32 a15, uint32 a16, uint32 a17, uint32 a18, uint32 a19, uint32 a20)
-{
-    fprintf(stderr, "Unimplemented adapter: xport_draft_host_sub_8001CF9C_p2\n");
-    abort();
+    if ((sint32)balance < 0)
+        left = 0u - left;
+    return sub_8006A4C4(r_u32(0x800E53A8u + sound * 8u), r_u8(0x800E53A8u + ((sound * 8u) | 4u)), (sint16)left, (sint16)right, parameter);
 }
 
 uint32 xport_draft_host_sub_8001EB64_p2(uint32 a1, const void *position, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7)

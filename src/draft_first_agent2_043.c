@@ -49,8 +49,7 @@ uint32 sub_800641E8(uint32 index)
         uint32 info = xport_draft_host_sub_8006613C_p1(position, index);
         preserve_list = 1u;
         special_flag = 1u;
-        object = xport_draft_host_sub_80020EF8_p2(resource, position,
-            r_u16(info + 2u) == 0u ? 4u : 0u, r_u16(info + 4u), 0x800A71CCu);
+        object = xport_draft_host_sub_80020EF8_p2(resource, position, r_u16(info + 2u) == 0u ? 4u : 0u, r_u16(info + 4u), 0x800A71CCu);
         goto finish;
     }
     if (type == 7)
@@ -412,13 +411,15 @@ CheckX:
         return 0u;
     return 1u;
 }
+
 uint32 sub_8004D2B4(uint32 object, uint32 opcode)
 {
     uint32 cursor, value, player, result;
     opcode &= 65535u;
     switch (opcode)
     {
-        case 8448u: return (uint32)(sint32)(sint16)r_u16(object + 218u);
+        case 8448u:
+            return (uint32)(sint32)(sint16)r_u16(object + 218u);
         case 8480u:
             cursor = r_u32(object + 400u);
             value = r_u8(cursor);
@@ -429,7 +430,8 @@ uint32 sub_8004D2B4(uint32 object, uint32 opcode)
             value = r_u16(cursor);
             w_u32(object + 400u, cursor + 2u);
             return sub_80066570(value);
-        case 8490u: return r_u16(object + 214u);
+        case 8490u:
+            return r_u16(object + 214u);
         case 8491u:
             cursor = r_u32(object + 400u);
             value = r_u16(cursor);
@@ -437,24 +439,28 @@ uint32 sub_8004D2B4(uint32 object, uint32 opcode)
             if (value & 0x2000u)
             {
                 uint32 table = r_u32(object + 68u);
-                /* TODO Bind virtual84 returning a script operand */
-                fprintf(stderr, "Missing virtual84 8004D2B4 target %08X receiver %08X operand %u\n",
-                    r_u32(table + 84u), object + (uint32)(sint32)(sint16)r_u16(table + 80u), value);
-                abort();
+                uint32 receiver = object + (uint32)(sint32)(sint16)r_u16(table + 80u);
+                uint32 target = r_u32(table + 84u);
+                value = xport_draft_guest_call2(target, receiver, value);
             }
             cursor = sub_80066088(value & 65535u);
             return r_u16(cursor) ? r_u16(cursor + 2u) : 0u;
-        case 8492u: return r_u8(object + 384u);
-        case 8493u: return r_u8(object + 383u);
-        case 8494u: return r_u16(object + 392u);
+        case 8492u:
+            return r_u8(object + 384u);
+        case 8493u:
+            return r_u8(object + 383u);
+        case 8494u:
+            return r_u16(object + 392u);
         case 8498u:
             player = r_u32(0x800FF5A0u);
-            if (!player) return 8191u;
+            if (!player)
+                return 8191u;
             result = sub_80066918(object + 4u, player + 4u);
             return result < 8192u ? result : 8191u;
         case 8499u:
             player = r_u32(0x800FF5A0u);
-            if (!player) return 0u;
+            if (!player)
+                return 0u;
             {
                 uint32 position[3];
                 position[0] = r_u32(object + 4u);
@@ -463,33 +469,81 @@ uint32 sub_8004D2B4(uint32 object, uint32 opcode)
                 position[1] -= (uint32)(sint32)(sint16)r_u16(object + 458u) << 12;
                 return xport_draft_host_sub_800679A4_p1(position, player + 4u);
             }
-        case 8502u: return r_u32(0x800FF274u);
-        case 8512u: case 8513u: case 8514u:
+        case 8502u:
+            return r_u32(0x800FF274u);
+        case 8512u:
+        case 8513u:
+        case 8514u:
             return (uint32)((sint32)r_u32(object + 4u + (opcode - 8512u) * 4u) >> 12);
-        case 8528u: case 8529u: case 8530u:
+        case 8528u:
+        case 8529u:
+        case 8530u:
             player = r_u32(0x800FF5A0u);
             return player ? (uint32)((sint32)r_u32(player + 4u + (opcode - 8528u) * 4u) >> 12) : 0u;
-        default: return 0u;
+        default:
+            return 0u;
     }
 }
 
-uint32 sub_80053784(uint32 a1, uint32 a2)
+uint32 apocalypse_move_target_native(uint32 object, const void *position)
 {
-    sint32 v4;
-    sint32 v5;
-    uint32 result;
-    if ((r_u8(((uint32)(((uint32)(a1) + (uint32)(26))))) != 2))
-        sub_80063118(a1, 2, 1);
-    if ((((r_u16(((uint32)(((uint32)(a1) + (uint32)(390))))) == 128) && ((r_u32(((uint32)(((uint32)(a1) + (uint32)(372))))) & 9) != 0)) && (r_u8(((uint32)(((uint32)(a1) + (uint32)(26))))) != 1)))
-        sub_80063118(a1, 1, 1);
-    v4 = r_u32((a2 + (1) * 4u));
-    v5 = r_u32((a2 + (2) * 4u));
-    w_u32(((uint32)(((uint32)(a1) + (uint32)(484)))), r_u32(a2));
-    w_u32(((uint32)(((uint32)(a1) + (uint32)(488)))), v4);
-    w_u32(((uint32)(((uint32)(a1) + (uint32)(492)))), v5);
-    result = ((r_u32(((uint32)(((uint32)(a1) + (uint32)(396))))) & 0xFFFFFFC6) | 1);
-    w_u32(((uint32)(((uint32)(a1) + (uint32)(396)))), result);
+    uint32 values[3], result;
+    if (r_u8(object + 26u) != 2u)
+        sub_80063118(object, 2u, 1u);
+    if (r_u16(object + 390u) == 128u && (r_u32(object + 372u) & 9u) && r_u8(object + 26u) != 1u)
+        sub_80063118(object, 1u, 1u);
+    memcpy(values, position, sizeof(values));
+    w_u32(object + 484u, values[0]);
+    w_u32(object + 488u, values[1]);
+    w_u32(object + 492u, values[2]);
+    result = (r_u32(object + 396u) | 1u) & 0xFFFFFFC7u;
+    w_u32(object + 396u, result);
     return result;
+}
+
+uint32 sub_80053784(uint32 object, uint32 position)
+{
+    return apocalypse_move_target_native(object, psx_addr(position, 12u));
+}
+
+uint32 apocalypse_jump_target_native(uint32 object, const void *position)
+{
+    uint32 values[3], result, state;
+    sub_80063038(object, 4u, 0u, 0xFFFFFFFFu);
+    memcpy(values, position, sizeof(values));
+    w_u32(object + 484u, values[0]);
+    w_u32(object + 488u, values[1]);
+    w_u32(object + 492u, values[2]);
+    result = r_u32(object + 396u) | 9u;
+    state = r_u8(object + 438u);
+    w_u8(object + 612u, state);
+    w_u32(object + 396u, result);
+    return result;
+}
+
+uint32 sub_80053834(uint32 object, uint32 position)
+{
+    return apocalypse_jump_target_native(object, psx_addr(position, 12u));
+}
+
+uint32 apocalypse_special_target_native(uint32 object, const void *position)
+{
+    uint32 values[3], result;
+    sub_80063038(object, 4u, 0u, 0xFFFFFFFFu);
+    memcpy(values, position, sizeof(values));
+    w_u32(object + 484u, values[0]);
+    w_u32(object + 488u, values[1]);
+    w_u32(object + 492u, values[2]);
+    result = r_u32(object + 396u);
+    w_u8(object + 382u, 1u);
+    result |= 0x11u;
+    w_u32(object + 396u, result);
+    return result;
+}
+
+uint32 sub_8005389C(uint32 object, uint32 position)
+{
+    return apocalypse_special_target_native(object, psx_addr(position, 12u));
 }
 
 uint32 sub_8004BE30(uint32 a1)
@@ -672,20 +726,30 @@ static uint32 apocalypse_object_dispatch(uint32 target, uint32 object)
 {
     switch (target)
     {
-        case 0x800209ECu: return sub_800209EC(object);
-        case 0x80026488u: return sub_80026488(object);
-        case 0x8002948Cu: return sub_8002948C(object);
-        case 0x8003BBD8u: return sub_8003BBD8(object);
-        case 0x8004D800u: return sub_8004D800(object);
-        case 0x8004E71Cu: return sub_8004E71C(object);
-        case 0x8005BD48u: return sub_8005BD48(object);
-        case 0x8005F688u: return sub_8005F688(object);
-        case 0x80061F54u: return sub_80061F54(object);
+        case 0x800209ECu:
+            return sub_800209EC(object);
+        case 0x80026488u:
+            return sub_80026488(object);
+        case 0x8002948Cu:
+            return sub_8002948C(object);
+        case 0x8003BBD8u:
+            return sub_8003BBD8(object);
+        case 0x8004D800u:
+            return sub_8004D800(object);
+        case 0x8004E71Cu:
+            return sub_8004E71C(object);
+        case 0x8005BD48u:
+            return sub_8005BD48(object);
+        case 0x8005F688u:
+            return sub_8005F688(object);
+        case 0x80061F54u:
+            return sub_80061F54(object);
         case 0x800622D8u:
             nullsub_34();
             /* The empty callee preserves the original JALR target as its carried result */
             return target;
-        case 0x8007876Cu: return sub_8007876C(object);
+        case 0x8007876Cu:
+            return sub_8007876C(object);
         default:
             /* TODO Resolve targets whose semantic input ABI is not established */
             fprintf(stderr, "Unimplemented object callback 0x%08X\n", target);
@@ -1049,7 +1113,8 @@ uint32 sub_80061A78(uint32 object, uint32 target_angle, uint32 heading, uint32 i
     uint32 target = target_angle & 4095u, desired = heading & 4095u;
     uint32 link, yaw_distance, angle_distance;
     sint32 old_heading, old_angle, delta;
-    if (r_u8(object + 470u) || r_u8(object + 473u) == 1u) immediate = 1u;
+    if (r_u8(object + 470u) || r_u8(object + 473u) == 1u)
+        immediate = 1u;
     if (immediate)
     {
         link = r_u32(object + 360u);
@@ -1095,11 +1160,9 @@ uint32 sub_80061A78(uint32 object, uint32 target_angle, uint32 heading, uint32 i
     w_u32(object + 432u, target);
     old_angle = (sint16)r_u16(link + 86u);
     if (old_angle < (sint32)target)
-        delta = (sint32)target - old_angle < 1024 ? (sint32)target - old_angle
-            : (sint16)(target - 4096u) - old_angle;
+        delta = (sint32)target - old_angle < 1024 ? (sint32)target - old_angle : (sint16)(target - 4096u) - old_angle;
     else
-        delta = old_angle - (sint32)target < 1024 ? (sint32)target - old_angle
-            : (sint32)target - (sint16)(r_u16(link + 86u) - 4096u);
+        delta = old_angle - (sint32)target < 1024 ? (sint32)target - old_angle : (sint32)target - (sint16)(r_u16(link + 86u) - 4096u);
     delta /= 8;
     w_u32(object + 436u, (uint32)delta);
     return (uint32)delta;
@@ -1348,7 +1411,9 @@ uint32 sub_800666DC(uint32 output, uint32 input)
     divisor = (sint32)sub_80085B54(x + y + z);
     if (!divisor)
     {
-        w_u32(output, 0u); w_u32(output + 4u, 0u); w_u32(output + 8u, 0u);
+        w_u32(output, 0u);
+        w_u32(output + 4u, 0u);
+        w_u32(output + 8u, 0u);
         return 0u;
     }
     x = r_u32(input);
@@ -1539,7 +1604,6 @@ uint32 sub_80069EF4(uint32 a1, uint32 a2, uint32 a3)
     return sub_8006A4C4(r_u32((0x800E53A8u + (((uint32)(2) * (uint32)(a1))) * 4u)), r_u8((((uint32)(0x800E53A8u)) + ((((uint32)(8) * (uint32)(a1)) | 4)) * 1u)), ((short)(v5)), ((short)((((uint32)(((uint32)((((v4 >> 16) & 65535u) & 0xFFF)) * (uint32)(r_u16(0x800ECC7Au))))) >> 12))), a3);
 }
 
-
 void apocalypse_mark_array_collision_candidates(uint32 list, const sint32 bounds[6], uint32 mark)
 {
     sint32 lower[3], upper[3], first[3], second[3];
@@ -1589,7 +1653,6 @@ void sub_80084C50(uint32 list, uint32 unused, uint32 guest_bounds, uint32 mark)
     sint32 bounds[6];
     uint32 axis;
     FUNCTION_MARKER(0x80084C50u, "SLUS_003.73");
-    (void)unused;
     if (!r_u32(list))
         return;
     for (axis = 0u; axis < 6u; ++axis)
@@ -1597,22 +1660,21 @@ void sub_80084C50(uint32 list, uint32 unused, uint32 guest_bounds, uint32 mark)
     apocalypse_mark_array_collision_candidates(list, bounds, mark);
 }
 
-
 /* TODO Missing call adapter xport_draft_missing_gte_adapter */
 void sub_800847AC(sint32 low[3], sint32 high[3], uint32 *flip_bits)
 {
-  uint32 axis;
-  for (axis = 0; axis < 3u; ++axis)
-  {
-    uint32 delta = (uint32)high[axis] - (uint32)low[axis];
-    if ((sint32)delta < 0)
+    uint32 axis;
+    for (axis = 0; axis < 3u; ++axis)
     {
-      sint32 temporary = low[axis];
-      low[axis] = high[axis];
-      high[axis] = temporary;
-      delta = (uint32)high[axis] - (uint32)low[axis];
-      *flip_bits ^= 1u << axis;
+        uint32 delta = (uint32)high[axis] - (uint32)low[axis];
+        if ((sint32)delta < 0)
+        {
+            sint32 temporary = low[axis];
+            low[axis] = high[axis];
+            high[axis] = temporary;
+            delta = (uint32)high[axis] - (uint32)low[axis];
+            *flip_bits ^= 1u << axis;
+        }
+        xport_draft_gte_control_write(axis * 2u, delta);
     }
-    xport_draft_gte_control_write(axis * 2u, delta);
-  }
 }

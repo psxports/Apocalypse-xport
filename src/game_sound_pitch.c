@@ -22,8 +22,7 @@ uint32 apocalypse_sound_pitch(uint32 note, uint32 fine, uint32 center, uint32 sh
         remainder += 12;
         --octave;
     }
-    product = (uint32)r_u16(0x800FD09Cu + (uint32)(2 * (sint16)remainder)) *
-              (uint32)r_u16(0x800FD0B4u + (uint32)(2 * (sint16)fraction));
+    product = (uint32)r_u16(0x800FD09Cu + (uint32)(2 * (sint16)remainder)) * (uint32)r_u16(0x800FD0B4u + (uint32)(2 * (sint16)fraction));
     rounded = (uint32)((sint32)product >> 16);
     octave = (sint16)octave;
     if (octave >= 0)

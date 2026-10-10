@@ -2,6 +2,7 @@
 #include "draft_first_adapters.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 /* Unverified draft; TODO Recover omitted call arguments, host-buffer adapters and signed field widths */
 
@@ -10,95 +11,79 @@ void sub_8003334C(uint32 a1, uint32 a2)
     w_u16(((uint32)((a1 + 72))), a2);
 }
 
-uint32 sub_80067388(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 priority)
+/* Preserve signed queue priorities and semantic host coordinates */
+static uint32 explosion_mark_objects(uint32 object, uint32 result)
 {
-    sint32 v9;
-    sint32 v10;
-    uint32 v11;
-    sint32 v12;
-    sint32 result;
-    uint32 v14;
-    sint32 v15;
-    sint32 v16;
-    uint32 v17;
-    sint32 v18;
-    sint32 v19;
-    sint32 v20;
-    sint32 v21;
-    v9 = 0;
-    if ((r_u32(0x800FF648u) < 3))
+    for (; object; object = r_u32(object + 28u))
     {
-        v9 = 1;
-        v17 = (0x800A724Cu + ((3 * r_u32(0x800FF648u))) * 4u);
-        v18 = r_u32((a1 + (1) * 4u));
-        v19 = r_u32((a1 + (2) * 4u));
-        w_u32(v17, r_u32(a1));
-        w_u32((v17 + (1) * 4u), v18);
-        w_u32((v17 + (2) * 4u), v19);
-        v20 = r_u32(0x800FF648u);
-        v21 = r_u32(0x800FF648u);
-        w_u32((0x800A7270u + (r_u32(0x800FF648u)) * 4u), a2);
-        w_u32((0x800A727Cu + (v21) * 4u), a3);
-        w_u32((0x800A7288u + (v21) * 4u), a4);
-        result = ((sint32)(0x800A7294u));
-        w_u32((0x800A7294u + (v21) * 4u), priority);
-        w_u32(0x800FF648u, (v20 + 1));
+        result = r_u16(object + 78u) & 64u;
+        if (!result)
+        {
+            result = r_u16(object + 76u) | 4u;
+            w_u16(object + 76u, result);
+        }
+    }
+    return result;
+}
+
+static uint32 explosion_queue(uint32 guest_position, const void *host_position,
+    uint32 mode, uint32 radius, uint32 strength, uint32 priority)
+{
+    uint32 count = r_u32(0x800FF648u);
+    uint32 index, destination, words[3], result;
+    if ((sint32)count < 3)
+    {
+        index = count;
+        result = 0x800A7294u;
     }
     else
     {
-        v10 = 0;
-        v11 = 0x800A7294u;
-        while (1)
-        {
-            v12 = v10;
-            if ((r_u32(v11) < priority))
+        for (index = 0u; index < 3u; ++index)
+            if ((sint32)r_u32(0x800A7294u + 4u * index) < (sint32)priority)
                 break;
-            result = (++v10 < 3);
-            (v11 += 4u);
-            if ((v10 >= 3))
-                goto LABEL_8;
-        }
-
-        v9 = 1;
-        v14 = (0x800A724Cu + ((3 * v10)) * 4u);
-        v15 = r_u32((a1 + (1) * 4u));
-        v16 = r_u32((a1 + (2) * 4u));
-        w_u32(v14, r_u32(a1));
-        w_u32((v14 + (1) * 4u), v15);
-        w_u32((v14 + (2) * 4u), v16);
-        w_u32((0x800A7270u + (v12) * 4u), a2);
-        w_u32((0x800A727Cu + (v12) * 4u), a3);
-        result = ((sint32)((0x800A7288u + (v12) * 4u)));
-        w_u32((0x800A7288u + (v12) * 4u), a4);
-        w_u32(v11, priority);
+        if (index == 3u)
+            return 0u;
+        result = 0x800A7288u + 4u * index;
     }
-LABEL_8:
-    if (v9)
+    if (host_position)
+        memcpy(words, host_position, sizeof(words));
+    else
     {
-        sub_80067338(r_u32(0x800FF4E8u));
-        return sub_80067338(r_u32(0x800FF5DCu));
+        words[0] = r_u32(guest_position);
+        words[1] = r_u32(guest_position + 4u);
+        words[2] = r_u32(guest_position + 8u);
     }
-
-    return result;
+    destination = 0x800A724Cu + 12u * index;
+    w_u32(destination, words[0]);
+    w_u32(destination + 4u, words[1]);
+    w_u32(destination + 8u, words[2]);
+    w_u32(0x800A7270u + 4u * index, mode);
+    w_u32(0x800A727Cu + 4u * index, radius);
+    w_u32(0x800A7288u + 4u * index, strength);
+    w_u32(0x800A7294u + 4u * index, priority);
+    if ((sint32)count < 3)
+        w_u32(0x800FF648u, count + 1u);
+    result = explosion_mark_objects(r_u32(0x800FF4E8u), result);
+    return explosion_mark_objects(r_u32(0x800FF5DCu), result);
 }
 
-uint32 sub_80067338(uint32 a1)
+uint32 sub_80067388(uint32 position, uint32 mode, uint32 radius, uint32 strength, uint32 priority)
 {
-    sint32 result;
-    for (; a1; a1 = r_u32(((uint32)((a1 + 28)))))
-    {
-        result = (r_u16(((uint32)((a1 + 78)))) & 0x40);
-        if (!result)
-        {
-            result = (r_u16(((uint32)((a1 + 76)))) | 4);
-            w_u16(((uint32)((a1 + 76))), result);
-        }
-    }
-
-    return result;
+    return explosion_queue(position, NULL, mode, radius, strength, priority);
 }
 
-uint32 sub_8001E1B8(uint32 a1, uint32 a2)
+uint32 xport_draft_host_sub_80067388_p1(const void *position, uint32 mode, uint32 radius, uint32 strength, uint32 priority)
+{
+    return explosion_queue(0u, position, mode, radius, strength, priority);
+}
+
+uint32 sub_80067338(uint32 object)
+{
+    /* Empty list has no defined C return input; queue calls preserve their carrier */
+    return explosion_mark_objects(object, 0u);
+}
+
+static uint32 explosion_proximity(uint32 a1, const void *host_position, uint32 a2)
 {
     sint32 result;
     sint32 v5;
@@ -114,16 +99,14 @@ uint32 sub_8001E1B8(uint32 a1, uint32 a2)
     unsigned char v15;
     sint32 v16;
     short v17;
-    sint32 v18;
-    sint32 v19;
-    sint32 v20;
+    sint32 listener[3];
     result = r_u32(0x800FF738u);
     if (!r_u32(0x800FF738u))
     {
-        v18 = (r_u32(0x800ED520u) << 12);
-        v19 = (r_u32(0x800ED524u) << 12);
-        v20 = (r_u32(0x800ED528u) << 12);
-        v5 = sub_8006696C(a1, &v18);
+        listener[0] = (r_u32(0x800ED520u) << 12);
+        listener[1] = (r_u32(0x800ED524u) << 12);
+        listener[2] = (r_u32(0x800ED528u) << 12);
+        v5 = host_position ? apocalypse_position_distance_native(host_position, listener) : xport_draft_host_sub_8006696C_p2(a1, listener);
         if (a2)
         {
             result = 1;
@@ -132,10 +115,18 @@ uint32 sub_8001E1B8(uint32 a1, uint32 a2)
                 v11 = 2;
                 if (((r_u32(0x800FF2F0u) & 1) != 0))
                     v11 = 1;
-                sub_80069EF4(v11, a1, 0);
+                if (host_position)
+                    xport_draft_host_sub_80069EF4_p2(v11, host_position, 0);
+                else
+                    sub_80069EF4(v11, a1, 0);
                 v12 = ((uint32)(sub_80032DC0(160)));
                 if (v12)
-                    sub_8001D484(v12, a1, 20, 200, 150, 10, 5000, 10, 0, 0, 1, 0, 7, 250, 5, 20, 65);
+                {
+                    if (host_position)
+                        apocalypse_explosion_debris_native(v12, host_position, 20, 200, 150, 10, 5000, 10, 0, 0, 1, 0, 7, 250, 5, 20, 65);
+                    else
+                        sub_8001D484(v12, a1, 20, 200, 150, 10, 5000, 10, 0, 0, 1, 0, 7, 250, 5, 20, 65);
+                }
                 if ((v5 < 6000))
                     sub_8001BE78(0x46u, 0x1Eu, 0, 0x14u, 0, 0);
                 result = (v5 < 2000);
@@ -146,7 +137,7 @@ uint32 sub_8001E1B8(uint32 a1, uint32 a2)
                     {
                         v9 = r_u32(0x800FF904u);
                         v10 = 0;
-                        return sub_800774EC(v9, v8, v10);
+                        return apocalypse_explosion_camera_native(v9, v10);
                     }
                     goto LABEL_21;
                 }
@@ -157,10 +148,18 @@ uint32 sub_8001E1B8(uint32 a1, uint32 a2)
             v6 = 2;
             if (((r_u32(0x800FF2F0u) & 1) != 0))
                 v6 = 1;
-            sub_80069EF4(v6, a1, 0);
+            if (host_position)
+                xport_draft_host_sub_80069EF4_p2(v6, host_position, 0);
+            else
+                sub_80069EF4(v6, a1, 0);
             v7 = ((uint32)(sub_80032DC0(160)));
             if (v7)
-                sub_8001D484(v7, a1, 10, 100, 70, 10, 3000, 10, 0, 0, 1, 0, 10, 250, 14, 10, 128);
+            {
+                if (host_position)
+                    apocalypse_explosion_debris_native(v7, host_position, 10, 100, 70, 10, 3000, 10, 0, 0, 1, 0, 10, 250, 14, 10, 128);
+                else
+                    sub_8001D484(v7, a1, 10, 100, 70, 10, 3000, 10, 0, 0, 1, 0, 10, 250, 14, 10, 128);
+            }
             result = (v5 < 2000);
             if ((v5 < 4000))
             {
@@ -169,21 +168,31 @@ uint32 sub_8001E1B8(uint32 a1, uint32 a2)
                 {
                     v9 = r_u32(0x800FF904u);
                     v10 = 2;
-                    return sub_800774EC(v9, v8, v10);
+                    return apocalypse_explosion_camera_native(v9, v10);
                 }
             LABEL_21:
                 v9 = r_u32(0x800FF904u);
 
                 v8 = a1;
                 v10 = 1;
-                return sub_800774EC(v9, v8, v10);
+                return apocalypse_explosion_camera_native(v9, v10);
             }
         }
     }
     return result;
 }
 
-uint32 sub_8001D484(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8, uint32 a9, uint32 a10, uint32 a11, uint32 a12, uint32 a13, uint32 a14, uint32 a15, uint32 a16, uint32 a17)
+uint32 sub_8001E1B8(uint32 a1, uint32 a2)
+{
+    return explosion_proximity(a1, NULL, a2);
+}
+
+uint32 apocalypse_explosion_proximity_native(const void *position, uint32 kind)
+{
+    return explosion_proximity(0u, position, kind);
+}
+
+static uint32 explosion_debris(uint32 a1, uint32 a2, const void *host_position, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8, uint32 a9, uint32 a10, uint32 a11, uint32 a12, uint32 a13, uint32 a14, uint32 a15, uint32 a16, uint32 a17)
 {
     sint8 v21;
     sint32 v22;
@@ -211,7 +220,6 @@ uint32 sub_8001D484(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
     sint32 v45;
     uint32 native_angles[2];
     uint32 origin[3], target[3];
-    short v48;
     uint32 v49[8];
     sint32 position[3];
     sint32 temporary[3];
@@ -228,17 +236,35 @@ uint32 sub_8001D484(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
     v24 = 0;
     sub_800330F4(a1);
     w_u32((a1 + (17) * 4u), 0x800A1184u);
-    v25 = r_u32((a2 + (1) * 4u));
-    v26 = r_u32((a2 + (2) * 4u));
-    w_u32((a1 + (6) * 4u), r_u32(a2));
+    if (host_position)
+    {
+        memcpy(&target[0], host_position, 4u);
+        memcpy(&v25, (const uint8 *)host_position + 4u, 4u);
+        memcpy(&v26, (const uint8 *)host_position + 8u, 4u);
+    }
+    else
+    {
+        target[0] = r_u32(a2);
+        v25 = r_u32(a2 + 4u);
+        v26 = r_u32(a2 + 8u);
+    }
+    w_u32((a1 + (6) * 4u), target[0]);
     w_u32((a1 + (7) * 4u), v25);
     w_u32((a1 + (8) * 4u), v26);
     origin[0] = r_u32(0x800ED520u) << 12;
     origin[1] = 0;
     origin[2] = r_u32(0x800ED528u) << 12;
-    target[0] = r_u32(a2);
+    if (host_position)
+    {
+        memcpy(&target[0], host_position, 4u);
+        memcpy(&target[2], (const uint8 *)host_position + 8u, 4u);
+    }
+    else
+    {
+        target[0] = r_u32(a2);
+        target[2] = r_u32(a2 + 8u);
+    }
     target[1] = 0;
-    target[2] = r_u32(a2 + 8u);
     xport_draft_host_sub_80066B8C_p123(native_angles, origin, target);
     native_angles[0] = (native_angles[0] & 65535u) | (((native_angles[0] >> 16) + 1024u) & 65535u) << 16;
     xport_draft_host_sub_800667CC_p13(v49, 1, native_angles);
@@ -249,11 +275,11 @@ uint32 sub_8001D484(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
     v62 = ((2 * a5) + 1);
     w_u32((a1 + (39) * 4u), v22);
     w_u32((a1 + (38) * 4u), a3);
-    while ((v24 < (a3 / 2)))
+    while (v24 < ((sint32)a3 / 2))
     {
         v57 = sub_80066570(a4);
-        sub_8006C40C(&temporary[0], v49, &v57);
-        sub_8006C34C(&position[0], v61, &temporary[0]);
+        xport_draft_host_sub_8006C40C_p123(&temporary[0], v49, &v57);
+        xport_draft_host_sub_8006C34C_p13(&position[0], v61, &temporary[0]);
         v29 = sub_80066570(v62);
         position[1] += ((v29 - a5) << 12);
         v30 = sub_80032DC0(120);
@@ -261,14 +287,14 @@ uint32 sub_8001D484(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
             v30 = xport_draft_host_sub_80035478_p2(v30, position, 9, 1000, 1, 0, 0xFFFFFFFEu);
         w_u8(((uint32)((v30 + 66))), 1);
         w_u32((v27 + (18) * 4u), v30);
-        sub_8006C40C(&temporary[0], v49, &a9);
+        xport_draft_host_sub_8006C40C_p123(&temporary[0], v49, &a9);
         v31 = temporary[1];
         v32 = temporary[2];
         w_u32(((uint32)((v30 + 36))), temporary[0]);
         w_u32(((uint32)((v30 + 40))), v31);
         w_u32(((uint32)((v30 + 44))), v32);
         w_u32(((uint32)((v30 + 40))), v63);
-        sub_8006C40C(&temporary[0], v49, &a10);
+        xport_draft_host_sub_8006C40C_p123(&temporary[0], v49, &a10);
         v33 = temporary[1];
         v34 = temporary[2];
         w_u32(((uint32)((v30 + 48))), temporary[0]);
@@ -290,8 +316,8 @@ uint32 sub_8001D484(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
         sub_80033240(v30, 8);
         v38 = (v27 + (1) * 4u);
         v58 = sub_80066570(a4);
-        sub_8006C40C(v56, v49, &v58);
-        sub_8006C3AC(&temporary[0], v61, v56);
+        xport_draft_host_sub_8006C40C_p123(v56, v49, &v58);
+        xport_draft_host_sub_8006C3AC_p13(&temporary[0], v61, v56);
         position[0] = temporary[0];
         position[1] = temporary[1];
         position[2] = temporary[2];
@@ -305,7 +331,7 @@ uint32 sub_8001D484(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
         v27 = (v38 + (1) * 4u);
         ++v24;
         v59 = (0u - a9);
-        sub_8006C40C(&temporary[0], v49, &v59);
+        xport_draft_host_sub_8006C40C_p123(&temporary[0], v49, &v59);
         v41 = a10;
         v42 = temporary[1];
         v43 = temporary[2];
@@ -313,8 +339,8 @@ uint32 sub_8001D484(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
         w_u32(((uint32)((v40 + 40))), v42);
         w_u32(((uint32)((v40 + 44))), v43);
         w_u32(((uint32)((v40 + 40))), v63);
-        v60 = -v41;
-        sub_8006C40C(&temporary[0], v49, &v60);
+        v60 = (sint32)(0u - (uint32)v41);
+        xport_draft_host_sub_8006C40C_p123(&temporary[0], v49, &v60);
         v44 = temporary[1];
         v45 = temporary[2];
         w_u32(((uint32)((v40 + 48))), temporary[0]);
@@ -334,6 +360,16 @@ uint32 sub_8001D484(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
     }
 
     return a1;
+}
+
+uint32 sub_8001D484(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8, uint32 a9, uint32 a10, uint32 a11, uint32 a12, uint32 a13, uint32 a14, uint32 a15, uint32 a16, uint32 a17)
+{
+    return explosion_debris(a1, a2, NULL, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17);
+}
+
+uint32 apocalypse_explosion_debris_native(uint32 a1, const void *position, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7, uint32 a8, uint32 a9, uint32 a10, uint32 a11, uint32 a12, uint32 a13, uint32 a14, uint32 a15, uint32 a16, uint32 a17)
+{
+    return explosion_debris(a1, 0u, position, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17);
 }
 
 uint32 sub_800774BC(uint32 a1, uint32 a2)
@@ -903,18 +939,26 @@ uint32 sub_80034958(uint32 a1, uint32 a2)
     return result;
 }
 
-uint32 sub_800679A4(uint32 a1, uint32 a2)
+uint32 apocalypse_visibility_native(const void *start, uint32 end)
 {
-    int v3[36];
-    v3[0] = r_u32(a1);
-    v3[1] = r_u32((a1 + (1) * 4u));
-    v3[2] = r_u32((a1 + (2) * 4u));
-    v3[3] = r_u32(a2);
-    v3[4] = r_u32((a2 + (1) * 4u));
-    v3[5] = r_u32((a2 + (2) * 4u));
-    sub_8007BB24(v3);
-    sub_8007DD04(v3, 1);
-    return (v3[26] == 0);
+    uint32 collision[36], value;
+    memcpy(&value, start, sizeof(value));
+    collision[0] = value;
+    memcpy(&value, (const uint8 *)start + 4u, sizeof(value));
+    collision[1] = value;
+    memcpy(&value, (const uint8 *)start + 8u, sizeof(value));
+    collision[2] = value;
+    collision[3] = r_u32(end);
+    collision[4] = r_u32(end + 4u);
+    collision[5] = r_u32(end + 8u);
+    xport_draft_host_sub_8007BB24_p1(collision);
+    xport_draft_host_sub_8007DD04_p1(collision, 1u);
+    return collision[26] == 0u;
+}
+
+uint32 sub_800679A4(uint32 start, uint32 end)
+{
+    return apocalypse_visibility_native(psx_addr(start, 12u), end);
 }
 
 uint32 sub_8002BBF0(uint32 a1, uint32 a2)
@@ -956,6 +1000,10 @@ uint32 sub_80034B7C(uint32 a1, uint32 a2)
 uint32 sub_8001BE78(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6)
 {
     sint32 result;
+    a1 &= 255u;
+    a2 &= 255u;
+    a3 &= 255u;
+    a5 &= 255u;
     result = (a5 < ((uint32)(((unsigned char)(r_u8(0x800FF1DCu))))));
     if ((a5 >= ((uint32)(((unsigned char)(r_u8(0x800FF1DCu)))))))
     {
@@ -1027,25 +1075,35 @@ uint32 sub_8004BA64(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
 /* TODO Missing call adapter sub_80019318 */
 /* TODO The existing 19318 adapter remains a named missing dependency */
 uint32 sub_80019318(uint32 record, uint32 position, uint32 output);
+
 uint32 sub_8005EEDC(uint32 object)
 {
     uint32 record = r_u32(object + 512u);
     uint32 x, y, z, kind;
-    if (!record || r_u32(0x800FF5A4u)) return 0u;
-    if (!sub_80019318(record, object + 4u, object + 496u)) return 0u;
-    x = r_u32(object + 496u); y = r_u32(object + 500u); z = r_u32(object + 504u);
-    w_u32(object + 4u, x); w_u32(object + 8u, y); w_u32(object + 12u, z);
+    if (!record || r_u32(0x800FF5A4u))
+        return 0u;
+    if (!sub_80019318(record, object + 4u, object + 496u))
+        return 0u;
+    x = r_u32(object + 496u);
+    y = r_u32(object + 500u);
+    z = r_u32(object + 504u);
+    w_u32(object + 4u, x);
+    w_u32(object + 8u, y);
+    w_u32(object + 12u, z);
     record = r_u32(object + 512u);
     w_u32(object + 8u, r_u32(object + 8u) + 0x80000u);
     kind = r_u16(record + 58u);
-    if (kind != 400u && kind != 401u) return 0u;
+    if (kind != 400u && kind != 401u)
+        return 0u;
     w_u32(object + 460u, kind == 400u ? 0x8000u : 0x4000u);
     w_u32(object + 108u, 0u);
     record = r_u32(object + 512u);
     w_u16(object + 18u, (r_u16(record + 320u) + 2048u) & 0xFFFu);
     w_u8(r_u32(object + 444u) + 273u, 0u);
-    w_u32(object + 508u, 1u); w_u32(0x800FF5A4u, 1u);
-    if (kind == 400u) w_u32(object + 492u, sub_80069DF0(100u, 0x2000u, 0u));
+    w_u32(object + 508u, 1u);
+    w_u32(0x800FF5A4u, 1u);
+    if (kind == 400u)
+        w_u32(object + 492u, sub_80069DF0(100u, 0x2000u, 0u));
     return 1u;
 }
 
@@ -1152,22 +1210,22 @@ uint32 sub_80029F58(uint32 a1, uint32 a2)
 /* TODO Resolve host-vector normalization and class-qualified slot-52 dispatch */
 static void area_damage_normalize(sint32 vector[3], sint32 *length)
 {
-    (void)vector; (void)length;
     abort();
 }
+
 static void area_damage_virtual52(uint32 object, uint32 damage, const sint32 vector[3], uint32 reason)
 {
-    (void)object; (void)damage; (void)vector; (void)reason;
     abort();
 }
+
 static sint32 area_damage_divide(uint32 numerator, uint32 denominator)
 {
-    if (!denominator) return (sint32)numerator < 0 ? 1 : -1;
+    if (!denominator)
+        return (sint32)numerator < 0 ? 1 : -1;
     return (sint32)((long long)(sint32)numerator / (long long)(sint32)denominator);
 }
+
 /* TODO Resolve host-vector normalization and class-qualified slot-52 dispatch */
-
-
 
 void sub_80029F88(uint32 source, uint32 object, uint32 effects)
 {
@@ -1184,12 +1242,16 @@ void sub_80029F88(uint32 source, uint32 object, uint32 effects)
                 if (effects && !r_u32(0x800FF738u))
                     sub_8001D320(object + 4u, 70u, 240u, 200u, 0u, 5u, 0u, 100u);
                 xport_draft_host_sub_8006C3AC_p1(vector, object + 4u, source + 24u);
-                if (length) area_damage_normalize(vector, &length);
-                else vector[0] = vector[1] = vector[2] = 0;
-                radius = r_u32(source + 168u); range = r_u32(source + 100u);
+                if (length)
+                    area_damage_normalize(vector, &length);
+                else
+                    vector[0] = vector[1] = vector[2] = 0;
+                radius = r_u32(source + 168u);
+                range = r_u32(source + 100u);
                 if ((sint32)range >= (sint32)radius)
                     damage = r_u32(source + 92u) - (uint32)area_damage_divide((r_u32(source + 92u) - r_u32(source + 96u)) * radius, range);
-                else damage = r_u32(source + 96u);
+                else
+                    damage = r_u32(source + 96u);
                 area_damage_virtual52(object, damage, vector, 30u);
                 w_u16(object + 78u, r_u16(object + 78u) | 0x100u);
             }
@@ -1742,11 +1804,14 @@ uint32 apocalypse_segment_normal(uint32 vertices, sint32 *x, sint32 *y, uint32 m
     horizontal /= 512;
     *x = vertical;
     *y = -horizontal;
-    if (horizontal < 0) horizontal = -horizontal;
-    if (vertical < 0) vertical = -vertical;
+    if (horizontal < 0)
+        horizontal = -horizontal;
+    if (vertical < 0)
+        vertical = -vertical;
     norm = vertical < horizontal ? horizontal + vertical / 2 : vertical + horizontal / 2;
     result = (uint32)(norm < (sint32)minimum_length);
-    if (result) goto empty;
+    if (result)
+        goto empty;
     *x = segment_divide((uint32)*x << 6, (uint32)norm);
     *y = segment_divide((uint32)*y << 6, (uint32)norm);
     result = (uint32)segment_divide((uint32)*x << 9, 320u);
@@ -1801,13 +1866,7 @@ uint32 sub_8001F7A0(uint32 lower, uint32 upper)
     while (object)
     {
         next = r_u32(object + 4u);
-        if (r_u8(object + 67u) == 7u
-            && (sint32)r_u32(object + 24u) >= (sint32)r_u32(lower)
-            && (sint32)r_u32(upper) >= (sint32)r_u32(object + 24u)
-            && (sint32)r_u32(object + 28u) >= (sint32)r_u32(lower + 4u)
-            && (sint32)r_u32(upper + 4u) >= (sint32)r_u32(object + 28u)
-            && (sint32)r_u32(object + 32u) >= (sint32)r_u32(lower + 8u)
-            && (sint32)r_u32(upper + 8u) >= (sint32)r_u32(object + 32u))
+        if (r_u8(object + 67u) == 7u && (sint32)r_u32(object + 24u) >= (sint32)r_u32(lower) && (sint32)r_u32(upper) >= (sint32)r_u32(object + 24u) && (sint32)r_u32(object + 28u) >= (sint32)r_u32(lower + 4u) && (sint32)r_u32(upper + 4u) >= (sint32)r_u32(object + 28u) && (sint32)r_u32(object + 32u) >= (sint32)r_u32(lower + 8u) && (sint32)r_u32(upper + 8u) >= (sint32)r_u32(object + 32u))
         {
             table = r_u32(object + 68u);
             ++count;

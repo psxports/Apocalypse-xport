@@ -22,57 +22,45 @@ uint32 sub_800368F8(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
     return result;
 }
 
-uint32 sub_800774EC(uint32 a1, uint32 a2, uint32 a3)
+static uint32 explosion_shake_mark(uint32 list, uint32 result)
 {
-    sint32 v4;
-    short v5;
-    short v6;
-    short v7;
-    sint8 v8;
-    sint8 v9;
-    short v10;
-    if ((a3 == 1))
+    for (; list; list = r_u32(list + 28u))
     {
-        v6 = r_u16(0x800FFCF4u);
-        w_u32(((uint32)((a1 + 548))), 0x800FFCF0u);
-        w_u16(((uint32)((a1 + 552))), v6);
-        goto LABEL_10;
+        result = r_u16(list + 76u) | 2u;
+        w_u16(list + 76u, result);
     }
-    if ((((sint32)(a3)) >= 2))
-    {
-        if ((a3 != 2))
-        {
-            v4 = a2;
-            goto LABEL_11;
-        }
-        v7 = r_u16(0x800FFCECu);
-        w_u32(((uint32)((a1 + 548))), 0x800FFCE8u);
-        w_u16(((uint32)((a1 + 552))), v7);
-    LABEL_10:
-        v8 = r_u8(0x800FFCE1u);
+    return result;
+}
 
-        v9 = r_u8(0x800FFCE2u);
-        w_u8(((uint32)((a1 + 554))), 0x800FFCE0u);
-        w_u8(((uint32)((a1 + 555))), v8);
-        w_u8(((uint32)((a1 + 556))), v9);
-        v10 = r_u16(0x800FFCDCu);
-        w_u32(((uint32)((a1 + 558))), 0x800FFCD8u);
-        w_u16(((uint32)((a1 + 562))), v10);
-        v4 = a2;
-        goto LABEL_11;
-    }
-    if (!a3)
+uint32 apocalypse_explosion_camera_native(uint32 camera, uint32 kind)
+{
+    uint32 result = kind == 1u ? 1u : 2u;
+    if (kind <= 2u)
     {
-        v5 = r_u16(0x800FFCFCu);
-        w_u32(((uint32)((a1 + 548))), 0x800FFCF8u);
-        w_u16(((uint32)((a1 + 552))), v5);
-        goto LABEL_10;
+        uint32 preset = kind == 0u ? 0x800FFCF8u : kind == 1u ? 0x800FFCF0u : 0x800FFCE8u;
+        uint32 word = r_u32(preset), half = r_u16(preset + 4u);
+        uint32 byte0, byte1, byte2;
+        w_u32(camera + 548u, word);
+        w_u16(camera + 552u, half);
+        byte0 = r_u8(0x800FFCE0u);
+        byte1 = r_u8(0x800FFCE1u);
+        byte2 = r_u8(0x800FFCE2u);
+        w_u8(camera + 554u, byte0);
+        w_u8(camera + 555u, byte1);
+        w_u8(camera + 556u, byte2);
+        word = r_u32(0x800FFCD8u);
+        half = r_u16(0x800FFCDCu);
+        w_u32(camera + 558u, word);
+        w_u16(camera + 562u, half);
     }
-    v4 = a2;
-LABEL_11:
-    sub_800774BC(v4, r_u32(0x800FF4E8u));
+    /* The original list marker never reads its position argument */
+    result = explosion_shake_mark(r_u32(0x800FF4E8u), result);
+    return explosion_shake_mark(r_u32(0x800FF5DCu), result);
+}
 
-    return sub_800774BC(a2, r_u32(0x800FF5DCu));
+uint32 sub_800774EC(uint32 camera, uint32 position, uint32 kind)
+{
+    return apocalypse_explosion_camera_native(camera, kind);
 }
 
 /* TODO Missing call adapter _byteswap_ushort */
@@ -207,8 +195,7 @@ uint32 sub_800326E8(uint32 object)
         if (child)
         {
             uint32 lifetime = r_u32(object + 88u) + sub_80066570(r_u32(object + 92u));
-            child = xport_draft_host_sub_80035638_p3(child, object + 24u, velocity,
-                0x800FF398u, lifetime, 0u, 10u);
+            child = xport_draft_host_sub_80035638_p3(child, object + 24u, velocity, 0x800FF398u, lifetime, 0u, 10u);
         }
         w_u16(child + 64u, 100u);
         random = sub_80066570(4096u);
@@ -220,7 +207,8 @@ uint32 sub_800326E8(uint32 object)
     w_u16(object + 8u, (uint16)age);
     if ((sint32)(sint16)age == (sint32)r_u16(object + 10u))
     {
-        if (age != 0xFFFFu) return sub_80032ED8(object);
+        if (age != 0xFFFFu)
+            return sub_80032ED8(object);
         return 0xFFFFu;
     }
     return (uint32)(sint32)(sint16)age;
@@ -352,6 +340,7 @@ uint32 sub_800333D0(uint32 a1, uint32 a2)
 
 /* TODO Missing call adapter sub_80058814 */
 uint32 sub_80058814(uint32 receiver);
+
 uint32 sub_80052EA8(uint32 object)
 {
     uint32 receiver = r_u32(object + 616u);
@@ -387,7 +376,10 @@ void sub_8004F840(uint32 a1, uint32 a2, uint32 a3)
         return;
     }
     if ((((r_u32(((uint32)((a1 + 396)))) & 0x200) != 0) || (r_u8(((uint32)((a1 + 26)))) == 4)))
-        { (void)(sub_8004FB00(a1, 0)); return; }
+    {
+        (void)(sub_8004FB00(a1, 0));
+        return;
+    }
     w_u16(((uint32)((a1 + 136))), 0);
     w_u16(((uint32)((a1 + 134))), 0);
     w_u16(((uint32)((a1 + 132))), 0);
@@ -405,9 +397,15 @@ void sub_8004F840(uint32 a1, uint32 a2, uint32 a3)
 
                 a1 = v3;
                 if (v12)
-                    { (void)(sub_8004FB00(a1, 0)); return; }
+                {
+                    (void)(sub_8004FB00(a1, 0));
+                    return;
+                }
                 if ((((r_u16(((uint32)((v3 + 390)))) & 0x1F) != 0) && !sub_80066570(5)))
-                    { (void)(sub_8004FEC4(v3)); return; }
+                {
+                    (void)(sub_8004FEC4(v3));
+                    return;
+                }
                 v13 = r_u16(((uint32)((v3 + 390))));
                 w_u8(((uint32)((v3 + 380))), 0);
                 if ((v13 == 4))
@@ -436,7 +434,10 @@ void sub_8004F840(uint32 a1, uint32 a2, uint32 a3)
                 }
                 goto LABEL_35;
             }
-            { (void)(sub_8004FB00(a1, 0)); return; }
+            {
+                (void)(sub_8004FB00(a1, 0));
+                return;
+            }
         }
         if ((a3 == 9))
         {
@@ -454,7 +455,10 @@ void sub_8004F840(uint32 a1, uint32 a2, uint32 a3)
                     w_u16(((uint32)((v3 + 474))), 0);
                     return;
                 }
-                { (void)(sub_8004FB00(a1, 0)); return; }
+                {
+                    (void)(sub_8004FB00(a1, 0));
+                    return;
+                }
             }
         }
         else
@@ -466,16 +470,28 @@ void sub_8004F840(uint32 a1, uint32 a2, uint32 a3)
                 v11 = sub_80066570(2);
                 a1 = v3;
                 if (v11)
-                    { (void)(sub_8004FE20(v3)); return; }
-                { (void)(sub_8004FB00(a1, 0)); return; }
+                {
+                    (void)(sub_8004FE20(v3));
+                    return;
+                }
+                {
+                    (void)(sub_8004FB00(a1, 0));
+                    return;
+                }
             }
         }
-        { (void)(sub_8004FEC4(v3)); return; }
+        {
+            (void)(sub_8004FEC4(v3));
+            return;
+        }
     }
     v8 = (sub_80066570(5) == 0);
     result = 11;
     if (v8)
-        { (void)(sub_8004FB00(v3, 5)); return; }
+    {
+        (void)(sub_8004FB00(v3, 5));
+        return;
+    }
     v9 = r_u32(((uint32)((v3 + 396))));
     w_u8(((uint32)((v3 + 380))), 0);
     w_u32(((uint32)((v3 + 472))), 11);
@@ -492,26 +508,27 @@ static void effect_5BD48_missing(const char *service)
     fprintf(stderr, "TODO 8005BD48 boundary: %s\n", service);
     abort();
 }
+
 static void effect_5BD48_scale(uint32 output[3], uint32 source, const uint32 shift[1])
 {
-    (void)output; (void)source; (void)shift;
     effect_5BD48_missing("8006CCE0 native scaled vector");
 }
+
 static void effect_5BD48_store(uint32 destination, const uint32 source[3])
 {
-    (void)destination; (void)source;
     effect_5BD48_missing("8006C774 native vector source");
 }
+
 static void effect_5BD48_angles(const sint16 angles[3])
 {
-    (void)angles;
     effect_5BD48_missing("80034FC4 native angles");
 }
+
 static void effect_5BD48_position(const uint32 position[3])
 {
-    (void)position;
     effect_5BD48_missing("80034F9C native position");
 }
+
 static uint32 effect_5BD48_virtual20(uint32 object)
 {
     uint32 table = r_u32(object + 68u);
@@ -573,7 +590,7 @@ uint32 sub_8005BD48(uint32 a1)
         v8 = (r_u8((((uint32)(a1)) + (296) * 1u)) - 1);
         w_u8((((uint32)(a1)) + (296) * 1u), v8);
         if (!v8)
-        return effect_5BD48_virtual20(a1);
+            return effect_5BD48_virtual20(a1);
         v9 = r_u32((((uint32)(a1)) + (76) * 4u));
         w_u32((((uint32)(a1)) + (27) * 4u), 0u - r_u32((((uint32)(a1)) + (27) * 4u)));
         w_u32((((uint32)(a1)) + (2) * 4u), v9);
@@ -591,7 +608,9 @@ uint32 sub_8005BD48(uint32 a1)
     }
     if (((!r_u32(0x800FF738u) && ((((sint16)(r_u16((a1 + (150) * 2u)))) & 0xE) != 0)) && ((sint32)r_u32(0x800FF3A8u) < 200)))
     {
-        angles[0] = 512; angles[1] = 4096; angles[2] = 0;
+        angles[0] = 512;
+        angles[1] = 4096;
+        angles[2] = 0;
 
         effect_5BD48_angles(angles);
         {
@@ -659,8 +678,11 @@ uint32 sub_8005BD48(uint32 a1)
             result = ((sint32)sub_8006696C((a1 + (2) * 2u), (r_u32(0x800FF5A0u) + 4)) < 128);
             if (result)
             {
-                { uint32 target_object = r_u32(0x800FF5A0u), table = r_u32(target_object + 68u); apocalypse_object_virtual52(r_u32(table + 52u), target_object + (uint32)(sint32)(sint16)r_u16(table + 48u), r_u8(a1 + 297u), 0x800A71CCu, 0u); }
-        return effect_5BD48_virtual20(a1);
+                {
+                    uint32 target_object = r_u32(0x800FF5A0u), table = r_u32(target_object + 68u);
+                    apocalypse_object_virtual52(r_u32(table + 52u), target_object + (uint32)(sint32)(sint16)r_u16(table + 48u), r_u8(a1 + 297u), 0x800A71CCu, 0u);
+                }
+                return effect_5BD48_virtual20(a1);
             }
         }
     }
@@ -718,14 +740,12 @@ void nullsub_31(void)
 
 static void state_4FF6C_angles_34F9C(const sint16 angles[3])
 {
-    (void)angles;
     fputs("TODO 4FF6C native SVECTOR boundary 34F9C\n", stderr);
     abort();
 }
 
 static void state_4FF6C_angles_34FC4(const sint16 angles[3])
 {
-    (void)angles;
     fputs("TODO 4FF6C native SVECTOR boundary 34FC4\n", stderr);
     abort();
 }
@@ -911,7 +931,10 @@ void sub_8004FF6C(uint32 a1)
                     w_u16(((uint32)((a1 + 18))), (3072 - ratan2((sint32)(r_u32(((uint32)((v4 + 12)))) - r_u32(((uint32)((a1 + 12))))), (sint32)(r_u32(((uint32)((v4 + 4)))) - r_u32(((uint32)((a1 + 4))))))));
                 (v6 = sub_80067A18((v1 + 4), 0, 4096));
                 if ((v6 == -1))
-                    { (void)(apocalypse_object_virtual20(r_u32(r_u32(v1 + 68) + 20), v1 + (sint16)r_u16(r_u32(v1 + 68) + 16))); return; }
+                {
+                    (void)(apocalypse_object_virtual20(r_u32(r_u32(v1 + 68) + 20), v1 + (sint16)r_u16(r_u32(v1 + 68) + 16)));
+                    return;
+                }
                 (v7 = ((sint16)(r_u16(((uint32)((v1 + 456)))))));
                 if (((sint32)((uint32)v6 - r_u32(v1 + 8)) >> 12) >= 2 * v7)
                 {
@@ -921,7 +944,10 @@ void sub_8004FF6C(uint32 a1)
                     (v9 = r_u16(((uint32)((v1 + 78)))));
                     w_u8(((uint32)((v1 + 382))), 1);
                     w_u16(((uint32)((v1 + 78))), (v9 & 0xFFEF));
-                    { (void)(sub_80062D84(v1)); return; }
+                    {
+                        (void)(sub_80062D84(v1));
+                        return;
+                    }
                 }
                 w_u32(((uint32)((v1 + 8))), ((uint32)v6 - ((uint32)v7 << 12)));
                 w_u16(((uint32)((v1 + 472))), 1);
@@ -933,7 +959,10 @@ void sub_8004FF6C(uint32 a1)
                 w_u32(((uint32)((v1 + 104))), 0);
             LABEL_20:
                 if ((v8 != 8))
-                    { (void)(sub_80062D70(v1)); return; }
+                {
+                    (void)(sub_80062D70(v1));
+                    return;
+                }
 
                 return;
             }
@@ -980,11 +1009,17 @@ void sub_8004FF6C(uint32 a1)
                     (v18 = sub_80066570(16));
                     (v19 = 43);
                     if (!v18)
-                        { (void)(sub_80069DF0(v19, 0x2000, 0)); return; }
+                    {
+                        (void)(sub_80069DF0(v19, 0x2000, 0));
+                        return;
+                    }
                     (result = sub_80066570(16));
                     (v19 = 44);
                     if (!result)
-                        { (void)(sub_80069DF0(v19, 0x2000, 0)); return; }
+                    {
+                        (void)(sub_80069DF0(v19, 0x2000, 0));
+                        return;
+                    }
                 }
             }
             return;
@@ -1100,7 +1135,10 @@ void sub_8004FF6C(uint32 a1)
                     (v33 = r_u16(((uint32)((v1 + 20)))));
                     (v116 = r_u32(((uint32)((v1 + 16)))));
 
-                    { (void)(sub_80066CF0((((unsigned short)(v116)) | (((v116 >> 16) & 65535u) << 16)), v33, (v1 + 132), (v1 + 138), (uint16)desired_angles[0] | ((uint32)(uint16)desired_angles[1] << 16), (uint16)desired_angles[2], 32)); return; }
+                    {
+                        (void)(sub_80066CF0((((unsigned short)(v116)) | (((v116 >> 16) & 65535u) << 16)), v33, (v1 + 132), (v1 + 138), (uint16)desired_angles[0] | ((uint32)(uint16)desired_angles[1] << 16), (uint16)desired_angles[2], 32));
+                        return;
+                    }
                 }
             }
             return;
@@ -1270,7 +1308,10 @@ void sub_8004FF6C(uint32 a1)
                 (result = 256);
                 w_u16(((uint32)((v1 + 462))), 0);
                 if ((v40 == 256))
-                    { (void)(sub_80069EF4(120, (v1 + 4), 3)); return; }
+                {
+                    (void)(sub_80069EF4(120, (v1 + 4), 3));
+                    return;
+                }
             }
             return;
 
@@ -1422,7 +1463,10 @@ void sub_8004FF6C(uint32 a1)
                     (result = r_u8(((uint32)((v1 + 303)))));
 
                     if (r_u8(((uint32)((v1 + 303)))))
-                        { (void)(apocalypse_object_virtual20(r_u32(r_u32(v1 + 68) + 20), v1 + (sint16)r_u16(r_u32(v1 + 68) + 16))); return; }
+                    {
+                        (void)(apocalypse_object_virtual20(r_u32(r_u32(v1 + 68) + 20), v1 + (sint16)r_u16(r_u32(v1 + 68) + 16)));
+                        return;
+                    }
                     return;
                 }
                 (result = r_u8(((uint32)((a1 + 303)))));
@@ -1432,7 +1476,10 @@ void sub_8004FF6C(uint32 a1)
                 (v63 = sub_80067A18(v62, 0, 256));
                 (a1 = v1);
                 if ((v63 == -1))
-                    { (void)(sub_8004FB00(a1, 0)); return; }
+                {
+                    (void)(sub_8004FB00(a1, 0));
+                    return;
+                }
                 (result = (r_u16(((uint32)((v1 + 474)))) + 1));
             LABEL_210:
                 w_u16(((uint32)((v1 + 474))), result);
@@ -1499,16 +1546,23 @@ void sub_8004FF6C(uint32 a1)
                 (result = (r_u16(((uint32)((v1 + 474)))) + 1));
                 goto LABEL_210;
             }
-            { (void)(sub_80063038(v69, 6, 0, -1)); return; }
+            {
+                (void)(sub_80063038(v69, 6, 0, -1));
+                return;
+            }
 
         case 0xD:
             (v70 = r_u16(((uint32)((a1 + 474)))));
             (result = (v70 < 2));
             if ((v70 == 1))
             {
-                effect_angles[0] = -1024; effect_angles[1] = 0; effect_angles[2] = 0;
+                effect_angles[0] = -1024;
+                effect_angles[1] = 0;
+                effect_angles[2] = 0;
                 state_4FF6C_angles_34F9C(effect_angles);
-                effect_angles[0] = 512; effect_angles[1] = 4096; effect_angles[2] = 0;
+                effect_angles[0] = 512;
+                effect_angles[1] = 4096;
+                effect_angles[2] = 0;
                 state_4FF6C_angles_34FC4(effect_angles);
                 sub_800350E8(2);
                 (v72 = 0);
@@ -1580,7 +1634,9 @@ void sub_8004FF6C(uint32 a1)
                 (result = 2);
                 if ((v76 != 2))
                     return;
-                effect_angles[0] = 512; effect_angles[1] = 4096; effect_angles[2] = 0;
+                effect_angles[0] = 512;
+                effect_angles[1] = 4096;
+                effect_angles[2] = 0;
                 state_4FF6C_angles_34FC4(effect_angles);
                 sub_800350E8(2);
                 (v83 = 0);
@@ -1588,7 +1644,9 @@ void sub_8004FF6C(uint32 a1)
                 (v84 = 32);
                 sub_80035110((((unsigned short)(r_u16(0x800ECC94u))) >> 5), (((unsigned short)(r_u16(0x800ECC96u))) >> 5), (((unsigned short)(r_u16(0x800ECC98u))) >> 5));
                 xport_draft_host_sub_8007CC10_p1(effect_position0, v1, 1);
-                effect_angles[0] = -1024; effect_angles[1] = 0; effect_angles[2] = 0;
+                effect_angles[0] = -1024;
+                effect_angles[1] = 0;
+                effect_angles[2] = 0;
                 state_4FF6C_angles_34F9C(effect_angles);
                 w_u32(0x800FF3ACu, 0);
                 effect_position0[1] += 0x20000;
@@ -1618,10 +1676,14 @@ void sub_8004FF6C(uint32 a1)
             w_u32(((uint32)((v1 + 104))), 0);
             w_u16(((uint32)((v1 + 474))), (v78 + 1));
         LABEL_175:
-            effect_angles[0] = -1024; effect_angles[1] = 0; effect_angles[2] = 0;
-                state_4FF6C_angles_34F9C(effect_angles);
-            effect_angles[0] = 512; effect_angles[1] = 4096; effect_angles[2] = 0;
-                state_4FF6C_angles_34FC4(effect_angles);
+            effect_angles[0] = -1024;
+            effect_angles[1] = 0;
+            effect_angles[2] = 0;
+            state_4FF6C_angles_34F9C(effect_angles);
+            effect_angles[0] = 512;
+            effect_angles[1] = 4096;
+            effect_angles[2] = 0;
+            state_4FF6C_angles_34FC4(effect_angles);
             sub_800350E8(2);
             (v79 = 0);
             sub_800350FC(r_u8(0x800ECC94u), r_u8(0x800ECC96u), r_u8(0x800ECC98u));
@@ -1645,7 +1707,10 @@ void sub_8004FF6C(uint32 a1)
             (v82 = sub_80066570(2));
             (v69 = v1);
             if (v82)
-                { (void)(sub_80063038(v69, 6, 0, -1)); return; }
+            {
+                (void)(sub_80063038(v69, 6, 0, -1));
+                return;
+            }
             sub_80063038(v1, 9, 0, -1);
             (result = (r_u16(((uint32)((v1 + 474)))) + 1));
             goto LABEL_210;
@@ -1683,7 +1748,10 @@ void sub_8004FF6C(uint32 a1)
             (v5 = (v92 == 0));
             (v93 = (v92 - 1));
             if (v5)
-                { (void)(sub_8004FB00(a1, 0)); return; }
+            {
+                (void)(sub_8004FB00(a1, 0));
+                return;
+            }
             w_u16(((uint32)((a1 + 460))), v93);
             (v94 = ((sint16)(r_u16(((uint32)((a1 + 462)))))));
             (result = (v94 < (((sint32)(r_u32(((uint32)((a1 + 8)))))) >> 12)));

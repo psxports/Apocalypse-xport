@@ -5,13 +5,10 @@
 
 uint32 apocalypse_sequence_delta(uint32 record);
 
-static uint32 sequence_note_missing(uint32 address, uint32 sequence_track,
-                                    uint32 bank, uint32 program, uint32 note,
-                                    uint32 velocity, uint32 pan)
+static uint32 sequence_note_missing(uint32 address, uint32 sequence_track, uint32 bank, uint32 program, uint32 note, uint32 velocity, uint32 pan)
 {
     /* TODO Implement the observed note service from its complete original */
-    fprintf(stderr, "Missing SDK sub_%08X (%08X,%08X,%08X,%08X,%08X,%08X)\n",
-            address, sequence_track, bank, program, note, velocity, pan);
+    fprintf(stderr, "Missing SDK sub_%08X (%08X,%08X,%08X,%08X,%08X,%08X)\n", address, sequence_track, bank, program, note, velocity, pan);
     abort();
     return 0u;
 }
@@ -38,11 +35,7 @@ static uint32 sequence_note_off(uint32 sequence_track, uint32 bank, uint32 progr
     {
         index = (uint8)voice;
         settings = index * 54u;
-        if (!(r_u32(0x800FD01Cu) & (1u << (index & 31u)))
-            && (sint32)(sint16)r_u16(0x80104E36u + settings) == (sint32)note
-            && (sint32)(sint16)r_u16(0x80104E3Cu + settings) == (sint32)program
-            && (sint32)(sint16)r_u16(0x80104E38u + settings) == (sint32)sequence_track
-            && (sint32)(sint16)r_u16(0x80104E40u + settings) == (sint32)bank)
+        if (!(r_u32(0x800FD01Cu) & (1u << (index & 31u))) && (sint32)(sint16)r_u16(0x80104E36u + settings) == (sint32)note && (sint32)(sint16)r_u16(0x80104E3Cu + settings) == (sint32)program && (sint32)(sint16)r_u16(0x80104E38u + settings) == (sint32)sequence_track && (sint32)(sint16)r_u16(0x80104E40u + settings) == (sint32)bank)
         {
             if ((sint16)r_u16(0x80104E28u + settings) == 255)
             {
@@ -70,9 +63,7 @@ static uint32 sequence_select_tones(uint8 tones[128], uint8 samples[128])
         return 0u;
     do
     {
-        tone = r_u32(0x80105618u)
-             + ((uint32)(sint32)(sint8)r_u8(0x80105627u) * 16u
-             + (uint32)(sint32)(sint8)index) * 32u;
+        tone = r_u32(0x80105618u) + ((uint32)(sint32)(sint8)r_u8(0x80105627u) * 16u + (uint32)(sint32)(sint8)index) * 32u;
         note = (sint8)r_u8(0x80105622u);
         if (note >= (sint32)r_u8(tone + 6u) && (sint32)r_u8(tone + 7u) >= note)
         {
@@ -91,8 +82,7 @@ static uint32 sequence_voice_offset(void)
 }
 
 /* Original 80090DAC */
-static uint32 sequence_note_on(uint32 sequence_track, uint32 bank, uint32 program,
-                              uint32 note, uint32 velocity, uint32 pan)
+static uint32 sequence_note_on(uint32 sequence_track, uint32 bank, uint32 program, uint32 note, uint32 velocity, uint32 pan)
 {
     uint8 tones[128], samples[128];
     uint32 record, program_data, tone_data, count, index, voice, offset, pitch;
@@ -101,8 +91,7 @@ static uint32 sequence_note_on(uint32 sequence_track, uint32 bank, uint32 progra
     program = (uint32)(sint32)(sint16)program;
     velocity = (uint16)velocity;
     pan = (uint16)pan;
-    record = r_u32(0x80104590u + (sequence_track & 255u) * 4u)
-           + ((uint32)signed_sequence & 0xFF00u) / 256u * 176u;
+    record = r_u32(0x80104590u + (sequence_track & 255u) * 4u) + ((uint32)signed_sequence & 0xFF00u) / 256u * 176u;
     if (apocalypse_sound_select_bank(bank, program))
         return 0xFFFFFFFFu;
     w_u16(0x80105634u, sequence_track);
@@ -123,8 +112,7 @@ static uint32 sequence_note_on(uint32 sequence_track, uint32 bank, uint32 progra
     if ((sint8)r_u8(0x80105627u) >= (sint32)r_u16(r_u32(0x80105614u) + 18u))
         return 0xFFFFFFFFu;
     if (!velocity)
-        return sequence_note_off((uint32)signed_sequence,
-                                 (uint32)(sint32)(sint16)bank, program, (uint16)note);
+        return sequence_note_off((uint32)signed_sequence, (uint32)(sint32)(sint16)bank, program, (uint16)note);
     count = sequence_select_tones(tones, samples);
     if (!(uint8)count)
         return result;
@@ -132,8 +120,7 @@ static uint32 sequence_note_on(uint32 sequence_track, uint32 bank, uint32 progra
     do
     {
         w_u16(0x80105636u, samples[index]);
-        tone_data = ((uint32)(sint32)(sint8)tones[index]
-                   + (uint32)(sint32)(sint8)r_u8(0x80105627u) * 16u) & 0xFFFFu;
+        tone_data = ((uint32)(sint32)(sint8)tones[index] + (uint32)(sint32)(sint8)r_u8(0x80105627u) * 16u) & 0xFFFFu;
         w_u8(0x8010562Cu, tones[index]);
         tone_data = r_u32(0x80105618u) + tone_data * 32u;
         w_u8(0x8010562Fu, r_u8(tone_data));
@@ -189,8 +176,7 @@ static uint32 sequence_note_on(uint32 sequence_track, uint32 bank, uint32 progra
 static uint32 sequence_note(uint32 sequence, uint32 track, uint32 note, uint32 velocity)
 {
     uint32 record, channel, pan, sequence_track, bank, program, result;
-    record = r_u32(0x80104590u + (uint32)(sint32)(sint16)sequence * 4u)
-           + (uint32)(sint32)(sint16)track * 176u;
+    record = r_u32(0x80104590u + (uint32)(sint32)(sint16)sequence * 4u) + (uint32)(sint32)(sint16)track * 176u;
     channel = r_u8(record + 23u);
     pan = r_u8(record + channel + 39u);
     sequence_track = (uint32)(sint32)(sint16)(sequence | (track << 8));
@@ -201,8 +187,7 @@ static uint32 sequence_note(uint32 sequence, uint32 track, uint32 note, uint32 v
             return result;
         bank = (uint32)(sint32)(sint8)r_u8(record + 38u);
         program = r_u8(record + channel + 55u);
-        return sequence_note_on(sequence_track, bank, program,
-                                (uint8)note, (uint8)velocity, pan);
+        return sequence_note_on(sequence_track, bank, program, (uint8)note, (uint8)velocity, pan);
     }
     bank = (uint32)(sint32)(sint8)r_u8(record + 38u);
     program = r_u8(record + channel + 55u);
@@ -235,32 +220,29 @@ static uint32 sequence_unsigned_ratio(uint32 value, uint32 multiplier, uint32 sh
 }
 
 /* Original 8009302C */
-static uint32 sequence_update_volume(uint32 sequence_track, uint32 bank, uint32 program,
-                                     uint32 volume, uint32 pan)
+static uint32 sequence_update_volume(uint32 sequence_track, uint32 bank, uint32 program, uint32 volume, uint32 pan)
 {
     uint32 record, voice = 0u, count = 0u, settings, channel_address, tone;
     uint32 amplitude, left, right, tone_pan, program_pan, index, master_volume;
     sint32 signed_sequence = (sint16)sequence_track;
     bank = (uint32)(sint32)(sint16)bank;
     program = (uint32)(sint32)(sint16)program;
-    record = r_u32(0x80104590u + (sequence_track & 255u) * 4u)
-           + ((sequence_track & 0xFF00u) >> 8) * 176u;
+    record = r_u32(0x80104590u + (sequence_track & 255u) * 4u) + ((sequence_track & 0xFF00u) >> 8) * 176u;
     pan = (uint16)pan;
     (void)apocalypse_sound_select_bank(bank, program);
     w_u16(0x80105634u, sequence_track);
-    if (!pan) pan = 1u;
+    if (!pan)
+        pan = 1u;
     volume = (uint16)volume;
-    if (!volume) volume = 1u;
+    if (!volume)
+        volume = 1u;
     if ((sint8)r_u8(0x8010561Cu) <= 0)
         return 0u;
     do
     {
         index = (uint32)(sint32)(sint16)voice;
         settings = index * 54u;
-        if (!(r_u32(0x800FD01Cu) & (1u << (index & 31u)))
-            && (sint16)r_u16(0x80104E38u + settings) == signed_sequence
-            && (sint16)r_u16(0x80104E3Cu + settings) == (sint32)program
-            && (sint16)r_u16(0x80104E40u + settings) == (sint32)bank)
+        if (!(r_u32(0x800FD01Cu) & (1u << (index & 31u))) && (sint16)r_u16(0x80104E38u + settings) == signed_sequence && (sint16)r_u16(0x80104E3Cu + settings) == (sint32)program && (sint16)r_u16(0x80104E40u + settings) == (sint32)bank)
         {
             channel_address = record + r_u8(record + 23u) * 2u + 96u;
             if ((sint16)r_u16(channel_address) != (sint32)volume && !r_u16(channel_address))
@@ -271,8 +253,7 @@ static uint32 sequence_update_volume(uint32 sequence_track, uint32 bank, uint32 
             amplitude *= (master_volume << 14) - master_volume;
             amplitude = sequence_signed_ratio(amplitude, 0x82061029u, 13u);
             amplitude *= r_u8(r_u32(0x8010560Cu) + (program << 4) + 1u);
-            tone = ((uint32)(sint32)(sint16)r_u16(0x80104E3Au + settings) << 4)
-                 + (uint32)(sint32)(sint16)r_u16(0x80104E3Eu + settings);
+            tone = ((uint32)(sint32)(sint16)r_u16(0x80104E3Au + settings) << 4) + (uint32)(sint32)(sint16)r_u16(0x80104E3Eu + settings);
             tone = r_u32(0x80105618u) + tone * 32u;
             amplitude *= r_u8(tone + 2u);
             amplitude = sequence_unsigned_ratio(amplitude, 0x040C2051u, 13u);
@@ -283,8 +264,7 @@ static uint32 sequence_update_volume(uint32 sequence_track, uint32 bank, uint32 
                 right = sequence_unsigned_ratio(right * tone_pan, 0x04104105u, 5u);
             else
                 left = sequence_unsigned_ratio(left * (127u - tone_pan), 0x04104105u, 5u);
-            program_pan = r_u8(r_u32(0x8010560Cu)
-                              + ((uint32)(sint32)(sint16)r_u16(0x80104E3Cu + settings) << 4) + 4u);
+            program_pan = r_u8(r_u32(0x8010560Cu) + ((uint32)(sint32)(sint16)r_u16(0x80104E3Cu + settings) << 4) + 4u);
             if (program_pan < 64u)
                 right = sequence_unsigned_ratio(right * program_pan, 0x04104105u, 5u);
             else
@@ -295,8 +275,10 @@ static uint32 sequence_update_volume(uint32 sequence_track, uint32 bank, uint32 
                 left = sequence_unsigned_ratio(left * (127u - (uint8)pan), 0x04104105u, 5u);
             if ((sint16)r_u16(0x80105608u) == 1)
             {
-                if (left < right) left = right;
-                else right = left;
+                if (left < right)
+                    left = right;
+                else
+                    right = left;
             }
             w_u16(0x80105358u + index * 16u, sequence_unsigned_ratio(left * left, 0x00040011u, 13u));
             w_u16(0x8010535Au + index * 16u, sequence_unsigned_ratio(right * right, 0x00040011u, 13u));
@@ -347,16 +329,14 @@ static uint32 sequence_channel_pan(uint32 sequence, uint32 track, uint32 value)
     return delta;
 }
 
-static uint32 sequence_control_missing(uint32 slot, uint32 sequence, uint32 track,
-                                       uint32 value, uint32 argument_count)
+static uint32 sequence_control_missing(uint32 slot, uint32 sequence, uint32 track, uint32 value, uint32 argument_count)
 {
     if (slot == 0x8010450Cu && r_u32(slot) == 0x8008C8CCu)
         return sequence_channel_volume(sequence, track, value);
     if (slot == 0x80104510u && r_u32(slot) == 0x8008C99Cu)
         return sequence_channel_pan(sequence, track, value);
     /* TODO Translate the observed control callback before connecting it */
-    fprintf(stderr, "Missing sequence control callback %08X at slot %08X (%08X,%08X,%08X), semantic args %u\n",
-            r_u32(slot), slot, sequence, track, value, argument_count);
+    fprintf(stderr, "Missing sequence control callback %08X at slot %08X (%08X,%08X,%08X), semantic args %u\n", r_u32(slot), slot, sequence, track, value, argument_count);
     abort();
     return 0u;
 }
@@ -374,23 +354,43 @@ static uint32 sequence_control(uint32 sequence, uint32 track, uint32 controller)
     w_u32(record, cursor + 1u);
     switch (controller)
     {
-    case 0u:
-        w_u8(record + 38u, value);
-        break;
-    case 6u: slot = 0x80104508u; break;
-    case 7u: slot = 0x8010450Cu; break;
-    case 10u: slot = 0x80104510u; break;
-    case 11u: slot = 0x80104514u; break;
-    case 64u: slot = 0x80104518u; break;
-    case 91u: slot = 0x8010452Cu; break;
-    case 98u: slot = 0x8010451Cu; break;
-    case 99u: slot = 0x80104520u; break;
-    case 100u: slot = 0x80104524u; break;
-    case 101u: slot = 0x80104528u; break;
-    case 121u:
-        return sequence_control_missing(0x80104530u, sequence, track, controller, 2u);
-    default:
-        break;
+        case 0u:
+            w_u8(record + 38u, value);
+            break;
+        case 6u:
+            slot = 0x80104508u;
+            break;
+        case 7u:
+            slot = 0x8010450Cu;
+            break;
+        case 10u:
+            slot = 0x80104510u;
+            break;
+        case 11u:
+            slot = 0x80104514u;
+            break;
+        case 64u:
+            slot = 0x80104518u;
+            break;
+        case 91u:
+            slot = 0x8010452Cu;
+            break;
+        case 98u:
+            slot = 0x8010451Cu;
+            break;
+        case 99u:
+            slot = 0x80104520u;
+            break;
+        case 100u:
+            slot = 0x80104524u;
+            break;
+        case 101u:
+            slot = 0x80104528u;
+            break;
+        case 121u:
+            return sequence_control_missing(0x80104530u, sequence, track, controller, 2u);
+        default:
+            break;
     }
     if (slot)
         return sequence_control_missing(slot, sequence, track, value, 3u);
@@ -399,8 +399,7 @@ static uint32 sequence_control(uint32 sequence, uint32 track, uint32 controller)
     return delta;
 }
 
-static void sequence_dispatch_callback(uint32 slot, uint32 sequence,
-                                      uint32 track, uint32 data, uint32 velocity)
+static void sequence_dispatch_callback(uint32 slot, uint32 sequence, uint32 track, uint32 data, uint32 velocity)
 {
     if (slot == 0x80104500u && r_u32(slot) == 0x8008CBCCu)
     {
@@ -418,8 +417,7 @@ static void sequence_dispatch_callback(uint32 slot, uint32 sequence,
         return;
     }
     /* TODO Translate the observed callback before enabling this event */
-    fprintf(stderr, "Missing sequence callback %08X at slot %08X (%08X,%08X,%08X,%08X)\n",
-            r_u32(slot), slot, sequence, track, data, velocity);
+    fprintf(stderr, "Missing sequence callback %08X at slot %08X (%08X,%08X,%08X,%08X)\n", r_u32(slot), slot, sequence, track, data, velocity);
     abort();
 }
 
@@ -447,8 +445,7 @@ static uint32 sequence_event(uint32 sequence, uint32 track)
     record = r_u32(table) + track * 176u;
     byte = sequence_read_event_byte(record);
     cursor = r_u32(record);
-    if ((r_u32(r_u32(table) + track * 176u + 152u) & 0x401u) == 0x401u &&
-        cursor == r_u32(record + 16u) + 1u)
+    if ((r_u32(r_u32(table) + track * 176u + 152u) & 0x401u) == 0x401u && cursor == r_u32(record + 16u) + 1u)
     {
         sequence_missing_end(sequence, track, r_u8(r_u32(record + 16u) + 1u));
         return 0xFFFFFFFFu;
@@ -459,66 +456,64 @@ static uint32 sequence_event(uint32 sequence, uint32 track)
         status = byte & 0xF0u;
         switch (status)
         {
-        case 0x90u:
-            w_u8(record + 22u, status);
-            data = sequence_read_event_byte(record);
-            velocity = sequence_read_event_byte(record);
-            w_u32(record + 144u, apocalypse_sequence_delta(record));
-            sequence_dispatch_callback(0x801044F0u, sequence, track, data, velocity);
-            return 0u;
-        case 0xB0u:
-        case 0xC0u:
-            w_u8(record + 22u, status);
-            data = sequence_read_event_byte(record);
-            sequence_dispatch_callback(status == 0xB0u ? 0x80104500u : 0x801044F4u,
-                                      sequence, track, data, 0u);
-            return 0u;
-        case 0xE0u:
-            w_u8(record + 22u, status);
-            w_u32(record, r_u32(record) + 1u);
-            sequence_dispatch_callback(0x801044F8u, sequence, track, status, 0u);
-            return 0u;
-        case 0xF0u:
-            w_u8(record + 22u, 0xFFu);
-            data = sequence_read_event_byte(record);
-            if (data == 0x2Fu)
-            {
-                sequence_missing_end(sequence, track, 0x2Fu);
-                return 1u;
-            }
-            sequence_dispatch_callback(0x801044FCu, sequence, track, data, 0u);
-            return 0u;
-        default:
-            return 0u;
+            case 0x90u:
+                w_u8(record + 22u, status);
+                data = sequence_read_event_byte(record);
+                velocity = sequence_read_event_byte(record);
+                w_u32(record + 144u, apocalypse_sequence_delta(record));
+                sequence_dispatch_callback(0x801044F0u, sequence, track, data, velocity);
+                return 0u;
+            case 0xB0u:
+            case 0xC0u:
+                w_u8(record + 22u, status);
+                data = sequence_read_event_byte(record);
+                sequence_dispatch_callback(status == 0xB0u ? 0x80104500u : 0x801044F4u, sequence, track, data, 0u);
+                return 0u;
+            case 0xE0u:
+                w_u8(record + 22u, status);
+                w_u32(record, r_u32(record) + 1u);
+                sequence_dispatch_callback(0x801044F8u, sequence, track, status, 0u);
+                return 0u;
+            case 0xF0u:
+                w_u8(record + 22u, 0xFFu);
+                data = sequence_read_event_byte(record);
+                if (data == 0x2Fu)
+                {
+                    sequence_missing_end(sequence, track, 0x2Fu);
+                    return 1u;
+                }
+                sequence_dispatch_callback(0x801044FCu, sequence, track, data, 0u);
+                return 0u;
+            default:
+                return 0u;
         }
     }
     status = r_u8(record + 22u);
     switch (status)
     {
-    case 0x90u:
-        velocity = sequence_read_event_byte(record);
-        w_u32(record + 144u, apocalypse_sequence_delta(record));
-        sequence_dispatch_callback(0x801044F0u, sequence, track, byte, velocity);
-        return 0u;
-    case 0xB0u:
-    case 0xC0u:
-        sequence_dispatch_callback(status == 0xB0u ? 0x80104500u : 0x801044F4u,
-                                  sequence, track, byte, 0u);
-        return 0u;
-    case 0xE0u:
-        /* TODO Resolve the carried raw argument type before connecting pitch */
-        sequence_dispatch_callback(0x801044F8u, sequence, track, table, 0u);
-        return 0u;
-    case 0xFFu:
-        if (byte == 0x2Fu)
-        {
-            sequence_missing_end(sequence, track, 0x2Fu);
-            return 1u;
-        }
-        sequence_dispatch_callback(0x801044FCu, sequence, track, byte, 0u);
-        return 0u;
-    default:
-        return 0u;
+        case 0x90u:
+            velocity = sequence_read_event_byte(record);
+            w_u32(record + 144u, apocalypse_sequence_delta(record));
+            sequence_dispatch_callback(0x801044F0u, sequence, track, byte, velocity);
+            return 0u;
+        case 0xB0u:
+        case 0xC0u:
+            sequence_dispatch_callback(status == 0xB0u ? 0x80104500u : 0x801044F4u, sequence, track, byte, 0u);
+            return 0u;
+        case 0xE0u:
+            /* TODO Resolve the carried raw argument type before connecting pitch */
+            sequence_dispatch_callback(0x801044F8u, sequence, track, table, 0u);
+            return 0u;
+        case 0xFFu:
+            if (byte == 0x2Fu)
+            {
+                sequence_missing_end(sequence, track, 0x2Fu);
+                return 1u;
+            }
+            sequence_dispatch_callback(0x801044FCu, sequence, track, byte, 0u);
+            return 0u;
+        default:
+            return 0u;
     }
 }
 
@@ -571,4 +566,3 @@ uint32 apocalypse_sequence_tick(uint32 sequence, uint32 track)
     w_u32(record + 144u, result);
     return result;
 }
-

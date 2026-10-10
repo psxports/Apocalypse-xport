@@ -1,6 +1,7 @@
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 #include <stdlib.h>
+#include <string.h>
 
 uint32 sub_800115C0(uint32 a1)
 {
@@ -62,17 +63,14 @@ uint32 sub_8006A428(void)
 
 uint32 sub_8008D51C(uint32 a1, uint32 a2)
 {
-    return apocalypse_sequence_tick((uint32)(sint32)(sint16)a1,
-                                    (uint32)(sint32)(sint16)a2);
+    return apocalypse_sequence_tick((uint32)(sint32)(sint16)a1, (uint32)(sint32)(sint16)a2);
 }
 
 /* TODO Missing call adapter sub_80097DF8 */
-/* TODO Missing call adapter sub_80097F34 */
 /* TODO Missing call adapter sub_80098258 */
 static void cd_2FD2C_control_97F34(uint32 command, uint32 parameter)
 {
-    /* TODO PsyQ CD control without a native parameter buffer */
-    (void)command; (void)parameter; abort();
+    (void)sub_80097F34(command, parameter);
 }
 
 uint32 sub_8002FD2C(uint32 a1, uint32 a2)
@@ -150,12 +148,13 @@ uint32 sub_8008DF18(uint32 a1)
 static void sequence_8DD9C_volume_9282C(sint16 sequence, uint32 left, uint32 right, uint32 mode)
 {
     /* TODO PsyQ sequence volume service */
-    (void)sequence; (void)left; (void)right; (void)mode; abort();
+    abort();
 }
+
 static void sequence_8DD9C_stop_92EA4(sint16 sequence)
 {
     /* TODO PsyQ sequence stop service */
-    (void)sequence; abort();
+    abort();
 }
 
 uint32 sub_8008DD9C(uint32 a1)
@@ -207,7 +206,7 @@ uint32 sub_8008DD9C(uint32 a1)
 static void soundbank_69CF8_close_936DC(sint16 bank)
 {
     /* TODO PsyQ sound bank close service */
-    (void)bank; abort();
+    abort();
 }
 
 uint32 sub_80069CF8(uint32 a1, uint32 a2)
@@ -353,26 +352,26 @@ static uint32 trigger_position_cursor(uint32 index)
     uint32 cursor, type = r_u16(record);
     switch (type)
     {
-    case 1u:
-    case 7u:
-        cursor = record + 8u + r_u16(record + 6u) * 2u;
-        while (r_u8(cursor) != 255u)
-            ++cursor;
-        return (cursor + 4u) & 0xFFFFFFFCu;
-    case 3u:
-    case 8u:
-    case 10u:
-    case 1000u:
-    case 1001u:
-        return (record + r_u16(record + 2u) * 2u + 7u) & 0xFFFFFFFCu;
-    case 5u:
-        return (record + r_u16(record + 4u) * 2u + 9u) & 0xFFFFFFFCu;
-    case 500u:
-    case 501u:
-        return (record + 5u) & 0xFFFFFFFCu;
-    default:
-        /* TODO Unsupported record types return inherited guest V1 without output */
-        abort();
+        case 1u:
+        case 7u:
+            cursor = record + 8u + r_u16(record + 6u) * 2u;
+            while (r_u8(cursor) != 255u)
+                ++cursor;
+            return (cursor + 4u) & 0xFFFFFFFCu;
+        case 3u:
+        case 8u:
+        case 10u:
+        case 1000u:
+        case 1001u:
+            return (record + r_u16(record + 2u) * 2u + 7u) & 0xFFFFFFFCu;
+        case 5u:
+            return (record + r_u16(record + 4u) * 2u + 9u) & 0xFFFFFFFCu;
+        case 500u:
+        case 501u:
+            return (record + 5u) & 0xFFFFFFFCu;
+        default:
+            /* TODO Unsupported record types return inherited guest V1 without output */
+            abort();
     }
 }
 
@@ -487,8 +486,9 @@ uint32 sub_8005F62C(uint32 argument1, uint32 argument2);
 static void initialize_6541C_region_67C20(const uint32 origin[3], const uint32 extent[3])
 {
     /* TODO Native region boundary 67C20 */
-    (void)origin; (void)extent; abort();
+    abort();
 }
+
 static void initialize_6541C_region_67CCC(const uint32 origin[3], const uint32 extent[3], uint32 enabled)
 {
     uint32 node = r_u32(0x800FF794u);
@@ -501,9 +501,7 @@ static void initialize_6541C_region_67CCC(const uint32 origin[3], const uint32 e
             sint32 y = (sint32)r_u32(node + 8u);
             sint32 z = (sint32)r_u32(node + 12u);
             /* Extent carries the inclusive upper corner */
-            if (x >= (sint32)origin[0] && (sint32)extent[0] >= x
-                && z >= (sint32)origin[2] && (sint32)extent[2] >= z
-                && y >= (sint32)origin[1] && (sint32)extent[1] >= y)
+            if (x >= (sint32)origin[0] && (sint32)extent[0] >= x && z >= (sint32)origin[2] && (sint32)extent[2] >= z && y >= (sint32)origin[1] && (sint32)extent[1] >= y)
             {
                 uint32 flags = r_u16(node);
                 w_u16(node, enabled ? flags & 0xFFFEu : flags | 1u);
@@ -512,11 +510,13 @@ static void initialize_6541C_region_67CCC(const uint32 origin[3], const uint32 e
         node = r_u32(node + 28u);
     }
 }
+
 static void initialize_6541C_data_76C10(uint32 object, uint32 resource, const uint16 prefix[3])
 {
     /* TODO Native six-byte data boundary 76C10 */
-    (void)object; (void)resource; (void)prefix; abort();
+    abort();
 }
+
 uint32 sub_8006541C(uint32 a1, uint32 a2, uint32 a3)
 {
     sint32 v3;
@@ -920,7 +920,7 @@ uint32 sub_8006541C(uint32 a1, uint32 a2, uint32 a3)
                 v9 = r_u32(0x800FF904u);
                 if (!r_u32(0x800FF904u))
                     goto LABEL_60;
-                v70 = r_u16((a1 += 2u, a1 - 2u));
+                v70 = (uint32)(sint32)r_s16((a1 += 2u, a1 - 2u));
                 sub_8007749C(r_u32(0x800FF904u), v70);
                 continue;
 
@@ -928,7 +928,7 @@ uint32 sub_8006541C(uint32 a1, uint32 a2, uint32 a3)
                 v9 = r_u32(0x800FF904u);
                 if (!r_u32(0x800FF904u))
                     goto LABEL_60;
-                v71 = r_u16((a1 += 2u, a1 - 2u));
+                v71 = (uint32)(sint32)r_s16((a1 += 2u, a1 - 2u));
                 sub_800774A4(r_u32(0x800FF904u), v71);
                 continue;
 
@@ -1030,7 +1030,8 @@ uint32 sub_8006541C(uint32 a1, uint32 a2, uint32 a3)
                 data_prefix[2] = r_u16(v35 + 8u);
                 a1 = v35 + 10u;
                 v9 = sub_800625AC(300);
-                if (v9) initialize_6541C_data_76C10(v9, v36, data_prefix);
+                if (v9)
+                    initialize_6541C_data_76C10(v9, v36, data_prefix);
                 continue;
 
             case 172:
@@ -1069,7 +1070,7 @@ uint32 sub_8006541C(uint32 a1, uint32 a2, uint32 a3)
                 if (r_u32(0x800FF5A0u))
                 {
                     v48 = ((unsigned short)(r_u16((a1 += 2u, a1 - 2u))));
-                sub_8005F62C(r_u32(0x800FF5A0u), v48);
+                    sub_8005F62C(r_u32(0x800FF5A0u), v48);
                 }
                 break;
 
@@ -1233,6 +1234,7 @@ uint32 sub_80063038(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
     sint32 v8;
     sint32 v9;
     sint32 result;
+    a2 &= 255u;
     (v4 = r_u8(((uint32)((a1 + 27)))));
     w_u8(((uint32)((a1 + 26))), a2);
     (v5 = r_u8(((uint32)((((8 * a2) + r_u32((0x800EAEF8u + (((16 * v4) + 6)) * 4u))) + 8)))));
@@ -1355,8 +1357,7 @@ uint32 sub_80063E7C(void)
     w_u32(owner + 8u, position[1]);
     w_u32(owner + 12u, position[2]);
     /* Original unaligned load/store transfers four rotation bytes */
-    rotation_word = r_u8(cursor) | (r_u8(cursor + 1u) << 8)
-                  | (r_u8(cursor + 2u) << 16) | (r_u8(cursor + 3u) << 24);
+    rotation_word = r_u8(cursor) | (r_u8(cursor + 1u) << 8) | (r_u8(cursor + 2u) << 16) | (r_u8(cursor + 3u) << 24);
     w_u8(owner + 16u, rotation_word);
     w_u8(owner + 17u, rotation_word >> 8);
     w_u8(owner + 18u, rotation_word >> 16);
@@ -1459,7 +1460,7 @@ uint32 sub_80064A08(uint32 a1)
         v4 = 1;
         do
         {
-            v5 = r_u32((v1 += 2u, v1 - 2u));
+            v5 = r_u16((v1 += 2u, v1 - 2u));
             sub_80064874(v5);
             result = (v4 < v3);
         } while ((v4++ < v3));
@@ -1475,7 +1476,7 @@ uint32 sub_800641B8(uint32 a1)
     {
         v1 = (a1 + (1) * 1u);
         do
-            v2 = r_u32((v1 += 1u, v1 - 1u));
+            v2 = r_u8((v1 += 1u, v1 - 1u));
         while ((v2 != 255));
         a1 = (v1 - (1) * 1u);
     }
@@ -1527,18 +1528,44 @@ uint32 sub_8004BE90(uint32 object, uint32 cursor)
             return result;
         }
         w_u32(object + 400u, result);
-        uint32 table = r_u32(object + 68u);
         if (command & 0x4000u)
         {
-            result = xport_draft_guest_call1(r_u32(table + 68u), object + (sint16)r_u16(table + 64u));
-            if (!result) return result;
+            uint32 table = r_u32(object + 68u);
+            result = xport_draft_guest_call2(r_u32(table + 68u), object + (sint16)r_u16(table + 64u), command);
+            if (!result)
+                return result;
         }
         else if (command & 0x2000u)
-            xport_draft_guest_call1(r_u32(table + 76u), object + (sint16)r_u16(table + 72u));
+        {
+            uint32 table = r_u32(object + 68u);
+            xport_draft_guest_call2(r_u32(table + 76u), object + (sint16)r_u16(table + 72u), command);
+        }
     }
 }
 
-uint32 sub_80052EE8(uint32 object);
+uint32 sub_800587E8(uint32 linked, uint32 object)
+{
+    uint32 flags;
+    if (r_u32(linked + 544u))
+        return 0u;
+    flags = r_u32(linked + 396u);
+    w_u32(linked + 544u, object);
+    w_u32(linked + 396u, flags | 0x20u);
+    return 1u;
+}
+
+uint32 sub_80052EE8(uint32 object, uint32 linked)
+{
+    w_u32(object + 616u, linked);
+    if (r_u16(linked + 58u) == 206u)
+    {
+        sub_800587E8(linked, object);
+        w_u16(object + 472u, 12u);
+        w_u16(object + 474u, 0u);
+        return 12u;
+    }
+    return 206u;
+}
 
 static uint32 command_529AC_word(uint32 object)
 {
@@ -1553,23 +1580,34 @@ static uint32 command_529AC_resolve(uint32 object, uint32 value)
     if (value & 0x2000u)
     {
         uint32 table = r_u32(object + 68u);
-        value = xport_draft_guest_call2(r_u32(table + 84u), object + (sint16)r_u16(table + 80u), value);
+        uint32 receiver = object + (uint32)(sint32)(sint16)r_u16(table + 80u);
+        uint32 target = r_u32(table + 84u);
+        value = xport_draft_guest_call2(target, receiver, value);
     }
     return (uint16)value;
 }
 
 static sint32 command_529AC_ground(const uint32 position[3], uint32 below, uint32 above)
 {
-    /* TODO Native position boundary for 67A18 */
-    (void)position; (void)below; (void)above;
-    abort();
+    return (sint32)apocalypse_ground_native(position, below, above);
 }
 
 static void command_529AC_position(uint32 target, uint32 object, const uint32 position[3])
 {
-    /* TODO Native position boundaries 53784 53834 5389C */
-    (void)target; (void)object; (void)position;
-    abort();
+    switch (target)
+    {
+        case 0x80053784u:
+            apocalypse_move_target_native(object, position);
+            return;
+        case 0x80053834u:
+            apocalypse_jump_target_native(object, position);
+            return;
+        case 0x8005389Cu:
+            apocalypse_special_target_native(object, position);
+            return;
+        default:
+            abort();
+    }
 }
 
 uint32 sub_800529AC(uint32 object, uint32 command)
@@ -1581,10 +1619,14 @@ uint32 sub_800529AC(uint32 object, uint32 command)
         case 16902:
             sub_80051740(object, command_529AC_word(object));
             return 1;
-        case 16928: case 16931: case 16930: case 16933:
+        case 16928:
+        case 16931:
+        case 16930:
+        case 16933:
         {
             uint32 cursor = (r_u32(object + 400u) + 3u) & ~3u;
-            for (uint32 i = 0; i < 3u; ++i) position[i] = r_u32(cursor + i * 4u);
+            for (uint32 i = 0; i < 3u; ++i)
+                position[i] = r_u32(cursor + i * 4u);
             xport_draft_host_sub_8006C22C_p12(position, &shift);
             if (command == 16930u || command == 16933u)
                 xport_draft_host_sub_8006C0B8_p1(position, object + 4u);
@@ -1593,49 +1635,69 @@ uint32 sub_800529AC(uint32 object, uint32 command)
             command_529AC_position(target, object, position);
             return 1;
         }
-        case 16929: case 16932: case 16936:
+        case 16929:
+        case 16932:
+        case 16936:
         {
             uint32 value = command_529AC_resolve(object, command_529AC_word(object));
             xport_draft_host_sub_8006613C_p1(position, value);
             sint32 height = command_529AC_ground(position, 0, 2048);
-            if (height != -1) position[1] = (uint32)height - ((uint32)(sint16)r_u16(object + 456u) << 12);
+            if (height != -1)
+                position[1] = (uint32)height - ((uint32)(sint16)r_u16(object + 456u) << 12);
             target = command == 16929u ? 0x80053784u : command == 16932u ? 0x80053834u : 0x8005389Cu;
             command_529AC_position(target, object, position);
             return 1;
         }
-        case 16938: case 16939:
+        case 16938:
+        case 16939:
             sub_80063038(object, command == 16938u ? 7u : 8u, 0, 0xFFFFFFFFu);
             w_u16(object + 212u, command == 16938u ? 32u : 128u);
-            w_u32(object + 396u, r_u32(object + 396u) & ~1u);
-            w_u16(object + 78u, command == 16938u ? r_u16(object + 78u) & ~0x10u : r_u16(object + 78u) | 0x10u);
-            w_u32(object + 112u, 0); w_u32(object + 108u, 0); w_u32(object + 104u, 0);
+            {
+                uint32 flags = r_u32(object + 396u);
+                uint32 state = r_u16(object + 78u);
+                w_u32(object + 396u, flags & ~1u);
+                w_u16(object + 78u, command == 16938u ? state & ~0x10u : state | 0x10u);
+            }
+            w_u32(object + 112u, 0);
+            w_u32(object + 108u, 0);
+            w_u32(object + 104u, 0);
             w_u16(object + 476u, command == 16938u ? 12u : 14u);
             return 0;
         case 16937:
         {
             uint32 value = command_529AC_resolve(object, command_529AC_word(object));
             for (uint32 node = r_u32(0x800FF5DCu); node; node = r_u32(node + 28u))
-                if (r_u16(node + 214u) == value) { sub_80052EE8(object); break; }
+                if (r_u16(node + 214u) == value)
+                {
+                    sub_80052EE8(object, node);
+                    break;
+                }
             return 1;
         }
         case 16994:
-            if (command_529AC_word(object) == 1u) sub_80052F34(object);
+            if (command_529AC_word(object) == 1u)
+                sub_80052F34(object);
             return 1;
         case 17415:
         {
             uint32 value = command_529AC_word(object);
-            if (value) sub_80053950(object, command_529AC_resolve(object, value));
-            else sub_8005398C(object);
+            if (value)
+                sub_80053950(object, command_529AC_resolve(object, value));
+            else
+                sub_8005398C(object);
             return 1;
         }
         case 18176:
-            if (command_529AC_word(object)) w_u32(object + 396u, r_u32(object + 396u) | 0x100u);
-            else w_u32(object + 396u, r_u32(object + 396u) & ~0x100u);
+            if (command_529AC_word(object))
+                w_u32(object + 396u, r_u32(object + 396u) | 0x100u);
+            else
+                w_u32(object + 396u, r_u32(object + 396u) & ~0x100u);
             return 1;
         case 18177:
             w_u32(object + 396u, r_u32(object + 396u) | 0x200u);
             return 1;
-        default: return sub_8004BF3C(object, command);
+        default:
+            return sub_8004BF3C(object, command);
     }
 }
 
@@ -1661,19 +1723,30 @@ uint32 sub_8006E080(uint32 a1, uint32 a2)
     return result;
 }
 
-uint32 sub_80067A18(uint32 position, uint32 below, uint32 above)
+uint32 apocalypse_ground_native(const void *position, uint32 below, uint32 above)
 {
-    uint32 collision[36];
-    collision[0] = r_u32(position);
-    collision[1] = r_u32(position + 4u) - (below << 12);
-    collision[2] = r_u32(position + 8u);
-    collision[3] = r_u32(position);
-    collision[4] = r_u32(position + 4u) + (above << 12);
-    collision[5] = r_u32(position + 8u);
+    uint32 collision[36], value;
+    memcpy(&value, position, sizeof(value));
+    collision[0] = value;
+    memcpy(&value, (const uint8 *)position + 4u, sizeof(value));
+    collision[1] = value - (below << 12);
+    memcpy(&value, (const uint8 *)position + 8u, sizeof(value));
+    collision[2] = value;
+    memcpy(&value, position, sizeof(value));
+    collision[3] = value;
+    memcpy(&value, (const uint8 *)position + 4u, sizeof(value));
+    collision[4] = value + (above << 12);
+    memcpy(&value, (const uint8 *)position + 8u, sizeof(value));
+    collision[5] = value;
     xport_draft_host_sub_8007BB24_p1(collision);
     ((uint8 *)collision)[136] = 0u;
     xport_draft_host_sub_8007DD04_p1(collision, 1u);
     if (collision[26] && (sint16)(collision[30] >> 16) < -3071)
         return collision[28];
     return 0xFFFFFFFFu;
+}
+
+uint32 sub_80067A18(uint32 position, uint32 below, uint32 above)
+{
+    return apocalypse_ground_native(psx_addr(position, 12u), below, above);
 }

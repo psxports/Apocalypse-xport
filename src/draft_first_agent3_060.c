@@ -1,6 +1,7 @@
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 #include <stdlib.h>
+#include <string.h>
 
 /* Unverified draft C; integration remains TODO */
 uint32 sub_8001610C(void)
@@ -78,13 +79,18 @@ uint32 sub_80062DD8(uint32 a1)
     return result;
 }
 
-uint32 sub_80033900(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7)
+uint32 apocalypse_shadow_quad_native(uint32 a1, uint32 a2, const void *direction, uint32 a4, uint32 a5, uint32 a6, uint32 a7)
 {
     sint32 first[3], second[3], out[3], length1, length2;
     uint32 input1[3] = {a4, a5, a6}, input2[3] = {a5, a6, a7};
     sint32 buffer1[4], buffer2[4];
     uint32 result;
-    sint32 x = (sint16)r_u16(a3), y = (sint16)r_u16(a3 + 2u), z = (sint16)r_u16(a3 + 4u);
+    sint16 components[3];
+    sint32 x, y, z;
+    memcpy(components, direction, sizeof(components));
+    x = components[0];
+    y = components[1];
+    z = components[2];
     first[0] = 0;
     first[1] = (sint32)(0u - (uint32)z);
     first[2] = y;
@@ -124,6 +130,11 @@ uint32 sub_80033900(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint3
     w_u32(a1 + 100u, out[1]);
     w_u32(a1 + 104u, out[2]);
     return result;
+}
+
+uint32 sub_80033900(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6, uint32 a7)
+{
+    return apocalypse_shadow_quad_native(a1, a2, psx_addr(a3, 6u), a4, a5, a6, a7);
 }
 
 void sub_8006D704(uint32 a1)

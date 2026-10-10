@@ -16,6 +16,7 @@ void sub_800879CC(uint32 a1, uint32 a2)
 {
     SetGeomOffset((sint32)a1, (sint32)a2);
 }
+
 /* TODO Missing call adapter sub_8008BF9C */
 /* TODO Missing call adapter sub_80097B4C */
 /* TODO Missing call adapter sub_8009AA6C */
@@ -92,12 +93,14 @@ uint32 sub_800983DC(void)
     w_u8(r_u32(0x800FDCECu), 1u);
     interrupt = r_u32(0x800FDCF8u);
     code = r_u8(interrupt) & 7u;
-    if (!code) return 0u;
+    if (!code)
+        return 0u;
     while (code != (r_u8(interrupt) & 7u))
         code = r_u8(interrupt) & 7u;
     while (count < 8u && (r_u8(r_u32(0x800FDCECu)) & 0x20u))
         response[count++] = r_u8(r_u32(0x800FDCF0u));
-    for (i = count; i < 8u; ++i) response[i] = 0u;
+    for (i = count; i < 8u; ++i)
+        response[i] = 0u;
     w_u8(r_u32(0x800FDCECu), 1u);
     w_u8(r_u32(0x800FDCF8u), 7u);
     w_u8(r_u32(0x800FDCF4u), 7u);
@@ -117,50 +120,61 @@ uint32 sub_800983DC(void)
     }
     switch (code)
     {
-    case 1u:
-        if (error && count == 1u) error = 0u;
-        w_u8(0x800FDD05u, error ? 5u : 1u);
-        for (i = 0u; i < 8u; ++i) w_u8(0x80105860u + i, response[i]);
-        w_u8(r_u32(0x800FDCECu), 0u);
-        w_u8(r_u32(0x800FDCF8u), 0u);
-        return 4u;
-    case 2u:
-        w_u8(0x800FDD04u, error ? 5u : 2u);
-        destination = 0x80105858u; result = 2u;
-        break;
-    case 3u:
-        if (error)
-        {
-            w_u8(0x800FDD04u, 5u); result = 2u;
-        }
-        else if (r_u32(0x800FDAECu + (uint32)r_u8(0x800FDA45u) * 4u))
-        {
-            w_u8(0x800FDD04u, 3u); result = 1u;
-        }
-        else
-        {
-            w_u8(0x800FDD04u, 2u); result = 2u;
-        }
-        destination = 0x80105858u;
-        break;
-    case 4u:
-        w_u8(0x800FDD06u, 4u);
-        w_u8(0x800FDD05u, r_u8(0x800FDD06u));
-        for (i = 0u; i < 8u; ++i) w_u8(0x80105868u + i, response[i]);
-        destination = 0x80105860u; result = 4u;
-        break;
-    case 5u:
-        w_u8(0x800FDD05u, 5u);
-        w_u8(0x800FDD04u, r_u8(0x800FDD05u));
-        for (i = 0u; i < 8u; ++i) w_u8(0x80105858u + i, response[i]);
-        destination = 0x80105860u; result = 6u;
-        break;
-    default:
-        /* TODO Missing SDK diagnostic context service 8008BF34 */
-        fprintf(stderr, "Missing SDK diagnostic context 8008BF34(format=800A4594, code=%u)\n", code);
-        abort();
+        case 1u:
+            if (error && count == 1u)
+                error = 0u;
+            w_u8(0x800FDD05u, error ? 5u : 1u);
+            for (i = 0u; i < 8u; ++i)
+                w_u8(0x80105860u + i, response[i]);
+            w_u8(r_u32(0x800FDCECu), 0u);
+            w_u8(r_u32(0x800FDCF8u), 0u);
+            return 4u;
+        case 2u:
+            w_u8(0x800FDD04u, error ? 5u : 2u);
+            destination = 0x80105858u;
+            result = 2u;
+            break;
+        case 3u:
+            if (error)
+            {
+                w_u8(0x800FDD04u, 5u);
+                result = 2u;
+            }
+            else if (r_u32(0x800FDAECu + (uint32)r_u8(0x800FDA45u) * 4u))
+            {
+                w_u8(0x800FDD04u, 3u);
+                result = 1u;
+            }
+            else
+            {
+                w_u8(0x800FDD04u, 2u);
+                result = 2u;
+            }
+            destination = 0x80105858u;
+            break;
+        case 4u:
+            w_u8(0x800FDD06u, 4u);
+            w_u8(0x800FDD05u, r_u8(0x800FDD06u));
+            for (i = 0u; i < 8u; ++i)
+                w_u8(0x80105868u + i, response[i]);
+            destination = 0x80105860u;
+            result = 4u;
+            break;
+        case 5u:
+            w_u8(0x800FDD05u, 5u);
+            w_u8(0x800FDD04u, r_u8(0x800FDD05u));
+            for (i = 0u; i < 8u; ++i)
+                w_u8(0x80105858u + i, response[i]);
+            destination = 0x80105860u;
+            result = 6u;
+            break;
+        default:
+            /* TODO Missing SDK diagnostic context service 8008BF34 */
+            fprintf(stderr, "Missing SDK diagnostic context 8008BF34(format=800A4594, code=%u)\n", code);
+            abort();
     }
-    for (i = 0u; i < 8u; ++i) w_u8(destination + i, response[i]);
+    for (i = 0u; i < 8u; ++i)
+        w_u8(destination + i, response[i]);
     return result;
 }
 

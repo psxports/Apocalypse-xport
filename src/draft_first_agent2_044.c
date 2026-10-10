@@ -17,7 +17,8 @@
 /* TODO Missing host buffer adapter xport_draft_host_sub_800872BC_p12 */
 static sint32 apocalypse_agent2_mips_div(sint32 numerator, uint32 divisor)
 {
-    if (!divisor) return numerator < 0 ? 1 : -1;
+    if (!divisor)
+        return numerator < 0 ? 1 : -1;
     return numerator / (sint32)divisor;
 }
 
@@ -26,8 +27,7 @@ static sint32 apocalypse_agent2_abs32(sint32 value)
     return value < 0 ? (sint32)(0u - (uint32)value) : value;
 }
 
-static void apocalypse_agent2_behavior_missing(uint32 service, uint32 receiver,
-    uint32 arg2, uint32 arg3, uint32 arg4)
+static void apocalypse_agent2_behavior_missing(uint32 service, uint32 receiver, uint32 arg2, uint32 arg3, uint32 arg4)
 {
     /* TODO Implement the named excluded service or native callback boundary */
     fprintf(stderr, "Missing behavior boundary %08X receiver %08X args %08X %08X %08X\n", service, receiver, arg2, arg3, arg4);
@@ -137,8 +137,7 @@ uint32 sub_8004E71C(uint32 a1)
     if (v4)
     {
         uint32 table = r_u32((uint32)v4);
-        apocalypse_agent2_behavior_missing(r_u32(table + 28u),
-            (uint32)v4 + (uint32)(sint32)(sint16)r_u16(table + 24u), (uint32)v5, 0x800FF5E4u, 0u);
+        apocalypse_agent2_behavior_missing(r_u32(table + 28u), (uint32)v4 + (uint32)(sint32)(sint16)r_u16(table + 24u), (uint32)v5, 0x800FF5E4u, 0u);
     }
     if ((r_u16(((uint32)(((uint32)(a1) + (uint32)(390))))) == 128))
     {
@@ -424,7 +423,8 @@ LABEL_40:
             v89[2] = (sint32)(r_u32(a1 + 492u) - r_u32(a1 + 12u)) >> 12;
             xport_draft_host_sub_800872BC_p12(v89, v90);
             v48 = (sint16)r_u16(a1 + 134u);
-            if (v48 < 0) v48 = -v48;
+            if (v48 < 0)
+                v48 = -v48;
             if ((((sint32)(v48)) >= 65))
                 v48 = 64;
             v49 = (((uint32)(r_u16(((uint32)(((uint32)(a1) + (uint32)(436)))))) * (uint32)(((uint32)(64) - (uint32)(v48)))) / 64);
@@ -451,18 +451,15 @@ LABEL_83:
     if ((v54 == 3))
     {
         v55 = sub_8006325C(a1, 3, r_u8(((uint32)(((uint32)(a1) + (uint32)(613))))));
-        if (sub_80062D24(a1, v55, 1u) && r_u32(0x800FF5A0u)
-            && sub_80066918(a1 + 4u, r_u32(0x800FF5A0u) + 4u) < 256u
-            && apocalypse_agent2_abs32((sint32)(r_u32(r_u32(0x800FF5A0u) + 8u)
-                + ((uint32)r_u8(r_u32(0x800FF5A0u) + 582u) << 12)
-                - (r_u32(a1 + 8u) + ((uint32)(sint32)(sint16)r_u16(a1 + 456u) << 12)))) <= 0x7FFFF)
+        if (sub_80062D24(a1, v55, 1u) && r_u32(0x800FF5A0u) && sub_80066918(a1 + 4u, r_u32(0x800FF5A0u) + 4u) < 256u && apocalypse_agent2_abs32((sint32)(r_u32(r_u32(0x800FF5A0u) + 8u) + ((uint32)r_u8(r_u32(0x800FF5A0u) + 582u) << 12) - (r_u32(a1 + 8u) + ((uint32)(sint32)(sint16)r_u16(a1 + 456u) << 12)))) <= 0x7FFFF)
         {
             v56 = sub_8004BDFC(a1, 0, 1u);
             v57 = sub_8004B914(a1, v56);
             xport_draft_host_sub_8006C3AC_p1(attack_vector, ((uint32)(r_u32(0x800FF5A0u)) + (uint32)(4)), ((uint32)(a1) + (uint32)(4)));
-            { uint32 player = r_u32(0x800FF5A0u), table = r_u32(player + 68u);
-              /* TODO Native local-vector virtual52 boundary */
-              apocalypse_agent2_behavior_missing(r_u32(table + 52u), player + (uint32)(sint32)(sint16)r_u16(table + 48u), (uint32)v57, (uint32)(uintptr_t)attack_vector, 0u); }
+            {
+                uint32 player = r_u32(0x800FF5A0u), table = r_u32(player + 68u);
+                apocalypse_object_virtual52_native(r_u32(table + 52u), player + (uint32)(sint32)(sint16)r_u16(table + 48u), (uint32)v57, (const sint32 *)attack_vector, 0u);
+            }
         }
         v54 = r_u8(((uint32)(((uint32)(a1) + (uint32)(26)))));
     }
@@ -472,7 +469,7 @@ LABEL_83:
         if (((v58 & 0x10) != 0))
         {
             v59 = sub_8006325C(a1, 1, 10);
-            if ((sub_80062D24(a1, v59, 2) && (sub_80066918(((uint32)(a1) + (uint32)(4)), ((uint32)(r_u32(0x800FF5A0u)) + (uint32)(4))) < 4500)))
+            if ((sub_80062D24(a1, v59, 2) && ((sint32)sub_80066918(((uint32)(a1) + (uint32)(4)), ((uint32)(r_u32(0x800FF5A0u)) + (uint32)(4))) < 4500)))
                 goto LABEL_101;
         }
         else if (((v58 & 8) != 0))
@@ -506,8 +503,10 @@ LABEL_83:
         if ((((((uint32)(sub_80066918(((uint32)(a1) + (uint32)(4)), ((uint32)(v64) + (uint32)(4))))) < 0xA0) && (r_u16(((uint32)(((uint32)(a1) + (uint32)(472))))) != 16)) && r_u32(0x800FF5A0u)))
         {
             v65 = sub_8004B914(a1, 1);
-            { uint32 player = r_u32(0x800FF5A0u), table = r_u32(player + 68u);
-              apocalypse_object_virtual52(r_u32(table + 52u), player + (uint32)(sint32)(sint16)r_u16(table + 48u), (uint32)v65, 0x800A71CCu, 0u); }
+            {
+                uint32 player = r_u32(0x800FF5A0u), table = r_u32(player + 68u);
+                apocalypse_object_virtual52(r_u32(table + 52u), player + (uint32)(sint32)(sint16)r_u16(table + 48u), (uint32)v65, 0x800A71CCu, 0u);
+            }
         }
     }
     if ((((r_u32(((uint32)(((uint32)(a1) + (uint32)(396))))) & 0x100) != 0) && !sub_80066570(4)))
@@ -644,13 +643,12 @@ LABEL_83:
     }
     return result;
 }
+
 uint32 sub_80066CF0(uint32 start_xy, uint32 unused_start_z, uint32 zero_output, uint32 output, uint32 end_xy, uint32 unused_end_z, uint32 scale)
 {
     sint32 dx = (sint16)((uint16)end_xy - (uint16)start_xy);
     sint32 dy = (sint16)((uint16)(end_xy >> 16) - (uint16)(start_xy >> 16));
     sint32 result;
-    (void)unused_start_z;
-    (void)unused_end_z;
     if (dx < -2048)
         dx += 4096;
     if (dx > 2048)
@@ -707,12 +705,10 @@ uint32 sub_80032DC0(uint32 a1)
 /* TODO Missing call adapter sub_8006A890 */
 /* TODO Missing call adapter sub_8006A8FC */
 /* TODO Missing host buffer adapter xport_draft_host_sub_8006613C_p1 */
-static uint32 apocalypse_missing_hud_formatter(uint32 target, uint32 x, uint32 y,
-    uint32 value, uint32 red, uint32 green, uint32 blue, uint32 flags)
+static uint32 apocalypse_missing_hud_formatter(uint32 target, uint32 x, uint32 y, uint32 value, uint32 red, uint32 green, uint32 blue, uint32 flags)
 {
     /* TODO Excluded HUD formatter needs a native project adapter */
-    fprintf(stderr, "Missing HUD formatter %08X x=%u y=%u value=%08X rgb=%u,%u,%u flags=%u\n",
-        target, x, y, value, red, green, blue, flags);
+    fprintf(stderr, "Missing HUD formatter %08X x=%u y=%u value=%08X rgb=%u,%u,%u flags=%u\n", target, x, y, value, red, green, blue, flags);
     abort();
 }
 
@@ -845,14 +841,13 @@ uint32 sub_8003032C(uint32 a1)
 /* TODO Missing host buffer adapter xport_draft_host_sub_800762A8_p1 */
 /* TODO Missing host buffer adapter xport_draft_host_sub_800762DC_p1 */
 /* TODO Postincrement memory expressions may require ordering refinement */
-static sint16 apocalypse_agent2_camera_oscillation(uint32 object, uint32 amplitude_offset,
-    uint32 frequency_offset)
+static sint16 apocalypse_agent2_camera_oscillation(uint32 object, uint32 amplitude_offset, uint32 frequency_offset)
 {
     uint32 phase = (uint32)(sint32)(sint16)r_u16(object + frequency_offset) * r_u32(0x800FF2F0u);
-    sint32 product = (sint32)((uint32)(sint32)(sint16)r_u16(object + amplitude_offset)
-        * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + (phase & 4095u) * 4u));
+    sint32 product = (sint32)((uint32)(sint32)(sint16)r_u16(object + amplitude_offset) * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + (phase & 4095u) * 4u));
     /* MIPS adds the truncation bias before SLL4 and SRA16 */
-    if (product < 0) product = (sint32)((uint32)product + 4095u);
+    if (product < 0)
+        product = (sint32)((uint32)product + 4095u);
     return (sint16)((sint32)((uint32)product << 4) >> 16);
 }
 
@@ -1333,9 +1328,14 @@ uint32 sub_800793C8(uint32 object)
         }
     }
     xport_draft_host_sub_8006C34C_p12(translated, offset, object + 308u);
-    for (i = 0u; i < 3u; ++i) w_u32(object + 512u + i * 4u, translated[i]);
-    x = r_u32(object + 308u); y = r_u32(object + 312u); z = r_u32(object + 316u);
-    w_u32(object + 524u, x); w_u32(object + 528u, y); w_u32(object + 532u, z);
+    for (i = 0u; i < 3u; ++i)
+        w_u32(object + 512u + i * 4u, translated[i]);
+    x = r_u32(object + 308u);
+    y = r_u32(object + 312u);
+    z = r_u32(object + 316u);
+    w_u32(object + 524u, x);
+    w_u32(object + 528u, y);
+    w_u32(object + 532u, z);
     sum = 0u;
     for (i = 0u; i < 3u; ++i)
     {
@@ -1343,7 +1343,8 @@ uint32 sub_800793C8(uint32 object)
         sum += forward[i] * forward[i];
     }
     divisor = (sint32)SquareRoot0(sum);
-    if (!divisor) divisor = 1;
+    if (!divisor)
+        divisor = 1;
     for (i = 0u; i < 3u; ++i)
     {
         uint32 value = forward[i] << 12;
@@ -1356,7 +1357,8 @@ uint32 sub_800793C8(uint32 object)
         sum += normal_up[i] * normal_up[i];
     }
     divisor = (sint32)SquareRoot0(sum);
-    if (!divisor) divisor = 1;
+    if (!divisor)
+        divisor = 1;
     for (i = 0u; i < 3u; ++i)
     {
         uint32 value = normal_up[i] << 12;
@@ -1369,10 +1371,18 @@ uint32 sub_800793C8(uint32 object)
     xport_draft_gte_data_write(9u, forward[0]);
     xport_draft_gte_data_write(10u, forward[1]);
     xport_draft_gte_execute(0x170000Cu);
-    x = xport_draft_gte_data_read(25u); y = xport_draft_gte_data_read(26u); z = xport_draft_gte_data_read(27u);
-    matrix[0] = (sint16)((sint32)x >> 12); matrix[3] = (sint16)((sint32)y >> 12); matrix[6] = (sint16)((sint32)z >> 12);
-    matrix[1] = (sint16)normal_up[0]; matrix[4] = (sint16)normal_up[1]; matrix[7] = (sint16)normal_up[2];
-    matrix[2] = (sint16)forward[0]; matrix[5] = (sint16)forward[1]; matrix[8] = (sint16)forward[2];
+    x = xport_draft_gte_data_read(25u);
+    y = xport_draft_gte_data_read(26u);
+    z = xport_draft_gte_data_read(27u);
+    matrix[0] = (sint16)((sint32)x >> 12);
+    matrix[3] = (sint16)((sint32)y >> 12);
+    matrix[6] = (sint16)((sint32)z >> 12);
+    matrix[1] = (sint16)normal_up[0];
+    matrix[4] = (sint16)normal_up[1];
+    matrix[7] = (sint16)normal_up[2];
+    matrix[2] = (sint16)forward[0];
+    matrix[5] = (sint16)forward[1];
+    matrix[8] = (sint16)forward[2];
     return xport_draft_host_sub_80076420_p1(matrix, object + 444u);
 }
 
@@ -1647,9 +1657,7 @@ uint32 sub_80080D84(uint32 vertices, uint32 count)
         w_u32(output, screen);
         x = (sint16)screen;
         y = (sint32)screen >> 16;
-        clip = ((sint32)bounds[0] < x) | ((uint32)(x < (sint32)bounds[1]) << 1)
-             | ((uint32)((sint32)bounds[2] < y) << 2) | ((uint32)(y < (sint32)bounds[3]) << 3)
-             | ((uint32)(z < (sint32)bounds[4]) << 4) | ((uint32)((sint32)bounds[5] < z) << 5);
+        clip = ((sint32)bounds[0] < x) | ((uint32)(x < (sint32)bounds[1]) << 1) | ((uint32)((sint32)bounds[2] < y) << 2) | ((uint32)(y < (sint32)bounds[3]) << 3) | ((uint32)(z < (sint32)bounds[4]) << 4) | ((uint32)((sint32)bounds[5] < z) << 5);
         if (z < 0)
             clip ^= 15u;
         clip |= (clip << 8) ^ 0xFF00u;

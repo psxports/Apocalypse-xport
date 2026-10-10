@@ -44,6 +44,7 @@ static uint32 apocalypse_controller_missing_callback(uint32 owner, uint32 slot, 
     fprintf(stderr, "Missing selected callback owner=%08X slot=%08X target=%08X args=%08X,%08X\n", owner, slot, target, argument0, argument1);
     abort();
 }
+
 uint32 sub_8009CE08(void)
 {
     uint32 flag;

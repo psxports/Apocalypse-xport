@@ -1,5 +1,7 @@
 #include "draft_first_signatures.h"
+#include "draft_first_adapters.h"
 #include <stdlib.h>
+#include <string.h>
 #include <stdio.h>
 
 /* Unverified draft C; integration remains TODO */
@@ -13,8 +15,10 @@ static uint32 apocalypse_agent2_controller_callback(uint32 target, uint32 argume
 uint32 sub_8009CDA0(void)
 {
     uint32 port = r_u32(0x800FEE54u), target;
-    if (!(r_u32(port + 4u) & 1u)) return 0u;
-    if (!(r_u32(port) & 1u)) return 0u;
+    if (!(r_u32(port + 4u) & 1u))
+        return 0u;
+    if (!(r_u32(port) & 1u))
+        return 0u;
     target = r_u32(0x800FEE1Cu);
     if (target)
         (void)apocalypse_agent2_controller_callback(target, 0u, 0u);
@@ -975,20 +979,25 @@ uint32 sub_80032D3C(uint32 a1, uint32 a2)
     return result;
 }
 
-uint32 sub_8003C684(uint32 a1, uint32 a2)
+uint32 apocalypse_object_target_native(uint32 object, const void *position)
 {
-    uint32 result = sub_8006C304(a1 + 484u, a2), y, z;
+    uint32 result = apocalypse_vector_different_native(object + 484u, position);
+    uint32 values[3];
     if (result)
     {
-        y = r_u32(a2 + 4u);
-        z = r_u32(a2 + 8u);
-        w_u32(a1 + 484u, r_u32(a2));
-        w_u32(a1 + 488u, y);
-        w_u32(a1 + 492u, z);
-        result = r_u32(a1 + 396u) | 1u;
-        w_u32(a1 + 396u, result);
+        memcpy(values, position, sizeof(values));
+        w_u32(object + 484u, values[0]);
+        w_u32(object + 488u, values[1]);
+        w_u32(object + 492u, values[2]);
+        result = r_u32(object + 396u) | 1u;
+        w_u32(object + 396u, result);
     }
     return result;
+}
+
+uint32 sub_8003C684(uint32 object, uint32 position)
+{
+    return apocalypse_object_target_native(object, psx_addr(position, 12u));
 }
 
 uint32 sub_80036988(uint32 a1, uint32 a2)
@@ -1026,7 +1035,7 @@ uint32 sub_80063D3C(uint32 a1)
     return 0u;
 }
 
-uint32 sub_8001E4C8(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5)
+static uint32 explosion_particles(uint32 a1, const void *host_position, uint32 a2, uint32 a3, uint32 a4, uint32 a5)
 {
     uint32 result = r_u32(0x800FF738u), i = 0u, node;
     if (!result)
@@ -1035,12 +1044,27 @@ uint32 sub_8001E4C8(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5)
         {
             node = sub_80032DC0(112u);
             if (node)
-                sub_800358B4(node, a1, 128u, 128u, 128u, a3, a4 & 65535u, 1u, a5, 0x3000u, 30u);
+            {
+                if (host_position)
+                    apocalypse_particle_construct_358B4(node, host_position, 128u, 128u, 128u, a3, a4 & 65535u, 1u, a5, 0x3000u, 30u);
+                else
+                    sub_800358B4(node, a1, 128u, 128u, 128u, a3, a4 & 65535u, 1u, a5, 0x3000u, 30u);
+            }
             ++i;
             result = (sint32)i < (sint32)a2;
         }
     }
     return result;
+}
+
+uint32 sub_8001E4C8(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5)
+{
+    return explosion_particles(a1, NULL, a2, a3, a4, a5);
+}
+
+uint32 xport_draft_host_sub_8001E4C8_p1(const void *position, uint32 a2, uint32 a3, uint32 a4, uint32 a5)
+{
+    return explosion_particles(0u, position, a2, a3, a4, a5);
 }
 
 uint32 sub_80036CB0(uint32 a1)

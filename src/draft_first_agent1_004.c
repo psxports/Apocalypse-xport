@@ -470,11 +470,7 @@ void sub_8003736C(void)
                         w_u32(((uint32)(((sint32)((uint32)(v122) + (uint32)(4))))), v124);
                         v311 = xport_draft_gte_data_read(27);
                         result = (v311 < i);
-                        if (v311 >= i && (result = (sint32)r_u32(0x800FFAD8u) < v311,
-                            (sint32)r_u32(0x800FFAD8u) >= v311) &&
-                            ((v125 = renderer_3736C_divu((uint32)(sint32)(sint16)r_u16(n + 94u) << 7,
-                                                        (uint32)v311)) < 0x201u ||
-                             (r_u8(n + 88u) & 8u) != 0u))
+                        if (v311 >= i && (result = (sint32)r_u32(0x800FFAD8u) < v311, (sint32)r_u32(0x800FFAD8u) >= v311) && ((v125 = renderer_3736C_divu((uint32)(sint32)(sint16)r_u16(n + 94u) << 7, (uint32)v311)) < 0x201u || (r_u8(n + 88u) & 8u) != 0u))
                         {
                             v312 = xport_draft_gte_data_read(14);
                             v126 = r_u32(((uint32)(((uint32)(r_u32(((uint32)(((sint32)((uint32)(n) + (uint32)(84))))))) + (uint32)(4)))));
@@ -677,7 +673,7 @@ void sub_8003736C(void)
                                 result = (v318 < ((sint32)r_u32(0x800FFAE8u)));
                                 if ((v318 >= ((sint32)r_u32(0x800FFAE8u))))
                                 {
-                                            if ((((sint32)r_u32(0x800FFAD8u)) >= v318))
+                                    if ((((sint32)r_u32(0x800FFAD8u)) >= v318))
                                     {
                                         v319 = xport_draft_gte_data_read(14);
                                         v184 = r_u32(0x800FF668u);
@@ -1160,7 +1156,7 @@ void sub_8003736C(void)
                             v250 = 1;
                             if ((v340 >= ((sint32)r_u32(0x800FFAE8u))))
                             {
-                                    if ((((sint32)r_u32(0x800FFAD8u)) >= v340))
+                                if ((((sint32)r_u32(0x800FFAD8u)) >= v340))
                                 {
                                     v341[0] = ((short)(xport_draft_gte_data_read(14)));
                                     v341[1] = ((short)((xport_draft_gte_data_read(14) >> 16)));
@@ -1209,7 +1205,7 @@ void sub_8003736C(void)
                                     result = (v340 < ((sint32)r_u32(0x800FFAE8u)));
                                     if ((v340 < ((sint32)r_u32(0x800FFAE8u))))
                                         goto LABEL_239;
-                                            if ((((sint32)r_u32(0x800FFAD8u)) < v340))
+                                    if ((((sint32)r_u32(0x800FFAD8u)) < v340))
                                         goto LABEL_239;
                                     v343 = ((short)(xport_draft_gte_data_read(14)));
                                     v344 = ((short)((xport_draft_gte_data_read(14) >> 16)));

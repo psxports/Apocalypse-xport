@@ -17,9 +17,9 @@ uint32 sub_8006696C(uint32 a1, uint32 a2)
     v8 = (r_u32((a1 + (2) * 4u)) - r_u32((a2 + (2) * 4u)));
     if ((v6 < 0))
         v6 = (r_u32(a2) - r_u32(a1));
-    if (((r_u32((a1 + (1) * 4u)) - r_u32((a2 + (1) * 4u))) < 0))
+    if (v7 < 0)
         v7 = (r_u32((a2 + (1) * 4u)) - r_u32((a1 + (1) * 4u)));
-    if (((r_u32((a1 + (2) * 4u)) - r_u32((a2 + (2) * 4u))) < 0))
+    if (v8 < 0)
         v8 = (r_u32((a2 + (2) * 4u)) - r_u32((a1 + (2) * 4u)));
     if ((v6 >= v7))
     {
@@ -109,18 +109,46 @@ void apocalypse_object_virtual20(uint32 target, uint32 receiver)
 {
     switch (target)
     {
-        case 0x80062F0Cu: sub_80062F0C(receiver); break;
-        case 0x80020264u: sub_80020264(receiver); break;
-        case 0x8004B8C8u: sub_8004B8C8(receiver); break;
-        case 0x8005DD40u: sub_8005DD40(receiver); break;
-        case 0x8001D240u: sub_8001D240(receiver); break;
-        case 0x8002396Cu: sub_8002396C(receiver); break;
-        case 0x800236D4u: sub_800236D4(receiver); break;
-        case 0x80035A54u: sub_80035A54(receiver); break;
-        case 0x800355A0u: sub_800355A0(receiver); break;
-        case 0x800326E8u: sub_800326E8(receiver); break;
-        case 0x80035758u: sub_80035758(receiver); break;
-        default: player_update_missing("Object virtual slot20 target");
+        case 0x8003A144u:
+            return;
+        case 0x800352B0u:
+            sub_800352B0(receiver);
+            break;
+        case 0x80062F0Cu:
+            sub_80062F0C(receiver);
+            break;
+        case 0x80020264u:
+            sub_80020264(receiver);
+            break;
+        case 0x8004B8C8u:
+            sub_8004B8C8(receiver);
+            break;
+        case 0x8005DD40u:
+            sub_8005DD40(receiver);
+            break;
+        case 0x8001D240u:
+            sub_8001D240(receiver);
+            break;
+        case 0x8002396Cu:
+            sub_8002396C(receiver);
+            break;
+        case 0x800236D4u:
+            sub_800236D4(receiver);
+            break;
+        case 0x80035A54u:
+            sub_80035A54(receiver);
+            break;
+        case 0x800355A0u:
+            sub_800355A0(receiver);
+            break;
+        case 0x800326E8u:
+            sub_800326E8(receiver);
+            break;
+        case 0x80035758u:
+            sub_80035758(receiver);
+            break;
+        default:
+            player_update_missing("Object virtual slot20 target");
     }
 }
 
@@ -128,8 +156,14 @@ void apocalypse_object_virtual52(uint32 target, uint32 receiver, uint32 argument
 {
     switch (target)
     {
-        case 0x8005DDF0u: sub_8005DDF0(receiver, argument, vector, zero); break;
-        default: player_update_missing("Object virtual slot52 target");
+        case 0x8005DDF0u:
+            sub_8005DDF0(receiver, argument, vector, zero);
+            break;
+        case 0x8003C490u:
+            sub_8003C490(receiver, argument);
+            break;
+        default:
+            player_update_missing("Object virtual slot52 target");
     }
 }
 
@@ -356,7 +390,7 @@ uint32 sub_8005F688(uint32 a1)
 #define v219 position[3]
     MATRIX v220;
     MATRIX v221;
-    sint32 vectors[6];
+    sint32 vectors[7];
 #define v222 vectors[0]
 #define v223 vectors[1]
 #define v224 (vectors + 2)
@@ -459,7 +493,7 @@ uint32 sub_8005F688(uint32 a1)
         (v21 = (r_u16(((uint32)(a1))) & 0xFFF7));
         (v4 = (r_u32(0x800FF378u) == 1));
         w_u16(((uint32)(a1)), v21);
-        if (((v4 || (v20 == 5)) && (r_u32(0x800FF37Cu) < (r_u32(((uint32)((a1 + 8)))) + (r_u8(((uint32)((a1 + 582)))) << 12)))))
+        if (((v4 || (v20 == 5)) && ((sint32)r_u32(0x800FF37Cu) < (sint32)(r_u32(((uint32)((a1 + 8)))) + (r_u8(((uint32)((a1 + 582)))) << 12)))))
         {
             (v22 = r_u32(0x800FF380u));
             (v4 = (r_u32(0x800FF380u) == 0));
@@ -487,7 +521,7 @@ uint32 sub_8005F688(uint32 a1)
             }
             else
             {
-apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) : player_update_missing("Unreviewed object class extent for slot52"), a1 + (uint32)(sint32)(sint16)r_u16(r_u32(a1 + 68u) + 48u), v22, 0x800A71CCu, 0u);
+                apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) : player_update_missing("Unreviewed object class extent for slot52"), a1 + (uint32)(sint32)(sint16)r_u16(r_u32(a1 + 68u) + 48u), v22, 0x800A71CCu, 0u);
             }
         }
         if (((r_u32(0x800FF32Cu) && r_u8(0x800EC138u)) && r_u8(0x800EC158u)))
@@ -607,12 +641,12 @@ apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) 
                                 if ((v74 != 17))
                                 {
                                     (v75 = 0);
-                                    if ((((r_u32(((uint32)((a1 + 108)))) ^ v18) < 0) || (v74 != 2)))
+                                    if ((((sint32)(r_u32(((uint32)((a1 + 108)))) ^ (uint32)v18) < 0) || (v74 != 2)))
                                         (v75 = 1);
                                     if (v75)
                                     {
                                         w_u32(((uint32)((a1 + 480))), r_u32(((uint32)((a1 + 8)))));
-                                        sub_80063038(a1, 2, (r_u16(0x800EC4D4u) + 1), r_u16(0x800EC4D6u));
+                                        sub_80063038(a1, 2, ((sint32)(sint16)r_u16(0x800EC4D4u) + 1), (sint32)(sint16)r_u16(0x800EC4D6u));
                                         w_u8(((uint32)((a1 + 130))), r_u8(0x800EC6DAu));
                                     }
                                 }
@@ -686,7 +720,7 @@ apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) 
                                                                 {
                                                                     if (r_u8(((uint32)((a1 + 303)))))
                                                                         sub_80063038(a1, 0, 0, -1);
-                                                                    (v48 = ((unsigned short)((w_u16(((uint32)((a1 + 580))), (r_u16(((uint32)((a1 + 580)))) + 1u)), (r_u16(((uint32)((a1 + 580)))) + 1u)))));
+                                                                    (v48 = ((unsigned short)((w_u16(((uint32)((a1 + 580))), (r_u16(((uint32)((a1 + 580)))) + 1u)), (r_u16(((uint32)((a1 + 580)))))))));
                                                                     if ((v48 == 1350))
                                                                     {
                                                                         (v49 = sub_80066570(8));
@@ -824,7 +858,7 @@ apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) 
                 if (v54)
                 {
                     (v55 = r_u32(((uint32)((a1 + 428)))));
-                    (v56 = (-4096 * r_u16(0x800EC4DAu)));
+                    (v56 = (sint32)(0u - ((uint32)(sint32)(sint16)r_u16(0x800EC4DAu) << 12)));
                     w_u32(((uint32)((a1 + 564))), v56);
                     if (v55)
                         w_u32(((uint32)((a1 + 564))), (v56 + r_u32(((uint32)((v55 + 108))))));
@@ -989,13 +1023,13 @@ apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) 
             if ((sint32)player_update_abs((sint32)((uint32)v61 - (uint32)v60) >> 3) <= 0x7FFF)
                 w_u32(((uint32)((a1 + 4))), v61);
             else
-                w_u32(((uint32)((a1 + 4))), (v60 + ((v61 - v60) >> 3)));
+                w_u32(((uint32)((a1 + 4))), ((uint32)v60 + ((sint32)((uint32)v61 - (uint32)v60) >> 3)));
             (v62 = r_u32(((uint32)((a1 + 12)))));
             (v32 = r_u32(((uint32)((r_u32(((uint32)((a1 + 516)))) + 304)))));
             if ((sint32)player_update_abs((sint32)((uint32)v32 - (uint32)v62) >> 3) <= 0x7FFF)
                 w_u32(((uint32)((a1 + 12))), v32);
             else
-                w_u32(((uint32)((a1 + 12))), (v62 + ((v32 - v62) >> 3)));
+                w_u32(((uint32)((a1 + 12))), ((uint32)v62 + ((sint32)((uint32)v32 - (uint32)v62) >> 3)));
             if (((((uint32)(r_u8(((uint32)((a1 + 24)))))) - 25) < 0x19))
             {
                 (v63 = r_u32(((uint32)((a1 + 516)))));
@@ -1024,7 +1058,7 @@ apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) 
             if ((r_u8(((uint32)((a1 + 468)))) | r_u8(((uint32)((a1 + 469))))))
             {
                 (v120 = r_u16(((uint32)((a1 + 474)))));
-                (v121 = (v120 << 16));
+                (v121 = ((uint32)v120 << 16));
                 if ((((uint32)((v120 - 257))) < 0xDFF))
                 {
                     (v120 = ((short)(v120)));
@@ -1044,7 +1078,7 @@ apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) 
             if ((r_u8(((uint32)((a1 + 471)))) | r_u8(((uint32)((a1 + 472))))))
             {
                 (v125 = r_u16(((uint32)((a1 + 476)))));
-                (v126 = (v125 << 16));
+                (v126 = ((uint32)v125 << 16));
                 if ((((uint32)((v125 - 257))) < 0xDFF))
                 {
                     (v125 = ((short)(v125)));
@@ -1148,7 +1182,7 @@ apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) 
                             if (r_u32(((uint32)((a1 + 440)))))
                             {
                                 w_u16(((uint32)((r_u32(((uint32)((a1 + 360)))) + 86))), ((r_u16(((uint32)((r_u32(((uint32)((a1 + 360)))) + 86)))) + r_u16(((uint32)((a1 + 436))))) & 0xFFF));
-                                (v4 = ((w_u32(((uint32)((a1 + 440))), (r_u32(((uint32)((a1 + 440)))) - 1u)), r_u32(((uint32)((a1 + 440))))) != 1));
+                                (v4 = ((w_u32(((uint32)((a1 + 440))), (r_u32(((uint32)((a1 + 440)))) - 1u)), r_u32(((uint32)((a1 + 440))))) != 0));
                                 if (!v4)
                                     w_u16(((uint32)((r_u32(((uint32)((a1 + 360)))) + 86))), r_u16(((uint32)((a1 + 432)))));
                             }
@@ -1163,7 +1197,7 @@ apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) 
                                     if ((v147 != 0x8000))
                                     {
                                     LABEL_306:
-                                        w_u32(((uint32)((a1 + 120))), (r_u16(0x800EC4B0u) << 12));
+                                        w_u32(((uint32)((a1 + 120))), ((uint32)(sint32)(sint16)r_u16(0x800EC4B0u) << 12));
 
                                     LABEL_307:
                                         if (((r_u32(((uint32)((a1 + 460)))) & 0x80000) == 0))
@@ -1183,7 +1217,12 @@ apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) 
                                             v223 = r_u16(r_u32(0x800FF904u) + 496u);
                                             RotMatrix((SVECTOR *)&v222, &v221);
                                         }
-                                        { uint32 r, c; for (r = 0; r < 3u; ++r) for (c = 0; c < 3u; ++c) v220.m[r][c] = v221.m[c][r]; }
+                                        {
+                                            uint32 r, c;
+                                            for (r = 0; r < 3u; ++r)
+                                                for (c = 0; c < 3u; ++c)
+                                                    v220.m[r][c] = v221.m[c][r];
+                                        }
                                         SetRotMatrix(&v220);
                                         (v237 = 6);
                                         xport_draft_host_sub_8006C564_p13(v224, a1 + 104u, &v237);
@@ -1208,9 +1247,9 @@ apocalypse_object_virtual52(r_u32(a1 + 68u) == 0x800A32A4u ? r_u32(0x800A32D8u) 
                                                 case 0x800:
                                                     if ((((sint8)(r_u8(((uint32)((a1 + 24)))))) < 20))
                                                     {
-v216 = (sint32)(0u - (r_u16(0x800EC4C0u) * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 606u) & 0xFFFu))));
+                                                        v216 = (sint32)(0u - ((uint32)(sint32)(sint16)r_u16(0x800EC4C0u) * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 606u) & 0xFFFu))));
                                                         (v154 = 1);
-v218 = (sint32)(0u - (r_u16(0x800EC4C0u) * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 606u) & 0xFFFu) + 2u)));
+                                                        v218 = (sint32)(0u - ((uint32)(sint32)(sint16)r_u16(0x800EC4C0u) * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 606u) & 0xFFFu) + 2u)));
                                                     }
                                                     break;
 
@@ -1238,9 +1277,9 @@ v218 = (sint32)(0u - (r_u16(0x800EC4C0u) * (uint32)(sint32)(sint16)r_u16(0x800F8
                                                     break;
 
                                                 case 0x8000:
-v216 = (r_u16(0x800EC4C0u) / 4u) * 8u * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * ((r_u16(r_u32(a1 + 512u) + 320u) - v124) & 0xFFFu));
+                                                    v216 = ((sint32)(sint16)r_u16(0x800EC4C0u) / 4) * 8u * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * ((r_u16(r_u32(a1 + 512u) + 320u) - v124) & 0xFFFu));
                                                     (v154 = 1);
-v218 = (r_u16(0x800EC4C0u) / 4u) * 8u * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * ((r_u16(r_u32(a1 + 512u) + 320u) - v124) & 0xFFFu) + 2u);
+                                                    v218 = ((sint32)(sint16)r_u16(0x800EC4C0u) / 4) * 8u * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * ((r_u16(r_u32(a1 + 512u) + 320u) - v124) & 0xFFFu) + 2u);
                                                     break;
 
                                                 default:
@@ -1253,14 +1292,14 @@ v218 = (r_u16(0x800EC4C0u) / 4u) * 8u * (uint32)(sint32)(sint16)r_u16(0x800F863C
                                                             (v162 = 4096);
                                                         if ((((unsigned long long)(v161) >> 32) & 0xFFu))
                                                         {
-v218 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 474u) & 0xFFFu) + 2u) * (uint32)v162) >> 12) * r_u16(0x800EC4C0u)));
-                                                            (v218 = ((v218 * r_u32(((uint32)((a1 + 608))))) / 8));
+                                                            v218 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 474u) & 0xFFFu) + 2u) * (uint32)v162) >> 12) * (uint32)(sint32)(sint16)r_u16(0x800EC4C0u)));
+                                                            (v218 = ((sint32)((uint32)v218 * r_u32(((uint32)((a1 + 608))))) / 8));
                                                             (v154 = 1);
                                                         }
                                                         if (r_u8(((uint32)((a1 + 469)))))
                                                         {
-v216 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 474u) & 0xFFFu)) * (uint32)v162) >> 12) * r_u16(0x800EC4C0u)));
-                                                            (v216 = ((v216 * r_u32(((uint32)((a1 + 608))))) / 8));
+                                                            v216 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 474u) & 0xFFFu)) * (uint32)v162) >> 12) * (uint32)(sint32)(sint16)r_u16(0x800EC4C0u)));
+                                                            (v216 = ((sint32)((uint32)v216 * r_u32(((uint32)((a1 + 608))))) / 8));
                                                             (v154 = 1);
                                                         }
                                                     }
@@ -1397,13 +1436,13 @@ v216 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863C
                                                         switch (v187)
                                                         {
                                                             case 1:
-                                                                (v188 = sub_8006325C(a1, 1, r_u16(0x800EC5E4u)));
+                                                                (v188 = sub_8006325C(a1, 1, (sint32)(sint16)r_u16(0x800EC5E4u)));
                                                                 (v189 = sub_80062D24(a1, v188, 1));
                                                                 (v190 = v186);
                                                                 if (!v189)
                                                                 {
                                                                     (v191 = a1);
-                                                                    (v192 = r_u16(0x800EC5E6u));
+                                                                    (v192 = (sint32)(sint16)r_u16(0x800EC5E6u));
                                                                     (v193 = 1);
                                                                     break;
                                                                 }
@@ -1524,24 +1563,24 @@ v216 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863C
                                                                 goto LABEL_392;
 
                                                             case 3:
-                                                                (v194 = sub_8006325C(a1, 3, r_u16(0x800EC5E4u)));
+                                                                (v194 = sub_8006325C(a1, 3, (sint32)(sint16)r_u16(0x800EC5E4u)));
                                                                 (v195 = sub_80062D24(a1, v194, 1));
                                                                 (v190 = v186);
                                                                 if (v195)
                                                                     goto LABEL_383;
                                                                 (v191 = a1);
-                                                                (v192 = r_u16(0x800EC5E6u));
+                                                                (v192 = (sint32)(sint16)r_u16(0x800EC5E6u));
                                                                 (v193 = 3);
                                                                 break;
 
                                                             case 4:
-                                                                (v196 = sub_8006325C(a1, 4, r_u16(0x800EC5E4u)));
+                                                                (v196 = sub_8006325C(a1, 4, (sint32)(sint16)r_u16(0x800EC5E4u)));
                                                                 (v197 = sub_80062D24(a1, v196, 1));
                                                                 (v190 = v186);
                                                                 if (v197)
                                                                     goto LABEL_383;
                                                                 (v191 = a1);
-                                                                (v192 = r_u16(0x800EC5E6u));
+                                                                (v192 = (sint32)(sint16)r_u16(0x800EC5E6u));
                                                                 (v193 = 4);
                                                                 break;
 
@@ -1601,12 +1640,12 @@ v216 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863C
                             }
                             (v148 = r_u32(0x800A71D0u));
                             (v149 = r_u32(0x800A71D4u));
-                            w_u32(((uint32)((a1 + 104))), 0x800A71CCu);
+                            w_u32(((uint32)((a1 + 104))), r_u32(0x800A71CCu));
                             w_u32(((uint32)((a1 + 108))), v148);
                             w_u32(((uint32)((a1 + 112))), v149);
                             (v150 = r_u32(0x800A71D0u));
                             (v151 = r_u32(0x800A71D4u));
-                            w_u32(((uint32)((a1 + 116))), 0x800A71CCu);
+                            w_u32(((uint32)((a1 + 116))), r_u32(0x800A71CCu));
                             w_u32(((uint32)((a1 + 120))), v150);
                             w_u32(((uint32)((a1 + 124))), v151);
                             goto LABEL_307;
@@ -1705,13 +1744,13 @@ v216 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863C
             if ((sint32)player_update_abs((sint32)((uint32)v66 - (uint32)v65) >> 3) <= 0x7FFF)
                 w_u32(((uint32)((a1 + 4))), v66);
             else
-                w_u32(((uint32)((a1 + 4))), (v65 + ((v66 - v65) >> 3)));
+                w_u32(((uint32)((a1 + 4))), ((uint32)v65 + ((sint32)((uint32)v66 - (uint32)v65) >> 3)));
             (v67 = r_u32(((uint32)((a1 + 12)))));
             (v32 = r_u32(((uint32)((r_u32(((uint32)((a1 + 520)))) + 316)))));
             if ((sint32)player_update_abs((sint32)((uint32)v32 - (uint32)v67) >> 3) <= 0x7FFF)
                 w_u32(((uint32)((a1 + 12))), v32);
             else
-                w_u32(((uint32)((a1 + 12))), (v67 + ((v32 - v67) >> 3)));
+                w_u32(((uint32)((a1 + 12))), ((uint32)v67 + ((sint32)((uint32)v32 - (uint32)v67) >> 3)));
             if (((r_u8(((uint32)((a1 + 24)))) == 14) && (r_u8(((uint32)((a1 + 297)))) == 1)))
                 sub_80062044(r_u32(((uint32)((a1 + 520)))));
             if (r_u8(((uint32)((a1 + 303)))))
@@ -1763,7 +1802,7 @@ v216 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863C
             (v37 = 0);
             goto LABEL_232;
         }
-apocalypse_object_virtual20(r_u32(r_u32(a1 + 68u) + 20u), a1 + (uint32)(sint32)(sint16)r_u16(r_u32(a1 + 68u) + 16u));
+        apocalypse_object_virtual20(r_u32(r_u32(a1 + 68u) + 20u), a1 + (uint32)(sint32)(sint16)r_u16(r_u32(a1 + 68u) + 16u));
         sub_8001BE54();
         goto LABEL_157;
     }

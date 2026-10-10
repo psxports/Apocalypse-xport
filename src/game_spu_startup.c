@@ -19,11 +19,9 @@ void apocalypse_spu_bind_reverb_presets(void)
     spu_bind_reverb_presets(work, (const uint8 *)psx_addr(0x800FD6DCu, 680u), r_u32(0x800FD264u));
 }
 
-static void native_spu_dma_complete(uint8 status, uint8 *result)
+static void native_spu_dma_complete(void)
 {
     uint32 base = r_u32(0x800FD23Cu);
-    (void)status;
-    (void)result;
     w_u16(base + 426u, r_u16(base + 426u) & 0xFFCFu);
     if (r_u32(0x800FD274u) != 0u)
         spu_startup_todo("Dispatch selected guest transfer callback");
@@ -148,7 +146,7 @@ uint32 apocalypse_spu_clear_reverb(uint32 mode)
         w_u16(base + 426u, (r_u16(base + 426u) & 0xFFCFu) | 0x20u);
         w_u32(0x800FD290u, 0x800FD2ACu);
         w_u32(0x800FD294u, (chunk >> 6) + ((chunk & 63u) != 0u));
-        native_spu_dma_complete(0u, NULL);
+        native_spu_dma_complete();
         TestEvent(r_u32(0x800FD1C4u));
         remaining -= 1024u;
         destination += 1024u;

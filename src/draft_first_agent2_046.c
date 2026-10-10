@@ -89,11 +89,11 @@ uint32 sub_800210D8(uint32 object, uint32 flags)
     if (child)
     {
         uint32 table = r_u32(child + 68u);
-        (void)apocalypse_object_cleanup(r_u32(table + 12u),
-            child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
+        (void)apocalypse_object_cleanup(r_u32(table + 12u), child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
     }
     sub_800342B0(object, 0u);
-    if (flags & 1u) return sub_80032E30(object);
+    if (flags & 1u)
+        return sub_80032E30(object);
     return flags & 1u;
 }
 
@@ -122,8 +122,7 @@ uint32 sub_80036828(uint32 object, uint32 flags)
             if (child)
             {
                 uint32 table = r_u32(child + 68u);
-                (void)apocalypse_object_cleanup(r_u32(table + 12u),
-                    child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
+                (void)apocalypse_object_cleanup(r_u32(table + 12u), child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
             }
             index = (sint32)((uint32)index + 1u);
         } while (index < (sint32)r_u32(object + 72u));
@@ -131,7 +130,8 @@ uint32 sub_80036828(uint32 object, uint32 flags)
     sub_8006BC20(r_u32(object + 92u));
     sub_8006BC20(r_u32(object + 88u));
     sub_80033138(object, 0u);
-    if (flags & 1u) return sub_80032E30(object);
+    if (flags & 1u)
+        return sub_80032E30(object);
     return flags & 1u;
 }
 
@@ -180,10 +180,9 @@ void sub_8004FB00(uint32 object, uint32 mode)
             uint32 variation = sub_80066570(r_u8(object + 615u));
             uint32 kind = (r_u8(object + 614u) + variation) & 65535u;
             uint32 height = r_u32(object + 8u) + ((uint32)(sint32)(sint16)r_u16(object + 456u) << 12);
-            uint32 result = xport_draft_host_sub_8005BBB0_p3(child, object + 4u,
-                velocity, kind, height, mode == 5u ? 5u : (r_u16(object + 390u) & 0x180u) ? 9u : 3u,
-                24u, r_u32(0x800FF62Cu));
-            if (mode == 5u && result) sub_800626F8(object, 0u, 0u, 0u, 0u);
+            uint32 result = xport_draft_host_sub_8005BBB0_p3(child, object + 4u, velocity, kind, height, mode == 5u ? 5u : (r_u16(object + 390u) & 0x180u) ? 9u : 3u, 24u, r_u32(0x800FF62Cu));
+            if (mode == 5u && result)
+                sub_800626F8(object, 0u, 0u, 0u, 0u);
         }
         angle += 682u;
     }
@@ -383,8 +382,7 @@ uint32 sub_8004E508(uint32 object, uint32 flags)
     if (child)
     {
         uint32 table = r_u32(child + 68u);
-        (void)apocalypse_object_cleanup(r_u32(table + 12u),
-            child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
+        (void)apocalypse_object_cleanup(r_u32(table + 12u), child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
     }
     child = r_u32(object + 620u);
     if (child)
@@ -411,7 +409,8 @@ uint32 sub_8004E508(uint32 object, uint32 flags)
         }
     }
     sub_8004B868(object, 0u);
-    if (flags & 1u) return sub_80062608(object);
+    if (flags & 1u)
+        return sub_80062608(object);
     return flags & 1u;
 }
 
@@ -548,8 +547,7 @@ uint32 sub_80053358(uint32 a1)
             uint32 table = r_u32((uint32)v19);
             uint32 receiver = (uint32)v19 + (uint32)(sint32)(sint16)r_u16(table + 16u);
             /* TODO Bind the list-node attack callback with native position and angles */
-            fprintf(stderr, "Missing list-node attack 80053358 target %08X receiver %08X position %p angles %p\n",
-                r_u32(table + 20u), receiver, (void *)v26, (void *)v29);
+            fprintf(stderr, "Missing list-node attack 80053358 target %08X receiver %08X position %p angles %p\n", r_u32(table + 20u), receiver, (void *)v26, (void *)v29);
             abort();
         }
         else
@@ -604,9 +602,7 @@ uint32 sub_8001C598(uint32 object)
         xport_draft_host_sub_800666DC_p1(hit_vector, velocity);
         table = r_u32(hit + 68u);
         receiver = hit + (uint32)(sint32)(sint16)r_u16(table + 48u);
-        /* TODO Native vector virtual52 adapter */
-        fprintf(stderr, "Missing projectile virtual52 target=%08X receiver=%08X owner=%08X vector=%p reason=29\n", r_u32(table + 52u), receiver, r_u32(object + 72u), (void *)hit_vector);
-        abort();
+        apocalypse_object_virtual52_native(r_u32(table + 52u), receiver, r_u32(object + 72u), hit_vector, 29u);
         child = sub_80032DC0(124u);
         if (child)
             sub_8001CF9C(child, hit + 4u, 4, 255, 100, 0, 2, 255, 100, 0, 20, 80, 0, 0, 30, 30, 15, 15, 0, 0);
@@ -732,7 +728,6 @@ void sub_80064A68(uint32 identifier, uint32 object, uint32 mode)
     }
 }
 
-
 uint32 sub_80061DC8(uint32 a1, uint32 a2, uint32 a3)
 {
     sint32 v6;
@@ -777,14 +772,40 @@ uint32 sub_80061DC8(uint32 a1, uint32 a2, uint32 a3)
 
 /* TODO Missing host buffer adapter xport_draft_host_sub_8006C0B8_p2 */
 /* TODO Missing host buffer adapter xport_draft_host_sub_8006C564_p13 */
+static uint32 player_damage_impl(uint32 object, uint32 damage, const sint32 *host_vector, uint32 guest_vector, uint32 reason);
+
 uint32 sub_8005DDF0(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
+{
+    return player_damage_impl(a1, a2, NULL, a3, a4);
+}
+
+uint32 apocalypse_player_damage_native(uint32 object, uint32 damage, const sint32 vector[3], uint32 reason)
+{
+    return player_damage_impl(object, damage, vector, 0u, reason);
+}
+
+uint32 apocalypse_object_virtual52_native(uint32 target, uint32 receiver, uint32 damage, const sint32 vector[3], uint32 reason)
+{
+    switch (target)
+    {
+        case 0x8005DDF0u:
+            return apocalypse_player_damage_native(receiver, damage, vector, reason);
+        case 0x8003C490u:
+            return sub_8003C490(receiver, damage);
+        default:
+            fprintf(stderr, "TODO Native damage callback %08X receiver %08X reason %u\n", target, receiver, reason);
+            abort();
+    }
+}
+
+static uint32 player_damage_impl(uint32 a1, uint32 a2, const sint32 *host_vector, uint32 a3, uint32 a4)
 {
     sint32 result;
     sint32 v9;
     sint32 v10;
     sint32 v11;
     sint32 v12;
-    int v13[2];
+    int v13[3];
     unsigned char v14;
     sint32 v15;
     sint32 v16;
@@ -802,18 +823,21 @@ uint32 sub_8005DDF0(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
         if (!(r_u32(((uint32)(((uint32)(a1) + (uint32)(456)))))))
         {
             v16 = 1;
-            xport_draft_host_sub_8006C564_p13(v13, a3, &v16);
+            if (host_vector)
+                xport_draft_host_sub_8006C564_p123(v13, (void *)host_vector, &v16);
+            else
+                xport_draft_host_sub_8006C564_p13(v13, a3, &v16);
             xport_draft_host_sub_8006C0B8_p2(((uint32)(a1) + (uint32)(104)), v13);
             if ((((sint32)(a2)) >= 2))
             {
-                if ((((sint32)(((sint16)(r_u16(((uint32)(((uint32)(a1) + (uint32)(218))))))))) < (r_u16(0x800EC526u) / 5)))
+                if ((((sint32)(((sint16)(r_u16(((uint32)(((uint32)(a1) + (uint32)(218))))))))) < ((sint32)(sint16)r_u16(0x800EC526u) / 5)))
                     a2 >>= 1;
                 if (!r_u32(0x800FF384u))
                     a2 >>= 1;
             }
             v9 = ((uint32)(r_u16(((uint32)(((uint32)(a1) + (uint32)(218)))))) - (uint32)(a2));
             w_u16(((uint32)(((uint32)(a1) + (uint32)(218)))), v9);
-            if ((((uint32)(v9) << (uint32)(16)) > 0))
+            if ((sint32)((uint32)v9 << 16) > 0)
             {
                 w_u8(((uint32)(((uint32)(a1) + (uint32)(465)))), 6);
                 if (((a4 == 5) || (a4 == 31)))
@@ -1138,11 +1162,15 @@ uint32 sub_80020068(uint32 object)
     w_u32(0x800FF3ACu, 0u);
     switch (kind)
     {
-        case 1u: case 2u: case 3u: case 7u:
+        case 1u:
+        case 2u:
+        case 3u:
+        case 7u:
             child = sub_80032DC0(kind == 2u || kind == 3u ? 80u : 76u);
             if (child)
             {
-                if (kind == 2u) child = sub_8003188C(child);
+                if (kind == 2u)
+                    child = sub_8003188C(child);
                 else
                 {
                     uint32 target = kind == 1u ? 0x80031BA8u : kind == 3u ? 0x80031E10u : 0x800314CCu;
@@ -1153,10 +1181,12 @@ uint32 sub_80020068(uint32 object)
             }
             w_u32(object + 340u, child);
             break;
-        default: break;
+        default:
+            break;
     }
     child = r_u32(object + 340u);
-    if (child) w_u8(child + 66u, 1u);
+    if (child)
+        w_u8(child + 66u, 1u);
     w_u32(0x800FF3ACu, 1u);
     return 1u;
 }
@@ -1280,10 +1310,12 @@ static sint32 apocalypse_missing_scalar_8008BF8C(void)
 
 uint32 sub_800284E8(uint32 object, uint32 red, uint32 green, uint32 blue)
 {
-    if (!r_u32(object + 60u)) return 0u;
+    if (!r_u32(object + 60u))
+        return 0u;
     sint32 sample;
     sample = apocalypse_missing_scalar_8008BF8C();
-    if (sample >= 0x4000) return 0u;
+    if (sample >= 0x4000)
+        return 0u;
     w_u8(red, r_u8(object + 80u));
     w_u8(green, r_u8(object + 81u));
     w_u8(blue, r_u8(object + 82u));
@@ -1341,10 +1373,11 @@ uint32 sub_8001CA68(uint32 object)
     sint32 z = (sint32)(r_u32(object + 32u) - r_u32(player + 12u)) >> 12;
     sint32 distance;
     uint32 result;
-    if (x < 0) x = (sint32)(0u - (uint32)x);
-    if (z < 0) z = (sint32)(0u - (uint32)z);
-    distance = x < z ? (sint32)((uint32)z + (uint32)(x / 2))
-                     : (sint32)((uint32)x + (uint32)(z / 2));
+    if (x < 0)
+        x = (sint32)(0u - (uint32)x);
+    if (z < 0)
+        z = (sint32)(0u - (uint32)z);
+    distance = x < z ? (sint32)((uint32)z + (uint32)(x / 2)) : (sint32)((uint32)x + (uint32)(z / 2));
     result = distance < (sint32)r_u32(object + 92u);
     if (!result)
     {
@@ -1352,8 +1385,7 @@ uint32 sub_8001CA68(uint32 object)
         if (child)
         {
             uint32 table = r_u32(child + 68u);
-            result = apocalypse_object_cleanup(r_u32(table + 12u),
-                child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
+            result = apocalypse_object_cleanup(r_u32(table + 12u), child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
             w_u32(object + 96u, 0u);
         }
     }
@@ -1365,10 +1397,7 @@ uint32 sub_8001CA68(uint32 object)
             w_u32(0x800FF3ACu, 0u);
             child = sub_80032DC0(176u);
             if (child)
-                child = sub_80034C0C(child, object + 24u,
-                    r_u32(object + 72u), r_u32(object + 76u), r_u32(object + 88u),
-                    r_u8(object + 80u), r_u8(object + 81u), r_u8(object + 82u),
-                    r_u8(object + 83u), r_u8(object + 84u), r_u8(object + 85u));
+                child = sub_80034C0C(child, object + 24u, r_u32(object + 72u), r_u32(object + 76u), r_u32(object + 88u), r_u8(object + 80u), r_u8(object + 81u), r_u8(object + 82u), r_u8(object + 83u), r_u8(object + 84u), r_u8(object + 85u));
             w_u32(object + 96u, child);
             w_u32(0x800FF3ACu, 1u);
             /* The original also stores through a zero allocation result */
@@ -1422,8 +1451,7 @@ uint32 sub_80034CF8(uint32 object)
             sint32 product;
             uint32 output;
             w_u32(cursor + 136u, phase);
-            product = (sint32)(r_u32(object + 168u) *
-                (uint32)(sint32)(sint16)r_u16(0x800F863Cu + (phase & 4095u) * 4u));
+            product = (sint32)(r_u32(object + 168u) * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + (phase & 4095u) * 4u));
             output = r_u32(object + 72u) + index * 8u;
             w_u32(output, r_u32(object + 172u) + (uint32)(product / 4096));
             ++index;
@@ -1505,11 +1533,11 @@ uint32 sub_8001C9EC(uint32 object, uint32 flags)
     if (child)
     {
         uint32 table = r_u32(child + 68u);
-        (void)apocalypse_object_cleanup(r_u32(table + 12u),
-            child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
+        (void)apocalypse_object_cleanup(r_u32(table + 12u), child + (uint32)(sint32)(sint16)r_u16(table + 8u), 3u);
     }
     sub_80033138(object, 0u);
-    if (flags & 1u) return sub_80032E30(object);
+    if (flags & 1u)
+        return sub_80032E30(object);
     return flags & 1u;
 }
 

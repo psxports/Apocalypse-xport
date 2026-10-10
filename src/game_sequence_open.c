@@ -44,8 +44,8 @@ static uint32 sequence_divide(uint32 numerator, uint32 denominator)
 
 static sint32 sequence_initialize(uint32 slot, sint32 bank, uint32 data)
 {
-    static const uint8 cleared_bytes[] = {24,25,30,26,27,31,23};
-    static const uint8 later_bytes[] = {28,29,21,22};
+    static const uint8 cleared_bytes[] = {24, 25, 30, 26, 27, 31, 23};
+    static const uint8 later_bytes[] = {28, 29, 21, 22};
     uint32 record = r_u32(0x80104590u + slot * 4u), index, first, tempo, rate;
     uint32 resolution, ticks, product, denominator, quotient, remainder, cursor;
     if (!record || (record & 3u) || (record & 0x1FFFFFFFu) > PSX_DRAM_SIZE - 176u)

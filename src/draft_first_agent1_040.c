@@ -682,12 +682,10 @@ uint32 sub_8006F4D0(uint32 a1)
 /* TODO SDK noise-voice update preserves mode and mask; no key-off substitution */
 static void missing_noise_voice_update(uint32 mode, uint32 mask)
 {
-    (void)mode; (void)mask;
     abort();
 }
 
 /* TODO SDK noise-voice update preserves mode and mask; no key-off substitution */
-
 
 uint32 sub_8009426C(uint32 a1, uint32 a2)
 {
@@ -955,7 +953,10 @@ void apocalypse_render_geometry(uint32 model, const sint32 vector[3])
         bank[index] = (uint32)(sint32)(sint16)r_u16(0x800FFA94u + index * 2u) << 4;
     for (index = 0u; index < 3u; ++index)
         xport_draft_gte_control_write(13u + index, bank[index]);
-    { (void)(sub_800817FC(packets, references, packet_count)); return; }
+    {
+        (void)(sub_800817FC(packets, references, packet_count));
+        return;
+    }
 }
 
 void sub_8007FC60(uint32 model, uint32 guest_vector)
@@ -969,7 +970,10 @@ void sub_8007FC60(uint32 model, uint32 guest_vector)
         vector[1] = (sint32)r_u32(guest_vector + 4u);
         vector[2] = (sint32)r_u32(guest_vector + 8u);
     }
-    { (void)(apocalypse_render_geometry(model, count ? vector : NULL)); return; }
+    {
+        (void)(apocalypse_render_geometry(model, count ? vector : NULL));
+        return;
+    }
 }
 
 uint32 sub_800821A4(uint32 lookup_index, uint32 lookup_base)
@@ -1257,7 +1261,7 @@ uint32 sub_80015BA4(uint32 menu)
             if (stepped < target)
                 w_u16(row + 28u, r_u16(row + 30u));
         }
-next_row:
+    next_row:
         count = r_u8(menu + 10u);
         ++index;
         row += 28u;

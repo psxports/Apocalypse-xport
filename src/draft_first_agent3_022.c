@@ -97,9 +97,15 @@ static uint32 collision_init_record(void *record, uint32 guest_address)
         collision_write32(record, 68u, (uint32)(length >> (full_shift & 31u)));
         w_u16(0x800FFA2Cu, cosine);
         w_u16(0x800FFA2Eu, sine);
-        rotation.m[0][0] = 4096; rotation.m[0][1] = 0; rotation.m[0][2] = 0;
-        rotation.m[1][0] = 0; rotation.m[1][1] = (sint16)cosine; rotation.m[1][2] = (sint16)(0u - sine);
-        rotation.m[2][0] = 0; rotation.m[2][1] = (sint16)sine; rotation.m[2][2] = (sint16)cosine;
+        rotation.m[0][0] = 4096;
+        rotation.m[0][1] = 0;
+        rotation.m[0][2] = 0;
+        rotation.m[1][0] = 0;
+        rotation.m[1][1] = (sint16)cosine;
+        rotation.m[1][2] = (sint16)(0u - sine);
+        rotation.m[2][0] = 0;
+        rotation.m[2][1] = (sint16)sine;
+        rotation.m[2][2] = (sint16)cosine;
         MulMatrix(&rotation, (MATRIX *)psx_addr(0x800ED740u, sizeof(MATRIX)));
     }
     else
@@ -109,9 +115,15 @@ static uint32 collision_init_record(void *record, uint32 guest_address)
         collision_write32(record, 68u, dy >= 0 ? (uint32)(sint32)dy : 0u - (uint32)(sint32)dy);
         if (dy >= 0)
             ((uint8 *)record)[137] = 1;
-        rotation.m[0][0] = 4096; rotation.m[0][1] = 0; rotation.m[0][2] = 0;
-        rotation.m[1][0] = 0; rotation.m[1][1] = 0; rotation.m[1][2] = (sint16)(0u - sine);
-        rotation.m[2][0] = 0; rotation.m[2][1] = (sint16)sine; rotation.m[2][2] = 0;
+        rotation.m[0][0] = 4096;
+        rotation.m[0][1] = 0;
+        rotation.m[0][2] = 0;
+        rotation.m[1][0] = 0;
+        rotation.m[1][1] = 0;
+        rotation.m[1][2] = (sint16)(0u - sine);
+        rotation.m[2][0] = 0;
+        rotation.m[2][1] = (sint16)sine;
+        rotation.m[2][2] = 0;
     }
     memcpy((uint8 *)record + 72u, rotation.m, 18u);
     SetRotMatrix(&rotation);
@@ -475,12 +487,7 @@ uint32 apocalypse_collision_transform(uint32 geometry, uint32 output, uint32 dep
         transformed_x = (sint32)xport_draft_gte_data_read(25u);
         transformed_y = (sint32)xport_draft_gte_data_read(26u);
         transformed_z = (sint32)xport_draft_gte_data_read(27u);
-        mask = ((uint32)(transformed_x < 0) << 2)
-             | ((uint32)(transformed_y < 0) << 1)
-             | (uint32)(transformed_z < 0)
-             | ((uint32)((sint32)depth_limit < transformed_z) << 3)
-             | ((uint32)(transformed_x > 0) << 10)
-             | ((uint32)(transformed_y > 0) << 9);
+        mask = ((uint32)(transformed_x < 0) << 2) | ((uint32)(transformed_y < 0) << 1) | (uint32)(transformed_z < 0) | ((uint32)((sint32)depth_limit < transformed_z) << 3) | ((uint32)(transformed_x > 0) << 10) | ((uint32)(transformed_y > 0) << 9);
         w_u32(output, ((uint32)transformed_x & 0xFFFFu) | ((uint32)transformed_y << 16));
         w_u32(output + 4u, (uint32)transformed_z);
         output += 8u;
@@ -773,19 +780,16 @@ static void command_4BF3C_missing(const char *name)
 
 static void command_4BF3C_writer(uint32 target, uint32 receiver, uint32 command, const uint16 words[8], uint32 count)
 {
-    (void)target; (void)receiver; (void)command; (void)words; (void)count;
     command_4BF3C_missing("Virtual writer with native command words");
 }
 
 static void command_4BF3C_angles(const sint16 angles[3])
 {
-    (void)angles;
-    command_4BF3C_missing("80034FC4 native angles");
+    (void)apocalypse_effect_angles_native(angles);
 }
 
 static void command_4BF3C_spawn(uint32 object, const uint32 position[3], uint16 value, uint32 enabled, uint16 argument5)
 {
-    (void)object; (void)position; (void)value; (void)enabled; (void)argument5;
     command_4BF3C_missing("8001DB68 native position");
 }
 
@@ -828,170 +832,291 @@ uint32 sub_8004BF3C(uint32 object, uint32 opcode)
     opcode &= 0xFFFFu;
     switch (opcode)
     {
-    case 0x4101: case 0x4102:
-        value = command_4BF3C_word(object);
-        w_u32(object + 400u, r_u32(object + value * 4u + 404u));
-        return opcode == 0x4101;
-    case 0x4104:
-        value = command_4BF3C_word(object);
-        w_u32(object + value * 4u + 404u, r_u32(object + 400u));
-        return 1u;
-    case 0x4105:
-        saved = r_u32(object + 400u);
-        while (r_u16(r_u32(object + 400u)) != 0x4100u)
-        {
+        case 0x4101:
+        case 0x4102:
             value = command_4BF3C_word(object);
-            if (value == 0x4104u)
+            w_u32(object + 400u, r_u32(object + value * 4u + 404u));
+            return opcode == 0x4101;
+        case 0x4104:
+            value = command_4BF3C_word(object);
+            w_u32(object + value * 4u + 404u, r_u32(object + 400u));
+            return 1u;
+        case 0x4105:
+            saved = r_u32(object + 400u);
+            while (r_u16(r_u32(object + 400u)) != 0x4100u)
             {
                 value = command_4BF3C_word(object);
-                w_u32(object + value * 4u + 404u, r_u32(object + 400u));
+                if (value == 0x4104u)
+                {
+                    value = command_4BF3C_word(object);
+                    w_u32(object + value * 4u + 404u, r_u32(object + 400u));
+                }
             }
-        }
-        w_u32(object + 400u, saved);
-        return 1u;
-    case 0x4106:
-        value = command_4BF3C_value(object);
-        cursor = xport_draft_host_sub_8006613C_p1(position, value) + 6u;
-        w_u32(object + 400u, cursor);
-        return 1u;
-    case 0x4107: return 0u;
-    case 0x4110: case 0x4111:
-        value = command_4BF3C_word(object);
-        cursor = r_u32(object + 400u);
-        left = (sint16)command_4BF3C_get(object, value);
-        count = 0u;
-        while (cursor != r_u32(object + 400u))
-        {
-            if (count >= 7u) command_4BF3C_missing("TODO Command words exceed original 16-byte local");
-            words[count++] = r_u16(cursor);
-            cursor += 2u;
-        }
-        right = command_4BF3C_signed_value(object);
-        words[count] = (uint16)(opcode == 0x4110u ? left + right : left - right);
-        saved = r_u32(object + 400u);
-        table = r_u32(object + 68u);
-        command_4BF3C_writer(r_u32(table + 76u), object + (uint32)(sint32)(sint16)r_u16(table + 72u), value, words, count + 1u);
-        w_u32(object + 400u, saved);
-        return 1u;
-    case 0x4112: case 0x4113: case 0x4114:
-        left = command_4BF3C_signed_value(object);
-        right = command_4BF3C_signed_value(object);
-        if ((opcode == 0x4112u && !(right < left)) || (opcode == 0x4113u && !(left < right)) || (opcode == 0x4114u && left != right))
-            sub_8004BE30(object);
-        return 1u;
-    case 0x4115: case 0x4116:
-        value = command_4BF3C_word(object);
-        second = r_u32(object + 396u) & value;
-        if ((opcode == 0x4115u && second != value) || (opcode == 0x4116u && second != 0u)) sub_8004BE30(object);
-        return 1u;
-    case 0x4200:
-        sub_800626C8(object, r_u32(object + 400u));
-        goto skip_string;
-    case 0x4201:
-        value = command_4BF3C_word(object); second = command_4BF3C_word(object);
-        sub_80063118(object, value, (uint32)(sint32)(sint8)second);
-        return 1u;
-    case 0x4202:
-        value = command_4BF3C_word(object); sub_80063038(object, value, 0u, 0xFFFFFFFFu); return 1u;
-    case 0x4203: w_u16(object, r_u16(object) & 0xFFFEu); return 1u;
-    case 0x4204: w_u16(object, r_u16(object) | 1u); return 1u;
-    case 0x4205:
-        table = r_u32(object + 68u);
-        apocalypse_object_virtual20(r_u32(table + 20u), object + (uint32)(sint32)(sint16)r_u16(table + 16u)); return 1u;
-    case 0x4226:
-        w_u32(object + 112u, 0u); w_u32(object + 108u, 0u); w_u32(object + 104u, 0u); return 1u;
-    case 0x4227:
-        value = command_4BF3C_word(object);
-        if (value) { w_u8(object + 386u, value); w_u8(object + 387u, 0u); w_u32(object + 396u, r_u32(object + 396u) | 2u); }
-        else w_u32(object + 396u, r_u32(object + 396u) & ~2u);
-        return 1u;
-    case 0x4240: w_u8(object + 380u, 0u); return 0u;
-    case 0x4260: case 0x4261:
-        value = command_4BF3C_word(object); sub_8004BDCC(object, value & 0xFFu, 0u, opcode == 0x4260u); return 1u;
-    case 0x4280:
-        value = command_4BF3C_word(object); w_u16(object + 476u, value);
-        if (value & 0x2000u) w_u16(object + 476u, command_4BF3C_get(object, r_u16(object + 476u)));
-        return 0u;
-    case 0x4281:
-        if (r_u16(object + 388u) & 1u) return 1u;
-        w_u32(object + 400u, r_u32(object + 400u) - 2u); return 0u;
-    case 0x4290:
-        value = command_4BF3C_word(object); sub_80069DF0((uint32)(sint32)(sint16)value, 0x2000u, 0u); return 1u;
-    case 0x4291:
-        value = command_4BF3C_word(object); sub_80069EF4((uint32)(sint32)(sint16)value, object + 4u, 0u); return 1u;
-    case 0x4292:
-        count = command_4BF3C_word(object);
-        if ((sint32)r_u32(0x800FF3A8u) >= 200) return 1u;
-        sub_80034F9C(object + 16u);
-        angles[0] = 512; angles[1] = 4096; angles[2] = 0;
-        command_4BF3C_angles(angles);
-        sub_800350E8(1u); sub_800350FC(128u, 128u, 128u); sub_80035110(4u, 4u, 4u);
-        w_u32(0x800FF3ACu, 0u);
-        for (i = 0u; i < count; ++i) { created = sub_80032DC0(88u); if (created) sub_80035124(created, object + 4u, 32u, 0x2000u, 32u); }
-        w_u32(0x800FF3ACu, 1u); return 1u;
-    case 0x4293:
-        cursor = (r_u32(object + 400u) + 3u) & ~3u;
-        sub_8002E600(r_u32(cursor)); w_u32(object + 400u, cursor + 4u); return 1u;
-    case 0x4294:
-        sub_8002E6D8(object + 4u); table = sub_80066088(r_u16(object + 214u)); cursor = table;
-        for (i = 0u; i < r_u16(table); ++i) { value = r_u16(cursor + 2u); cursor += 2u; xport_draft_host_sub_8006613C_p1(position, value); sub_8002E6D8(object + 4u); }
-        sub_8002EF68(); return 1u;
-    case 0x4295: sub_8002F130(); return 1u;
-    case 0x4296: value = command_4BF3C_word(object); sub_8006A428(); return 1u;
-    case 0x4297: value = command_4BF3C_word(object); sub_8006A3C4(); return 1u;
-    case 0x4298:
-        value = command_4BF3C_value(object);
-        if (r_u32(0x800FF904u)) sub_800774EC(r_u32(0x800FF904u), object + 4u, value == 0u ? 2u : value == 1u ? 1u : 0u);
-        return 1u;
-    case 0x4299: value = command_4BF3C_word(object); sub_8002EE7C(value & 0xFFu); return 1u;
-    case 0x429A: case 0x42A6:
-        if (opcode == 0x429Au) { value = command_4BF3C_value(object); xport_draft_host_sub_8006613C_p1(position, value); }
-        else { position[0] = r_u32(object + 4u); position[1] = r_u32(object + 8u); position[2] = r_u32(object + 12u); }
-        value = command_4BF3C_word(object);
-        if (value < 2u) sub_8001E1B8(object + 4u, value);
-        else if (value == 2u)
-        {
-            second = sub_8004CF78(object);
-            cursor = r_u32(object + 400u) + 2u; w_u32(object + 400u, cursor);
-            third = r_u16(cursor); w_u32(object + 400u, cursor + 2u);
-            created = sub_80032DC0(156u);
-            if (created) command_4BF3C_spawn(created, position, (uint16)second, third != 0u, (uint16)third);
-        }
-        return 1u;
-    case 0x429C:
-        cursor = r_u32(object + 400u);
-        sub_8001BE78(r_u8(cursor), r_u8(cursor + 2u), r_u8(cursor + 4u), r_u16(cursor + 6u), 0u, r_u16(cursor + 8u));
-        w_u32(object + 400u, r_u32(object + 400u) + 10u); return 1u;
-    case 0x429D: sub_8002E6D8(object + 4u); sub_8002EF58(); return 1u;
-    case 0x429E: w_u32(0x800FF37Cu, r_u32(object + 8u)); return 1u;
-    case 0x42A0:
-        value = command_4BF3C_value(object); second = command_4BF3C_word(object); third = command_4BF3C_word(object); count = command_4BF3C_word(object);
-        created = sub_80020EF8(value, object + 4u, second, third, 0x800A71CCu);
-        if (created) sub_8002005C(created, count << 12, 5u);
-        return 1u;
-    case 0x42A2: value = command_4BF3C_word(object); w_u32(0x800FF380u, value); return 1u;
-    case 0x42A3: value = command_4BF3C_word(object); second = command_4BF3C_word(object); sub_8002FD2C(value, second); return 1u;
-    case 0x42A4:
-        cursor = (r_u32(object + 400u) + 3u) & ~3u;
-        w_u32(object + 400u, cursor + 4u); value = r_u16(cursor + 4u);
-        w_u32(object + 400u, cursor + 6u); second = r_u16(cursor + 6u);
-        w_u32(object + 400u, cursor + 8u); third = r_u16(cursor + 8u);
-        w_u32(object + 400u, cursor + 10u); sub_8002E148(r_u32(cursor), value, second, third & 0xFFu); return 1u;
-    case 0x42A5: sub_8002E2B8(); return 1u;
-    case 0x42B0:
-    skip_string:
-        cursor = r_u32(object + 400u); while (r_u8(cursor)) ++cursor;
-        w_u32(object + 400u, cursor + ((cursor & 1u) ? 1u : 2u)); return 1u;
-    case 0x42B1: case 0x42B2:
-        value = command_4BF3C_value(object); cursor = sub_80066088(value);
-        if (opcode == 0x42B1u) sub_80064E50(cursor); else sub_80064A08(cursor);
-        return 1u;
-    case 0x450A:
-        value = command_4BF3C_word(object); second = command_4BF3C_word(object); sub_8002FC64(value, second, object + 4u, 0u); return 1u;
-    default: return 1u;
+            w_u32(object + 400u, saved);
+            return 1u;
+        case 0x4106:
+            value = command_4BF3C_value(object);
+            cursor = xport_draft_host_sub_8006613C_p1(position, value) + 6u;
+            w_u32(object + 400u, cursor);
+            return 1u;
+        case 0x4107:
+            return 0u;
+        case 0x4110:
+        case 0x4111:
+            value = command_4BF3C_word(object);
+            cursor = r_u32(object + 400u);
+            left = (sint16)command_4BF3C_get(object, value);
+            count = 0u;
+            while (cursor != r_u32(object + 400u))
+            {
+                if (count >= 7u)
+                    command_4BF3C_missing("TODO Command words exceed original 16-byte local");
+                words[count++] = r_u16(cursor);
+                cursor += 2u;
+            }
+            right = command_4BF3C_signed_value(object);
+            words[count] = (uint16)(opcode == 0x4110u ? left + right : left - right);
+            saved = r_u32(object + 400u);
+            table = r_u32(object + 68u);
+            command_4BF3C_writer(r_u32(table + 76u), object + (uint32)(sint32)(sint16)r_u16(table + 72u), value, words, count + 1u);
+            w_u32(object + 400u, saved);
+            return 1u;
+        case 0x4112:
+        case 0x4113:
+        case 0x4114:
+            left = command_4BF3C_signed_value(object);
+            right = command_4BF3C_signed_value(object);
+            if ((opcode == 0x4112u && !(right < left)) || (opcode == 0x4113u && !(left < right)) || (opcode == 0x4114u && left != right))
+                sub_8004BE30(object);
+            return 1u;
+        case 0x4115:
+        case 0x4116:
+            value = command_4BF3C_word(object);
+            second = r_u32(object + 396u) & value;
+            if ((opcode == 0x4115u && second != value) || (opcode == 0x4116u && second != 0u))
+                sub_8004BE30(object);
+            return 1u;
+        case 0x4200:
+            sub_800626C8(object, r_u32(object + 400u));
+            goto skip_string;
+        case 0x4201:
+            value = command_4BF3C_word(object);
+            second = command_4BF3C_word(object);
+            sub_80063118(object, value, (uint32)(sint32)(sint8)second);
+            return 1u;
+        case 0x4202:
+            value = command_4BF3C_word(object);
+            sub_80063038(object, value, 0u, 0xFFFFFFFFu);
+            return 1u;
+        case 0x4203:
+            w_u16(object, r_u16(object) & 0xFFFEu);
+            return 1u;
+        case 0x4204:
+            w_u16(object, r_u16(object) | 1u);
+            return 1u;
+        case 0x4205:
+            table = r_u32(object + 68u);
+            apocalypse_object_virtual20(r_u32(table + 20u), object + (uint32)(sint32)(sint16)r_u16(table + 16u));
+            return 1u;
+        case 0x4226:
+            w_u32(object + 112u, 0u);
+            w_u32(object + 108u, 0u);
+            w_u32(object + 104u, 0u);
+            return 1u;
+        case 0x4227:
+            value = command_4BF3C_word(object);
+            if (value)
+            {
+                w_u8(object + 386u, value);
+                w_u8(object + 387u, 0u);
+                w_u32(object + 396u, r_u32(object + 396u) | 2u);
+            }
+            else
+                w_u32(object + 396u, r_u32(object + 396u) & ~2u);
+            return 1u;
+        case 0x4240:
+            w_u8(object + 380u, 0u);
+            return 0u;
+        case 0x4260:
+        case 0x4261:
+            value = command_4BF3C_word(object);
+            sub_8004BDCC(object, value & 0xFFu, 0u, opcode == 0x4260u);
+            return 1u;
+        case 0x4280:
+            value = command_4BF3C_word(object);
+            w_u16(object + 476u, value);
+            if (value & 0x2000u)
+                w_u16(object + 476u, command_4BF3C_get(object, r_u16(object + 476u)));
+            return 0u;
+        case 0x4281:
+            if (r_u16(object + 388u) & 1u)
+                return 1u;
+            w_u32(object + 400u, r_u32(object + 400u) - 2u);
+            return 0u;
+        case 0x4290:
+            value = command_4BF3C_word(object);
+            sub_80069DF0((uint32)(sint32)(sint16)value, 0x2000u, 0u);
+            return 1u;
+        case 0x4291:
+            value = command_4BF3C_word(object);
+            sub_80069EF4((uint32)(sint32)(sint16)value, object + 4u, 0u);
+            return 1u;
+        case 0x4292:
+            count = command_4BF3C_word(object);
+            if ((sint32)r_u32(0x800FF3A8u) >= 200)
+                return 1u;
+            sub_80034F9C(object + 16u);
+            angles[0] = 512;
+            angles[1] = 4096;
+            angles[2] = 0;
+            command_4BF3C_angles(angles);
+            sub_800350E8(1u);
+            sub_800350FC(128u, 128u, 128u);
+            sub_80035110(4u, 4u, 4u);
+            w_u32(0x800FF3ACu, 0u);
+            for (i = 0u; i < count; ++i)
+            {
+                created = sub_80032DC0(88u);
+                if (created)
+                    sub_80035124(created, object + 4u, 32u, 0x2000u, 32u);
+            }
+            w_u32(0x800FF3ACu, 1u);
+            return 1u;
+        case 0x4293:
+            cursor = (r_u32(object + 400u) + 3u) & ~3u;
+            sub_8002E600(r_u32(cursor));
+            w_u32(object + 400u, cursor + 4u);
+            return 1u;
+        case 0x4294:
+            sub_8002E6D8(object + 4u);
+            table = sub_80066088(r_u16(object + 214u));
+            cursor = table;
+            for (i = 0u; i < r_u16(table); ++i)
+            {
+                value = r_u16(cursor + 2u);
+                cursor += 2u;
+                xport_draft_host_sub_8006613C_p1(position, value);
+                sub_8002E6D8(object + 4u);
+            }
+            sub_8002EF68();
+            return 1u;
+        case 0x4295:
+            sub_8002F130();
+            return 1u;
+        case 0x4296:
+            value = command_4BF3C_word(object);
+            sub_8006A428();
+            return 1u;
+        case 0x4297:
+            value = command_4BF3C_word(object);
+            sub_8006A3C4();
+            return 1u;
+        case 0x4298:
+            value = command_4BF3C_value(object);
+            if (r_u32(0x800FF904u))
+                sub_800774EC(r_u32(0x800FF904u), object + 4u, value == 0u ? 2u : value == 1u ? 1u : 0u);
+            return 1u;
+        case 0x4299:
+            value = command_4BF3C_word(object);
+            sub_8002EE7C(value & 0xFFu);
+            return 1u;
+        case 0x429A:
+        case 0x42A6:
+            if (opcode == 0x429Au)
+            {
+                value = command_4BF3C_value(object);
+                xport_draft_host_sub_8006613C_p1(position, value);
+            }
+            else
+            {
+                position[0] = r_u32(object + 4u);
+                position[1] = r_u32(object + 8u);
+                position[2] = r_u32(object + 12u);
+            }
+            value = command_4BF3C_word(object);
+            if (value < 2u)
+                sub_8001E1B8(object + 4u, value);
+            else if (value == 2u)
+            {
+                second = sub_8004CF78(object);
+                cursor = r_u32(object + 400u) + 2u;
+                w_u32(object + 400u, cursor);
+                third = r_u16(cursor);
+                w_u32(object + 400u, cursor + 2u);
+                created = sub_80032DC0(156u);
+                if (created)
+                    command_4BF3C_spawn(created, position, (uint16)second, third != 0u, (uint16)third);
+            }
+            return 1u;
+        case 0x429C:
+            cursor = r_u32(object + 400u);
+            sub_8001BE78(r_u8(cursor), r_u8(cursor + 2u), r_u8(cursor + 4u), r_u16(cursor + 6u), 0u, r_u16(cursor + 8u));
+            w_u32(object + 400u, r_u32(object + 400u) + 10u);
+            return 1u;
+        case 0x429D:
+            sub_8002E6D8(object + 4u);
+            sub_8002EF58();
+            return 1u;
+        case 0x429E:
+            w_u32(0x800FF37Cu, r_u32(object + 8u));
+            return 1u;
+        case 0x42A0:
+            value = command_4BF3C_value(object);
+            second = command_4BF3C_word(object);
+            third = command_4BF3C_word(object);
+            count = command_4BF3C_word(object);
+            created = sub_80020EF8(value, object + 4u, second, third, 0x800A71CCu);
+            if (created)
+                sub_8002005C(created, count << 12, 5u);
+            return 1u;
+        case 0x42A2:
+            value = command_4BF3C_word(object);
+            w_u32(0x800FF380u, value);
+            return 1u;
+        case 0x42A3:
+            value = command_4BF3C_word(object);
+            second = command_4BF3C_word(object);
+            sub_8002FD2C(value, second);
+            return 1u;
+        case 0x42A4:
+            cursor = (r_u32(object + 400u) + 3u) & ~3u;
+            w_u32(object + 400u, cursor + 4u);
+            value = r_u16(cursor + 4u);
+            w_u32(object + 400u, cursor + 6u);
+            second = r_u16(cursor + 6u);
+            w_u32(object + 400u, cursor + 8u);
+            third = r_u16(cursor + 8u);
+            w_u32(object + 400u, cursor + 10u);
+            sub_8002E148(r_u32(cursor), value, second, third & 0xFFu);
+            return 1u;
+        case 0x42A5:
+            sub_8002E2B8();
+            return 1u;
+        case 0x42B0:
+        skip_string:
+            cursor = r_u32(object + 400u);
+            while (r_u8(cursor))
+                ++cursor;
+            w_u32(object + 400u, cursor + ((cursor & 1u) ? 1u : 2u));
+            return 1u;
+        case 0x42B1:
+        case 0x42B2:
+            value = command_4BF3C_value(object);
+            cursor = sub_80066088(value);
+            if (opcode == 0x42B1u)
+                sub_80064E50(cursor);
+            else
+                sub_80064A08(cursor);
+            return 1u;
+        case 0x450A:
+            value = command_4BF3C_word(object);
+            second = command_4BF3C_word(object);
+            sub_8002FC64(value, second, object + 4u, 0u);
+            return 1u;
+        default:
+            return 1u;
     }
 }
-
 
 uint32 sub_8004D604(uint32 a1, uint32 a2, uint32 a3)
 {
@@ -1232,24 +1357,22 @@ uint32 sub_80062858(uint32 a1)
     return result;
 }
 
-
 /* TODO Postincrement memory expressions may require ordering refinement */
 uint32 sub_8007BAB0(void)
 {
-  sint32 result;
-  sint32 v1;
-  sint32 i;
-  (w_u16(0x800FF968u,(r_u16(0x800FF968u)+1u)),(r_u16(0x800FF968u)+1u));
-  result = 1;
-  if (!r_u16(0x800FF968u))
-  {
-    v1 = r_u32(0x800FF794u);
-    for (w_u16(0x800FF968u,1); v1; v1 = r_u32(((uint32)((v1 + 28)))))
-      w_u16(((uint32)((v1 + 2))),0);
+    sint32 result;
+    sint32 v1;
+    sint32 i;
+    (w_u16(0x800FF968u, (r_u16(0x800FF968u) + 1u)), (r_u16(0x800FF968u) + 1u));
+    result = 1;
+    if (!r_u16(0x800FF968u))
+    {
+        v1 = r_u32(0x800FF794u);
+        for (w_u16(0x800FF968u, 1); v1; v1 = r_u32(((uint32)((v1 + 28)))))
+            w_u16(((uint32)((v1 + 2))), 0);
 
-    for (i = r_u32(0x800FF5DCu); i; i = r_u32(((uint32)((i + 28)))))
-      w_u16(((uint32)((i + 2))),0);
-
-  }
-  return result;
+        for (i = r_u32(0x800FF5DCu); i; i = r_u32(((uint32)((i + 28)))))
+            w_u16(((uint32)((i + 2))), 0);
+    }
+    return result;
 }

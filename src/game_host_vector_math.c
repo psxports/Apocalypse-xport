@@ -81,14 +81,14 @@ uint32 xport_draft_host_sub_8006689C_p2(uint32 origin, const void *target)
     return sub_80085B54(x * x + y * y + z * z);
 }
 
-uint32 xport_draft_host_sub_8006696C_p2(uint32 origin, void *target)
+static uint32 position_distance(uint32 origin, const void *host_origin, const void *target)
 {
     uint32 delta[3], value;
     sint32 x, y, z;
     unsigned index;
     for (index = 0u; index < 3u; ++index)
     {
-        delta[index] = r_u32(origin + index * 4u) - math_word(target, index);
+        delta[index] = (host_origin ? math_word(host_origin, index) : r_u32(origin + index * 4u)) - math_word(target, index);
         if ((sint32)delta[index] < 0)
             delta[index] = 0u - delta[index];
     }
@@ -116,11 +116,20 @@ uint32 xport_draft_host_sub_8006696C_p2(uint32 origin, void *target)
     return (uint32)((sint32)value >> 12);
 }
 
+uint32 xport_draft_host_sub_8006696C_p2(uint32 origin, void *target)
+{
+    return position_distance(origin, NULL, target);
+}
+
+uint32 apocalypse_position_distance_native(const void *origin, const void *target)
+{
+    return position_distance(0u, origin, target);
+}
+
 void xport_draft_host_sub_80022B54_p2(uint32 object, void *position, uint32 angles)
 {
     uint32 direction[3];
     unsigned index;
-    (void)object;
     direction_vector(direction, 100u, psx_addr(angles, 4u));
     for (index = 0u; index < 3u; ++index)
         math_store(position, index, math_word(position, index) - direction[index]);
