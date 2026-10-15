@@ -1,0 +1,339 @@
+#include "game_sdk_bindings.h"
+extern "C"
+{
+#include "draft_first_signatures.h"
+}
+#include "death_effects.h"
+#include "activation_record.h"
+#include "weapon_nodes.h"
+#include "projectile_ballistic.h"
+#include "projectile_launch.h"
+#include "beam_segments.h"
+#include "projectile_weaving.h"
+#include "projectile_guided.h"
+#include "projectile_tracking.h"
+#include "ring_attack.h"
+#include "spiral_ray_weapon.h"
+#include "machine_gun.h"
+#include "the_beast.h"
+#include "beast_final_visual.h"
+#include "war.h"
+#include "death.h"
+#include "player.h"
+#include "bat.h"
+#include "croc.h"
+#include "hound_rat.h"
+#include "turret.h"
+#include "tank.h"
+#include "swat.h"
+#include "hovr_swat.h"
+#include "scripted_effect_controller.h"
+#include "chopper.h"
+#include "plague.h"
+#include "plague_area.h"
+#include "flamethrower.h"
+#include "items.h"
+#include "particle_debris.h"
+#include "level_interactions.h"
+#include "level_interactions.h"
+#include "visual_registry.h"
+#include "level_hazards.h"
+#include "object_force.h"
+#include "camera.h"
+#include "scripted_level_object.h"
+#include "beam_barrier.h"
+#include "beam_trigger.h"
+#include "traversal_rail.h"
+#include "credits_player.h"
+#include "menu_window.h"
+#include "object_lifecycle.h"
+#include "textured_quad.h"
+#include "projectile_line.h"
+#include "glow_effect.h"
+#include "fireball_effects.h"
+#include "effect_splash.h"
+#include "waving_beam.h"
+#include "expanding_ring.h"
+#include "effect_launch_explosion.h"
+#include "effect_segments.h"
+#include "mesh_ring_effect.h"
+#include "ring_effect.h"
+#include "ribbon_segments.h"
+#include "point_segments.h"
+#include "ring_burst_effect.h"
+#include "pickup_effects.h"
+#include "smoke_emitter.h"
+#include "effect_sprite.h"
+#include "beam_endpoint.h"
+#include "bouncing_point_effect.h"
+#include "oscillating_ring.h"
+#include "opaque_fragment.h"
+#include "fading_particle.h"
+#include "sprite_trail.h"
+#include "beast_effects.h"
+#include "projectile_trail.h"
+#include "plague_ground_effects.h"
+#include "mini_tank.h"
+#include "projectile_base.h"
+#include "path_particle_emitter.h"
+#include "proximity_ring_emitter.h"
+#include "pickup.h"
+#include "projectile_oscillating.h"
+#include "exp_act_burst.h"
+#include "war_effects.h"
+#include "panel_particle.h"
+#include "textured_fragment.h"
+#include "fire_cycle.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+// Native adapter retains already adjusted receivers from original callers
+static uint32 DispatchObjectCleanup(uint32 target, uint32 receiver, uint32 reason)
+{
+    switch (target)
+    {
+        case 0x80022A48:
+            return WeaponNode::Attach(receiver).WeaponNode::Destroy(reason);
+        case 0x8002BCC4:
+            return WeaponNodeBase::Attach(receiver).WeaponNodeBase::Destroy(reason);
+        case 0x8006FC00:
+            return ActivationRecord::Attach(receiver).ActivationRecord::Destroy(reason);
+        case 0x8006FDC8:
+            return ActivationRecordBase::Attach(receiver).ActivationRecordBase::Destroy(reason);
+        case 0x80049DF0:
+            return DeathPersistentRing::Attach(receiver).DeathPersistentRing::Destroy(reason);
+        case 0x80049EDC:
+            return DeathFadingRing::Attach(receiver).DeathFadingRing::Destroy(reason);
+        case 0x80015148:
+            return CreditsPlayer::Attach(receiver).CreditsPlayer::Destroy(reason);
+        case 0x800152C4:
+            return MenuWindow::Attach(receiver).MenuWindow::Destroy(reason);
+        case 0x8003A0C4:
+            return OscillatingRing::Attach(receiver).OscillatingRing::Destroy(reason);
+        case 0x80036F98:
+            return OpaqueFragment::Attach(receiver).OpaqueFragment::Destroy(reason);
+        case 0x800210D8:
+            return TexturedFragment::Attach(receiver).TexturedFragment::Destroy(reason);
+        case 0x800342B0:
+            return TexturedTriangle::Attach(receiver).TexturedTriangle::Destroy(reason);
+        case 0x80034E90:
+            return EndpointSprite::Attach(receiver).EndpointSprite::Destroy(reason);
+        case 0x800365C0:
+            return LoopingEndpointSprite::Attach(receiver).LoopingEndpointSprite::Destroy(reason);
+        case 0x80036828:
+            return SpriteTrail::Attach(receiver).SpriteTrail::Destroy(reason);
+        case 0x80036C5C:
+            return RibbonTrail::Attach(receiver).RibbonTrail::Destroy(reason);
+        case 0x8001DBFC:
+            return FireCycle::Attach(receiver).FireCycle::Destroy(reason);
+        case 0x800250B8:
+            return HomingMissiles::Attach(receiver).HomingMissiles::Destroy(reason);
+        case 0x80025314:
+            return PulseLaser::Attach(receiver).PulseLaser::Destroy(reason);
+        case 0x800285DC:
+            return RipLaser::Attach(receiver).RipLaser::Destroy(reason);
+        case 0x8002A608:
+            return Grenades::Attach(receiver).Grenades::Destroy(reason);
+        case 0x8002B534:
+            return Rockets::Attach(receiver).Rockets::Destroy(reason);
+        case 0x8002B918:
+            return BallisticProjectile::Attach(receiver).BallisticProjectile::Destroy(reason);
+        case 0x8002AD10:
+            return LaunchedProjectile::Attach(receiver).LaunchedProjectile::Destroy(reason);
+        case 0x80027804:
+            return ParticleBeam::Attach(receiver).ParticleBeam::Destroy(reason);
+        case 0x8002616C:
+            return BeamSegments::Attach(receiver).BeamSegments::Destroy(reason);
+        case 0x80026AF4:
+            return RibbonSegments::Attach(receiver).RibbonSegments::Destroy(reason);
+        case 0x80011058:
+            return WavingBeam::Attach(receiver).WavingBeam::Destroy(reason);
+        case 0x80035BD0:
+            return LaunchExplosionEffect::Attach(receiver).LaunchExplosionEffect::Destroy(reason);
+        case 0x80035FC0:
+            return EndpointBeam::Attach(receiver).EndpointBeam::Destroy(reason);
+        case 0x80040B64:
+            return TheBeast::Attach(receiver).TheBeast::Destroy(reason);
+        case 0x80044B80:
+            return PlagueImpactEffect::Attach(receiver).PlagueImpactEffect::Destroy(reason);
+        case 0x8004B23C:
+            return TrailProjectile::Attach(receiver).TrailProjectile::Destroy(reason);
+        case 0x80044D2C:
+            return PlagueGroundEffect::Attach(receiver).PlagueGroundEffect::Destroy(reason);
+        case 0x800406B8:
+            return BeastGroundEffect::Attach(receiver).BeastGroundEffect::Destroy(reason);
+        case 0x80032014:
+            return PickupEffect::Attach(receiver).PickupEffect::Destroy(reason);
+        case 0x80031500:
+            return FlamethrowerPickupEffect::Attach(receiver).FlamethrowerPickupEffect::Destroy(reason);
+        case 0x80031BDC:
+            return RipLaserPickupEffect::Attach(receiver).RipLaserPickupEffect::Destroy(reason);
+        case 0x80031E44:
+            return PulseLaserPickupEffect::Attach(receiver).PulseLaserPickupEffect::Destroy(reason);
+        case 0x8003D22C:
+            return WarImpact::Attach(receiver).WarImpact::Destroy(reason);
+        case 0x800403E4:
+            return BeastOrbitEffect::Attach(receiver).BeastOrbitEffect::Destroy(reason);
+        case 0x8003D66C:
+            return War::Attach(receiver).War::Destroy(reason);
+        case 0x80047CE0:
+            return Death::Attach(receiver).Death::Destroy(reason);
+        case 0x8002BD74:
+            return ProjectileBase::Attach(receiver).ProjectileBase::Destroy(reason);
+        case 0x8002C8F8:
+            return WeavingProjectile::Attach(receiver).WeavingProjectile::Destroy(reason);
+        case 0x8002D930:
+            return GuidedProjectile::Attach(receiver).GuidedProjectile::Destroy(reason);
+        case 0x800449F4:
+            return BeastFinalVisual::Attach(receiver).BeastFinalVisual::Destroy(reason);
+        case 0x8002D018:
+            return TrackingProjectile::Attach(receiver).TrackingProjectile::Destroy(reason);
+        case 0x800258F8:
+            return LineProjectile::Attach(receiver).LineProjectile::Destroy(reason);
+        case 0x80023B98:
+            return SpiralRayWeapon::Attach(receiver).SpiralRayWeapon::Destroy(reason);
+        case 0x8005C7C0:
+            return Player::Attach(receiver).Player::Destroy(reason);
+        case 0x80022C04:
+            return MachineGun::Attach(receiver).MachineGun::Destroy(reason);
+        case 0x800562C4:
+            return Tank::Attach(receiver).Tank::Destroy(reason);
+        case 0x800583A8:
+            return Turret::Attach(receiver).Turret::Destroy(reason);
+        case 0x800749C4:
+            return MiniTank::Attach(receiver).MiniTank::Destroy(reason);
+        case 0x800739C4:
+            return HoundRat::Attach(receiver).HoundRat::Destroy(reason);
+        case 0x8004A1AC:
+            return Bat::Attach(receiver).Bat::Destroy(reason);
+        case 0x80071E80:
+            return Croc::Attach(receiver).Croc::Destroy(reason);
+        case 0x80024470:
+            return Flamethrower::Attach(receiver).Flamethrower::Destroy(reason);
+        case 0x8005B7D4:
+            return Items::Attach(receiver).Items::Destroy(reason);
+        case 0x80053E6C:
+            return Chopper::Attach(receiver).Chopper::Destroy(reason);
+        case 0x8001F9B8:
+            return PathParticleEmitter::Attach(receiver).PathParticleEmitter::Destroy(reason);
+        case 0x8001F280:
+            return Droplet::Attach(receiver).Droplet::Destroy(reason);
+        case 0x8003A188:
+            return ObjectForce::Attach(receiver).ObjectForce::Destroy(reason);
+        case 0x8005C538:
+            return ImpactRing::Attach(receiver).ImpactRing::Destroy(reason);
+        case 0x800452B4:
+            return Plague::Attach(receiver).Plague::Destroy(reason);
+        case 0x80047A54:
+            return PlagueArea::Attach(receiver).PlagueArea::Destroy(reason);
+        case 0x8001C51C:
+            return OscillatingProjectile::Attach(receiver).OscillatingProjectile::Destroy(reason);
+        case 0x8001C9EC:
+            return ProximityRingEmitter::Attach(receiver).ProximityRingEmitter::Destroy(reason);
+        case 0x8001D918:
+            return ExpActBurst::Attach(receiver).ExpActBurst::Destroy(reason);
+        case 0x8001EA0C:
+            return GlowEffect::Attach(receiver).GlowEffect::Destroy(reason);
+        case 0x8001EC58:
+            return ExpandingGlow::Attach(receiver).ExpandingGlow::Destroy(reason);
+        case 0x8001FCD4:
+            return RingBurstEffect::Attach(receiver).RingBurstEffect::Destroy(reason);
+        case 0x800201F8:
+            return Pickup::Attach(receiver).Pickup::Destroy(reason);
+        case 0x800290F4:
+            return MeshRingEffect::Attach(receiver).MeshRingEffect::Destroy(reason);
+        case 0x80075F38:
+            return MiniTankRing::Attach(receiver).MiniTankRing::Destroy(reason);
+        case 0x8002E0C4:
+            return ExplosionRing::Attach(receiver).ExplosionRing::Destroy(reason);
+        case 0x80029ED4:
+            return RingAttack::Attach(receiver).RingAttack::Destroy(reason);
+        case 0x8002BBF0:
+            return BouncingPointEffect::Attach(receiver).BouncingPointEffect::Destroy(reason);
+        case 0x8002BC44:
+            return ProjectileTracer::Attach(receiver).ProjectileTracer::Destroy(reason);
+        case 0x800318C0:
+            return ParticleBeamPickupEffect::Attach(receiver).ParticleBeamPickupEffect::Destroy(reason);
+        case 0x80032128:
+            return PointSegments::Attach(receiver).PointSegments::Destroy(reason);
+        case 0x8001EE48:
+            return ExpandingRing::Attach(receiver).ExpandingRing::Destroy(reason);
+        case 0x800323CC:
+            return SegmentEffect::Attach(receiver).SegmentEffect::Destroy(reason);
+        case 0x80032694:
+            return SmokeEmitter::Attach(receiver).SmokeEmitter::Destroy(reason);
+        case 0x80032FB8:
+            return DestroyEffectObjectData(receiver, reason);
+        case 0x800331EC:
+            return DestroyTexturedEffectData(receiver, reason);
+        case 0x800336D8:
+            return TexturedQuad::Attach(receiver).TexturedQuad::Destroy(reason);
+        case 0x8003BAE0:
+            return ScriptedLevelObject::Attach(receiver).ScriptedLevelObject::Destroy(reason);
+        case 0x800348A8:
+            return RingEffect::Attach(receiver).RingEffect::Destroy(reason);
+        case 0x8003525C:
+            return FadingParticle::Attach(receiver).FadingParticle::Destroy(reason);
+        case 0x80034DE8:
+            return Sprite::Attach(receiver).Sprite::Destroy(reason);
+        case 0x8003554C:
+            return AnimatedSprite::Attach(receiver).AnimatedSprite::Destroy(reason);
+        case 0x80035704:
+            return MovingSprite::Attach(receiver).MovingSprite::Destroy(reason);
+        case 0x80035A00:
+            return ParticleSprite::Attach(receiver).ParticleSprite::Destroy(reason);
+        case 0x8004B868:
+            return DestroyEnemyBase(receiver, reason);
+        case 0x8004D6B4:
+            return ScriptedEffectController::Attach(receiver).ScriptedEffectController::Destroy(reason);
+        case 0x8004E508:
+            return Swat::Attach(receiver).Swat::Destroy(reason);
+        case 0x8005BCE4:
+            return Debris::Attach(receiver).Debris::Destroy(reason);
+        case 0x80061CBC:
+            return OneShotActivator::Attach(receiver).OneShotActivator::Destroy(reason);
+        case 0x80076CA8:
+            return VisualRegistryEntry::Attach(receiver).VisualRegistryEntry::Destroy(reason);
+        case 0x8005A74C:
+            return FloatingHazard::Attach(receiver).FloatingHazard::Destroy(reason);
+        case 0x8005AF34:
+            return BallisticHazard::Attach(receiver).BallisticHazard::Destroy(reason);
+        case 0x8001A3E8:
+            return BeamTrigger::Attach(receiver).BeamTrigger::Destroy(reason);
+        case 0x8001919C:
+            return TraversalRail::Attach(receiver).TraversalRail::Destroy(reason);
+        case 0x80019788:
+            return FlexibleTraversalRail::Attach(receiver).FlexibleTraversalRail::Destroy(reason);
+        case 0x8001A0B4:
+            return BeamBarrier::Attach(receiver).BeamBarrier::Destroy(reason);
+        case 0x8004B51C:
+            return Fireball::Attach(receiver).Fireball::Destroy(reason);
+        case 0x8004B744:
+            return Smoke::Attach(receiver).Smoke::Destroy(reason);
+        case 0x8005C264:
+            return PanelParticle::Attach(receiver).PanelParticle::Destroy(reason);
+        case 0x8005933C:
+            return HovrSwat::Attach(receiver).HovrSwat::Destroy(reason);
+        case 0x80061EF0:
+            return ResettingActivator::Attach(receiver).ResettingActivator::Destroy(reason);
+        case 0x80062254:
+            return TraversalRegion::Attach(receiver).TraversalRegion::Destroy(reason);
+        case 0x80062650:
+            return DestroyScaledObjectBase(receiver, reason);
+        case 0x800629BC:
+            return DestroyVisualObjectBase(receiver, reason);
+        case 0x80062FB8:
+            return DestroyCharacterBase(receiver, reason);
+        case 0x8007741C:
+            return Camera::Attach(receiver).Camera::Destroy(reason);
+        default:
+            /* TODO Bind other object classes when native execution requires them */
+            GameDiagnostic("Unimplemented object cleanup %08X receiver %08X reason %u\n", target, receiver, reason);
+            abort();
+    }
+}
+
+extern "C" uint32 apocalypse_object_cleanup(uint32 target, uint32 receiver, uint32 reason)
+{
+    return DispatchObjectCleanup(target, receiver, reason);
+}

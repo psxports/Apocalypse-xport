@@ -38,4 +38,14 @@ typedef struct xport_draft_bounds
     uint32 minimum[3];
     uint32 maximum[3];
 } xport_draft_bounds;
+
+typedef struct NearPlaneClipContext
+{
+    uint32 projection_buffer;
+    uint32 generated_vertex_cursor;
+    uint32 queued_descriptor;
+    uint32 scratch_base;
+    uint32 vertex_offsets[4];
+    uint32 packed_uv;
+} NearPlaneClipContext;
 #endif

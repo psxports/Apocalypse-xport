@@ -75,7 +75,9 @@
     "images": [
       "SLUS_003.73"
     ],
-    "default_image": "SLUS_003.73"
+    "default_image": "SLUS_003.73",
+    "resolved_indirect_calls": "status/useful-functions/reviewed-indirect-calls.json",
+    "function_scope": "status/useful-functions/classification.json"
   },
   "capabilities": {
     "redbook_audio": {
