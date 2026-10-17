@@ -7,7 +7,9 @@ extern "C"
 }
 
 // TODO Recover the original class names
-class ActivationRecordBase
+#include "object.h"
+
+class ActivationRecordBase : public Object
 {
 public:
     virtual ~ActivationRecordBase() {}

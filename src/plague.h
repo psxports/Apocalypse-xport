@@ -14,7 +14,7 @@ public:
     uint32 SetJumpTarget(const uint32 *position);
     uint32 SetMoveTarget(const uint32 *position);
     uint32 TrackTarget(const uint8 *target);
-    uint32 ClearFacing();
+    uint16 *ClearFacing();
     uint32 SpawnPickup();
     uint32 UpdateOrbitingWeapons();
     uint32 ReadParameters(uint32 command);

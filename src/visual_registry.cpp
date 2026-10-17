@@ -1,3 +1,4 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -11,39 +12,36 @@ extern "C"
 
 void EnableVisualRegistryEntry(uint32 identifier)
 {
-    uint32 object, flags;
     FUNCTION_MARKER(0x80076B78, "SLUS_003.73");
-    object = r_u32(0x800FF8A0);
+    ModelInstance *instance = visual_lists.registry;
     identifier &= 65535;
-    while (object)
+    while (instance)
     {
+        uint32 object = NativeObjectGuestAddress(instance->owner);
         if (r_u16(object + 296) == identifier)
         {
-            flags = r_u16(object) & 65534;
-            w_u16(object, flags);
+            instance->flags &= 65534;
             return;
         }
-        object = r_u32(object + 28);
+        instance = instance->next;
     }
-    // TODO Original V0 on an empty list is unspecified; the current script caller discards it
 }
 
 void DisableVisualRegistryEntry(uint32 identifier)
 {
-    uint32 object = r_u32(0x800FF8A0), flags;
     FUNCTION_MARKER(0x80076BC4, "SLUS_003.73");
+    ModelInstance *instance = visual_lists.registry;
     identifier &= 65535;
-    while (object)
+    while (instance)
     {
+        uint32 object = NativeObjectGuestAddress(instance->owner);
         if (r_u16(object + 296) == identifier)
         {
-            flags = r_u16(object) | 1;
-            w_u16(object, flags);
+            instance->flags |= 1;
             return;
         }
-        object = r_u32(object + 28);
+        instance = instance->next;
     }
-    // TODO Original V0 on an empty list is unspecified; the script caller discards it
 }
 
 VisualRegistryEntry::VisualRegistryEntry(uint32 resource) : VisualObject()
@@ -54,13 +52,13 @@ VisualRegistryEntry::VisualRegistryEntry(uint32 resource) : VisualObject()
     model = r_u32(0x800FF62C);
     w_u32(object + 68, 0x800A3D24);
     SetModelBank((const char *)psx_addr(model, 1));
-    model = r_u8(object + 27);
-    w_u16(object + 22, FindModelResourceIndex(resource, model));
-    flags = r_u16(object);
-    state = r_u16(object + 78);
-    w_u16(object, flags & 65533);
-    w_u16(object + 78, state & 65529);
-    AddToList((uint32 *)psx_addr(0x800FF8A0, 4));
+    model = this->model.bank;
+    this->model.model_idx = FindModelResourceIndex(resource, model);
+    flags = this->model.flags;
+    state = this->lifecycle_flags;
+    this->model.flags = flags & 65533;
+    this->lifecycle_flags = state & 65529;
+    AddToList(visual_lists.registry);
     identifier = r_u16(0x800FF8A4);
     w_u16(object + 296, identifier);
     w_u16(0x800FF8A4, identifier + 1);
@@ -72,7 +70,7 @@ uint32 VisualRegistryEntry::Destroy(uint32 reason)
     uint32 result;
     FUNCTION_MARKER(0x80076CA8, "SLUS_003.73");
     w_u32(object + 68, 0x800A3D24);
-    RemoveFromList((uint32 *)psx_addr(0x800FF8A0, 4));
+    RemoveFromList(visual_lists.registry);
     w_u16(0x800FF8A4, r_u16(0x800FF8A4) - 1);
     result = VisualObject::Destroy(0);
     if (reason & 1)
@@ -84,7 +82,7 @@ uint32 VisualRegistryEntry::Update()
 {
     FUNCTION_MARKER(0x80076D1C, "SLUS_003.73");
     uint32 object = NativeObjectGuestAddress(this);
-    AddAngleVector((uint16 *)psx_addr(object + 16, 6), (const uint16 *)psx_addr(object + 132, 6));
+    AddAngleVector((uint16 *)this->model.angles, (const uint16 *)motion.angular_velocity);
     return object + 16;
 }
 

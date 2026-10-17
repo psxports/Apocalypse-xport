@@ -1,3 +1,4 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -57,7 +58,7 @@ uint32 ProximityRingEmitter::Update()
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 player, x, z, distance, result, child, table, receiver, target, parameters[9];
     FUNCTION_MARKER(0x8001CA68, "SLUS_003.73");
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     x = (uint32)((sint32)(r_u32(object + 24) - r_u32(player + 4)) >> 12);
     if ((sint32)x < 0)
         x = (uint32)0 - x;
@@ -119,11 +120,7 @@ extern "C" uint32 apocalypse_trigger_object_create(uint32 object, const uint32 p
     return object;
 }
 
-extern "C" uint32 sub_8001C8E8(uint32 object, uint32 position, uint32 index, uint32 range, uint32 field72, uint32 field76, uint32 field88, uint32 red0, uint32 green0, uint32 blue0, uint32 red1, uint32 green1, uint32 blue1)
-{
-    FUNCTION_MARKER(0x8001C8E8, "SLUS_003.73");
-    return apocalypse_trigger_object_create(object, (const uint32 *)psx_addr(position, 12), index, range, field72, field76, field88, red0, green0, blue0, red1, green1, blue1);
-}
+
 
 extern "C" uint32 sub_8001C9EC(uint32 object, uint32 reason)
 {

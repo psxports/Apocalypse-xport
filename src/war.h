@@ -19,7 +19,7 @@ public:
     uint32 Resize(uint32 increment);
     uint32 SetDestination(const uint32 *position);
     uint32 TrackTarget(uint32 target);
-    uint32 ClearFacing();
+    uint16 *ClearFacing();
     uint32 SpawnProjectileWave(uint32 count);
 
 private:

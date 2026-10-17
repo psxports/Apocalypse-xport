@@ -307,21 +307,9 @@ RibbonTrail &RibbonTrail::Attach(uint32 object)
     return *static_cast<RibbonTrail *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_80036634(uint32 object, uint32 position, uint32 segments, uint32 spacing, uint32 body_resource, uint32 head_resource, uint32 width, uint32 enabled)
-{
-    FUNCTION_MARKER(0x80036634, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(SpriteTrail));
-    new (dram_addr) SpriteTrail((const uint32 *)psx_addr(position, 12), segments, spacing, (const char *)psx_addr(body_resource, 1), (const char *)psx_addr(head_resource, 1), width, enabled);
-    return object;
-}
 
-extern "C" uint32 sub_80036B00(uint32 object, uint32 position, uint32 segments, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x80036B00, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(RibbonTrail));
-    new (dram_addr) RibbonTrail((const uint32 *)psx_addr(position, 12), segments, red, green, blue);
-    return object;
-}
+
+
 
 extern "C" uint32 sub_80036828(uint32 object, uint32 reason)
 {
@@ -338,18 +326,6 @@ extern "C" uint32 sub_80036CB0(uint32 object)
     FUNCTION_MARKER(0x80036CB0, "SLUS_003.73");
     return RibbonTrail::Attach(object).RibbonTrail::Update();
 }
-extern "C" uint32 sub_800368F8(uint32 object, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x800368F8, "SLUS_003.73");
-    return SpriteTrail::Attach(object).SetColors(red, green, blue);
-}
-extern "C" uint32 sub_80036988(uint32 object, uint32 width)
-{
-    FUNCTION_MARKER(0x80036988, "SLUS_003.73");
-    return SpriteTrail::Attach(object).SetWidth(width);
-}
-extern "C" uint32 sub_800369F8(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x800369F8, "SLUS_003.73");
-    return SpriteTrail::Attach(object).SetPosition((const uint32 *)psx_addr(position, 12));
-}
+
+
+

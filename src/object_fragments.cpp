@@ -1,3 +1,5 @@
+#include "model_render_view.h"
+#include "model_resources.h"
 #include "angle_math.h"
 #include "game_random.h"
 #include "vector_distance.h"
@@ -17,14 +19,21 @@ extern "C"
 #include <new>
 #include <string.h>
 
-uint32 *TransformFragmentVertex(uint32 *output, uint32 geometry, uint32 indices, uint32 index)
+static const SVECTOR *fragment_normal;
+
+const SVECTOR &GetFragmentNormal()
 {
-    uint32 input = geometry + (r_u16(indices + index * 2) & 0xFFF8);
+    return *fragment_normal;
+}
+
+uint32 *TransformFragmentVertex(uint32 *output, const ModelGeometry &geometry, const ModelPolygon &polygon, uint32 index)
+{
+    const SVECTOR *input = geometry.vertices + polygon.v[index];
     uint32 axis, value, address = GuestMemoryAddress(output);
     uint32 shift = 12;
     FUNCTION_MARKER(0x80021ADC, "SLUS_003.73");
-    xport_gte_write_data(0, r_u32(input));
-    xport_gte_write_data(1, r_u32(input + 4));
+    xport_gte_write_data(0, xport_load_le32(input));
+    xport_gte_write_data(1, xport_load_le32((const uint8 *)input + 4));
     xport_gte_execute(0x480012);
     for (axis = 0; axis < 3; ++axis)
     {
@@ -37,21 +46,21 @@ uint32 *TransformFragmentVertex(uint32 *output, uint32 geometry, uint32 indices,
     return ShiftVectorLeft(output, &shift);
 }
 
-uint32 SetFragmentColor(uint32 indexed, uint32 colors, uint32 count, uint32 palette)
+uint32 SetFragmentColor(uint32 indexed, uint32 colors, uint32 count, const ModelPalette *palette)
 {
     uint32 first, second, third, fourth, red, green, blue, result;
     FUNCTION_MARKER(0x80021B3C, "SLUS_003.73");
     if (indexed)
     {
-        first = r_u32(palette + (colors & 255) * 4);
-        second = r_u32(palette + ((colors >> 6) & 1020));
-        third = r_u32(palette + ((colors >> 14) & 1020));
+        first = ReadModelPaletteColor(palette, colors & 255);
+        second = ReadModelPaletteColor(palette, (colors >> 8) & 255);
+        third = ReadModelPaletteColor(palette, (colors >> 16) & 255);
         red = (first & 255) + (second & 255) + (third & 255);
         green = ((first >> 8) & 255) + ((second >> 8) & 255) + ((third >> 8) & 255);
         blue = ((first >> 16) & 255) + ((second >> 16) & 255) + ((third >> 16) & 255);
         if (count == 4)
         {
-            fourth = r_u32(palette + (colors >> 24) * 4);
+            fourth = ReadModelPaletteColor(palette, colors >> 24);
             red += fourth & 255;
             green += (fourth >> 8) & 255;
             blue += (fourth >> 16) & 255;
@@ -146,7 +155,7 @@ uint32 SpawnTexturedFragments(const uint32 *vertex0, const uint32 *vertex1, cons
     for (i = 0; i < 3; ++i)
     {
         factor = RandomRange(100);
-        MultiplyScalarShortVector((uint16 *)jitter, &factor, (const uint16 *)psx_addr(r_u32(0x800FF210), 6));
+        MultiplyScalarShortVector((uint16 *)jitter, &factor, (const uint16 *)&GetFragmentNormal());
         ShiftShortVectorRight((uint16 *)shifted_jitter, (const uint16 *)jitter, &shift);
         AddAngleVector((uint16 *)vertices[i], (const uint16 *)shifted_jitter);
     }
@@ -173,8 +182,9 @@ uint32 SpawnTexturedFragments(const uint32 *vertex0, const uint32 *vertex1, cons
 
 uint32 SpawnOpaqueFragments(uint32 count, const uint32 *vertex0, const uint32 *vertex1, const uint32 *vertex2, const uint32 *normal, uint32 red, uint32 green, uint32 blue)
 {
-    uint32 midpoint[3], sum[3], collision[35], edge0[3], edge1[3], temporary[3], position[3], velocity[3], first[3], second[3], player[3];
+    uint32 midpoint[3], sum[3], edge0[3], edge1[3], temporary[3], position[3], velocity[3], first[3], second[3], player[3];
     uint32 axis, index, value, floor = 0x7FFFFFFF, factor0, factor1, object, distance, result;
+    CollisionRay collision;
     uint32 shift = 1;
     FUNCTION_MARKER(0x80022454, "SLUS_003.73");
     red &= 255;
@@ -185,15 +195,15 @@ uint32 SpawnOpaqueFragments(uint32 count, const uint32 *vertex0, const uint32 *v
     for (axis = 0; axis < 3; ++axis)
     {
         memcpy(&value, (const uint8 *)normal + axis * 4, 4);
-        collision[axis] = midpoint[axis] + value * 500;
+        collision.pos[0][axis] = midpoint[axis] + value * 500;
     }
-    collision[3] = collision[0];
-    collision[4] = collision[1] + 12288000;
-    collision[5] = collision[2];
-    InitializeCollisionRay((uint8 *)collision);
-    QueryCollisionRay((uint8 *)collision, 1);
-    if (collision[26])
-        floor = collision[28];
+    collision.pos[1][0] = collision.pos[0][0];
+    collision.pos[1][1] = collision.pos[0][1] + 12288000;
+    collision.pos[1][2] = collision.pos[0][2];
+    InitializeCollisionRay(collision);
+    QueryCollisionRay(collision, 1);
+    if (collision.hit.GetObject())
+        floor = collision.hit_pos[1];
     shift = 12;
     SubtractVectors(temporary, vertex2, vertex0);
     ShiftVectorRight(edge0, temporary, &shift);
@@ -233,9 +243,9 @@ uint32 SpawnOpaqueFragments(uint32 count, const uint32 *vertex0, const uint32 *v
         w_u32(0x800FF214, 1);
         return 1;
     }
-    player[0] = r_u32(0x800ED520);
-    player[1] = r_u32(0x800ED524);
-    player[2] = r_u32(0x800ED528);
+    player[0] = GetModelRenderView().pos[0];
+    player[1] = GetModelRenderView().pos[1];
+    player[2] = GetModelRenderView().pos[2];
     ShiftVectorLeft(player, &shift);
     distance = MeasurePositionDistance(player, midpoint);
     result = MeasurePositionDistance(player, (const uint32 *)psx_addr(0x800FFD48, 12));
@@ -248,11 +258,7 @@ uint32 SpawnOpaqueFragments(uint32 count, const uint32 *vertex0, const uint32 *v
     return result;
 }
 
-extern "C" uint32 sub_80022454(uint32 count, uint32 vertex0, uint32 vertex1, uint32 vertex2, uint32 normal, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x80022454, "SLUS_003.73");
-    return SpawnOpaqueFragments(count, (const uint32 *)psx_addr(vertex0, 12), (const uint32 *)psx_addr(vertex1, 12), (const uint32 *)psx_addr(vertex2, 12), (const uint32 *)psx_addr(normal, 12), red, green, blue);
-}
+
 
 extern "C" uint32 xport_draft_host_sub_80022454_p2345(uint32 count, const void *vertex0, const void *vertex1, const void *vertex2, const void *normal, uint32 red, uint32 green, uint32 blue)
 {
@@ -260,69 +266,63 @@ extern "C" uint32 xport_draft_host_sub_80022454_p2345(uint32 count, const void *
     return SpawnOpaqueFragments(count, (const uint32 *)vertex0, (const uint32 *)vertex1, (const uint32 *)vertex2, (const uint32 *)normal, red, green, blue);
 }
 
-uint32 FragmentLevelPolygon(uint32 object, uint32 polygon, uint32 parameter, uint32 effect, uint32 test, uint32 mark, uint32 render)
+uint32 FragmentLevelPolygon(ModelInstance *object, ModelPolygon *polygon, uint32 parameter, uint32 effect, uint32 test, uint32 mark, uint32 render)
 {
-    uint32 bank, index, table, model, geometry, normals, payload = 0, flags, touched, count, axis, vertex;
-    uint32 result = 1, first_word, second_word, texture, color, red, green, blue, u0, v0, u1, v1, u2, v2;
+    ModelBorrow borrow;
+    const ModelPalette *palette;
+    uint32 bank, index, flags, touched, count, axis, vertex;
+    uint32 result = 1, texture, color, red, green, blue, u0, v0, u1, v1, u2, v2;
     uint32 matrix[8], vertices[4][3], offset[3];
     FUNCTION_MARKER(0x80021CA8, "SLUS_003.73");
-    bank = r_u8(object + 27);
-    index = r_u16(object + 22);
-    table = r_u32(0x800EAEF8 + bank * 64 + 16);
-    model = r_u32(table + index * 4);
-    first_word = r_u32(model + 4);
-    geometry = model + 32;
-    normals = geometry + first_word * 8;
+    bank = object->bank;
+    index = object->model_idx;
+    const ModelGeometry &geometry = GetModelGeometry(bank, index);
     if (test)
     {
-        touched = r_u16(polygon + 18);
+        touched = polygon->surface;
         if (!(touched & 8) || (touched & 1))
             return 0;
         if (mark)
         {
-            flags = r_u16(polygon);
-            w_u16(polygon + 18, touched | 1);
-            w_u16(polygon, flags & 0xFE7F);
+            flags = polygon->flags;
+            polygon->surface = (uint16)(touched | 1);
+            polygon->flags = (uint16)(flags & 0xFE7F);
             if (!render && ((flags & 64) || !(flags & 1)))
-                w_u16(polygon, flags & 0xFE3F);
+                polygon->flags = (uint16)(flags & 0xFE3F);
         }
     }
     if (!render)
         return 1;
-    flags = r_u16(polygon);
+    flags = polygon->flags;
     if (flags & 1)
     {
-        payload = (flags & 2) ? polygon + 20 : r_u32(polygon + 20);
-        first_word = r_u16(payload + 2);
-        second_word = r_u16(payload + 6);
-        w_u32(0x800FFB78, first_word);
-        w_u32(0x800FFB7C, second_word);
+        w_u32(0x800FFB78, polygon->clut);
+        w_u32(0x800FFB7C, polygon->tpage);
     }
-    first_word = r_u16(polygon + 16);
-    w_u32(0x800FF210, normals + (first_word & 0xFFF8));
-    BuildModelRotationMatrix((const uint32 *)psx_addr(object + 16, 8), (uint16 *)matrix);
+    fragment_normal = geometry.normals + polygon->n;
+    BuildModelRotationMatrix(object->angles, (uint16 *)matrix);
     SetRotMatrix((MATRIX *)matrix);
-    LoadFixedGteTranslation((const uint32 *)psx_addr(object + 4, 12));
+    LoadFixedGteTranslation(object->pos);
     for (vertex = 0; vertex < 3; ++vertex)
-        TransformFragmentVertex(vertices[vertex], geometry, polygon + 4, vertex);
-    flags = r_u16(polygon);
+        TransformFragmentVertex(vertices[vertex], geometry, *polygon, vertex);
+    flags = polygon->flags;
     if (flags & 16)
     {
         count = 3;
-        bank = r_u8(object + 27);
-        color = r_u32(polygon + 12);
-        table = r_u32(0x800EAEF8 + bank * 64 + 32);
+        bank = object->bank;
+        color = polygon->color;
+        palette = &GetModelBank(bank).colors;
     }
     else
     {
         count = 4;
-        TransformFragmentVertex(vertices[3], geometry, polygon + 4, 3);
-        color = r_u32(polygon + 12);
-        bank = r_u8(object + 27);
-        flags = r_u16(polygon);
-        table = r_u32(0x800EAEF8 + bank * 64 + 32);
+        TransformFragmentVertex(vertices[3], geometry, *polygon, 3);
+        color = polygon->color;
+        bank = object->bank;
+        flags = polygon->flags;
+        palette = &GetModelBank(bank).colors;
     }
-    SetFragmentColor(flags & 2048, color, count, table);
+    SetFragmentColor(flags & 2048, color, count, palette);
     for (axis = 0; axis < 3; ++axis)
     {
         uint32 sum = 0;
@@ -332,27 +332,27 @@ uint32 FragmentLevelPolygon(uint32 object, uint32 polygon, uint32 parameter, uin
         center = count == 3 ? (sint32)sum / 3 : (sint32)sum >> 2;
         w_u32(0x800FFD58 + axis * 4, (uint32)center << 12);
     }
-    flags = r_u16(polygon);
+    flags = polygon->flags;
     if (!(flags & 64) && (flags & 1))
     {
-        texture = (flags & 32) ? r_u32(payload + 12) : 0;
+        texture = (flags & 32) ? GetModelPolygonWindow(*polygon) : 0;
         if (!r_u32(0x800FF738))
         {
-            v0 = r_u8(payload + 1);
-            u0 = r_u8(payload);
-            u1 = r_u8(payload + 4);
-            v1 = r_u8(payload + 5);
-            u2 = r_u8(payload + 8);
-            v2 = r_u8(payload + 9);
+            v0 = polygon->uv[0].v;
+            u0 = polygon->uv[0].u;
+            u1 = polygon->uv[1].u;
+            v1 = polygon->uv[1].v;
+            u2 = polygon->uv[2].u;
+            v2 = polygon->uv[2].v;
             SpawnTexturedFragments(vertices[0], vertices[1], vertices[2], u0, v0, u1, v1, u2, v2, texture, parameter);
             if (count == 4)
             {
-                v0 = r_u8(payload + 5);
-                u0 = r_u8(payload + 4);
-                u1 = r_u8(payload + 8);
-                v1 = r_u8(payload + 9);
-                u2 = r_u8(payload + 10);
-                v2 = r_u8(payload + 11);
+                v0 = polygon->uv[1].v;
+                u0 = polygon->uv[1].u;
+                u1 = polygon->uv[2].u;
+                v1 = polygon->uv[2].v;
+                u2 = polygon->uv[3].u;
+                v2 = polygon->uv[3].v;
                 SpawnTexturedFragments(vertices[1], vertices[2], vertices[3], u0, v0, u1, v1, u2, v2, texture, parameter);
             }
         }
@@ -361,12 +361,12 @@ uint32 FragmentLevelPolygon(uint32 object, uint32 polygon, uint32 parameter, uin
     {
         if (!r_u32(0x800FF738))
         {
-            uint32 address = r_u32(0x800FF210);
+            const SVECTOR &normal = GetFragmentNormal();
             if (count == 3)
                 blue = r_u8(0x800FFB82);
-            offset[0] = (uint32)(sint32)(sint16)r_u16(address);
-            offset[1] = (uint32)(sint32)(sint16)r_u16(address + 2);
-            offset[2] = (uint32)(sint32)(sint16)r_u16(address + 4);
+            offset[0] = (uint32)(sint32)normal.vx;
+            offset[1] = (uint32)(sint32)normal.vy;
+            offset[2] = (uint32)(sint32)normal.vz;
             red = r_u8(0x800FFB80);
             if (count == 3)
                 green = r_u8(0x800FFB81);
@@ -380,8 +380,8 @@ uint32 FragmentLevelPolygon(uint32 object, uint32 polygon, uint32 parameter, uin
         }
         if (mark)
         {
-            flags = r_u16(polygon);
-            w_u16(polygon, flags & 0xFFBF);
+            flags = polygon->flags;
+            polygon->flags = (uint16)(flags & 0xFFBF);
         }
     }
     if (effect && !r_u32(0x800FF738))
@@ -394,20 +394,17 @@ uint32 FragmentLevelPolygon(uint32 object, uint32 polygon, uint32 parameter, uin
     return result;
 }
 
-uint32 FragmentLevelObject(uint32 object, uint32 test, uint32 mark)
+uint32 FragmentLevelObject(ModelInstance *object, uint32 test, uint32 mark)
 {
-    uint32 bank, index, table, model, vertices, polygons, normals, polygon, drawn = 0, any = 0, result, random, stride, flags;
+    ModelBorrow borrow;
+    uint32 bank, index, drawn = 0, any = 0, result, random, flags;
     FUNCTION_MARKER(0x80022318, "SLUS_003.73");
-    bank = r_u8(object + 27);
-    index = r_u16(object + 22);
-    table = r_u32(0x800EAEF8 + bank * 64 + 16);
-    model = r_u32(table + index * 4);
-    vertices = r_u32(model + 4);
-    polygons = r_u32(model + 12);
-    normals = r_u32(model + 8);
-    polygon = model + 32 + vertices * 8 + normals * 8;
+    bank = object->bank;
+    index = object->model_idx;
+    const ModelGeometry &geometry = GetModelGeometry(bank, index);
+    ModelPolygon *polygon = geometry.polys;
     index = 0;
-    while ((sint32)index < (sint32)polygons)
+    while ((sint32)index < (sint32)geometry.poly_count)
     {
         random = RandomRange(5);
         result = FragmentLevelPolygon(object, polygon, random == 0, 0, test, mark, (sint32)drawn < 6);
@@ -417,45 +414,21 @@ uint32 FragmentLevelObject(uint32 object, uint32 test, uint32 mark)
             if (result == 1)
                 ++drawn;
         }
-        stride = r_u16(polygon + 2);
         ++index;
-        polygon += stride & 0xFFFC;
+        polygon = polygon->next;
     }
     if (mark && any)
     {
-        flags = r_u16(object);
-        w_u16(object, flags | 1);
+        flags = object->flags;
+        object->flags = flags | 1;
     }
     return any;
 }
 
-extern "C" uint32 sub_80021CA8(uint32 object, uint32 polygon, uint32 parameter, uint32 effect, uint32 test, uint32 mark, uint32 render)
-{
-    FUNCTION_MARKER(0x80021CA8, "SLUS_003.73");
-    return FragmentLevelPolygon(object, polygon, parameter, effect, test, mark, render);
-}
 
-extern "C" uint32 sub_80022318(uint32 object, uint32 test, uint32 mark)
-{
-    FUNCTION_MARKER(0x80022318, "SLUS_003.73");
-    return FragmentLevelObject(object, test, mark);
-}
 
-extern "C" uint32 sub_80021B3C(uint32 indexed, uint32 colors, uint32 count, uint32 palette)
-{
-    FUNCTION_MARKER(0x80021B3C, "SLUS_003.73");
-    return SetFragmentColor(indexed, colors, count, palette);
-}
 
-extern "C" uint32 sub_80021ADC(uint32 output, uint32 geometry, uint32 indices, uint32 index)
-{
-    FUNCTION_MARKER(0x80021ADC, "SLUS_003.73");
-    TransformFragmentVertex((uint32 *)psx_addr(output, 12), geometry, indices, index);
-    return output;
-}
 
-extern "C" uint32 sub_80021358(uint32 vertex0, uint32 vertex1, uint32 vertex2, uint32 u0, uint32 v0, uint32 u1, uint32 v1, uint32 u2, uint32 v2, uint32 texture, uint32 subdivisions)
-{
-    FUNCTION_MARKER(0x80021358, "SLUS_003.73");
-    return SpawnTexturedFragments((const uint32 *)psx_addr(vertex0, 12), (const uint32 *)psx_addr(vertex1, 12), (const uint32 *)psx_addr(vertex2, 12), u0, v0, u1, v1, u2, v2, texture, subdivisions);
-}
+
+
+

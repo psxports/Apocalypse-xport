@@ -160,13 +160,7 @@ Smoke &Smoke::Attach(uint32 object)
     return *static_cast<Smoke *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_8004B428(uint32 object, uint32 source, uint32 bone)
-{
-    FUNCTION_MARKER(0x8004B428, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(Fireball));
-    new (dram_addr) Fireball(source, (sint16)bone);
-    return object;
-}
+
 
 extern "C" uint32 sub_8004B51C(uint32 object, uint32 flags)
 {
@@ -179,13 +173,7 @@ extern "C" uint32 sub_8004B570(uint32 object)
     return Fireball::Attach(object).Fireball::Update();
 }
 
-extern "C" uint32 sub_8004B68C(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x8004B68C, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(Smoke));
-    new (dram_addr) Smoke((const uint32 *)psx_addr(position, 12));
-    return object;
-}
+
 
 extern "C" uint32 sub_8004B744(uint32 object, uint32 flags)
 {

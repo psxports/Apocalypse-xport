@@ -58,19 +58,9 @@ sint16 *SetLightingColors(const sint16 *first, const sint16 *second, const sint1
     return (sint16 *)psx_addr(0x800EE710, 18);
 }
 
-extern "C" uint32 sub_8007C978(uint32 first, uint32 second, uint32 third)
-{
-    FUNCTION_MARKER(0x8007C978, "SLUS_003.73");
-    SetLightingDirections((const sint16 *)psx_addr(first, 6), (const sint16 *)psx_addr(second, 6), (const sint16 *)psx_addr(third, 6));
-    return 0x800EE6F0;
-}
 
-extern "C" uint32 sub_8007C9E4(uint32 first, uint32 second, uint32 third)
-{
-    FUNCTION_MARKER(0x8007C9E4, "SLUS_003.73");
-    SetLightingColors((const sint16 *)psx_addr(first, 6), (const sint16 *)psx_addr(second, 6), (const sint16 *)psx_addr(third, 6));
-    return 0x800EE710;
-}
+
+
 
 extern "C" uint32 apocalypse_lighting_directions_native(uint32 first, uint32 second, const sint16 *third)
 {

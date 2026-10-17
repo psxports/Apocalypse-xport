@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "model_resources.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -22,7 +24,7 @@ RingAttack::RingAttack(uint32 start_damage, uint32 end_damage, uint32 falloff_di
     uint32 player, x, y, z, child, first, second, list, index, value;
     FUNCTION_MARKER(0x80029D24, "SLUS_003.73");
     w_u8(object + 67, 3);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     w_u32(object + 68, 0x800A1380);
     x = r_u32(player + 4);
     y = r_u32(player + 8);
@@ -55,18 +57,18 @@ RingAttack::RingAttack(uint32 start_damage, uint32 end_damage, uint32 falloff_di
     child = r_u32(object + 72);
     w_u32(object + 88, 0);
     MeshRingEffect::Attach(child).SetColors(255, 100, 0);
-    list = r_u32(0x800FF4E8);
+    list = visual_lists.actors;
     child = r_u32(object + 72);
     w_u16(child + 114, 1);
     ClearRingAttackHitFlags(list);
-    list = r_u32(0x800FF5DC);
+    list = visual_lists.solids;
     ClearRingAttackHitFlags(list);
     for (index = 0; index < 16; ++index)
     {
         value = RandomRange(4096);
         w_u32(object + 104 + index * 4, value);
     }
-    Camera::Attach(r_u32(0x800FF904)).ApplyExplosionShake(1);
+    Camera::Attach(visual_lists.cameras).ApplyExplosionShake(1);
     w_u32(0x800FF218, 1);
     w_u32(0x800FF21C, object);
     PlaySoundEffect(10, 8192, 0);
@@ -112,19 +114,9 @@ uint32 ClearRingAttackHitFlags(uint32 list)
     return flags;
 }
 
-extern "C" uint32 sub_80029F58(uint32 unused_receiver, uint32 list)
-{
-    FUNCTION_MARKER(0x80029F58, "SLUS_003.73");
-    return ClearRingAttackHitFlags(list);
-}
 
-extern "C" uint32 sub_80029D24(uint32 object, uint32 start_damage, uint32 end_damage, uint32 falloff_distance)
-{
-    FUNCTION_MARKER(0x80029D24, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(RingAttack));
-    new (dram_addr) RingAttack(start_damage, end_damage, falloff_distance);
-    return object;
-}
+
+
 
 extern "C" uint32 sub_80029ED4(uint32 object, uint32 reason)
 {
@@ -191,7 +183,7 @@ void RingAttack::Update()
             do
             {
                 value = r_u32(phase_cursor + 104);
-                sine = (uint32)(sint32)(sint16)r_u16(0x800F863C + ((phase + value) & 4095) * 4);
+                sine = (uint32)rsin((phase + value) & 4095);
                 product = sine * 200;
                 buffer = r_u32(child + 80);
                 point = buffer + offset;
@@ -208,11 +200,11 @@ void RingAttack::Update()
             } while ((sint32)index < (sint32)count);
         }
     }
-    list = r_u32(0x800FF4E8);
+    list = visual_lists.actors;
     DamageObjects(list, 1);
-    list = r_u32(0x800FF5DC);
+    list = visual_lists.solids;
     DamageObjects(list, 0);
-    node = r_u32(0x800FF220);
+    node = visual_lists.projectiles;
     while (node)
     {
         flags = r_u32(node + 76);
@@ -285,7 +277,7 @@ void RingAttack::Update()
         }
         node = r_u32(node + 4);
     }
-    node = r_u32(0x800FF794);
+    node = GetModelSceneObjects();
     width = r_u32(object + 168);
     radius = r_u32(object + 76);
     divisor = r_u32(object + 100);
@@ -318,9 +310,8 @@ extern "C" void sub_8002A138(uint32 object)
 void RingAttack::DamageObjects(uint32 list, uint32 effects)
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 flags, kind, length, width, divisor, start, end, product, damage, table, target;
+    uint32 flags, kind, length, width, divisor, start, end, product, damage;
     uint32 vector[3];
-    sint32 adjustment;
     FUNCTION_MARKER(0x80029F88, "SLUS_003.73");
     while (list)
     {
@@ -356,10 +347,7 @@ void RingAttack::DamageObjects(uint32 list, uint32 effects)
                         product = (start - end) * width;
                         damage = start - DivideRingAttack(product, divisor);
                     }
-                    table = r_u32(list + 68);
-                    adjustment = (sint16)r_u16(table + 48);
-                    target = r_u32(table + 52);
-                    apocalypse_object_virtual52_native(target, list + (uint32)adjustment, damage, (const sint32 *)vector, 30);
+                    ApplyObjectDamage(list, damage, (const sint32 *)vector, 30);
                     flags = r_u16(list + 78);
                     w_u16(list + 78, flags | 256);
                 }
@@ -369,8 +357,4 @@ void RingAttack::DamageObjects(uint32 list, uint32 effects)
     }
 }
 
-extern "C" void sub_80029F88(uint32 object, uint32 list, uint32 effects)
-{
-    FUNCTION_MARKER(0x80029F88, "SLUS_003.73");
-    RingAttack::Attach(object).DamageObjects(list, effects);
-}
+

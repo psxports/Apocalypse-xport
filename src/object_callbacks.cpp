@@ -215,54 +215,7 @@ static void DispatchObjectUpdate(uint32 target, uint32 receiver)
     }
 }
 
-static void DispatchGuestObjectDamage(uint32 target, uint32 receiver, uint32 argument, uint32 vector, uint32 reason)
-{
-    switch (target)
-    {
-        case 0x800736AC:
-        case 0x8004A25C:
-        case 0x800747A8:
-        case 0x80075930:
-        case 0x80058A14:
-        case 0x80056C50:
-        case 0x80054714:
-        case 0x800593CC:
-            apocalypse_enemy_damage_cpp(target, receiver, argument, vector, 0, reason);
-            break;
-        case 0x8004F5C8:
-            apocalypse_enemy_damage_cpp(target, receiver, argument, vector, 0, reason);
-            break;
-        case 0x8005B864:
-            Items::Attach(receiver).Items::Damage(argument);
-            break;
-        case 0x80045B14:
-            Plague::Attach(receiver).Plague::Damage(argument, 0, reason);
-            break;
-        case 0x800422C0:
-            TheBeast::Attach(receiver).TheBeast::Damage(argument, 0, reason);
-            break;
-        case 0x8003E354:
-            War::Attach(receiver).War::Damage(argument, 0, reason);
-            break;
-        case 0x80048428:
-            Death::Attach(receiver).Death::Damage(argument, 0, reason);
-            break;
-        case 0x8005DDF0:
-            Player::Attach(receiver).Player::Damage(argument, vector ? (const sint32 *)psx_addr(vector, 12) : 0, reason);
-            break;
-        case 0x8003C490:
-            ScriptedLevelObject::Attach(receiver).ScriptedLevelObject::Damage(argument, 0, 0);
-            break;
-        case 0x8005A7B0:
-            FloatingHazard::Attach(receiver).FloatingHazard::Damage(argument, 0, 0);
-            break;
-        case 0x8005AF98:
-            BallisticHazard::Attach(receiver).BallisticHazard::Damage(argument, 0, 0);
-            break;
-        default:
-            FailObjectCallback("Object virtual slot52 target");
-    }
-}
+
 
 extern "C" void apocalypse_object_virtual20(uint32 target, uint32 receiver)
 {
@@ -279,10 +232,7 @@ extern "C" void apocalypse_object_virtual20(uint32 target, uint32 receiver)
     }
 }
 
-extern "C" void apocalypse_object_virtual52(uint32 target, uint32 receiver, uint32 argument, uint32 vector, uint32 reason)
-{
-    DispatchGuestObjectDamage(target, receiver, argument, vector, reason);
-}
+
 
 extern "C" void nullsub_22(void)
 {
@@ -308,10 +258,7 @@ extern "C" void nullsub_29(void)
     FUNCTION_MARKER(0x8003200C, "SLUS_003.73");
 }
 
-extern "C" void nullsub_27(void)
-{
-    FUNCTION_MARKER(0x800639AC, "SLUS_003.73");
-}
+
 
 extern "C" void nullsub_19(void)
 {
@@ -329,11 +276,7 @@ extern "C" void nullsub_34(void)
     /* Original empty routine */
 }
 
-extern "C" void nullsub_24(void)
-{
-    FUNCTION_MARKER(0x80063994, "SLUS_003.73");
-    /* Original empty routine */
-}
+
 
 extern "C" void nullsub_25(void)
 {

@@ -1,4 +1,7 @@
+#include "model_render_view.h"
 #include "scene_effect_packets.h"
+#include "effect_object.h"
+#include "textured_quad.h"
 #include "model_projection.h"
 #include "vector_arithmetic.h"
 #include "vector_distance.h"
@@ -110,6 +113,8 @@ static void AdvanceEffectLineOrigin(void)
 
 void BuildSceneEffectPackets(void)
 {
+    uint32 trig_angle;
+    const ModelProjectionConfig &proj_cfg = GetModelProjectionConfig();
     FUNCTION_MARKER(0x8003736C, "SLUS_003.73");
     uint32 packet_limit98;
     uint32 packet_limit244;
@@ -147,8 +152,7 @@ void BuildSceneEffectPackets(void)
     sint32 v21;
     sint32 v22;
     sint32 v23;
-    uint32 v24;
-    uint32 v25;
+        uint32 v25;
     sint32 v26;
     uint32 v27;
     uint32 v28;
@@ -168,8 +172,7 @@ void BuildSceneEffectPackets(void)
     sint32 v42;
     sint32 v43;
     uint32 v44;
-    uint32 v45;
-    uint32 v46;
+        uint32 v46;
     sint32 v47;
     sint32 v48;
     sint32 v49;
@@ -246,14 +249,14 @@ void BuildSceneEffectPackets(void)
     sint32 v123;
     sint32 v124;
     uint32 v125;
-    sint32 v126;
+    const TextureResource *sprite_tex;
     sint32 v127;
     sint32 v128;
     short v129;
     sint32 v130;
     sint32 v131;
     uint32 v135;
-    uint32 v136;
+    const TextureFrame *sprite_frame;
     sint32 v137;
     sint32 v138;
     sint32 v139;
@@ -264,8 +267,7 @@ void BuildSceneEffectPackets(void)
     uint32 v144;
     sint32 v145;
     uint32 v146;
-    uint32 v147;
-    sint32 v148;
+        sint32 v148;
     sint32 v149;
     sint32 v150;
     sint32 v151;
@@ -304,7 +306,7 @@ void BuildSceneEffectPackets(void)
     sint32 v187;
     sint32 v188;
     sint32 v191;
-    sint32 v192;
+    const TextureResource *quad_tex;
     sint32 v196;
     sint32 v197;
     short v198;
@@ -343,12 +345,11 @@ void BuildSceneEffectPackets(void)
     sint32 v250;
     sint32 v251;
     sint32 v252;
-    sint32 v255;
-    sint32 v256;
+    const TextureFrame *ribbon_frame;
+    const TextureResource *ribbon_tex;
     sint32 v257;
     sint32 v258;
     sint32 v259;
-    sint32 v260;
     sint32 v263;
     sint32 v264;
     sint32 v265;
@@ -455,22 +456,22 @@ void BuildSceneEffectPackets(void)
     sint32 v377;
     uint32 v378;
     sint32 v379;
-    gte_word4 = r_u32(0x800ED590);
-    gte_word5 = r_u32(0x800ED594);
+    gte_word4 = ReadModelRenderMatrixWord(GetModelRenderView().projection, 0);
+    gte_word5 = ReadModelRenderMatrixWord(GetModelRenderView().projection, 1);
     xport_draft_gte_control_write(0, gte_word4);
     xport_draft_gte_control_write(1, gte_word5);
-    gte_word4 = r_u32(0x800ED598);
-    gte_word5 = r_u32(0x800ED59C);
-    gte_word6 = r_u32(0x800ED5A0);
+    gte_word4 = ReadModelRenderMatrixWord(GetModelRenderView().projection, 2);
+    gte_word5 = ReadModelRenderMatrixWord(GetModelRenderView().projection, 3);
+    gte_word6 = ReadModelRenderMatrixWord(GetModelRenderView().projection, 4);
     xport_draft_gte_control_write(2, gte_word4);
     xport_draft_gte_control_write(3, gte_word5);
     xport_draft_gte_control_write(4, gte_word6);
     xport_draft_gte_control_write(5, 0);
     xport_draft_gte_control_write(6, 0);
     xport_draft_gte_control_write(7, 0);
-    vec300[0] = r_u32(0x800ED520);
-    vec300[1] = r_u32(0x800ED524);
-    vec300[2] = r_u32(0x800ED528);
+    vec300[0] = GetModelRenderView().pos[0];
+    vec300[1] = GetModelRenderView().pos[1];
+    vec300[2] = GetModelRenderView().pos[2];
     uint32 view_pointer = r_u32(0x800FFB08);
     result = r_u16(view_pointer + 16);
     v5 = r_u32(0x800FF458);
@@ -568,15 +569,15 @@ void BuildSceneEffectPackets(void)
                         w_u32(((uint32)(((sint32)((uint32)(v122) + (uint32)(4))))), v124);
                         v311 = xport_draft_gte_data_read(27);
                         result = (v311 < i);
-                        if (v311 >= i && (result = (sint32)r_u32(0x800FFAD8) < v311, !result) && ((v125 = DivideEffectUnsigned((uint32)(sint32)(sint16)r_u16(n + 94) << 7, (uint32)v311)) < 0x201 || (r_u8(n + 88) & 8) != 0))
+                        if (v311 >= i && (result = (sint32)proj_cfg.max_distance < v311, !result) && ((v125 = DivideEffectUnsigned((uint32)(sint32)(sint16)r_u16(n + 94) << 7, (uint32)v311)) < 0x201 || (r_u8(n + 88) & 8) != 0))
                         {
                             v312 = xport_draft_gte_data_read(14);
-                            v126 = r_u32(r_u32((uint32)n + 84) + 4);
+                            sprite_tex = TexturedEffect::Attach((uint32)n).GetTextureFrame().tex;
                             uint32 palette_override = r_u16((uint32)n + 110);
-                            uint32 first_uv_word = r_u32((uint32)v126);
-                            v127 = r_u32((uint32)v126 + 4);
-                            v128 = r_u32((uint32)v126 + 8);
-                            v129 = r_u16((uint32)v126 + 10);
+                            uint32 first_uv_word = PackTextureUv(*sprite_tex, 0);
+                            v127 = PackTextureUv(*sprite_tex, 1);
+                            v128 = PackTextureUv(*sprite_tex, 2);
+                            v129 = sprite_tex->uv[3].uv;
                             if (palette_override)
                                 w_u32((uint32)v122 + 12, (first_uv_word & 0xFFFF) | (palette_override << 16));
                             else
@@ -601,20 +602,20 @@ void BuildSceneEffectPackets(void)
                             uint32 dimensions = r_u32((uint32)n + 104);
                             v135 = v125 * (dimensions & 0xFFFF);
                             v142 = v125 * (dimensions >> 16);
-                            v136 = r_u32((uint32)n + 84);
+                            sprite_frame = &TexturedEffect::Attach((uint32)n).GetTextureFrame();
                             uint32 sprite_flags = r_u8((uint32)n + 88);
-                            v137 = r_u8(v136 + 2);
-                            v138 = r_u8(v136 + 3);
-                            v139 = (sint8)r_u8(v136 + 1);
+                            v137 = sprite_frame->w;
+                            v138 = sprite_frame->h;
+                            v139 = sprite_frame->oy;
                             v140 = sprite_flags & 1;
-                            v141 = (sint8)r_u8(v136);
+                            v141 = sprite_frame->ox;
                             if (((sint32)((uint32)(v131) << (uint32)(16))))
                             {
-                                v147 = (0x800F863C + ((v131 & 0xFFF)) * 4);
-                                v148 = ((sint16)(r_u16(((uint32)(v147)))));
+                                trig_angle = v131 & 0xFFF;
+                                v148 = ((sint16)((uint16)rsin(trig_angle)));
                                 v149 = ((sint32)((uint32)(v141) * (uint32)(v148)));
                                 v150 = ((sint32)((uint32)(v139) * (uint32)(v148)));
-                                v151 = ((sint16)(r_u16((((uint32)(v147)) + ((uint32)(1)) * 2))));
+                                v151 = ((sint16)((uint16)rcos(trig_angle)));
                                 v152 = ((sint32)((uint32)(v141) * (uint32)(v151)));
                                 v153 = ((sint32)((uint32)(v139) * (uint32)(v151)));
                                 v154 = ((sint32)((uint32)(v137) * (uint32)(v151)));
@@ -731,10 +732,10 @@ void BuildSceneEffectPackets(void)
                         xport_draft_gte_data_write(1, vec297[2]);
                         xport_draft_gte_execute(0x180001);
                         v315 = xport_draft_gte_data_read(27);
-                        result = (v315 < ((sint32)r_u32(0x800FFAE8)));
+                        result = (v315 < ((sint32)proj_cfg.near_depth));
                         if (!result)
                         {
-                            if ((((sint32)r_u32(0x800FFAD8)) >= v315))
+                            if ((((sint32)proj_cfg.max_distance) >= v315))
                             {
                                 v316 = xport_draft_gte_data_read(14);
                                 v317 = 12;
@@ -748,10 +749,10 @@ void BuildSceneEffectPackets(void)
                                 xport_draft_gte_data_write(1, vec297[2]);
                                 xport_draft_gte_execute(0x180001);
                                 v318 = xport_draft_gte_data_read(27);
-                                result = (v318 < ((sint32)r_u32(0x800FFAE8)));
+                                result = (v318 < ((sint32)proj_cfg.near_depth));
                                 if (!result)
                                 {
-                                    if ((((sint32)r_u32(0x800FFAD8)) >= v318))
+                                    if ((((sint32)proj_cfg.max_distance) >= v318))
                                     {
                                         v319 = xport_draft_gte_data_read(14);
                                         v184 = r_u32(0x800FF668);
@@ -781,7 +782,7 @@ void BuildSceneEffectPackets(void)
                     v188 = r_u32(0x800FF444);
                     while (v188)
                     {
-                        result = r_u32(((uint32)(((sint32)((uint32)(v188) + (uint32)(148))))));
+                        result = TexturedQuad::Attach((uint32)v188).GetTexture() != 0;
                         if (result)
                         {
                             v320 = 12;
@@ -796,16 +797,16 @@ void BuildSceneEffectPackets(void)
                             xport_draft_gte_execute(0x180001);
                             v191 = r_u32(0x800FF668);
                             uint32 packet_limit191 = r_u32(0x800FF374);
-                            v192 = r_u32(((uint32)(((sint32)((uint32)(v188) + (uint32)(148))))));
+                            quad_tex = TexturedQuad::Attach((uint32)v188).GetTexture();
                             if ((packet_limit191 < ((uint32)(((uint32)((uint32)v191) + (uint32)(40))))))
                                 return;
                             w_u32(0x800FF668, ((uint32)v191 + (40)));
                             v321 = xport_draft_gte_data_read(27);
-                            result = (v321 < ((sint32)r_u32(0x800FFAE8)));
+                            result = (v321 < ((sint32)proj_cfg.near_depth));
                             if (result)
                                 goto LABEL_170;
                             result = ((sint32)((uint32)(v191) + (uint32)(8)));
-                            if ((((sint32)r_u32(0x800FFAD8)) < v321))
+                            if ((((sint32)proj_cfg.max_distance) < v321))
                                 goto LABEL_170;
                             w_u32(((uint32)(((sint32)((uint32)(v191) + (uint32)(8))))), xport_draft_gte_data_read(14));
                             v322 = 12;
@@ -819,11 +820,11 @@ void BuildSceneEffectPackets(void)
                             xport_draft_gte_data_write(1, vec297[2]);
                             xport_draft_gte_execute(0x180001);
                             v323 = xport_draft_gte_data_read(27);
-                            result = (v323 < ((sint32)r_u32(0x800FFAE8)));
+                            result = (v323 < ((sint32)proj_cfg.near_depth));
                             if (result)
                                 goto LABEL_170;
                             result = ((sint32)((uint32)(v191) + (uint32)(16)));
-                            if ((((sint32)r_u32(0x800FFAD8)) < v323))
+                            if ((((sint32)proj_cfg.max_distance) < v323))
                                 goto LABEL_170;
                             w_u32(((uint32)(((sint32)((uint32)(v191) + (uint32)(16))))), xport_draft_gte_data_read(14));
                             v324 = 12;
@@ -841,11 +842,11 @@ void BuildSceneEffectPackets(void)
                             if ((v321 < v323))
                                 v321 = v323;
                             v325 = xport_draft_gte_data_read(27);
-                            result = (v325 < ((sint32)r_u32(0x800FFAE8)));
+                            result = (v325 < ((sint32)proj_cfg.near_depth));
                             if (result)
                                 goto LABEL_170;
                             result = ((sint32)((uint32)(v191) + (uint32)(24)));
-                            if ((((sint32)r_u32(0x800FFAD8)) < v325))
+                            if ((((sint32)proj_cfg.max_distance) < v325))
                                 goto LABEL_170;
                             w_u32(((uint32)(((sint32)((uint32)(v191) + (uint32)(24))))), xport_draft_gte_data_read(14));
                             v326 = 12;
@@ -858,10 +859,10 @@ void BuildSceneEffectPackets(void)
                             xport_draft_gte_data_write(0, gte_word4);
                             xport_draft_gte_data_write(1, vec297[2]);
                             xport_draft_gte_execute(0x180001);
-                            quad_uv_word = r_u32((uint32)v192);
-                            v196 = r_u32(((uint32)(((sint32)((uint32)(v192) + (uint32)(4))))));
-                            v197 = r_u32(((uint32)(((sint32)((uint32)(v192) + (uint32)(8))))));
-                            v198 = r_u16(((uint32)(((sint32)((uint32)(v192) + (uint32)(10))))));
+                            quad_uv_word = PackTextureUv(*quad_tex, 0);
+                            v196 = PackTextureUv(*quad_tex, 1);
+                            v197 = PackTextureUv(*quad_tex, 2);
+                            v198 = quad_tex->uv[3].uv;
                             w_u32((uint32)v191 + 12, quad_uv_word);
                             w_u32(((uint32)(((sint32)((uint32)(v191) + (uint32)(20))))), v196);
                             w_u32(((uint32)(((sint32)((uint32)(v191) + (uint32)(28))))), v197);
@@ -871,11 +872,11 @@ void BuildSceneEffectPackets(void)
                             if ((v321 < v325))
                                 v321 = v325;
                             v327 = xport_draft_gte_data_read(27);
-                            result = (v327 < ((sint32)r_u32(0x800FFAE8)));
+                            result = (v327 < ((sint32)proj_cfg.near_depth));
                             if (result)
                                 goto LABEL_170;
                             result = ((sint32)((uint32)(v191) + (uint32)(32)));
-                            if ((((sint32)r_u32(0x800FFAD8)) >= v327))
+                            if ((((sint32)proj_cfg.max_distance) >= v327))
                             {
                                 w_u32(((uint32)(((sint32)((uint32)(v191) + (uint32)(32))))), xport_draft_gte_data_read(14));
                                 if ((v321 < v327))
@@ -918,11 +919,11 @@ void BuildSceneEffectPackets(void)
                         xport_draft_gte_data_write(0, gte_word4);
                         xport_draft_gte_data_write(1, vec297[2]);
                         xport_draft_gte_execute(0x180001);
-                        result = (v328 < ((sint32)r_u32(0x800FFAE8)));
+                        result = (v328 < ((sint32)proj_cfg.near_depth));
                         if (!result)
                         {
                             result = (v328 > -1);
-                            if ((((sint32)r_u32(0x800FFAD8)) >= v328))
+                            if ((((sint32)proj_cfg.max_distance) >= v328))
                             {
                                 if ((v328 > -1))
                                     v204 = v328;
@@ -936,11 +937,11 @@ void BuildSceneEffectPackets(void)
                                 xport_draft_gte_data_write(0, gte_word4);
                                 xport_draft_gte_data_write(1, vec297[2]);
                                 xport_draft_gte_execute(0x180001);
-                                result = (v330 < ((sint32)r_u32(0x800FFAE8)));
+                                result = (v330 < ((sint32)proj_cfg.near_depth));
                                 if (!result)
                                 {
                                     result = (v204 < v330);
-                                    if ((((sint32)r_u32(0x800FFAD8)) >= v330))
+                                    if ((((sint32)proj_cfg.max_distance) >= v330))
                                     {
                                         if ((v204 < v330))
                                             v204 = v330;
@@ -954,20 +955,20 @@ void BuildSceneEffectPackets(void)
                                         xport_draft_gte_data_write(0, gte_word4);
                                         xport_draft_gte_data_write(1, vec297[2]);
                                         xport_draft_gte_execute(0x180001);
-                                        result = (v332 < ((sint32)r_u32(0x800FFAE8)));
+                                        result = (v332 < ((sint32)proj_cfg.near_depth));
                                         if (!result)
                                         {
                                             result = (v204 < v332);
-                                            if ((((sint32)r_u32(0x800FFAD8)) >= v332))
+                                            if ((((sint32)proj_cfg.max_distance) >= v332))
                                             {
                                                 if ((v204 < v332))
                                                     v204 = v332;
                                                 v334 = xport_draft_gte_data_read(27);
-                                                result = (v334 < ((sint32)r_u32(0x800FFAE8)));
+                                                result = (v334 < ((sint32)proj_cfg.near_depth));
                                                 if (!result)
                                                 {
                                                     result = (v204 < v334);
-                                                    if ((((sint32)r_u32(0x800FFAD8)) >= v334))
+                                                    if ((((sint32)proj_cfg.max_distance) >= v334))
                                                     {
                                                         if ((v204 < v334))
                                                             v204 = v334;
@@ -1149,11 +1150,11 @@ void BuildSceneEffectPackets(void)
                                 w_u32(((uint32)(v244)), v245);
                                 w_u32(((uint32)(((sint32)((uint32)(v244) + (uint32)(4))))), r_u32(((uint32)(((sint32)((uint32)(v241) + (uint32)(76)))))));
                                 v338 = xport_draft_gte_data_read(27);
-                                result = (v338 < ((sint32)r_u32(0x800FFAE8)));
+                                result = (v338 < ((sint32)proj_cfg.near_depth));
                                 if (!result)
                                 {
                                     result = ((sint32)((uint32)(v244) + (uint32)(8)));
-                                    if ((((sint32)r_u32(0x800FFAD8)) >= v338))
+                                    if ((((sint32)proj_cfg.max_distance) >= v338))
                                     {
                                         w_u32(((uint32)(((sint32)((uint32)(v244) + (uint32)(8))))), xport_draft_gte_data_read(14));
                                         goto LABEL_220;
@@ -1175,11 +1176,11 @@ void BuildSceneEffectPackets(void)
                                 w_u32(((uint32)(((sint32)((uint32)(v244) + (uint32)(4))))), r_u32(((uint32)(((sint32)((uint32)(v241) + (uint32)(76)))))));
                                 w_u32(((uint32)(((sint32)((uint32)(v244) + (uint32)(12))))), r_u32(((uint32)(((sint32)((uint32)(v241) + (uint32)(80)))))));
                                 v338 = xport_draft_gte_data_read(27);
-                                result = (v338 < ((sint32)r_u32(0x800FFAE8)));
+                                result = (v338 < ((sint32)proj_cfg.near_depth));
                                 if (result)
                                     goto LABEL_218;
                                 result = ((sint32)((uint32)(v244) + (uint32)(8)));
-                                if ((((sint32)r_u32(0x800FFAD8)) < v338))
+                                if ((((sint32)proj_cfg.max_distance) < v338))
                                     goto LABEL_218;
                                 w_u32(((uint32)(((sint32)((uint32)(v244) + (uint32)(8))))), xport_draft_gte_data_read(14));
                             LABEL_220:
@@ -1224,15 +1225,15 @@ void BuildSceneEffectPackets(void)
                             xport_draft_gte_data_write(0, gte_word4);
                             xport_draft_gte_data_write(1, vec297[2]);
                             xport_draft_gte_execute(0x180001);
-                            v255 = r_u32(((uint32)(((sint32)((uint32)(v251) + (uint32)(84))))));
-                            v256 = r_u32(((uint32)(((sint32)((uint32)(v255) + (uint32)(4))))));
-                            v257 = r_u8(((uint32)(((sint32)((uint32)(v255) + (uint32)(2))))));
+                            ribbon_frame = &TexturedEffect::Attach((uint32)v251).GetTextureFrame();
+                            ribbon_tex = ribbon_frame->tex;
+                            v257 = ribbon_frame->w;
                             v340 = xport_draft_gte_data_read(27);
-                            result = (v340 < ((sint32)r_u32(0x800FFAE8)));
+                            result = (v340 < ((sint32)proj_cfg.near_depth));
                             v250 = 1;
                             if (!result)
                             {
-                                if ((((sint32)r_u32(0x800FFAD8)) >= v340))
+                                if ((((sint32)proj_cfg.max_distance) >= v340))
                                 {
                                     ribbon_screen = xport_draft_gte_data_read(14);
                                     v341[0] = (sint16)ribbon_screen;
@@ -1264,10 +1265,10 @@ void BuildSceneEffectPackets(void)
                                     v265 = r_u32(((uint32)(((sint32)((uint32)(v251) + (uint32)(76))))));
                                     w_u32(0x800FF668, v264);
                                     w_u32(((uint32)(((sint32)((uint32)(v263) + (uint32)(4))))), v265);
-                                    uint32 ribbon_uv_word = r_u32((uint32)v256);
-                                    v266 = r_u32(((uint32)(((sint32)((uint32)(v256) + (uint32)(4))))));
-                                    v267 = r_u32(((uint32)(((sint32)((uint32)(v256) + (uint32)(8))))));
-                                    v268 = r_u16(((uint32)(((sint32)((uint32)(v256) + (uint32)(10))))));
+                                    uint32 ribbon_uv_word = PackTextureUv(*ribbon_tex, 0);
+                                    v266 = PackTextureUv(*ribbon_tex, 1);
+                                    v267 = PackTextureUv(*ribbon_tex, 2);
+                                    v268 = ribbon_tex->uv[3].uv;
                                     w_u32((uint32)v263 + 12, ribbon_uv_word);
                                     w_u32(((uint32)(((sint32)((uint32)(v263) + (uint32)(20))))), v266);
                                     v265 = ((v265 & 0xFFFFFF00) | (((r_u8(((uint32)(((sint32)((uint32)(v263) + (uint32)(20))))))) & 0xFF) << 0));
@@ -1281,10 +1282,10 @@ void BuildSceneEffectPackets(void)
                                     w_u8(((uint32)(((sint32)((uint32)(v263) + (uint32)(36))))), ((sint32)((uint32)(v265) - (uint32)(1))));
                                     w_u8(((uint32)(((sint32)((uint32)(v263) + (uint32)(37))))), v266);
                                     v340 = xport_draft_gte_data_read(27);
-                                    result = (v340 < ((sint32)r_u32(0x800FFAE8)));
+                                    result = (v340 < ((sint32)proj_cfg.near_depth));
                                     if (result)
                                         goto LABEL_239;
-                                    if ((((sint32)r_u32(0x800FFAD8)) < v340))
+                                    if ((((sint32)proj_cfg.max_distance) < v340))
                                         goto LABEL_239;
                                     ribbon_screen = xport_draft_gte_data_read(14);
                                     v343 = (sint16)ribbon_screen;
@@ -1421,10 +1422,10 @@ void BuildSceneEffectPackets(void)
                     }
 
                     v258 = v369;
-                    v260 = r_u32(((uint32)(((sint32)((uint32)(v251) + (uint32)(84))))));
+                    ribbon_frame = &TexturedEffect::Attach((uint32)v251).GetTextureFrame();
                     v259 = v370;
-                    v256 = r_u32(((uint32)(((sint32)((uint32)(v260) + (uint32)(4))))));
-                    v257 = r_u8(((uint32)(((sint32)((uint32)(v260) + (uint32)(2))))));
+                    ribbon_tex = ribbon_frame->tex;
+                    v257 = ribbon_frame->w;
                     goto LABEL_233;
                 }
                 uint32 segment_origin_x = r_u32((uint32)k + 80);
@@ -1568,15 +1569,15 @@ void BuildSceneEffectPackets(void)
                 if (((((short)(v352)) != -1024) && (v352 != 1023)))
                 {
                     v353 = 528482304;
-                    v24 = (0x800F863C + ((v349 & 0xFFF)) * 4);
+                    trig_angle = v349 & 0xFFF;
                     v25 = ((uint32)(((uint32)(((uint32)(4) * (uint32)(r_u32(((uint32)(((sint32)((uint32)(j) + (uint32)(84))))))))) + (uint32)(528482308))));
                     v26 = ((uint32)(8) * (uint32)(v347));
                     v27 = (v350 + (((uint32)(2) * (uint32)(v347))) * 4);
-                    sint32 ring_sine = (sint16)r_u16(v24);
+                    sint32 ring_sine = rsin(trig_angle);
                     v28 = r_u32(0x800FF660) + ((uint32)vec303[2] & 0x3FFC) + 112;
                     v29 = DivideEffectUnsigned(400 * r_u32(v27 - 8), (uint32)vec303[2]);
                     v354 = (400 * ring_sine) / 256;
-                    v355 = (sint16)r_u16(v24 + 2);
+                    v355 = rcos(trig_angle);
                     v30 = ((sint32)((uint32)(((short)(v351))) + (uint32)((((sint32)(((uint32)(v29) * (uint32)(v354)))) / 4096))));
                     v31 = ((sint32)((uint32)(((short)(v352))) - (uint32)((((sint32)(((uint32)(v29) * (uint32)(v355)))) / 4096))));
                     v32 = (v30 < -100);
@@ -1644,11 +1645,11 @@ void BuildSceneEffectPackets(void)
                         v356 = ((r_u32(((uint32)(((sint32)((uint32)(j) + (uint32)(100)))))) >> ((uint32)v38 & 31)) & 1);
                         if ((v38 == ((sint32)((uint32)(v347) - (uint32)(1)))))
                             v349 = ((sint16)(r_u16(((uint32)(((sint32)((uint32)(j) + (uint32)(96))))))));
-                        v45 = (0x800F863C + ((v349 & 0xFFF)) * 4);
-                        sint32 ray_sine = (sint16)r_u16(v45);
+                        trig_angle = v349 & 0xFFF;
+                        sint32 ray_sine = rsin(trig_angle);
                         v46 = DivideEffectUnsigned(400 * r_u32(v350), (uint32)vec303[2]);
                         v354 = (400 * ray_sine) / 256;
-                        v355 = (sint16)r_u16(v45 + 2);
+                        v355 = rcos(trig_angle);
                         v47 = ((sint32)((uint32)(v357) + (uint32)((((sint32)(((uint32)(v46) * (uint32)(v354)))) / 4096))));
                         v48 = ((sint32)((uint32)(v358) - (uint32)((((sint32)(((uint32)(v46) * (uint32)(v355)))) / 4096))));
                         v49 = (v47 < -100);
@@ -1838,8 +1839,4 @@ void BuildSceneEffectPackets(void)
     return;
 }
 
-extern "C" void sub_8003736C(void)
-{
-    FUNCTION_MARKER(0x8003736C, "SLUS_003.73");
-    BuildSceneEffectPackets();
-}
+

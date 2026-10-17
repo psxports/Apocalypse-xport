@@ -1,3 +1,4 @@
+#include "visual_object.h"
 #include "game_sdk_bindings.h"
 extern "C"
 {
@@ -39,13 +40,13 @@ ScriptedEffectController::ScriptedEffectController(const uint8 *record_data, uin
     cursor = ReadAngles(cursor);
     w_u32(object + 400, GuestMemoryAddress(cursor));
     w_u8(object + 380, 1);
-    flags = r_u16(object);
+    flags = this->model.flags;
     w_u32(object + 516, 0xFFFFFFFF);
     activation = r_u16(object + 78);
     w_u16(object + 214, index);
-    w_u16(object, flags | 1);
+    this->model.flags = flags | 1;
     w_u16(object + 78, activation & 65519);
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
+    AddToList(visual_lists.actors);
     w_u16(object + 212, 0);
     w_u16(object + 58, 203);
 }
@@ -60,7 +61,7 @@ uint32 ScriptedEffectController::Destroy(uint32 reason)
     uint32 object = NativeObjectGuestAddress(this), child, table, receiver, target, index = 0;
     FUNCTION_MARKER(0x8004D6B4, "SLUS_003.73");
     w_u32(object + 68, 0x800A2AC0);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     child = r_u32(object + 512);
     if (child)
         StopSoundVoices(child);
@@ -135,12 +136,6 @@ void ScriptedEffectController::SetParameters(uint32 command)
         Enemy::ReadParameters(command);
 }
 
-uint32 ScriptedEffectController::Damage(uint32 damage, const sint32 *vector, uint32 kind)
-{
-    FUNCTION_MARKER(0x80062F5C, "SLUS_003.73");
-    return 1;
-}
-
 uint32 ScriptedEffectController::Update()
 {
     uint32 object = NativeObjectGuestAddress(this), flags, counter, timer, script;
@@ -179,9 +174,9 @@ uint32 ScriptedEffectController::Update()
         count = RandomRange(3) + 2;
         while (count)
         {
-            position[0] = r_u32(object + 4);
-            position[1] = r_u32(object + 8);
-            position[2] = r_u32(object + 12);
+            position[0] = this->model.pos[0];
+            position[1] = this->model.pos[1];
+            position[2] = this->model.pos[2];
             position[0] += (RandomRange(128) - 64) << 12;
             position[1] += (RandomRange(128) - 64) << 12;
             position[2] += (RandomRange(128) - 64) << 12;
@@ -190,7 +185,7 @@ uint32 ScriptedEffectController::Update()
             if (effect)
             {
                 void *dram_addr = AllocateNativeObjectStorage(effect, sizeof(PanelParticle));
-                new (dram_addr) PanelParticle((const uint32 *)psx_addr(object + 4, 12));
+                new (dram_addr) PanelParticle((const uint32 *)this->model.pos);
             }
             count -= 1;
         }
@@ -207,14 +202,14 @@ uint32 ScriptedEffectController::Update()
         else
             remainder = (uint32)((sint32)frame % (sint32)period);
         if (!remainder)
-            UpdatePositionedSoundVoices(r_u32(object + 512), (const uint32 *)psx_addr(object + 4, 12), 0);
+            UpdatePositionedSoundVoices(r_u32(object + 512), (const uint32 *)this->model.pos, 0);
     }
     child = r_u32(object + 496);
     if (child)
         ObjectForce::Attach(child).Update();
     if (!r_u32(object + 504))
         return 0;
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     height = r_u32(player + 188);
     index = 0;
     while ((sint32)index < (sint32)r_u16(object + 500))
@@ -230,7 +225,7 @@ uint32 ScriptedEffectController::Update()
             offset[0] = (RandomRange(2400) - 1200) << 12;
             offset[1] = (RandomRange(400) - 1200) << 12;
             offset[2] = (RandomRange(2400) - 1200) << 12;
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             AddVectors(temporary, (const uint32 *)psx_addr(player + 4, 12), offset);
             position[0] = temporary[0];
             position[1] = temporary[1];
@@ -245,7 +240,7 @@ uint32 ScriptedEffectController::Update()
         index += 1;
         SubtractVectors(relative, position, (const uint32 *)psx_addr(entry, 12));
         one = 1;
-        ShiftVectorRight(scale, (const uint32 *)psx_addr(r_u32(0x800FF904) + 104, 12), &one);
+        ShiftVectorRight(scale, (const uint32 *)psx_addr(visual_lists.cameras + 104, 12), &one);
         AddVectors(offset, relative, scale);
         w_u32(output, offset[0]);
         w_u32(output + 4, offset[1]);
@@ -268,7 +263,7 @@ uint32 ScriptedEffectController::ExecuteCommand(uint32 command)
         uint32 shift;
         w_u16(object + 500, count);
         allocated = AllocateHeapBlock(count * 16, 0, 1);
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         w_u32(object + 504, allocated);
         w_u32(0x800FF3AC, 0);
         origin[0] = r_u32(player + 4);
@@ -305,7 +300,7 @@ uint32 ScriptedEffectController::ExecuteCommand(uint32 command)
             SubtractVectors(difference, position, (const uint32 *)psx_addr(entry, 12));
             ++index;
             shift = 1;
-            ShiftVectorRight(scaled, (const uint32 *)psx_addr(r_u32(0x800FF904) + 104, 12), &shift);
+            ShiftVectorRight(scaled, (const uint32 *)psx_addr(visual_lists.cameras + 104, 12), &shift);
             AddVectors(output, difference, scaled);
             w_u32(pointer, output[0]);
             w_u32(pointer + 4, output[1]);
@@ -345,7 +340,7 @@ uint32 ScriptedEffectController::ExecuteCommand(uint32 command)
                 value = r_u16(pointer);
                 w_u32(object + 400, pointer + 2);
                 w_u32(object + 516, value);
-                w_u32(object + 512, PlayPositionedSound(sound_id, (const uint32 *)psx_addr(object + 4, 12), 0));
+                w_u32(object + 512, PlayPositionedSound(sound_id, (const uint32 *)this->model.pos, 0));
             }
         }
         return 1;
@@ -360,13 +355,13 @@ uint32 ScriptedEffectController::ExecuteCommand(uint32 command)
     }
     if (event == 0x4506)
     {
-        uint32 player = r_u32(0x800FF5A0);
+        uint32 player = visual_lists.players;
         if (player)
         {
             uint32 x = r_u32(player + 4), y = r_u32(player + 8), z = r_u32(player + 12);
-            w_u32(object + 4, x);
-            w_u32(object + 8, y);
-            w_u32(object + 12, z);
+            this->model.pos[0] = x;
+            this->model.pos[1] = y;
+            this->model.pos[2] = z;
         }
         return 1;
     }
@@ -374,7 +369,7 @@ uint32 ScriptedEffectController::ExecuteCommand(uint32 command)
     {
         uint32 p0, p1, p2, p3, player;
         pointer = r_u32(object + 400);
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         p0 = r_u16(pointer);
         w_u32(object + 400, pointer + 2);
         p1 = r_u16(pointer + 2);
@@ -383,13 +378,13 @@ uint32 ScriptedEffectController::ExecuteCommand(uint32 command)
         w_u32(object + 400, pointer + 6);
         p3 = r_u16(pointer + 6);
         w_u32(object + 400, pointer + 8);
-        if (player && MeasureHorizontalDistance((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(player + 4, 12)) < 4096)
+        if (player && MeasureHorizontalDistance((const uint32 *)this->model.pos, (const uint32 *)psx_addr(player + 4, 12)) < 4096)
         {
             allocated = sub_800625AC(504);
             if (allocated)
             {
                 void *dram_addr = AllocateNativeObjectStorage(allocated, sizeof(BallisticHazard));
-                new (dram_addr) BallisticHazard((const uint32 *)psx_addr(object + 4, 12), p0, p1, p2, (sint16)p3);
+                new (dram_addr) BallisticHazard((const uint32 *)this->model.pos, p0, p1, p2, (sint16)p3);
             }
         }
         return 1;
@@ -407,7 +402,7 @@ uint32 ScriptedEffectController::ExecuteCommand(uint32 command)
             p8 = r_u16(r_u32(object + 400) + 8);
             p9 = r_u8(r_u32(object + 400) + 10);
             void *dram_addr = AllocateNativeObjectStorage(allocated, sizeof(WavingBeam));
-            new (dram_addr) WavingBeam((const uint32 *)psx_addr(object + 4, 12), (const uint16 *)psx_addr(object + 16, 6), kind, 65535, p5, p6, p7, p8, p9, event == 0x429B ? 0xCCE0187C : 0x68B7B136);
+            new (dram_addr) WavingBeam((const uint32 *)this->model.pos, (const uint16 *)this->model.angles, kind, 65535, p5, p6, p7, p8, p9, event == 0x429B ? 0xCCE0187C : 0x68B7B136);
         }
         if (event == 0x429B)
         {
@@ -446,19 +441,13 @@ uint32 ScriptedEffectController::ExecuteCommand(uint32 command)
         }
         w_u32(object + 496, allocated);
         ObjectForce::Attach(allocated).SetPosition(object + 4);
-        ObjectForce::Attach(r_u32(object + 496)).SetDirection((const uint16 *)psx_addr(object + 16, 4));
+        ObjectForce::Attach(r_u32(object + 496)).SetDirection((const uint16 *)this->model.angles);
         return 1;
     }
     return Enemy::ExecuteCommand(event);
 }
 
-extern "C" uint32 sub_8004D604(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x8004D604, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(ScriptedEffectController));
-    new (dram_addr) ScriptedEffectController((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
+
 
 extern "C" uint32 sub_8004D6B4(uint32 object, uint32 reason)
 {

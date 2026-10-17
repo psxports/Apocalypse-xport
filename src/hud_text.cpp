@@ -1,3 +1,5 @@
+#include "model_render_view.h"
+#include "model_projection.h"
 #include "game_random.h"
 #include "game_heap.h"
 #include "hud_text.h"
@@ -9,6 +11,38 @@ extern "C"
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 }
+
+static const uint8 small_glyphs[128] =
+{
+    28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
+    28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
+    255, 29, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 27, 30, 26, 28,
+    31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 28, 28, 28, 28, 28, 28,
+    28, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 28, 28, 28, 28,
+    28, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 28, 28, 28, 28
+};
+
+static const uint8 large_glyphs[256] =
+{
+    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+    255, 44, 42, 42, 42, 2, 42, 48, 42, 42, 42, 1, 42, 50, 49, 42,
+    32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 42, 42, 42, 42, 42,
+    42, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+    21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 42, 42, 42, 42, 0,
+    42, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+    21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 42, 42, 42, 42, 42,
+    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+    20, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+    43, 42, 42, 42, 3, 42, 42, 42, 46, 45, 51, 42, 52, 42, 42, 42,
+    42, 42, 42, 42, 47, 42, 4, 42, 42, 42, 42, 42, 5, 42, 42, 42,
+    43, 42, 42, 42, 3, 42, 42, 42, 46, 45, 51, 42, 52, 42, 42, 42,
+    42, 42, 42, 42, 47, 42, 4, 42, 42, 42, 42, 42, 5, 42, 42, 42
+};
 
 uint32 AppendHudNumber(uint32 value)
 {
@@ -46,15 +80,46 @@ uint32 AppendHudNumber(uint32 value)
     return cursor + 1;
 }
 
-uint32 InitializeHudFonts()
+static const TextureGroup *small_font;
+static const TextureGroup *large_font;
+static TextureResource *glow_tex;
+
+const TextureGroup *GetHudFont()
 {
-    uint32 small_font, font;
+    return large_font;
+}
+
+const TextureResource *GetHudGlowTexture()
+{
+    return glow_tex;
+}
+
+void ForgetHudTexture(const TextureGroup *grp)
+{
+    if (small_font == grp)
+        small_font = 0;
+    if (large_font == grp)
+        large_font = 0;
+}
+
+void ForgetHudTexture(const TextureResource *tex)
+{
+    if (glow_tex == tex)
+        glow_tex = 0;
+}
+
+void ClearHudTextureBindings()
+{
+    small_font = 0;
+    large_font = 0;
+    glow_tex = 0;
+}
+
+void InitializeHudFonts()
+{
     FUNCTION_MARKER(0x8006A834, "SLUS_003.73");
-    small_font = FindModelTextureGroup(0x800A3A3C);
-    w_u32(0x800FF6DC, small_font);
-    font = FindModelTextureGroup(0x800FF6E8);
-    w_u32(0x800FF6E0, font);
-    return font;
+    small_font = FindModelTextureGroup("Fontsmll");
+    large_font = FindModelTextureGroup("Font");
 }
 
 uint32 ResetHudTextQueue()
@@ -111,57 +176,38 @@ uint32 QueueHudNumber(uint32 x, uint32 y, uint32 value, uint32 red, uint32 green
     return 1;
 }
 
-extern "C" uint32 sub_8006A75C(uint32 value)
-{
-    FUNCTION_MARKER(0x8006A75C, "SLUS_003.73");
-    return AppendHudNumber(value);
-}
-extern "C" uint32 sub_8006A890(uint32 x, uint32 y, uint32 text, uint32 red, uint32 green, uint32 blue, uint32 flags)
-{
-    FUNCTION_MARKER(0x8006A890, "SLUS_003.73");
-    return QueueHudText(x, y, text, red, green, blue, flags);
-}
-extern "C" uint32 sub_8006A8FC(uint32 x, uint32 y, uint32 value, uint32 red, uint32 green, uint32 blue, uint32 flags)
-{
-    FUNCTION_MARKER(0x8006A8FC, "SLUS_003.73");
-    return QueueHudNumber(x, y, value, red, green, blue, flags);
-}
 
-extern "C" uint32 sub_8006A834(void)
-{
-    FUNCTION_MARKER(0x8006A834, "SLUS_003.73");
-    return InitializeHudFonts();
-}
-extern "C" uint32 sub_8006A868(void)
-{
-    FUNCTION_MARKER(0x8006A868, "SLUS_003.73");
-    return ResetHudTextQueue();
-}
+
+
+
+
+
 
 uint32 DrawHudTextQueue()
 {
+    const ModelProjectionConfig &proj_cfg = GetModelProjectionConfig();
     uint32 row = 0x800E5C08, camera[3], delta[3], scaled[3], shift;
     uint32 matrix[5], sentinel, projected, text, command, x, y, depth, screen;
-    uint32 character, glyph, metrics, metric_width, uv, packet, next, limit;
+    uint32 character, glyph, metric_width, packet, next, limit;
     uint32 uv_word, u_right, u_left, v_bottom, v_top, uv_tail, width, height;
     uint32 byte, top, bottom, right, buffer, bucket, tag, head;
     FUNCTION_MARKER(0x8006AAB8, "SLUS_003.73");
-    matrix[0] = r_u32(0x800ED590);
-    matrix[1] = r_u32(0x800ED594);
+    matrix[0] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 0);
+    matrix[1] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 1);
     xport_draft_gte_control_write(0, matrix[0]);
     xport_draft_gte_control_write(1, matrix[1]);
-    matrix[2] = r_u32(0x800ED598);
-    matrix[3] = r_u32(0x800ED59C);
-    matrix[4] = r_u32(0x800ED5A0);
+    matrix[2] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 2);
+    matrix[3] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 3);
+    matrix[4] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 4);
     xport_draft_gte_control_write(2, matrix[2]);
     xport_draft_gte_control_write(3, matrix[3]);
     xport_draft_gte_control_write(4, matrix[4]);
     xport_draft_gte_control_write(5, 0);
     xport_draft_gte_control_write(6, 0);
     xport_draft_gte_control_write(7, 0);
-    camera[0] = r_u32(0x800ED520) << 12;
-    camera[1] = r_u32(0x800ED524) << 12;
-    camera[2] = r_u32(0x800ED528) << 12;
+    camera[0] = GetModelRenderView().pos[0] << 12;
+    camera[1] = GetModelRenderView().pos[1] << 12;
+    camera[2] = GetModelRenderView().pos[2] << 12;
     for (;; row += 32)
     {
         sentinel = r_u32(row);
@@ -181,9 +227,9 @@ uint32 DrawHudTextQueue()
             xport_draft_gte_execute(0x180001);
             command = r_u32(row + 12);
             depth = xport_draft_gte_data_read(27);
-            if ((sint32)depth < (sint32)r_u32(0x800FFAE8))
+            if ((sint32)depth < (sint32)proj_cfg.near_depth)
                 continue;
-            if ((sint32)r_u32(0x800FFAD8) < (sint32)depth)
+            if ((sint32)proj_cfg.max_distance < (sint32)depth)
                 continue;
             screen = xport_draft_gte_data_read(14);
             x = screen & 65535;
@@ -200,18 +246,18 @@ uint32 DrawHudTextQueue()
             character = r_u8(text);
             if (!character)
                 break;
-            glyph = r_u8(0x800E6888 + (character & 127));
+            glyph = small_glyphs[character & 127];
             ++text;
             if (character == 95)
-                glyph = r_u8(0x800E6888 + 45);
+                glyph = small_glyphs[45];
             if (glyph == 255)
             {
                 x += 5;
                 continue;
             }
-            metrics = r_u32(0x800FF6DC) + (glyph << 3);
-            metric_width = r_u8(metrics + 2);
-            uv = r_u32(metrics + 4);
+            const TextureFrame &frame = GetTextureFrame(small_font, (sint32)glyph);
+            metric_width = frame.w;
+            const TextureResource &tex = *frame.tex;
             if (metric_width < 4)
                 ++x;
             packet = r_u32(0x800FF668);
@@ -222,13 +268,13 @@ uint32 DrawHudTextQueue()
             w_u32(0x800FF668, next);
             w_u32(packet, 0x09000000);
             w_u32(packet + 4, command);
-            w_u32(packet + 12, r_u32(uv));
-            w_u32(packet + 20, r_u32(uv + 4));
-            uv_word = r_u32(uv + 8);
+            w_u32(packet + 12, PackTextureUv(tex, 0));
+            w_u32(packet + 20, PackTextureUv(tex, 1));
+            uv_word = PackTextureUv(tex, 2);
             u_right = r_u8(packet + 20);
             w_u32(packet + 28, uv_word);
             u_left = r_u8(packet + 12);
-            uv_tail = r_u16(uv + 10);
+            uv_tail = tex.uv[3].uv;
             v_bottom = r_u8(packet + 29);
             width = u_right - u_left;
             v_top = r_u8(packet + 13);
@@ -275,11 +321,7 @@ uint32 DrawHudTextQueue()
     }
 }
 
-extern "C" uint32 sub_8006AAB8(void)
-{
-    FUNCTION_MARKER(0x8006AAB8, "SLUS_003.73");
-    return DrawHudTextQueue();
-}
+
 
 uint32 AllocateAnimatedHudTextNode()
 {
@@ -352,29 +394,13 @@ uint32 AddAnimatedHudText(uint32 text, uint32 animation)
     return node;
 }
 
-extern "C" uint32 sub_8001B654(void)
-{
-    FUNCTION_MARKER(0x8001B654, "SLUS_003.73");
-    return AllocateAnimatedHudTextNode();
-}
 
-extern "C" uint32 sub_8001B694(uint32 node, uint32)
-{
-    FUNCTION_MARKER(0x8001B694, "SLUS_003.73");
-    return RemoveAnimatedHudTextNode(node);
-}
 
-extern "C" void sub_8001B708(void)
-{
-    FUNCTION_MARKER(0x8001B708, "SLUS_003.73");
-    ClearAnimatedHudText();
-}
 
-extern "C" uint32 sub_8001B788(uint32 resource, uint32 animation)
-{
-    FUNCTION_MARKER(0x8001B788, "SLUS_003.73");
-    return AddAnimatedHudText(resource, animation);
-}
+
+
+
+
 
 uint32 UpdateAnimatedHudText()
 {
@@ -493,23 +519,15 @@ void DrawAnimatedHudText()
     }
 }
 
-extern "C" uint32 sub_8001B7C4(void)
-{
-    FUNCTION_MARKER(0x8001B7C4, "SLUS_003.73");
-    return UpdateAnimatedHudText();
-}
 
-extern "C" void sub_8001B8BC(void)
-{
-    FUNCTION_MARKER(0x8001B8BC, "SLUS_003.73");
-    DrawAnimatedHudText();
-}
+
+
 
 sint32 GetHudGlyphIndex(uint32 character)
 {
     uint32 index;
     FUNCTION_MARKER(0x8001A784, "SLUS_003.73");
-    index = r_u8(0x800E6908 + (character & 255));
+    index = large_glyphs[character & 255];
     return index == 255 ? -1 : (sint32)index;
 }
 
@@ -542,43 +560,20 @@ uint32 SetHudTextColor(uint32 red, uint32 green, uint32 blue, uint32 semi_transp
     return result;
 }
 
-extern "C" uint32 sub_8001A784(uint32 character)
-{
-    FUNCTION_MARKER(0x8001A784, "SLUS_003.73");
-    return (uint32)GetHudGlyphIndex(character);
-}
 
-extern "C" void sub_8001A7B0(uint32 alignment)
-{
-    FUNCTION_MARKER(0x8001A7B0, "SLUS_003.73");
-    SetHudTextAlignment(alignment);
-}
 
-extern "C" void sub_8001A7BC(uint32 scale)
-{
-    FUNCTION_MARKER(0x8001A7BC, "SLUS_003.73");
-    SetHudTextScale(scale);
-}
 
-extern "C" void sub_8001A7C8(uint32 depth)
-{
-    FUNCTION_MARKER(0x8001A7C8, "SLUS_003.73");
-    SetHudTextDepth(depth);
-}
 
-extern "C" uint32 sub_8001A7D4(uint32 red, uint32 green, uint32 blue, uint32 semi_transparent)
-{
-    FUNCTION_MARKER(0x8001A7D4, "SLUS_003.73");
-    return SetHudTextColor(red, green, blue, semi_transparent);
-}
 
-uint32 LoadHudTextGlowResource()
+
+
+
+
+
+void LoadHudTextGlowResource()
 {
-    uint32 resource;
     FUNCTION_MARKER(0x8001A760, "SLUS_003.73");
-    resource = FindModelResourceEntry(0x38B9E52B);
-    w_u32(0x800FF1D0, resource);
-    return resource;
+    glow_tex = FindModelResourceEntry(0x38B9E52B);
 }
 
 uint32 InitializeHudTextGlowCurve()
@@ -606,7 +601,7 @@ uint32 UpdateHudTextGlowCurve()
         rate = r_u32(0x800A589C + index * 4);
         tick = r_u32(0x800FF64C);
         phase = (rate * tick) & 4095;
-        sine = (sint16)r_u16(0x800F863C + phase * 4);
+        sine = rsin(phase);
         amplitude = r_u32(0x800A57FC + index * 4);
         product = amplitude * (uint32)sine;
         if ((sint32)product < 0)
@@ -620,7 +615,7 @@ uint32 UpdateHudTextGlowCurve()
 uint32 MeasureStyledHudText(const char *text)
 {
     uint32 mapped = GuestMemoryAddress(text), cursor = 0, character, width = 0, count = 0;
-    uint32 font, glyph, advance, bearing, scale;
+    uint32 advance, bearing, scale;
     sint32 index;
     FUNCTION_MARKER(0x8001A97C, "SLUS_003.73");
     for (;;)
@@ -633,10 +628,9 @@ uint32 MeasureStyledHudText(const char *text)
             width += 10;
         else
         {
-            font = r_u32(0x800FF6E0);
-            glyph = font + (uint32)index * 8;
-            advance = r_u8(glyph + 2);
-            bearing = (uint32)(sint32)(sint8)r_u8(glyph);
+            const TextureFrame &frame = GetTextureFrame(large_font, index);
+            advance = frame.w;
+            bearing = (uint32)(sint32)frame.ox;
             count += 1;
             width += advance + bearing;
         }
@@ -646,29 +640,13 @@ uint32 MeasureStyledHudText(const char *text)
     return (uint32)((sint32)(width * scale) >> 8) + count * 3;
 }
 
-extern "C" uint32 sub_8001A760(void)
-{
-    FUNCTION_MARKER(0x8001A760, "SLUS_003.73");
-    return LoadHudTextGlowResource();
-}
 
-extern "C" uint32 sub_8001A858(void)
-{
-    FUNCTION_MARKER(0x8001A858, "SLUS_003.73");
-    return InitializeHudTextGlowCurve();
-}
 
-extern "C" uint32 sub_8001A8E8(void)
-{
-    FUNCTION_MARKER(0x8001A8E8, "SLUS_003.73");
-    return UpdateHudTextGlowCurve();
-}
 
-extern "C" uint32 sub_8001A97C(uint32 text)
-{
-    FUNCTION_MARKER(0x8001A97C, "SLUS_003.73");
-    return MeasureStyledHudText((const char *)psx_addr(text, 1));
-}
+
+
+
+
 
 extern "C" uint32 apocalypse_text_width(const char *text)
 {

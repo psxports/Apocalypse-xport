@@ -1,3 +1,4 @@
+#include "game_random.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -38,7 +39,7 @@ uint32 BuildParticleVelocity(uint32 *output, uint32 scale)
             range = (sint16)r_u16(0x800FF41C + axis * 2);
         if (range)
         {
-            random = sub_80066570((uint32)range);
+            random = RandomRange((uint32)range);
             range = (sint16)r_u16(0x800FF41C + axis * 2);
             angles[axis] = (uint16)((uint32)angles[axis] + random - (uint32)(range >> 1));
         }
@@ -76,22 +77,10 @@ extern "C" uint32 sub_80034F9C(uint32 angles)
     FUNCTION_MARKER(0x80034F9C, "SLUS_003.73");
     return SetParticleDirection((const sint16 *)psx_addr(angles, 6));
 }
-extern "C" uint32 sub_80034FC4(uint32 angles)
-{
-    FUNCTION_MARKER(0x80034FC4, "SLUS_003.73");
-    return SetParticleSpread((const sint16 *)psx_addr(angles, 6));
-}
+
 extern "C" uint32 apocalypse_effect_angles_native(const void *angles) { return SetParticleSpread((const sint16 *)angles); }
-extern "C" uint32 sub_80034FEC(uint32 output, uint32 scale)
-{
-    FUNCTION_MARKER(0x80034FEC, "SLUS_003.73");
-    return BuildParticleVelocity((uint32 *)psx_addr(output, 12), scale);
-}
-extern "C" uint32 sub_800350E8(uint32 size)
-{
-    FUNCTION_MARKER(0x800350E8, "SLUS_003.73");
-    return SetParticleSize(size);
-}
+
+
 extern "C" void sub_800350FC(uint32 red, uint32 green, uint32 blue)
 {
     FUNCTION_MARKER(0x800350FC, "SLUS_003.73");

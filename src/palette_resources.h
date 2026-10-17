@@ -6,14 +6,33 @@ extern "C"
 #include "psx.h"
 }
 
+struct PalettePosition
+{
+    uint32 x;
+    uint32 y;
+};
+
+const PalettePosition &GetLargePalettePos();
+
+struct PaletteResource
+{
+    uint16 clut;
+    uint8 slot;
+    uint8 flags;
+    uint16 refs;
+    uint8 loaded;
+    uint32 key;
+    PaletteResource *next;
+    PaletteResource *prev;
+};
+
 uint32 InitializePaletteResources();
-uint32 AllocatePaletteResource(uint32 key);
-uint32 ReleasePaletteResource(uint32 entry);
-uint32 FindPaletteResource(uint32 key);
-uint32 ReleaseUnusedPaletteResources();
+PaletteResource *FindPaletteResource(uint32 key);
+void ReleaseUnusedPaletteResources();
+void ResetPaletteResources();
 
 uint32 AllocateSmallPaletteSlot();
 uint32 AllocateLargePaletteSlot();
-uint32 LoadPaletteResource(uint32 key, uint32 colors, uint32 flags);
+PaletteResource *LoadPaletteResource(uint32 key, uint16 *colors, uint32 flags);
 
 #endif

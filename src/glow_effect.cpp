@@ -135,13 +135,7 @@ void ExpandingGlow::Update()
     SetRowExtent(1, 50);
 }
 
-extern "C" uint32 sub_8001E8B0(uint32 object, uint32 position, uint32 red, uint32 green, uint32 blue, uint32 growth, uint32 fade, uint32 size, uint32 segments)
-{
-    FUNCTION_MARKER(0x8001E8B0, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(GlowEffect));
-    new (dram_addr) GlowEffect((const uint32 *)psx_addr(position, 12), red, green, blue, growth, fade, size, segments);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_expanding_glow_native(uint32 object, const void *position, uint32 red, uint32 green, uint32 blue, uint32 size, uint32 duration)
 {

@@ -65,8 +65,9 @@ uint32 WarImpact::Destroy(uint32 reason)
 
 uint32 WarImpact::Update()
 {
+    uint32 trig_angle;
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 radius, child, value, index, phase, table, position[3];
+    uint32 radius, child, value, index, phase, position[3];
     FUNCTION_MARKER(0x8003D2A8, "SLUS_003.73");
     if ((sint16)r_u16(object + 8) >= 46)
         Finish();
@@ -85,9 +86,9 @@ uint32 WarImpact::Update()
             {
                 value = r_u32(object + 80);
                 radius = r_u32(object + 76);
-                table = 0x800F863C + ((value + phase) & 4095) * 4;
-                position[0] = radius * (uint32)(sint32)(sint16)r_u16(table);
-                value = (uint32)(sint32)(sint16)r_u16(table + 2);
+                trig_angle = (value + phase) & 4095;
+                position[0] = radius * (uint32)rsin(trig_angle);
+                value = (uint32)rcos(trig_angle);
                 position[1] = 0;
                 position[2] = radius * value;
                 AddVectors(position, (const uint32 *)psx_addr(object + 24, 12));
@@ -107,13 +108,7 @@ uint32 WarImpact::Update()
     return value;
 }
 
-extern "C" uint32 sub_8003D134(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x8003D134, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(WarImpact));
-    new (dram_addr) WarImpact((const uint32 *)psx_addr(position, 12));
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_war_impact_native(uint32 object, const uint32 position[3])
 {

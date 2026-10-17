@@ -7,8 +7,8 @@ extern "C"
 }
 
 void LoadFixedGteTranslation(const uint32 *position);
-void BuildModelRotationMatrix(const uint32 *input, uint16 *output);
-void ScaleModelRotationMatrix(const uint8 *input, uint16 *output);
+void BuildModelRotationMatrix(const uint16 *input, uint16 *output);
+void ScaleModelRotationMatrix(const uint16 *input, uint16 *output);
 void TransposeRotationMatrix(uint16 *matrix);
 void TransposeRotationMatrix(const uint16 *input, uint16 *output);
 

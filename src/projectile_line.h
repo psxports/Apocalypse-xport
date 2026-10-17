@@ -2,6 +2,7 @@
 #define PROJECTILE_LINE_H
 
 #include "effect_object.h"
+#include "collision_ray.h"
 
 uint32 CreateProjectileImpact(uint32 flags, const uint32 *position);
 
@@ -29,6 +30,7 @@ public:
     uint32 InitializeTrace();
 
 private:
+    CollisionRay trace;
     // Native helpers retain original unaligned loads and DIV corner cases
     static uint32 ReadAnglesWord(uint32 address, const void *native_angles);
     static uint32 ReadAnglesTail(uint32 address, const void *native_angles);

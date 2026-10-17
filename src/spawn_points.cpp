@@ -43,8 +43,4 @@ uint32 ShuffleSpawnPoints(uint16 *points, uint32 count)
     return 0;
 }
 
-extern "C" uint32 sub_80067E18(uint32 points, uint32 count)
-{
-    FUNCTION_MARKER(0x80067E18, "SLUS_003.73");
-    return ShuffleSpawnPoints((uint16 *)psx_addr(points, 2), count);
-}
+

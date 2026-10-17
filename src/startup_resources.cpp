@@ -1,3 +1,4 @@
+#include "palette_resources.h"
 #include "model_projection.h"
 extern "C"
 {
@@ -12,6 +13,7 @@ uint32 _bu_init(void);
 uint32 sub_800882F8(uint32 mode);
 }
 #include "startup_resources.h"
+#include "loading_screen.h"
 #include "scene_lifecycle.h"
 #include "game_random.h"
 #include "game_pad_poll.h"
@@ -29,53 +31,6 @@ uint32 sub_800882F8(uint32 mode);
 #include "native_object_storage.h"
 #include "menu_window.h"
 #include <new>
-
-uint32 LoadStartupResource(const char *name)
-{
-    uint32 size, allocation;
-    FUNCTION_MARKER(0x80010138, "SLUS_003.73");
-    size = LookupResource(name);
-    allocation = AllocateHeapBlock(size, 1, 1);
-    w_u32(0x800FEEC0, allocation);
-    if (allocation)
-    {
-        BeginResourceRead(allocation);
-        return WaitForResourceRead();
-    }
-    return allocation;
-}
-
-void ReleaseStartupResources()
-{
-    uint32 allocation;
-    FUNCTION_MARKER(0x80010184, "SLUS_003.73");
-    allocation = r_u32(0x800FEEC0);
-    if (allocation)
-    {
-        ReleaseHeapBlock(allocation);
-        w_u32(0x800FEEC0, 0);
-    }
-    allocation = r_u32(0x800FEEBC);
-    if (allocation)
-    {
-        ReleaseHeapBlock(allocation);
-        w_u32(0x800FEEBC, 0);
-    }
-}
-
-extern "C" uint32 sub_80010138(uint32 name)
-{
-    FUNCTION_MARKER(0x80010138, "SLUS_003.73");
-    return LoadStartupResource((const char *)psx_addr(name, 1));
-}
-
-extern "C" void sub_80010184(void)
-{
-    FUNCTION_MARKER(0x80010184, "SLUS_003.73");
-    ReleaseStartupResources();
-}
-
-
 
 uint32 InitializeGameRuntime()
 {
@@ -124,7 +79,7 @@ uint32 InitializeGameRuntime()
     DrawSync(0);
     apocalypse_set_disp_mask(1);
     SetAuxiliaryRandomSeed(0x9F6AD);
-    sub_8006AEE4();
+    ::InitializeResourceDirectory();
     InitializeModelResources();
     w_u32(0x800FEF00, 20);
     InitializeMenuResources();
@@ -133,28 +88,28 @@ uint32 InitializeGameRuntime()
     InitializeModelVramRectangles();
     InitializeAudioOutput();
     ResetHudTextQueue();
-    sub_80069320();
+    ::InitializePaletteResources();
     SetProjectionScreenParameters(0x100, 0x78, 0x100);
     ConfigureProjectionDepth(10, 0x1770, 0x800);
     PutDispEnv((DISPENV *)psx_addr(0x800C636C, sizeof(DISPENV)));
     PlayMovie(3);
     if (r_u8(0x800EC1D8) == 0)
-        LoadStartupImage(1, 0x800A3B3C, 0xF0);
+        LoadStartupImage(1, "legal.rle", 240);
     start_tick = r_u32(0x800FF64C);
     sub_8006AED8(0x7D0);
-    sub_8007113C();
-    sub_8006994C(0x800FF854);
-    resource = QueueModelBankLoad(0x800A3B48, 0);
-    w_u8(0x800EAF03 + (resource << 6), 1);
-    resource = QueueModelBankLoad(0x800FF85C, 0);
-    w_u8(0x800EAF03 + (resource << 6), 1);
-    resource = QueueModelBankLoad(0x800FF864, 0);
-    w_u8(0x800EAF03 + (resource << 6), 1);
+    ::ReloadGamePadConfiguration();
+    InitializeAudioSession("sfx.vab");
+    resource = QueueModelBankLoad("procfire", 0);
+    GetModelBank(resource).protected_bank = 1;
+    resource = QueueModelBankLoad("bits", 0);
+    GetModelBank(resource).protected_bank = 1;
+    resource = QueueModelBankLoad("items", 0);
+    GetModelBank(resource).protected_bank = 1;
     w_u8(0x800FF645, resource);
-    resource = QueueModelBankLoad(0x800FF86C, 0);
-    w_u8(0x800EAF03 + (resource << 6), 1);
-    resource = QueueModelBankLoad(0x800A3B54, 0);
-    w_u8(0x800EAF03 + (resource << 6), 1);
+    resource = QueueModelBankLoad("bruce", 0);
+    GetModelBank(resource).protected_bank = 1;
+    resource = QueueModelBankLoad("plus_one", 0);
+    GetModelBank(resource).protected_bank = 1;
     WaitForModelBankLoads();
     sub_8006AED8(4);
     if (r_u32(0x800FF64C) - start_tick < 0x12C && (r_u8(0x800EC138) == 0 || r_u8(0x800EC158) == 0))
@@ -234,30 +189,12 @@ extern "C" uint32 sub_80010610(uint32 requested_mode)
 }
 
 
-uint32 InitializeMenuResources()
+void InitializeMenuResources()
 {
-    uint32 size, cursor, base, offset, destination, words[4], labels[10], menu, label;
+    uint32 base, offset, destination, words[4], menu, label;
     uint32 first, second;
     FUNCTION_MARKER(0x8001610C, "SLUS_003.73");
-    size = LookupResource((const char *)psx_addr(0x800A05B4, 1));
-    base = AllocateHeapBlock(size, 1, 1);
-    w_u32(0x800FF004, base);
-    BeginResourceRead(base);
-    WaitForResourceRead();
-    cursor = r_u32(0x800FF004);
-    while (r_u8(cursor))
-    {
-        do
-        {
-            ++cursor;
-        } while (r_u8(cursor));
-        cursor = (cursor + 3) & 0xFFFFFFFC;
-        while (r_u32(cursor) != 0xFFFFFFFF)
-            cursor += 4;
-        cursor += 4;
-    }
-    base = r_u32(0x800FF004);
-    ResizeHeapBlock(base, (cursor - base + 4) & 0xFFFFFFFC);
+    InitializeLevelLoadEstimates();
     for (destination = 0; destination < 2; ++destination)
     {
         base = destination == 0 ? 0x800A545C : 0x800A53D4;
@@ -290,157 +227,8 @@ uint32 InitializeMenuResources()
     label = r_u32(0x800A5594);
     MenuWindow::Attach(menu).AddItem((const char *)psx_addr(label, 1));
     menu = r_u32(0x800FF024);
-    w_u32(menu + 20, 30);
-    first = r_u32(0x800A54F0);
-    w_u32(0x800A5254, first);
-    for (offset = 0; offset < 10; ++offset)
-        labels[offset] = r_u32(0x800A54F4 + offset * 4);
-    for (offset = 0; offset < 10; ++offset)
-        w_u32(0x800A526C + offset * 24, labels[offset]);
-    return 0x800A5254;
-}
+    MenuWindow::Attach(menu).spacing = 30;
 
-extern "C" uint32 sub_8001610C(void)
-{
-    FUNCTION_MARKER(0x8001610C, "SLUS_003.73");
-    return InitializeMenuResources();
 }
 
 
-void LoadStartupImage(uint32 compressed, uint32 name, uint32 height)
-{
-    FUNCTION_MARKER(0x8001024C, "SLUS_003.73");
-    ReleaseStartupResources();
-    if (compressed)
-    {
-        LoadCompressedStartupResource((const char *)psx_addr(name, 1));
-        DecodeStartupResource();
-    }
-    else
-        LoadStartupResource((const char *)psx_addr(name, 1));
-    DrawStartupImage(height);
-    ReleaseStartupResources();
-}
-
-extern "C" void sub_8001024C(uint32 compressed, uint32 name, uint32 height)
-{
-    FUNCTION_MARKER(0x8001024C, "SLUS_003.73");
-    LoadStartupImage(compressed, name, height);
-}
-
-
-sint32 LoadCompressedStartupResource(const char *name)
-{
-    uint32 allocation, size;
-    FUNCTION_MARKER(0x80010028, "SLUS_003.73");
-    allocation = r_u32(0x800FEEBC);
-    if (!allocation)
-    {
-        size = LookupResource(name);
-        allocation = AllocateHeapBlock(size, 1, 1);
-        w_u32(0x800FEEBC, allocation);
-        BeginResourceRead(allocation);
-        return (sint32)WaitForResourceRead();
-    }
-    return (sint32)allocation;
-}
-
-uint32 DecodeStartupResource()
-{
-    uint32 output = r_u32(0x800FEEC0);
-    uint32 input, token, count, index, value;
-    FUNCTION_MARKER(0x80010074, "SLUS_003.73");
-    if (output != 0)
-        return output;
-    output = AllocateHeapBlock(r_u32(r_u32(0x800FEEBC) + 8), 1, 1);
-    w_u32(0x800FEEC0, output);
-    input = r_u32(0x800FEEBC) + 12;
-    for (;;)
-    {
-        token = r_u16(input);
-        if (token == 0)
-            return token;
-        count = token & 0x7FFF;
-        input += 2;
-        if ((token & 0x8000) != 0)
-        {
-            for (index = 0; index < count; ++index)
-            {
-                value = r_u16(input);
-                w_u16(output, value);
-                output += 2;
-            }
-            input += 2;
-        }
-        else
-            for (index = 0; index < count; ++index)
-            {
-                value = r_u16(input);
-                input += 2;
-                w_u16(output, value);
-                output += 2;
-            }
-    }
-}
-
-uint32 DrawStartupImage(uint32 height)
-{
-    sint16 rectangle[4];
-    sint32 top;
-    uint32 result;
-    FUNCTION_MARKER(0x800101CC, "SLUS_003.73");
-    result = r_u32(0x800FEEC0);
-    if (result)
-    {
-        ClearStartupImageArea();
-        top = (sint32)(240 - height) / 2;
-        result = r_u32(0x800FEEC0);
-        rectangle[0] = 0;
-        rectangle[1] = (sint16)top;
-        rectangle[2] = 512;
-        rectangle[3] = (sint16)height;
-        xport_draft_host_sub_800885A4_p1(rectangle, result);
-        xport_draft_host_sub_80088664_p1(rectangle, 0, (uint32)top + 256);
-        return sub_800882F8(0);
-    }
-    return result;
-}
-
-extern "C" sint32 sub_80010028(uint32 name)
-{
-    FUNCTION_MARKER(0x80010028, "SLUS_003.73");
-    return LoadCompressedStartupResource((const char *)psx_addr(name, 1));
-}
-extern "C" uint32 sub_80010074(void)
-{
-    FUNCTION_MARKER(0x80010074, "SLUS_003.73");
-    return DecodeStartupResource();
-}
-extern "C" uint32 sub_800101CC(uint32 height)
-{
-    FUNCTION_MARKER(0x800101CC, "SLUS_003.73");
-    return DrawStartupImage(height);
-}
-
-
-uint32 ClearStartupImageArea()
-{
-    union
-    {
-        uint32 words[2];
-        sint16 values[4];
-    } rectangle;
-    FUNCTION_MARKER(0x80015EC8, "SLUS_003.73");
-    rectangle.words[0] = r_u32(0x800FF048);
-    rectangle.words[1] = r_u32(0x800FF04C);
-    xport_draft_host_sub_8008847C_p1(rectangle.values, 0, 0, 0);
-    rectangle.values[1] = 511;
-    rectangle.values[3] = 1;
-    return xport_draft_host_sub_8008847C_p1(rectangle.values, 0, 0, 0);
-}
-
-extern "C" uint32 sub_80015EC8(void)
-{
-    FUNCTION_MARKER(0x80015EC8, "SLUS_003.73");
-    return ClearStartupImageArea();
-}

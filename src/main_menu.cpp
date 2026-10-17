@@ -1,4 +1,24 @@
+#include "cd_voice_event.h"
+#include "level_session.h"
+#include "model_projection.h"
+#include "movie_lifecycle.h"
+#include "resource_io.h"
+#include "startup_resources.h"
+#include "cheat_input.h"
+#include "model_render.h"
+#include "angle_math.h"
+#include "model_render_view.h"
+#include "game_sdk_bindings.h"
+#include "level_catalogue.h"
+#include "game_string.h"
+#include "game_random.h"
 #include "main_menu.h"
+#include "orbit_camera.h"
+#include "model_resources.h"
+#include "record_commands.h"
+#include "native_object_storage.h"
+#include <new>
+#include "audio_session.h"
 #include "game_panel.h"
 #include "menu_input.h"
 #include "credits.h"
@@ -8,6 +28,8 @@
 #include "menu_lifecycle.h"
 #include "scene_lifecycle.h"
 #include "hud_text.h"
+#include "hud_sprites.h"
+#include "effect_lifecycle.h"
 extern "C"
 {
 #include "game_menu_helpers.h"
@@ -19,19 +41,53 @@ extern "C"
 #include <stdio.h>
 #include <string.h>
 
+static const MenuScene menu_scenes[] =
+{
+    {"roof_lib", "roof_1", {0x00001CCE, 0xFFFFFB63, 0x000014D4}, 1744, 768},
+    {"sewr_lib", "sewr_4", {0xFFFFD3F0, 0x00002AB2, 0x000150FD}, 3536, 2304}
+};
+
+static uint32 cur_menu_scene = 0;
+
+void ResetMenuScenes()
+{
+    cur_menu_scene = 0;
+}
+
+void AdvanceMenuScene()
+{
+    ++cur_menu_scene;
+    if ((sint32)cur_menu_scene >= (sint32)(sizeof(menu_scenes) / sizeof(menu_scenes[0])))
+        cur_menu_scene = 0;
+}
+
+const MenuScene &GetCurMenuScene()
+{
+    if (cur_menu_scene >= sizeof(menu_scenes) / sizeof(menu_scenes[0]))
+    {
+        GameDiagnostic("Invalid menu scene index\n");
+        abort();
+    }
+    return menu_scenes[cur_menu_scene];
+}
+
+uint32 QueueSelectedLevelResources()
+{
+    FUNCTION_MARKER(0x80011B34, "SLUS_003.73");
+    QueueModelBankLoad(GetCurMenuScene().library, 0);
+    QueueModelBankLoad(GetCurMenuScene().bank, 1);
+    return AllocateScriptHeap(250000);
+}
+
 // TODO Card BIOS file calls retain explicit missing boundaries
 uint32 RunMainMenu()
 {
-    uint32 v0;
-    sint32 v1;
     sint32 v2;
     sint32 v3;
     sint32 v4;
     uint32 v5;
     sint32 main_window;
     sint32 v7;
-    uint32 v8;
-    uint32 v9;
     sint32 v10;
     sint32 v11;
     uint32 v12;
@@ -44,13 +100,13 @@ uint32 RunMainMenu()
     sint32 v19;
     uint32 v20;
     sint32 v21;
-    sint32 v22;
-    sint32 v23;
+    uint8 *v22;
+    uint8 *v23;
     sint32 v24;
     uint32 v25;
-    sint32 v26;
+    uint8 *v26;
     sint32 v27;
-    sint32 v28;
+    uint8 *v28;
     uint32 v29;
     uint32 v30;
     uint32 v31;
@@ -77,8 +133,6 @@ uint32 RunMainMenu()
     sint32 v52;
     sint32 v53;
     sint32 v54;
-    sint32 v55;
-    uint32 v56;
     uint32 v57;
     sint32 v58;
     sint32 v59;
@@ -101,7 +155,6 @@ uint32 RunMainMenu()
     sint32 v76;
     sint32 v77;
     sint32 v78;
-    uint32 v79;
     sint32 v80;
     sint32 v81;
     uint32 v82;
@@ -128,6 +181,9 @@ uint32 RunMainMenu()
     uint32 v104;
     sint32 result_state;
     sint32 finished;
+    const char *level_label;
+    const LevelEntry *level_entry;
+    uint32 level_idx;
     uint32 background_menu;
     sint32 level_window;
     sint32 options_window;
@@ -172,22 +228,11 @@ uint32 RunMainMenu()
     w_u8(0x800A72B8, 1);
     w_u8(0x800C6328, 1);
     PutDispEnv((DISPENV *)psx_addr(0x800A72FC, sizeof(DISPENV)));
-    v0 = ((uint32)(0x800A5374));
-    v1 = 0;
-    if (r_u8(r_u32(0x800A5374)))
-    {
-        do
-        {
-            v0 += (8) * 4;
-            ++v1;
-        } while (r_u8(r_u32(v0)));
-    }
-    if (((w_u32(0x800FEFF0, (r_u32(0x800FEFF0) + 1)), (sint32)r_u32(0x800FEFF0)) >= ((sint32)(v1))))
-        w_u32(0x800FEFF0, 0);
+    AdvanceMenuScene();
     // Skip the original title-screen input and prompt delay
     w_u32(0x800FF03C, 0);
     v2 = 144;
-    sub_80011B34();
+    QueueSelectedLevelResources();
     v3 = 0;
     sub_80070748();
     w_u32(0x800FF814, 0);
@@ -224,10 +269,10 @@ uint32 RunMainMenu()
                     v2 = 144;
             }
         }
-        sub_8006B2A8();
-        sub_8006F500();
+        ::ProcessResourceRead();
+        ::ProcessModelBankLoadQueue();
         nullsub_16();
-        sub_800664E4(1);
+        ::WaitForGameFrames(1);
     } while (((sint32)r_u32(0x800FF814) < 1801));
     result_state = 3;
     finished = 1;
@@ -235,14 +280,18 @@ LABEL_22:
     w_u8(0x800EC1D9, 0);
 
     w_u8(0x800EC129, 0);
-    sub_80015EC8();
-    sub_8006F7D8();
-    sub_8002E148(951706923, 64, 64, 127);
-    sub_8007D76C(10, 10240, 0x2000);
+    ::ClearStartupImageArea();
+    ::WaitForModelBankLoads();
+    ::CreateMenuBuffers(951706923, 64, 64, 127);
+    ::ConfigureProjectionDepth(10, 10240, 0x2000);
     v5 = ((uint32)(sub_8002FED8(28)));
     background_menu = v5;
     if (v5)
-        background_menu = sub_80011904(v5, (0x800A537C + (((uint32)(8) * (uint32)(r_u32(0x800FEFF0)))) * 4), r_u32((0x800A538C + (((uint32)(8) * (uint32)(r_u32(0x800FEFF0)))) * 4)), r_u32((0x800A5390 + (((uint32)(8) * (uint32)(r_u32(0x800FEFF0)))) * 4)));
+    {
+        const MenuScene &scene = GetCurMenuScene();
+        void *storage = AllocateNativeObjectStorage(v5, sizeof(OrbitCamera));
+        new (storage) OrbitCamera(scene.pos, scene.radius, scene.height);
+    }
     main_window = sub_8002FED8(444);
     if (main_window)
     {
@@ -251,14 +300,14 @@ LABEL_22:
         main_window = sub_80015228(main_window, 256, 0, 0, 0x140, 0x100, 0x1A);
     }
     sub_80015474(main_window, r_u32((0x800A554C + (0) * 4)));
-    if ((!r_u32(0x800A53D4) || sub_80067724(0x800A5460, r_u32(0x800A5258))))
+    if (!r_u32(0x800A53D4) || NamesEqualIgnoringCase((const char *)psx_addr(0x800A5460, 1), GetLevelEntry(0)->name))
         sub_8001551C(main_window, r_u32((0x800A554C + (0) * 4)));
     sub_80015474(main_window, r_u32((0x800A55D0 + (0) * 4)));
-    if (r_u32(0x800FF334))
+    if (GetCheatOptions().autotest)
         sub_80015474(main_window, 0x800A031C);
     sub_80015474(main_window, r_u32((0x800A55D4 + (0) * 4)));
     sub_80015474(main_window, r_u32((0x800A55D8 + (0) * 4)));
-    if (r_u32(0x800FF330))
+    if (GetCheatOptions().level_select)
         sub_80015474(main_window, r_u32((0x800A557C + (0) * 4)));
     sub_800152F8(main_window);
     v7 = sub_8002FED8(444);
@@ -269,18 +318,9 @@ LABEL_22:
         v95 = 26;
         level_window = sub_80015228(v7, 256, 0, 0, 0x100, 0xC0, 0x1A);
     }
-    w_u32(((uint32)(((uint32)(level_window) + (uint32)(20)))), 18);
-    v8 = ((uint32)(0x800A5254));
-    if (r_u8(r_u32(0x800A5254)))
-    {
-        v9 = 0x800A5254;
-        do
-        {
-            v8 += (6) * 4;
-            sub_80015474(level_window, r_u32(v9));
-            v9 = v8;
-        } while (r_u8(r_u32(v8)));
-    }
+    MenuWindow::Attach(level_window).spacing = 18;
+    for (level_idx = 0; level_idx < GetLevelCount(); ++level_idx)
+        MenuWindow::Attach(level_window).AddItem(GetLevelEntry(level_idx)->title);
     sub_800152F8(level_window);
     v10 = sub_8002FED8(444);
     options_window = v10;
@@ -321,7 +361,7 @@ LABEL_22:
     sub_80015474(difficulty_window, r_u32((0x800A564C + (0) * 4)));
     sub_80015474(difficulty_window, r_u32((0x800A5650 + (0) * 4)));
     sub_80015474(difficulty_window, r_u32((0x800A55A4 + (0) * 4)));
-    w_u8((difficulty_window + (7) * 1), 1);
+    MenuWindow::Attach(difficulty_window).has_arrows = 1;
     v13 = sub_8002FED8(444);
     audio_window = v13;
     if (v13)
@@ -353,7 +393,7 @@ LABEL_22:
     sub_8001551C(controller_window, r_u32((0x800A5604 + (0) * 4)));
     sub_80015474(controller_window, r_u32((0x800A55FC + (0) * 4)));
     sub_80015474(controller_window, r_u32((0x800A55A4 + (0) * 4)));
-    w_u32((controller_window + (5) * 4), 22);
+    MenuWindow::Attach(controller_window).spacing = 22;
     v16 = sub_8002FED8(444);
     preset_window = v16;
     if (v16)
@@ -371,9 +411,9 @@ LABEL_22:
     sub_80015474(preset_window, r_u32((0x800A5610 + (0) * 4)));
     sub_80015474(preset_window, r_u32((0x800A5614 + (0) * 4)));
     sub_80015474(preset_window, r_u32((0x800A5618 + (0) * 4)));
-    w_u16(((uint32)(((uint32)(preset_window) + (uint32)(118)))), 192);
-    w_u16(((uint32)(((uint32)(preset_window) + (uint32)(116)))), 192);
-    w_u8(((uint32)(((uint32)(preset_window) + (uint32)(7)))), 1);
+    MenuWindow::Attach(preset_window).items[3].unselected_scale = 192;
+    MenuWindow::Attach(preset_window).items[3].selected_scale = 192;
+    MenuWindow::Attach(preset_window).has_arrows = 1;
     sub_80016014(0x800A54CC);
     w_u32(0x800FF814, 0);
     v128 = r_u32(0x800FF64C);
@@ -393,14 +433,14 @@ LABEL_22:
                 w_u16(0x800C6376, v117);
             }
         }
-        sub_8002E2E8();
-        sub_8002E2E8();
+        ::BlurMenuBuffers();
+        ::BlurMenuBuffers();
         UpdateHudTextGlowCurve();
-        sub_800858FC(0x800ED548, 0x800ED550);
-        sub_800878AC(0x800ED550, 0x800ED520);
-        sub_8007E63C(0x800ED51C, 0x800A67B8, ((uint32)(r_u32(0x800FF660)) + (uint32)(112)));
-        sub_8007EBDC(r_u32(0x800FF794));
-        sub_8007EBC4();
+        BuildModelRotationMatrix(GetModelRenderView().angles, (uint16 *)&GetModelRenderView().rotation);
+        SetModelRenderViewTranslation(GetModelRenderView());
+        ConfigureModelRenderView(GetModelRenderView(), 0x800A67B8, ((uint32)(r_u32(0x800FF660)) + (uint32)(112)));
+        ::RenderVisibleModelObjectList(GetModelSceneObjects());
+        ::AdvanceModelRenderCounter();
         SetHudTextScale(256);
         SetHudTextAlignment(0);
         switch (menu_state)
@@ -408,7 +448,7 @@ LABEL_22:
             case 0:
                 MenuWindow::Attach(main_window).Draw();
                 SetHudTextScale(256);
-                if (r_u32(0x800FF348))
+                if (GetCheatOptions().build_date)
                 {
                     SetHudTextColor(149, 20, 20, 0);
                     v19 = 20;
@@ -422,7 +462,7 @@ LABEL_22:
                 }
                 v94 = 256;
                 sub_8001AA28(256, v19, v20, 0, 0, 256);
-                sub_80016800();
+                ::DrawMenuCenteredHint();
                 break;
 
             case 1:
@@ -438,24 +478,24 @@ LABEL_22:
             LABEL_63:
                 MenuWindow::Attach(v21).Draw();
 
-                sub_800167D8();
+                ::DrawMenuHints();
                 break;
 
             case 5:
-                sub_800151FC();
+                ::SetMenuGreenText();
                 sub_8001AA28(256, 80, r_u32((0x800A5620 + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 106, r_u32((0x800A5624 + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 132, r_u32((0x800A5628 + (0) * 4)), 0, 0, 256);
                 SetHudTextAlignment(1);
-                sub_80011594();
+                ::SetMenuDarkRedText();
                 sub_8001AA28(104, 210, r_u32(0x800A5588), 0, 0, 256);
                 sub_8001AA28(328, 210, r_u32((0x800A5584 + (0) * 4)), 0, 0, 256);
-                v22 = sub_8006D028(((uint32)(r_u32(0x800FF01C)) + (uint32)(8)));
+                v22 = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 1));
                 if (v22)
-                    sub_8006D0D4(76, 211, v22, ((uint32)(r_u32(0x800FF01C)) + (uint32)(8)));
-                v23 = sub_8006D028(r_u32(0x800FF01C));
+                    PlaceScaledHudSprite(76, 211, v22, GetTextureFrame(GetButtonResourceGroup(), 1));
+                v23 = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
                 if (v23)
-                    sub_8006D0D4(300, 211, v23, r_u32(0x800FF01C));
+                    PlaceScaledHudSprite(300, 211, v23, GetTextureFrame(GetButtonResourceGroup(), 0));
                 sub_8006D1C0(0, 0, 512, 5, 0, 0, 255, 0);
                 sub_8006D1C0(0, 235, 512, 5, 0, 0, 255, 0);
                 sub_8006D1C0(0, 0, 7, 240, 0, 0, 255, 0);
@@ -466,13 +506,13 @@ LABEL_22:
                 break;
 
             case 6:
-                sub_800167D8();
+                ::DrawMenuHints();
                 MenuWindow::Attach(difficulty_window).Draw();
                 break;
 
             case 7:
                 v24 = 0;
-                sub_800166AC();
+                ::DrawMenuLeftHint();
                 SetHudTextAlignment(1);
                 SetHudTextScale(192);
                 if ((sub_800155D4(audio_window, r_u32((0x800A55A8 + (0) * 4))) || sub_800155D4(audio_window, r_u32((0x800A55B0 + (0) * 4)))))
@@ -492,9 +532,9 @@ LABEL_22:
                 v94 = 256;
                 sub_8001AA28(348, 210, v25, 0, 0, 256);
                 SetHudTextAlignment(0);
-                v26 = sub_8006D028(r_u32(0x800FF01C));
+                v26 = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
                 if (v26)
-                    sub_8006D0D4(320, 211, v26, r_u32(0x800FF01C));
+                    PlaceScaledHudSprite(320, 211, v26, GetTextureFrame(GetButtonResourceGroup(), 0));
                 DrawMenuVolumeSlider(MenuWindow::Attach(audio_window));
                 MenuWindow::Attach(audio_window).Draw();
                 break;
@@ -510,18 +550,18 @@ LABEL_22:
                 {
                     SetHudTextAlignment(1);
                     SetHudTextScale(256);
-                    sub_80011594();
+                    ::SetMenuDarkRedText();
                     sub_8001AA28(211, 210, r_u32((0x800A5574 + (0) * 4)), 0, 0, 256);
-                    v28 = sub_8006D028(((uint32)(r_u32(0x800FF01C)) + (uint32)(8)));
+                    v28 = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 1));
                     if (v28)
-                        sub_8006D0D4(183, 211, v28, ((uint32)(r_u32(0x800FF01C)) + (uint32)(8)));
+                        PlaceScaledHudSprite(183, 211, v28, GetTextureFrame(GetButtonResourceGroup(), 1));
                 }
                 else
                 {
-                    sub_800167D8();
+                    ::DrawMenuHints();
                 }
                 SetHudTextAlignment(1);
-                sub_800151D0();
+                ::SetMenuRedText();
                 SetHudTextScale(192);
                 if ((r_u32(0x800EC264) == 65))
                 {
@@ -557,7 +597,7 @@ LABEL_22:
                 goto LABEL_104;
 
             case 9:
-                sub_800151FC();
+                ::SetMenuGreenText();
                 sub_8001AA28(256, 80, r_u32((0x800A562C + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 106, r_u32((0x800A5630 + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 132, r_u32((0x800A5634 + (0) * 4)), 0, 0, 256);
@@ -567,7 +607,7 @@ LABEL_22:
                 goto LABEL_103;
 
             case 10:
-                sub_800151FC();
+                ::SetMenuGreenText();
                 sub_8001AA28(256, 90, r_u32((0x800A563C + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 116, r_u32((0x800A5640 + (0) * 4)), 0, 0, 256);
                 v34 = 256;
@@ -576,29 +616,29 @@ LABEL_22:
                 goto LABEL_103;
 
             case 11:
-                sub_80011594();
+                ::SetMenuDarkRedText();
                 v94 = 256;
                 sub_8001AA28(256, 34, r_u32((0x800A5608 + (0) * 4)), 0, 0, 256);
-                sub_800167D8();
+                ::DrawMenuHints();
                 MenuWindow::Attach(preset_window).Draw();
                 break;
 
             case 12:
-                sub_800167D8();
-                sub_80011594();
+                ::DrawMenuHints();
+                ::SetMenuDarkRedText();
                 v94 = 256;
                 sub_8001AA28(256, 80, r_u32((0x800A55A0 + (0) * 4)), 0, 0, 256);
                 v38 = r_u32(0x800FF024);
-                w_u32(((uint32)(((uint32)(r_u32(0x800FF024)) + (uint32)(16)))), 131);
+                MenuWindow::Attach(r_u32(0x800FF024)).pos[1] = 131;
                 MenuWindow::Attach(v38).Draw();
                 break;
 
             case 13:
 
             case 14:
-                sub_800151FC();
+                ::SetMenuGreenText();
                 sub_8001AA28(256, 90, r_u32((0x800A56B4 + (0) * 4)), 0, 0, 256);
-                sub_800151D0();
+                ::SetMenuRedText();
                 sub_8001AA28(256, 140, r_u32((0x800A56AC + (0) * 4)), 0, 0, 256);
                 v34 = 256;
                 v32 = r_u32((0x800A56B0 + (0) * 4));
@@ -606,7 +646,7 @@ LABEL_22:
                 goto LABEL_103;
 
             case 15:
-                sub_800151D0();
+                ::SetMenuRedText();
                 sub_8001AA28(256, 90, r_u32((0x800A5710 + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 116, r_u32((0x800A5714 + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 142, r_u32((0x800A5718 + (0) * 4)), 0, 0, 256);
@@ -616,7 +656,7 @@ LABEL_22:
                 goto LABEL_103;
 
             case 16:
-                sub_800151D0();
+                ::SetMenuRedText();
                 sub_8001AA28(256, 90, r_u32((0x800A5674 + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 116, r_u32((0x800A5678 + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 142, r_u32((0x800A567C + (0) * 4)), 0, 0, 256);
@@ -626,15 +666,15 @@ LABEL_22:
                 goto LABEL_103;
 
             case 17:
-                sub_800167D8();
-                sub_800151D0();
+                ::DrawMenuHints();
+                ::SetMenuRedText();
                 v94 = 256;
                 sub_8001AA28(256, 25, r_u32((0x800A55D4 + (0) * 4)), 0, 0, 256);
                 MenuWindow::Attach(save_window).Draw();
                 break;
 
             case 18:
-                sub_800151D0();
+                ::SetMenuRedText();
                 sub_8001AA28(256, 90, r_u32((0x800A5664 + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 116, r_u32((0x800A5668 + (0) * 4)), 0, 0, 256);
                 sub_8001AA28(256, 142, r_u32((0x800A566C + (0) * 4)), 0, 0, 256);
@@ -752,22 +792,18 @@ LABEL_22:
                 MenuWindow::Attach(level_window).Update();
                 if (!v101)
                     goto LABEL_145;
-                v55 = r_u32(((uint32)(((uint32)(((uint32)(level_window) + (uint32)(((uint32)(28) * (uint32)(r_u8(((uint32)(((uint32)(level_window) + (uint32)(6)))))))))) + (uint32)(24)))));
+                level_label = MenuWindow::Attach(level_window).GetSelectedLabel();
                 w_u8(0x800A5460, 0);
-                if (!(r_u8(r_u32(0x800A5254))))
-                    goto LABEL_143;
-                v56 = 0x800A5254;
-                do
+                for (level_idx = 0; level_idx < GetLevelCount(); ++level_idx)
                 {
-                    if (sub_80067724(v55, r_u32(v56)))
+                    level_entry = GetLevelEntry(level_idx);
+                    if (NamesEqualIgnoringCase(level_label, level_entry->title))
                     {
-                        sub_80067808(r_u32(v56 + 4), 0x800A5460);
+                        CopyGameString(level_entry->name, (char *)psx_addr(0x800A5460, 1));
                         v39 = 23;
                         goto LABEL_144;
                     }
-                    v56 += (6) * 4;
-                } while (r_u8(((uint32)(r_u32(v56)))));
-            LABEL_143:
+                }
                 v39 = 23;
 
             LABEL_144:
@@ -788,7 +824,7 @@ LABEL_22:
                     if (sub_800155D4(options_window, r_u32((0x800A55DC + (0) * 4))))
                     {
                         v57 = difficulty_window;
-                        w_u8((difficulty_window + (8) * 1), r_u32(0x800FF384));
+                        MenuWindow::Attach(difficulty_window).arrow_item = r_u32(0x800FF384);
                         menu_state = 6;
                         sub_80015374(v57, ((unsigned char)(r_u32(0x800FF384))));
                     }
@@ -798,7 +834,7 @@ LABEL_22:
                         sub_80069DF0(23, 0x2000, 0);
                         menu_state = 7;
                         v119 = 0;
-                        sub_80015F48(r_u32((0x800A525C + (0) * 4)));
+                        SwitchMenuAudioSequence(GetLevelEntry(0)->music);
                     }
                     if (sub_800155D4(options_window, r_u32((0x800A55E4 + (0) * 4))))
                         menu_state = 8;
@@ -829,17 +865,17 @@ LABEL_22:
                     {
                         sub_80069DF0(v39, 0x2000, 0);
                         v39 = -1;
-                        sub_80011B04();
-                        sub_8002E814(33);
-                        sub_80011B34();
-                        sub_8006F7D8();
+                        ::ReleaseLevelLoadResources();
+                        ::PlayMovie(33);
+                        QueueSelectedLevelResources();
+                        ::WaitForModelBankLoads();
                     }
                     if (sub_800155D4(extras_window, r_u32((0x800A55F8 + (0) * 4))))
                     {
-                        sub_80011B04();
-                        sub_8002E814(28);
-                        sub_80011B34();
-                        sub_8006F7D8();
+                        ::ReleaseLevelLoadResources();
+                        ::PlayMovie(28);
+                        QueueSelectedLevelResources();
+                        ::WaitForModelBankLoads();
                     }
                     if (sub_800155D4(extras_window, r_u32((0x800A55FC + (0) * 4))))
                     {
@@ -915,7 +951,7 @@ LABEL_22:
                         menu_state = 3;
                     }
                 }
-                w_u8((difficulty_window + (8) * 1), r_u32(0x800FF384));
+                MenuWindow::Attach(difficulty_window).arrow_item = r_u32(0x800FF384);
             LABEL_296:
                 v54 = v39;
 
@@ -942,26 +978,25 @@ LABEL_22:
                         w_u16(0x800ECC78, 0);
                     if ((r_u16(0x800ECC78) >= 128))
                         w_u16(0x800ECC78, 127);
-                    ((void)(0), sub_8006A428());
+                    ((void)(0), ::RestoreMusicPlayback());
                     if (v101)
                     {
-                        v79 = (((uint32)(0x800A5254)) + (((uint32)(24) * (uint32)(++v119))) * 1);
-                        if (!(r_u8(r_u32((((uint32)(v79)) + (2) * 4)))))
+                        if (++v119 >= (sint32)GetLevelCount())
                             v119 = 0;
-                        sub_80015F48(r_u32(((((uint32)(0x800A5254)) + (((uint32)(6) * (uint32)(v119))) * 4) + (2) * 4)));
-                        ((void)(0), sub_8006A428());
+                        SwitchMenuAudioSequence(GetLevelEntry(v119)->music);
+                        ((void)(0), ::RestoreMusicPlayback());
                     }
                 }
                 else
                 {
-                    sub_8006A3F0();
+                    ::StopMusicPlayback();
                 }
                 if (sub_800155D4(audio_window, r_u32((0x800A55B0 + (0) * 4))))
                 {
                     if (((v78 || v101) || !r_u32(0x800FF020)))
                     {
-                        v80 = sub_80066570(2);
-                        sub_8002FD2C(0, v80);
+                        v80 = RandomRange(2);
+                        ::SelectCdVoice(0, v80);
                         w_u16(0x800ECC7C, (r_u16(0x800ECC7C) + (((uint32)(16) * (uint32)(v78)))));
                         if (((r_u16(0x800ECC7C) & 0x8000) != 0))
                             w_u16(0x800ECC7C, 0);
@@ -977,7 +1012,7 @@ LABEL_22:
                 if (((!sub_800155D4(audio_window, r_u32((0x800A55A4 + (0) * 4))) || !v101) && !v102))
                     goto LABEL_329;
                 menu_state = 3;
-                sub_80069A94();
+                ::ReleaseAudioSession();
                 w_u32(0x800FF020, 0);
                 v54 = 19;
                 goto LABEL_374;
@@ -1090,7 +1125,7 @@ LABEL_22:
                     }
                     if (sub_800155D4(controller_window, r_u32((0x800A5608 + (0) * 4))))
                     {
-                        w_u8(((uint32)(((uint32)(preset_window) + (uint32)(8)))), r_u32(0x800FF2FC));
+                        MenuWindow::Attach(preset_window).arrow_item = r_u32(0x800FF2FC);
                         menu_state = 11;
                         sub_80015374(preset_window, ((unsigned char)(r_u32(0x800FF2FC))));
                     }
@@ -1173,7 +1208,7 @@ LABEL_22:
                         v39 = 19;
                     }
                 }
-                w_u8(((uint32)(((uint32)(preset_window) + (uint32)(8)))), r_u32(0x800FF2FC));
+                MenuWindow::Attach(preset_window).arrow_item = r_u32(0x800FF2FC);
                 v54 = v39;
                 if (v102)
                     menu_state = 8;
@@ -1302,7 +1337,7 @@ LABEL_22:
                     v95 = 18;
                     save_window = ((uint32)(sub_80015228(v82, 256, 55, 0, 0x100, 0xC0, 0x12)));
                 }
-                w_u8((save_window + (9) * 1), 1);
+                MenuWindow::Attach(save_window).numbered = 1;
                 menu_state = 17;
                 PopulateSaveSelectionMenu(save_window);
                 v54 = v39;
@@ -1311,20 +1346,20 @@ LABEL_22:
 
                 sub_800119C4(((sint32)(background_menu)));
                 if ((r_u32(0x800FF64C) == v129))
-                    sub_800664E4(1);
+                    ::WaitForGameFrames(1);
                 w_u32(0x800FF65C, 0);
                 while (1)
                 {
-                    sub_800664E4(1);
+                    ::WaitForGameFrames(1);
                     if (!DrawSync(1))
                         break;
-                    sub_800662A0();
+                    ::ServiceGameFrame();
                 }
 
                 SubmitSceneFrame();
                 if (!r_u32(0x800FF65C))
                 {
-                    sub_800662A0();
+                    ::ServiceGameFrame();
                     w_u32(0x800FF65C, 1);
                 }
                 break;
@@ -1354,7 +1389,7 @@ LABEL_22:
                     {
                         v39 = 23;
                         v85 = 0x800A545C;
-                        v86 = (0x800A493C + (((uint32)(136) * (uint32)(r_u8((save_window + (6) * 1))))) * 1);
+                        v86 = (0x800A493C + (((uint32)(136) * (uint32)(MenuWindow::Attach(save_window).selected))) * 1);
                         v87 = ((uint32)((v86 + (512) * 1)));
                         v88 = (v86 + (640) * 1);
                         do
@@ -1407,11 +1442,11 @@ LABEL_22:
         }
     }
 
-    sub_8002E2B8();
-    sub_800664E4(1);
+    ::ReleaseMovieFrameBuffers();
+    ::WaitForGameFrames(1);
     DrawSync(0);
     SubmitSceneFrame();
-    sub_80015EC8();
+    ::ClearStartupImageArea();
     if (main_window)
         DestroyMenuObject(main_window);
     if (level_window)
@@ -1430,14 +1465,10 @@ LABEL_22:
         DestroyMenuObject(preset_window);
     if (background_menu)
         DestroyMenuObject(background_menu);
-    sub_80011B04();
+    ::ReleaseLevelLoadResources();
     sub_8007001C();
     sub_80015F7C(0x800A54CC);
     return result_state;
 }
 
-extern "C" uint32 sub_80011BA0(void)
-{
-    FUNCTION_MARKER(0x80011BA0, "SLUS_003.73");
-    return RunMainMenu();
-}
+

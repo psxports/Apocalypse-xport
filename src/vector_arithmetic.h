@@ -26,5 +26,6 @@ uint32 *SubtractVectors(uint32 *vector, const uint32 *source);
 uint32 *AddVectors(uint32 *output, const uint32 *left, const uint32 *right);
 uint32 *SubtractVectors(uint32 *output, const uint32 *left, const uint32 *right);
 uint32 NormalizeFixedVector(uint32 *output, const uint32 *input);
+uint32 NormalizeShortVector(const uint32 *vector, uint32 *normal);
 
 #endif

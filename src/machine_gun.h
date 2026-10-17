@@ -7,7 +7,7 @@
 class MachineGun : public WeaponNode
 {
 public:
-    explicit MachineGun(uint32 list);
+    explicit MachineGun(ModelInstance **list);
     static MachineGun &Attach(uint32 object);
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Fire(const uint32 *position, const sint16 *rotation);

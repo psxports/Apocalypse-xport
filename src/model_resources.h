@@ -1,40 +1,67 @@
 #ifndef MODEL_RESOURCES_H
 #define MODEL_RESOURCES_H
 
+#include "model_vram.h"
+#include "model_grid.h"
+#include "model_animation_data.h"
+#include "model_attachment_data.h"
+#include "model_materials.h"
+#include "model_keys.h"
+#include "texture_resources.h"
+#include "model_geometry.h"
+#include "model_instance.h"
+
 extern "C"
 {
 #include "psx.h"
 }
 
-uint32 AllocateVramRecord();
-uint32 ReleaseVramRecord(uint32 record);
-uint32 ReleaseUsedVramRectangle(uint32 x, uint32 y);
-uint32 MergeFreeVramRectangles(uint32 first, uint32 second);
-uint32 CoalesceFreeVramRectangles(uint32 record);
-uint32 RemoveVramRecord(uint32 *head, uint32 record);
-uint32 PrependVramRecord(uint32 *head);
-uint32 CreateFreeVramRectangle(uint32 x, uint32 y, uint32 width, uint32 height);
-uint32 CreateUsedVramRectangle(uint32 x, uint32 y, uint32 width, uint32 height);
-uint32 RebuildModelVramAllocations();
+struct ModelSceneObjects
+{
+    uint32 count;
+    ModelInstance *objects;
+};
+
+struct ModelBank
+{
+    char name[9];
+    uint8 has_animation;
+    uint8 loaded;
+    uint8 protected_bank;
+    // Temporary payload references are removed with the connected binary codec migration
+    ModelKeys keys;
+    uint32 source_bytes;
+    TextureReferences textures;
+    TextureGroupBlock *groups;
+    ModelGeometrySet geometry;
+    uint8 *data;
+    ModelSceneObjects scene;
+    ModelAnimationSet animations;
+    const ModelAttachmentTable *attachments;
+    ModelPalette colors;
+    ModelTextureAnimation texture_animation;
+    ModelColorAnimation color_animation;
+};
+
+void ResetModelBanks();
+ModelBank &GetModelBank(uint32 index);
+ModelGeometry &GetModelGeometry(uint32 bank, uint32 idx);
+void ResetActiveModelState();
+uint32 GetActiveModelBank(uint32 slot);
+const ModelKeys &GetActiveModelScriptKeys(uint32 slot);
+ModelInstance *GetModelSceneObjects();
+uint32 GetModelBankReplacement();
+void SelectModelBankReplacement(uint32 slot);
+
 uint32 PrepareModelBankGeometry(uint32 bank);
 uint32 InitializeModelResources();
-uint32 InitializeModelVramRectangles();
-uint32 AllocateModelTextureRectangle(uint32 owner, uint32 width, uint32 height, uint32 *x, uint32 *y, uint32 depth, uint32 flags, uint32 name);
 uint32 FindModelResourceIndex(uint32 key, uint32 bank);
-uint32 FindModelObject(uint32 key);
-uint32 AllocateModelResourceEntry(uint32 key);
-uint32 ReleaseModelResourceEntry(uint32 entry);
-
-uint32 FindModelResourceEntry(uint32 key);
-uint32 BeginModelResourceTraversal();
-uint32 NextModelResourceEntry();
-uint32 FindModelResourceTrailer(uint32 data);
-uint32 DecrementModelResourceReferences(uint32 bank);
-uint32 ReleaseUnusedModelResources();
+ModelInstance *FindModelObject(uint32 key);
+void DecrementModelResourceReferences(uint32 bank);
 uint32 LoadModelResourceData(uint32 bank);
 
-uint32 AttachModelBankObjects(uint32 bank);
-uint32 DetachModelBankObjects(uint32 slot);
+void AttachModelBankObjects(uint32 bank);
+void DetachModelBankObjects(uint32 slot);
 uint32 FindModelBankByName(uint32 name);
 uint32 FindModelBankByName(const char *name);
 void UnloadModelBankByName(uint32 name);
@@ -43,18 +70,14 @@ void UnloadModelBank(uint32 bank, uint32 release_unused);
 
 uint32 UnloadInactiveModelBanks();
 uint32 UnloadActiveModelBanks();
-uint32 RegisterModelTextureBlock(uint32 data, uint32 block);
 uint32 FindActiveModelBankSlot(uint32 bank);
 
-uint32 FindModelTextureGroup(uint32 name);
-uint32 FindModelTextureGroup(const char *name);
-uint32 WriteModelLoadFilename(uint32 name, uint32 suffix);
+void ResetModelBankLoadQueue();
+uint32 GetModelBankLoadPending();
+uint32 QueueModelBankLoad(const char *name, uint32 active);
 uint32 QueueModelBankLoad(uint32 name, uint32 active);
 uint32 ProcessModelBankLoadQueue();
 
 uint32 WaitForModelBankLoads();
-uint32 ClearModelBankGrid(sint32 slot);
-uint32 InitializeModelBankGrid(uint32 slot, uint32 data);
-uint32 ClearModelBankGrids();
 
 #endif

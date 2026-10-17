@@ -6,7 +6,14 @@ extern "C"
 #include "psx.h"
 }
 
-uint32 InitializeHudFonts();
+#include "texture_resources.h"
+
+void InitializeHudFonts();
+const TextureGroup *GetHudFont();
+const TextureResource *GetHudGlowTexture();
+void ForgetHudTexture(const TextureGroup *grp);
+void ForgetHudTexture(const TextureResource *tex);
+void ClearHudTextureBindings();
 uint32 ResetHudTextQueue();
 uint32 DrawHudTextQueue();
 
@@ -28,7 +35,7 @@ uint32 SetHudTextColor(uint32 red, uint32 green, uint32 blue, uint32 semi_transp
 
 uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, uint32 color, uint32 scale);
 
-uint32 LoadHudTextGlowResource();
+void LoadHudTextGlowResource();
 uint32 InitializeHudTextGlowCurve();
 uint32 UpdateHudTextGlowCurve();
 uint32 MeasureStyledHudText(const char *text);

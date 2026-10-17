@@ -111,13 +111,5 @@ uint32 SkipRecordList(uint32 cursor)
     return cursor + 1;
 }
 
-extern "C" uint32 sub_80064180(uint32 value, uint32 cursor)
-{
-    FUNCTION_MARKER(0x80064180, "SLUS_003.73");
-    return RecordListContains(value, cursor);
-}
-extern "C" uint32 sub_800641B8(uint32 cursor)
-{
-    FUNCTION_MARKER(0x800641B8, "SLUS_003.73");
-    return SkipRecordList(cursor);
-}
+
+

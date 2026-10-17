@@ -1,16 +1,56 @@
+#include "visual_object.h"
+#include "cheat_input.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
 }
 
-static void ToggleCheatFlag(uint32 address)
+static CheatOptions cheat_options = {0, 0, 0, 1};
+static uint32 cheat_cursor;
+static uint8 cheat_input[16];
+
+struct CheatPattern
 {
-    w_u32(address, r_u32(address) ^ 1);
+    const char *code;
+    uint32 len;
+};
+
+static const CheatPattern cheat_patterns[12] = {
+    {"SCUDXS", 6},
+    {"DULLTURD", 8},
+    {"SUX", 3},
+    {"XTC", 3},
+    {"SLUT", 4},
+    {"XXXXX", 5},
+    {"TCXS", 4},
+    {"DDT", 3},
+    {"SCX", 3},
+    {"LUXTST", 6},
+    {"STRUDL", 6},
+    {"TUXD", 4}
+};
+
+CheatOptions &GetCheatOptions()
+{
+    return cheat_options;
+}
+
+void ClearCheatInputBuffer()
+{
+    FUNCTION_MARKER(0x80076D44, "SLUS_003.73");
+    for (sint32 idx = 15; idx >= 0; --idx)
+        cheat_input[idx] = 0;
+}
+
+static void ToggleCheatFlag(uint32 &value)
+{
+    value ^= 1;
 }
 
 uint32 UpdateCheatInput(void)
 {
-    uint32 key, cursor, entry, pattern, remaining, matched = (uint32)-1, equal, current, candidate, value, player;
+    uint32 key, cursor, entry, remaining, matched = (uint32)-1, equal, current, candidate, value, player;
+    const char *pattern;
     FUNCTION_MARKER(0x80076D6C, "SLUS_003.73");
     if (!r_u8(0x800EC138))
         return 0;
@@ -23,19 +63,19 @@ uint32 UpdateCheatInput(void)
     else if (r_u8(0x800EC129)) key = 88;
     else if (r_u8(0x800EC109)) key = 83;
     else return 0;
-    cursor = r_u32(0x800FF8A8);
-    w_u8(0x801028A8 + cursor, key);
+    cursor = cheat_cursor;
+    cheat_input[cursor] = (uint8)key;
     for (entry = 0; entry < 12; ++entry)
     {
-        remaining = r_u8(0x800ED504 + entry);
-        cursor = r_u32(0x800FF8A8);
+        remaining = cheat_patterns[entry].len;
+        cursor = cheat_cursor;
         --remaining;
-        pattern = r_u32(0x800ED4D4 + entry * 4);
-        current = r_u8(0x801028A8 + cursor);
-        candidate = r_u8(pattern + remaining);
+        pattern = cheat_patterns[entry].code;
+        current = cheat_input[cursor];
+        candidate = ((uint32)(uint8)pattern[remaining]);
         if (current == candidate)
         {
-            pattern = r_u32(0x800ED4D4 + entry * 4);
+            pattern = cheat_patterns[entry].code;
             equal = 1;
             for (;;)
             {
@@ -45,8 +85,8 @@ uint32 UpdateCheatInput(void)
                 --remaining;
                 if ((sint32)cursor < 0)
                     cursor = 15;
-                current = r_u8(0x801028A8 + cursor);
-                candidate = r_u8(pattern + remaining);
+                current = cheat_input[cursor];
+                candidate = ((uint32)(uint8)pattern[remaining]);
                 if (current != candidate)
                 {
                     equal = 0;
@@ -61,35 +101,35 @@ uint32 UpdateCheatInput(void)
         }
     }
     if (matched != (uint32)-1)
-        w_u8(0x801028A8 + r_u32(0x800FF8A8), 0);
-    cursor = r_u32(0x800FF8A8) + 1;
-    w_u32(0x800FF8A8, cursor);
+        cheat_input[cheat_cursor] = 0;
+    cursor = cheat_cursor + 1;
+    cheat_cursor = cursor;
     if (cursor == 16)
-        w_u32(0x800FF8A8, 0);
+        cheat_cursor = 0;
     switch (matched)
     {
-        case 0: ToggleCheatFlag(0x800FF318); break;
+        case 0: ToggleCheatFlag(GetCheatOptions().weapon_cheat); break;
         case 1:
-            if (r_u32(0x800FF5A0)) ToggleCheatFlag(0x800FF31C);
+            if (visual_lists.players) ToggleCheatFlag(GetCheatOptions().invulnerable);
             break;
-        case 2: ToggleCheatFlag(0x800FF324); break;
+        case 2: ToggleCheatFlag(GetCheatOptions().status_hud); break;
         case 3:
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             if (player) w_u16(player + 218, r_u16(0x800EC526));
             break;
-        case 4: ToggleCheatFlag(0x800FF328); break;
-        case 5: ToggleCheatFlag(0x800FF32C); break;
-        case 6: ToggleCheatFlag(0x800FF320); break;
-        case 7: ToggleCheatFlag(0x800FF33C); break;
-        case 8: ToggleCheatFlag(0x800FF338); break;
-        case 9: ToggleCheatFlag(0x800FF340); break;
-        case 10: ToggleCheatFlag(0x800FF344); break;
+        case 4: ToggleCheatFlag(GetCheatOptions().enemy_finish_cheat); break;
+        case 5: ToggleCheatFlag(GetCheatOptions().free_movement); break;
+        case 6: ToggleCheatFlag(GetCheatOptions().unlimited_lives); break;
+        case 7: ToggleCheatFlag(GetCheatOptions().debug_panel); break;
+        case 8: ToggleCheatFlag(GetCheatOptions().level_skip); break;
+        case 9: ToggleCheatFlag(GetCheatOptions().suspend_resource_loading); break;
+        case 10: ToggleCheatFlag(GetCheatOptions().war_record_spawn); break;
         case 11:
-            value = r_u32(0x800FF330) ^ 1;
-            w_u32(0x800FF330, value);
-            w_u32(0x800FF334, value);
-            w_u32(0x800FF348, value);
-            w_u32(0x800FF338, value);
+            value = GetCheatOptions().level_select ^ 1;
+            GetCheatOptions().level_select = value;
+            GetCheatOptions().autotest = value;
+            GetCheatOptions().build_date = value;
+            GetCheatOptions().level_skip = value;
             break;
         default: break;
     }
@@ -99,8 +139,4 @@ uint32 UpdateCheatInput(void)
     return 1;
 }
 
-extern "C" uint32 sub_80076D6C(void)
-{
-    FUNCTION_MARKER(0x80076D6C, "SLUS_003.73");
-    return UpdateCheatInput();
-}
+

@@ -1,6 +1,12 @@
+#include "effect_lifecycle.h"
+#include "game_panel.h"
+#include "angle_math.h"
+#include "model_render_view.h"
 #include "game_sdk_bindings.h"
 #include "scene_effect_packets.h"
 #include "credits.h"
+#include "level_catalogue.h"
+#include "audio_session.h"
 #include "menu_input.h"
 #include "credits_player.h"
 #include "native_object_storage.h"
@@ -22,8 +28,8 @@ extern "C"
 uint32 RunCredits(void)
 {
     FUNCTION_MARKER(0x80014BFC, "SLUS_003.73");
-    sub_80015F48(r_u32(0x800A525C));
-    sub_8006A428();
+    SwitchMenuAudioSequence(GetLevelEntry(0)->music);
+    ::RestoreMusicPlayback();
     uint32 size = LookupResource((const char *)psx_addr(0x800A0334, 1));
     uint32 source = AllocateHeapBlock(size, 0, 1);
     BeginResourceRead(source);
@@ -73,13 +79,12 @@ uint32 RunCredits(void)
         new (dram_addr) CreditsPlayer();
     }
     // TODO Preserve the original null-allocation fallthrough into the draw loop
-    w_u32(0x800ED528, (uint32)-310);
-    w_u32(0x800ED520, 0);
-    w_u32(0x800ED524, 0);
-    w_u16(0x800ED548, 0);
-    w_u16(0x800ED54A, 0);
-    w_u16(0x800ED54C, 0);
-    w_u32(0x800ED51C, 0);
+    GetModelRenderView().pos[2] = (uint32)-310;
+    GetModelRenderView().pos[0] = 0;
+    GetModelRenderView().pos[1] = 0;
+    GetModelRenderView().angles[0] = (uint16)(0);
+    GetModelRenderView().angles[1] = (uint16)(0);
+    GetModelRenderView().angles[2] = (uint16)(0);
     w_u16(0x800FFA94, 256);
     w_u16(0x800FFA96, 256);
     w_u16(0x800FFA98, 256);
@@ -128,10 +133,10 @@ uint32 RunCredits(void)
             GameDiagnostic("Missing credits tick %08X receiver=%08X\n", target, receiver);
             abort();
         }
-        sub_800372B8();
-        sub_80032C88();
-        sub_8002E2E8();
-        sub_8002E2E8();
+        ::UpdateEffects();
+        ::DestroyFinishedEffects();
+        ::BlurMenuBuffers();
+        ::BlurMenuBuffers();
         DrawAnimatedHudText();
         while (y < 240 && text < end)
         {
@@ -155,10 +160,10 @@ uint32 RunCredits(void)
             second += 80;
             text += 80;
         }
-        sub_800858FC(0x800ED548, 0x800ED550);
-        sub_800878AC(0x800ED550, 0x800ED520);
-        sub_8007E63C(0x800ED51C, 0x800A67B8, r_u32(0x800FF660) + 112);
-        RenderVisibleModelObjectList(player);
+        BuildModelRotationMatrix(GetModelRenderView().angles, (uint16 *)&GetModelRenderView().rotation);
+        SetModelRenderViewTranslation(GetModelRenderView());
+        ConfigureModelRenderView(GetModelRenderView(), 0x800A67B8, r_u32(0x800FF660) + 112);
+        RenderVisibleModelObjectList(player ? &VisualObject::Attach(player).model : 0);
         AdvanceModelRenderCounter();
         BuildSceneEffectPackets();
         if (r_u32(0x800FF64C) == frame)
@@ -169,12 +174,12 @@ uint32 RunCredits(void)
             WaitForGameFrames(1);
             if (!DrawSync(1))
                 break;
-            sub_800662A0();
+            ::ServiceGameFrame();
         }
         SubmitSceneFrame();
         if (!r_u32(0x800FF65C))
         {
-            sub_800662A0();
+            ::ServiceGameFrame();
             w_u32(0x800FF65C, 1);
         }
     }
@@ -188,13 +193,9 @@ uint32 RunCredits(void)
         sint32 adjustment = (sint16)r_u16(table + 8);
         apocalypse_object_cleanup(r_u32(table + 12), player + (uint32)adjustment, 3);
     }
-    sub_80032B64();
-    sub_8006A3F0();
-    return sub_80069A94();
+    ::DestroyTransientEffects();
+    ::StopMusicPlayback();
+    return ::ReleaseAudioSession();
 }
 
-extern "C" uint32 sub_80014BFC(void)
-{
-    FUNCTION_MARKER(0x80014BFC, "SLUS_003.73");
-    return RunCredits();
-}
+

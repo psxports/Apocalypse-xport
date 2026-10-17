@@ -1,3 +1,4 @@
+#include "model_resources.h"
 #include "game_sdk_bindings.h"
 extern "C" {
 #include "draft_first_signatures.h"
@@ -5,6 +6,7 @@ extern "C" {
 }
 #include "angle_math.h"
 #include "model_animation.h"
+#include "character.h"
 #include "native_object_storage.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,99 +120,98 @@ void RelativePoseMatrix(uint8 *output, const uint8 *left, const uint8 *right)
         StorePoseHalf(output, 18 + 2 * i, (uint16)values[i]);
 }
 
-uint32 BuildModelPose(uint32 object)
+struct PoseParent
 {
-    FUNCTION_MARKER(0x8007D148, "SLUS_003.73");
-    uint8 parents[144], matrix[24];
-    sint32 top = -1, count, ordinal, total;
-    uint32 result = r_u16(object) & 4;
-    uint32 output = r_u32(object + 356), links = r_u32(object + 364);
-    uint32 angles = r_u32(object + 360), table, models, poses, entry, source, joint, row, column;
-    if (!result || !output)
-        return result;
-    if (!angles)
-        return 0x800F0000;
-    table = 0x800EAEF8 + 64 * r_u8(object + 27);
-    models = r_u32(table + 16);
-    total = (sint32)r_u32(models - 4);
-    poses = r_u32(table + 24);
-    for (ordinal = 0; ordinal < total; ++ordinal)
-        w_u16(output + 24 * ordinal, 0x8000);
-    entry = poses + 8 * r_u8(object + 26);
-    count = r_u16(links - 2);
-    if (r_u16(entry + 10))
-        source = 0x800ED760;
-    else
+    ModelPose pose;
+    uint32 ordinal;
+};
+
+class PoseHierarchyWorkspace
+{
+public:
+    PoseHierarchyWorkspace(uint32 count)
     {
-        uint32 frame = r_u8(object + 24);
-        uint32 offset = r_u32(entry + 4);
-        source = poses + offset + 24 * frame * (uint32)total;
-    }
-    for (ordinal = 0; ordinal < count; ++ordinal, links += 12, angles += 12)
-    {
-        const uint8 *base;
-        joint = r_u16(links);
-        if (top >= 0)
+        if (!count || count > 0xFFFFFFFF / sizeof(PoseParent))
         {
-            uint32 parent = r_u16(links + 10);
-            while (top >= 0 && parent < xport_load_le32(parents + 28 * top + 24))
-                --top;
+            GameDiagnostic("Invalid pose hierarchy workspace size\n");
+            abort();
         }
-        base = (const uint8 *)psx_addr(source + 24 * joint, 24);
-        if (r_u16(angles) || r_u16(angles + 2) || r_u16(angles + 4))
+        values = (PoseParent *)malloc(count * sizeof(PoseParent));
+        if (!values)
         {
-            BuildModelRotationMatrix((const uint32 *)psx_addr(angles, 8), (uint16 *)matrix);
-            xport_store_le16(matrix + 18, 0);
-            xport_store_le16(matrix + 20, 0);
-            xport_store_le16(matrix + 22, 0);
-            ComposePoseMatrix(matrix, base, matrix);
+            GameDiagnostic("Cannot allocate pose hierarchy workspace\n");
+            abort();
+        }
+    }
+
+    ~PoseHierarchyWorkspace() { free(values); }
+    PoseParent *Get() { return values; }
+
+private:
+    PoseHierarchyWorkspace(const PoseHierarchyWorkspace &);
+    PoseHierarchyWorkspace &operator=(const PoseHierarchyWorkspace &);
+    PoseParent *values;
+};
+
+uint32 BuildModelPose(Character &character)
+{
+    const uint32 object = NativeObjectGuestAddress(&character);
+    FUNCTION_MARKER(0x8007D148, "SLUS_003.73");
+    sint32 top = -1;
+    uint32 result = character.model.flags & 4;
+    if (!result || !character.HasModelPoses())
+        return result;
+    if (!character.HasModelJointAngles())
+        return 0x800F0000;
+    const uint32 total = character.GetModelPoseCount();
+    ModelPose *output = character.GetModelPoses(0, total);
+    const ModelAnimation &animation = GetModelAnimation(GetModelBank(character.model.bank).animations, character.model.animation);
+    if (animation.bone_count != total)
+    {
+        GameDiagnostic("Character pose owner no longer matches its model bank\n");
+        abort();
+    }
+    for (uint32 bone = 0; bone < total; ++bone)
+        output[bone].rotation[0][0] = 0x8000;
+    const ModelHierarchyTable &hierarchy = character.GetModelHierarchy();
+    PoseHierarchyWorkspace workspace(hierarchy.count);
+    PoseParent *parents = workspace.Get();
+    const ModelPose *source = animation.interval ? GetModelPoseWorkspace(total) : GetModelAnimationPoses(animation, character.model.frame * total, total);
+    for (uint32 ordinal = 0; ordinal < hierarchy.count; ++ordinal)
+    {
+        const ModelHierarchyLink &link = hierarchy.links[ordinal];
+        const uint32 joint = link.bone;
+        if (top >= 0)
+            while (top >= 0 && link.parent < parents[top].ordinal)
+                --top;
+        const ModelPose &base = source[joint];
+        const ModelJointAngles &angles = character.GetModelJointAngles(ordinal);
+        if (angles.rotation[0] || angles.rotation[1] || angles.rotation[2])
+        {
+            ModelPose matrix;
+            BuildModelRotationMatrix(angles.rotation, (uint16 *)&matrix);
+            for (uint32 axis = 0; axis < 3; ++axis)
+                matrix.translation[axis] = 0;
+            ComposePoseMatrix((uint8 *)&matrix, (const uint8 *)&base, (const uint8 *)&matrix);
             if (top >= 0)
-                ComposePoseMatrix(matrix, parents + 28 * top, matrix);
+                ComposePoseMatrix((uint8 *)&matrix, (const uint8 *)&parents[top].pose, (const uint8 *)&matrix);
             ++top;
-            if (28 * (uint32)top + 28 > sizeof(parents))
-            {
-                // TODO Resolve original hierarchy overflow before accepting that path
-                GameDiagnostic("Pose hierarchy exceeds original local buffer\n");
-                abort();
-            }
-            RelativePoseMatrix(parents + 28 * top, matrix, base);
-            xport_store_le32(parents + 28 * top + 24, (uint32)ordinal);
-            for (row = 0; row < 3; ++row)
-            {
-                for (column = 0; column < 3; ++column)
-                    w_u16(output + 24 * joint + row * 6 + column * 2, xport_load_le16(matrix + row * 6 + column * 2));
-                w_u16(output + 24 * joint + 18 + row * 2, xport_load_le16(matrix + 18 + row * 2));
-            }
+            RelativePoseMatrix((uint8 *)&parents[top].pose, (const uint8 *)&matrix, (const uint8 *)&base);
+            parents[top].ordinal = ordinal;
+            output[joint] = matrix;
         }
         else if (top < 0)
-        {
-            for (row = 0; row < 3; ++row)
-            {
-                for (column = 0; column < 3; ++column)
-                    w_u16(output + 24 * joint + row * 6 + column * 2, r_u16(source + 24 * joint + row * 6 + column * 2));
-                w_u16(output + 24 * joint + 18 + row * 2, r_u16(source + 24 * joint + 18 + row * 2));
-            }
-        }
+            output[joint] = base;
         else
-            ComposePoseMatrix((uint8 *)psx_addr(output + 24 * joint, 24), parents + 28 * top, base);
+            ComposePoseMatrix((uint8 *)(output + joint), (const uint8 *)&parents[top].pose, (const uint8 *)&base);
     }
-    result = r_u16(poses + 8 * r_u8(object + 26) + 10);
+    result = animation.interval;
     if (!result)
-        for (ordinal = 0; ordinal < total; ++ordinal)
+        for (uint32 bone = 0; bone < total; ++bone)
         {
-            uint32 destination = output + 24 * ordinal, from = source + 24 * ordinal, words[4];
-            if ((sint16)r_u16(destination) == -32768)
-            {
-                for (column = 0; column < 4; ++column)
-                    words[column] = r_u32(from + column * 4);
-                for (column = 0; column < 4; ++column)
-                    w_u32(destination + column * 4, words[column]);
-                words[0] = r_u32(from + 16);
-                words[1] = r_u32(from + 20);
-                w_u32(destination + 16, words[0]);
-                w_u32(destination + 20, words[1]);
-            }
-            result = ordinal + 1 < total;
+            if ((sint16)output[bone].rotation[0][0] == -32768)
+                output[bone] = source[bone];
+            result = bone + 1 < total;
         }
     return result;
 }
@@ -219,23 +220,18 @@ uint32 UpdateModelWorldTransform(uint32 object)
 {
     FUNCTION_MARKER(0x8007FDF0, "SLUS_003.73");
     uint32 x, z, y;
-    BuildModelRotationMatrix((const uint32 *)psx_addr(object + 16, 8), (uint16 *)psx_addr(object + 324, 18));
-    if (r_u16(object) & 0x200)
-        ScaleModelRotationMatrix((const uint8 *)psx_addr(object, 42), (uint16 *)psx_addr(object + 324, 18));
-    x = r_u32(object + 4);
-    z = r_u32(object + 12);
+    const ModelInstance &model = VisualObject::Attach(object).model;
+    BuildModelRotationMatrix(model.angles, (uint16 *)psx_addr(object + 324, 18));
+    if (model.flags & 0x200)
+        ScaleModelRotationMatrix(model.scale, (uint16 *)psx_addr(object + 324, 18));
+    x = model.pos[0];
+    z = model.pos[2];
     w_u32(object + 344, (uint32)((sint32)x >> 12));
-    y = r_u32(object + 8);
+    y = model.pos[1];
     w_u32(object + 352, (uint32)((sint32)z >> 12));
     y = (uint32)((sint32)y >> 12);
     w_u32(object + 348, y);
     return y;
-}
-
-extern "C" uint32 sub_8007D148(uint32 object)
-{
-    FUNCTION_MARKER(0x8007D148, "SLUS_003.73");
-    return BuildModelPose(object);
 }
 
 extern "C" uint32 sub_8007FDF0(uint32 object)
@@ -244,14 +240,6 @@ extern "C" uint32 sub_8007FDF0(uint32 object)
     return UpdateModelWorldTransform(object);
 }
 
-extern "C" void sub_80085674(uint32 output, uint32 left, uint32 right)
-{
-    FUNCTION_MARKER(0x80085674, "SLUS_003.73");
-    ComposePoseMatrix((uint8 *)psx_addr(output, 24), (const uint8 *)psx_addr(left, 24), (const uint8 *)psx_addr(right, 24));
-}
 
-extern "C" void sub_800857A8(uint32 output, uint32 left, uint32 right)
-{
-    FUNCTION_MARKER(0x800857A8, "SLUS_003.73");
-    RelativePoseMatrix((uint8 *)psx_addr(output, 24), (const uint8 *)psx_addr(left, 24), (const uint8 *)psx_addr(right, 24));
-}
+
+

@@ -1,3 +1,7 @@
+#if defined(LOCKSTEP_DEBUG)
+#error Native refactoring is outside lockstep; use the preserved decomp baseline
+#endif
+
 extern "C"
 {
 #include "psx.h"
@@ -21,6 +25,11 @@ uint32 sub_8009FF9C(void);
 }
 #include "level_session.h"
 #include "game_data_io.h"
+#include "game_random.h"
+#include "model_resources.h"
+#include "main_menu.h"
+#include "screen_flash.h"
+#include "menu_window.h"
 #include <string.h>
 
 extern "C" void xport_main(void)
@@ -35,11 +44,7 @@ extern "C" void xport_main(void)
         xport_set_exit_code(1);
         return;
     }
-#if defined(LOCKSTEP_DEBUG)
-    if (!cd_mount_cue("../iso/Apocalypse (USA).cue"))
-#else
     if (!InitializeDataCd())
-#endif
     {
         xport_message_error("Apocalypse", "Cannot initialize game DATA streams");
         xport_set_exit_code(1);
@@ -54,6 +59,16 @@ extern "C" void xport_main(void)
     }
     xport_guest_copy(xport_guest_ref(0x80010000), xport_host_ref(image + 2048), payload_size);
     xport_guest_fill(0x800FFB50, 0, 0x80108740 - 0x800FFB50);
+    InitializeScreenFlash();
+    ResetRandomGenerators();
+    ResetModelBanks();
+    ResetModelPoseWorkspace();
+    ResetActiveModelState();
+    ClearModelBankGrids();
+    ResetModelBankLoadQueue();
+    ResetMenuScenes();
+    ResetVisualLists();
+    ResetMenuRepeat();
     w_u32(0x800F7134, 0x80108740);
     w_u32(0x800F7138, r_u32(0x800F7158) - 8 - r_u32(0x800F7154) - 0x108740);
     if (!gpu_bind_psyq_state(&gpu_binding))

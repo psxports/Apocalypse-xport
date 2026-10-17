@@ -12,6 +12,7 @@ uint32 FindScriptRecord(uint32 index);
 uint32 ActivateResourceScript(uint32 resource);
 void UnloadLevelRecords();
 uint32 LoadLevelRecords(uint32 basename);
+uint32 SelectStartRecord(const char *name);
 uint32 SelectStartRecord(uint32 name);
 uint32 ApplyStartRecord();
 void ClearScriptTouches();

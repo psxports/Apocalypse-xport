@@ -24,7 +24,7 @@ public:
     virtual ~TraversalRegion() {}
     static TraversalRegion &Attach(uint32 object);
     virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
+    virtual uint32 Update();
 };
 
 class ResettingActivator : public VisualObject

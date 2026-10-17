@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "model_resources.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -14,11 +16,11 @@ BeastFinalVisual::BeastFinalVisual(const uint32 *position) : VisualObject()
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 value, flags, coordinates[3], address;
     w_u32(object + 68, 0x800A2080);
-    sub_80062A38(object, 0x800FF4E8);
+    AddToList(visual_lists.actors);
     value = r_u32(0x800FF62C);
     sub_800626C8(object, value);
     value = r_u8(0x800FF644);
-    value = sub_8006E080(0x4E5B6ED6, value);
+    value = ::FindModelResourceIndex(0x4E5B6ED6, value);
     flags = r_u16(object);
     w_u16(object + 22, value);
     w_u16(object, flags & 65533);
@@ -42,14 +44,15 @@ uint32 BeastFinalVisual::Destroy(uint32 reason)
     uint32 result;
     FUNCTION_MARKER(0x800449F4, "SLUS_003.73");
     w_u32(object + 68, 0x800A2080);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     result = VisualObject::Destroy(0);
     return (reason & 1) ? ReleaseObjectStorage(object) : result;
 }
 
-void BeastFinalVisual::Update()
+uint32 BeastFinalVisual::Update()
 {
     FUNCTION_MARKER(0x800449EC, "SLUS_003.73");
+    return 0;
 }
 
 BeastFinalVisual &BeastFinalVisual::Attach(uint32 object)

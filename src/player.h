@@ -4,8 +4,10 @@
 
 uint32 TryPlayPlayerKillQuote(const uint32 *position);
 uint32 SavePlayerTransform();
-uint32 UpdatePlayerLighting(uint32 object);
 uint32 ResolvePlayerCollisionMotion(uint32 object);
+
+struct ModelPolygon;
+class WeaponNode;
 
 class Player : public Character
 {
@@ -21,8 +23,9 @@ public:
 
     virtual uint32 Finish();
     virtual uint32 Update();
+    virtual uint32 UpdateLighting();
     virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 reason);
-    virtual uint32 ClearWeapons();
+    virtual uint32 ReleaseResources();
     uint32 RestoreHealth(uint32 amount);
     uint32 EnterDeathState();
     void PrepareDeathCamera();
@@ -39,15 +42,20 @@ public:
     uint32 TryEnterMovementState32();
     uint32 TryEnterMovementState512();
     uint32 TryEnterMovementState1024();
-    uint32 SetFacingTransition(uint32 target_angle, uint32 heading, uint32 immediate);
+    void SetFacingTransition(uint32 target_angle, uint32 heading, uint32 immediate);
     void StopWeapon();
     void SetWeaponStop(uint32 duration);
     uint32 UpdateWeapons(const sint16 *rotation, uint32 enabled);
     uint32 ReplaceWeapon(uint32 kind);
     uint32 UpdateGroundContact();
-    uint32 SetContactColor(uint32 polygon, uint32 surface);
-    uint32 ApplyContactImpulse(uint32 object);
+    uint32 SetContactColor(const ModelPolygon &polygon, uint32 surface);
+    uint32 *ApplyContactImpulse(uint32 object);
     uint32 ApplyBeamContactImpulse(uint32 object);
+
+    WeaponNode *weapons[8];
+    uint32 sel_weapon;
+    uint32 prev_weapon;
+    ModelReference ground;
 
 private:
     void StopSelectedWeapon(uint32 selected);

@@ -1,3 +1,10 @@
+#include "visual_object.h"
+#include "record_factory.h"
+#include "vector_arithmetic.h"
+#include "angle_math.h"
+#include "object_damage.h"
+#include "object_collision_events.h"
+#include "model_animation.h"
 #include "game_sdk_bindings.h"
 #include "player.h"
 #include "audio_session.h"
@@ -33,13 +40,13 @@ Croc::Croc(const uint8 *record_data, uint32 index) : Enemy()
         abort();
     }
     w_u32(object + 68, 0x800A3B64);
-    w_u16(object + 58, 212);
+    this->kind = 212;
     sub_800626C8(object, 0x800FF87C);
     cursor = sub_80062B0C(object, data);
     cursor = sub_80062B50(object, cursor);
-    sub_80062A38(object, 0x800FF4E8);
+    AddToList(visual_lists.actors);
     w_u32(object + 400, cursor);
-    w_u16(object + 214, index);
+    this->record_idx = index;
     Initialize();
     cursor = r_u32(object + 400);
     if (cursor)
@@ -59,10 +66,10 @@ uint32 Croc::Initialize()
     w_u16(object + 456, 64);
     w_u16(object + 458, 48);
     count = r_u32(0x800FF308);
-    flags = r_u16(object);
+    flags = this->model.flags;
     w_u16(object + 472, 0);
     w_u32(0x800FF308, count + 1);
-    w_u16(object, flags | 8);
+    this->model.flags = flags | 8;
     StartAnimation(0, 1);
     w_u16(object + 218, 120);
     w_u16(object + 436, 60);
@@ -70,7 +77,7 @@ uint32 Croc::Initialize()
     sub_8004BD04(object, 1, 2);
     sub_8004BDCC(object, 0, 1, 10);
     height = r_u32(0x800FF37C);
-    w_u32(object + 8, height);
+    this->model.pos[1] = height;
     return height;
 }
 
@@ -80,7 +87,7 @@ uint32 Croc::Destroy(uint32 reason)
     uint32 result;
     FUNCTION_MARKER(0x80071E80, "SLUS_003.73");
     w_u32(object + 68, 0x800A3B64);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     ClearTrackedObjectHealth();
     Enemy::FreeBehaviorTable();
     result = Enemy::Destroy(0);
@@ -91,21 +98,23 @@ uint32 Croc::Destroy(uint32 reason)
 
 uint32 Croc::Update()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z, delay, distance, speed, left, right, angle, packed, tail;
-    uint32 flags, count, particle, player, table, receiver, target, position[3];
+    uint32 flags, count, particle, player, receiver, position[3];
     FUNCTION_MARKER(0x80071EF0u, "SLUS_003.73");
     if (!r_u8(object + 381u))
     {
-        sub_8007CA50(object, 0x800ED474u);
+        SetModelBoneTable(this->model.bank, CrocAttachments);
         w_u8(object + 381u, 1u);
     }
     x = r_u32(0x800A71CCu);
     y = r_u32(0x800A71D0u);
     z = r_u32(0x800A71D4u);
-    w_u32(object + 116u, x);
-    w_u32(object + 120u, y);
-    w_u32(object + 124u, z);
+    motion.acceleration[0] = x;
+    motion.acceleration[1] = y;
+    motion.acceleration[2] = z;
     sub_8007FDF0(object);
     if (r_u8(object + 380u))
     {
@@ -118,7 +127,7 @@ uint32 Croc::Update()
     else
         UpdateState();
     if (r_u8(object + 382u))
-        sub_8006C0B8(object + 116u, 0x800A6844u);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844u, 12));
     sub_8004B9A4(object);
     if (r_u32(object + 396u) & 1u)
     {
@@ -127,16 +136,28 @@ uint32 Croc::Update()
         if ((sint32)(speed * 2u) < (sint32)distance)
         {
             left = r_u32(object + 492u);
-            right = r_u32(object + 12u);
+            right = this->model.pos[2];
             z = left - right;
             left = r_u32(object + 484u);
-            right = r_u32(object + 4u);
+            right = this->model.pos[0];
             angle = (3072u - (uint32)ratan2((sint32)z, (sint32)(left - right))) & 4095u;
             packed = apocalypse_angle_pair_word(object + 16u);
-            tail = r_u16(object + 20u);
+            tail = this->model.angles[2];
             speed = r_u16(object + 438u);
-            sub_80066CF0(packed, tail, object + 132u, object + 138u, angle << 16u, 0u, speed);
-            sub_800667CC(object + 104u, r_u16(object + 436u), object + 16u);
+            motion_cur_word = packed;
+            motion_cur_tail = tail;
+            motion_target_word = angle << 16u;
+            motion_target_tail = 0u;
+            motion_cur.vx = (sint16)motion_cur_word;
+            motion_cur.vy = (sint16)(motion_cur_word >> 16);
+            motion_cur.vz = (sint16)motion_cur_tail;
+            motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+            motion_target.vx = (sint16)motion_target_word;
+            motion_target.vy = (sint16)(motion_target_word >> 16);
+            motion_target.vz = (sint16)motion_target_tail;
+            motion_target.pad = (sint16)(motion_target_tail >> 16);
+            UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, speed);
+            BuildDirectionVector(motion.velocity, r_u16(object + 436u), (const uint16 *)this->model.angles);
         }
         else
         {
@@ -144,18 +165,18 @@ uint32 Croc::Update()
             w_u32(object + 396u, flags & 0xFFFFFFFEu);
         }
     }
-    if (r_u16(object) & 1u)
+    if (this->model.flags & 1u)
     {
         w_u32(0x800FF3ACu, 0u);
-        count = sub_80066570(3u) + 3u;
+        count = RandomRange(3u) + 3u;
         while (count)
         {
-            position[0] = r_u32(object + 4u);
-            position[1] = r_u32(object + 8u);
-            position[2] = r_u32(object + 12u);
-            position[0] += (sub_80066570(256u) - 128u) << 12u;
-            position[1] += (sub_80066570(256u) - 128u) << 12u;
-            position[2] += (sub_80066570(256u) - 128u) << 12u;
+            position[0] = this->model.pos[0];
+            position[1] = this->model.pos[1];
+            position[2] = this->model.pos[2];
+            position[0] += (RandomRange(256u) - 128u) << 12u;
+            position[1] += (RandomRange(256u) - 128u) << 12u;
+            position[2] += (RandomRange(256u) - 128u) << 12u;
             particle = sub_80032DC0(116u);
             if (particle)
             {
@@ -167,18 +188,16 @@ uint32 Croc::Update()
         }
         w_u32(0x800FF3ACu, 1u);
     }
-    if (r_u8(object + 26u) != 1u)
+    if (this->model.animation != 1u)
         return 1u;
     xport_draft_host_sub_8007CC10_p1(position, object, 0u);
-    player = r_u32(0x800FF5A0u);
+    player = visual_lists.players;
     distance = MeasureEuclideanDistance((const uint32 *)psx_addr(player + 4, 12), position);
     if ((sint32)distance >= 256)
         return 0u;
-    player = r_u32(0x800FF5A0u);
-    table = r_u32(player + 68u);
-    receiver = player + (uint32)(sint32)(sint16)r_u16(table + 48u);
-    target = r_u32(table + 52u);
-    return apocalypse_object_virtual52_native(target, receiver, 4u, (const sint32 *)psx_addr(0x800A71CCu, 12u), 0u);
+    player = visual_lists.players;
+    receiver = player;
+    return ApplyObjectDamage(receiver, 4u, (const sint32 *)psx_addr(0x800A71CCu, 12u), 0u);
 }
 
 uint32 Croc::Damage(uint32 damage, const sint32 *, uint32)
@@ -206,16 +225,16 @@ uint32 Croc::Damage(uint32 damage, const sint32 *, uint32)
     else
     {
         ClearTrackedObjectHealth();
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         if (player)
         {
             // The complete kill-counter callee ignores its incoming A1
-            (void)r_u16(object + 58);
+            (void)this->kind;
             TryPlayPlayerKillQuote((const uint32 *)psx_addr(player + 4, 12));
         }
-        flags = r_u16(object + 78);
+        flags = this->lifecycle_flags;
         mode = r_u32(0x800FF378);
-        w_u16(object + 78, flags & 0xFFEF);
+        this->lifecycle_flags = flags & 0xFFEF;
         if (mode == 5)
         {
             w_u16(object + 472, 8);
@@ -298,11 +317,11 @@ uint32 Croc::ExecuteCommand(uint32 command)
 void Croc::ClearAngularVelocity()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    w_u16(object + 136u, 0u);
-    w_u16(object + 134u, 0u);
-    w_u16(object + 132u, 0u);
-    w_u16(object + 142u, 0u);
-    w_u16(object + 140u, 0u);
+    motion.angular_velocity[2] = 0u;
+    motion.angular_velocity[1] = 0u;
+    motion.angular_velocity[0] = 0u;
+    motion.angular_acceleration[2] = 0u;
+    motion.angular_acceleration[1] = 0u;
 }
 
 void Croc::UpdateState()
@@ -310,10 +329,11 @@ void Croc::UpdateState()
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 state, phase, flags, value, old_state, old_phase, player, count;
     uint32 node, table, receiver, target, damage, index, steps, maximum;
-    uint32 direction[3], point[3], scaled[3], collision[36], scale, floor, height;
+    uint32 direction[3], point[3], scaled[3], scale, floor, height;
+    CollisionRay collision;
     sint16 angles[3];
     FUNCTION_MARKER(0x800723E4u, "SLUS_003.73");
-    if (!r_u32(0x800FF5A0u))
+    if (!visual_lists.players)
         w_u16(object + 472u, 666u);
     state = r_u16(object + 472u);
     if (state < 4u)
@@ -327,7 +347,7 @@ void Croc::UpdateState()
                     w_u16(object + 472u, 1u);
                     w_u16(object + 474u, 0u);
                     for (index = 0u; index < 4u; ++index)
-                        sub_80064874(r_u16(object + 510u + index * 2u));
+                        ::SpawnRecord(r_u16(object + 510u + index * 2u));
                 }
                 else
                 {
@@ -339,16 +359,14 @@ void Croc::UpdateState()
         }
         else if ((sint16)r_u16(object + 218u) <= 0)
         {
-            node = r_u32(0x800FF4E8u);
+            node = visual_lists.actors;
             while (node)
             {
                 if (r_u16(node + 58u) == 200u && r_u16(node + 390u) == 8u)
                 {
-                    table = r_u32(node + 68u);
                     damage = (uint32)(sint32)(sint16)r_u16(node + 218u);
-                    receiver = node + (uint32)(sint32)(sint16)r_u16(table + 48u);
-                    target = r_u32(table + 52u);
-                    apocalypse_object_virtual52(target, receiver, damage, 0x800A71CCu, 0u);
+                    receiver = node;
+                    ApplyObjectDamage(receiver, damage, (const sint32 *)psx_addr(0x800A71CCu, 12), 0u);
                 }
                 node = r_u32(node + 28u);
             }
@@ -359,7 +377,7 @@ void Croc::UpdateState()
         if (state >= 2u && !(r_u32(0x800FF2F0u) & 7u))
         {
             count = 0u;
-            node = r_u32(0x800FF4E8u);
+            node = visual_lists.actors;
             while (node)
             {
                 if (r_u16(node + 58u) == 200u && r_u16(node + 390u) == 8u)
@@ -368,10 +386,10 @@ void Croc::UpdateState()
             }
             while ((sint32)count < (sint32)r_u16(object + 518u))
             {
-                index = sub_80066570(13u);
+                index = RandomRange(13u);
                 value = r_u16(object + 520u + index * 2u);
                 ++count;
-                sub_80064874(value);
+                ::SpawnRecord(value);
             }
         }
     }
@@ -384,19 +402,19 @@ void Croc::UpdateState()
                 if (state < 4u)
                 {
                     value = r_u16(object + 496u + state * 2u);
-                    flags = r_u16(object);
+                    flags = this->model.flags;
                     w_u16(object + 460u, 0u);
                     w_u16(object + 436u, value);
                 }
                 else
                 {
-                    flags = r_u16(object);
+                    flags = this->model.flags;
                     w_u16(object + 460u, 0u);
                     flags |= 0x200u;
-                    w_u16(object, flags);
-                    w_u16(object + 40u, 2048u);
-                    w_u16(object + 38u, 2048u);
-                    w_u16(object + 36u, 2048u);
+                    this->model.flags = flags;
+                    this->model.scale[2] = 2048u;
+                    this->model.scale[1] = 2048u;
+                    this->model.scale[0] = 2048u;
                 }
                 if (flags & 1u)
                     break;
@@ -410,7 +428,7 @@ void Croc::UpdateState()
             case 1u:
                 steps = 0u;
                 if (state == 4u)
-                    value = sub_80066570(4u);
+                    value = RandomRange(4u);
                 else
                 {
                     steps = r_u16(object + 460u);
@@ -418,13 +436,13 @@ void Croc::UpdateState()
                 }
                 if (value && r_u32(object + 220u) >= 129u)
                 {
-                    player = r_u32(0x800FF5A0u);
+                    player = visual_lists.players;
                     xport_draft_host_sub_80066B8C_p1(angles, object + 4u, player + 4u);
-                    w_u16(object + 18u, (uint16)angles[1]);
+                    this->model.angles[1] = (uint16)angles[1];
                     ClearAngularVelocity();
                     old_state = r_u16(object + 472u);
                     w_u16(object + 442u, 3u);
-                    w_u16(object + 138u, 0u);
+                    motion.angular_acceleration[0] = 0u;
                     w_u16(object + 472u, 17u);
                     w_u16(object + 474u, 0u);
                     w_u16(object + 440u, old_state);
@@ -433,17 +451,17 @@ void Croc::UpdateState()
                 maximum = state == 2u || state == 3u ? 2048u : 1600u;
                 if (!sub_8004BA64(object, object + 484u, object + 4u, 1024u, maximum, 128u, 4096u, 1u, 1u))
                 {
-                    w_u32(object + 112u, 0u);
-                    w_u32(object + 108u, 0u);
-                    w_u32(object + 104u, 0u);
+                    motion.velocity[2] = 0u;
+                    motion.velocity[1] = 0u;
+                    motion.velocity[0] = 0u;
                     return;
                 }
                 if (!state)
                 {
-                    if (r_u32(0x800FF378u) == 1u && !sub_80066570(3u))
+                    if (r_u32(0x800FF378u) == 1u && !RandomRange(3u))
                         sub_80069DF0(64u, 0x3000u, 0u);
                 }
-                else if (!sub_80066570(3u) && r_u32(0x800FF378u) == 1u)
+                else if (!RandomRange(3u) && r_u32(0x800FF378u) == 1u)
                     sub_80069DF0(64u, 0x3000u, 0u);
                 if (state < 4u)
                     w_u16(object + 460u, steps + 1u);
@@ -454,7 +472,7 @@ void Croc::UpdateState()
                     w_u16(object + 474u, r_u16(object + 474u) - 1u);
                 return;
             case 3u:
-                value = r_u16(object + 18u);
+                value = this->model.angles[1];
                 angles[0] = 0;
                 angles[2] = 0;
                 angles[1] = (sint16)value;
@@ -465,28 +483,28 @@ void Croc::UpdateState()
                 point[1] = scaled[1];
                 point[2] = scaled[2];
                 xport_draft_host_sub_8006C0B8_p1(point, object + 4u);
-                collision[0] = r_u32(object + 4u);
-                collision[1] = r_u32(object + 8u);
-                collision[2] = r_u32(object + 12u);
-                collision[3] = point[0];
-                collision[4] = point[1];
-                collision[5] = point[2];
-                xport_draft_host_sub_8007BB24_p1(collision);
+                collision.pos[0][0] = this->model.pos[0];
+                collision.pos[0][1] = this->model.pos[1];
+                collision.pos[0][2] = this->model.pos[2];
+                collision.pos[1][0] = point[0];
+                collision.pos[1][1] = point[1];
+                collision.pos[1][2] = point[2];
+                InitializeCollisionRay(collision);
                 w_u32(0x800FF970u, 1u);
-                xport_draft_host_sub_8007DD04_p1(collision, 1u);
-                value = collision[26];
+                QueryCollisionRay(collision, 1u);
+                value = collision.hit.GetObject();
                 if (state < 2u)
                     w_u32(0x800FF970u, 0u);
                 if (value)
                 {
-                    if ((sint32)collision[16] < 129)
+                    if ((sint32)collision.distance < 129)
                     {
                         w_u16(object + 474u, 0u);
                         return;
                     }
-                    point[0] = collision[27];
-                    point[1] = collision[28];
-                    point[2] = collision[29];
+                    point[0] = collision.hit_pos[0];
+                    point[1] = collision.hit_pos[1];
+                    point[2] = collision.hit_pos[2];
                 }
                 scale = 128u;
                 xport_draft_host_sub_8006C40C_p123(scaled, direction, &scale);
@@ -494,7 +512,7 @@ void Croc::UpdateState()
                 point[1] -= scaled[1];
                 point[2] -= scaled[2];
                 ClearAngularVelocity();
-                w_u16(object + 138u, 0u);
+                motion.angular_acceleration[0] = 0u;
                 StartAnimation(1u, 1u);
                 value = r_u16(object + 436u);
                 w_u16(object + 436u, value * 2u);
@@ -520,21 +538,21 @@ void Croc::UpdateState()
     switch (state)
     {
         case 8u:
-            if (!sub_80066570(4u) && r_u32(0x800FF378u) == 1u)
+            if (!RandomRange(4u) && r_u32(0x800FF378u) == 1u)
                 sub_80069DF0(65u, 0x3000u, 0u);
             floor = r_u32(0x800FF37Cu);
-            height = r_u32(object + 8u);
+            height = this->model.pos[1];
             if ((sint32)(floor + 0x8000u) < (sint32)height)
-                w_u32(object + 8u, height - 0x8000u);
+                this->model.pos[1] = height - 0x8000u;
             else if ((sint32)height < (sint32)(floor - 0x8000u))
-                w_u32(object + 8u, height + 0x8000u);
+                this->model.pos[1] = height + 0x8000u;
             phase = r_u16(object + 474u);
             if (!phase)
             {
-                flags = r_u16(object + 78u);
-                value = r_u16(object);
-                w_u16(object + 78u, flags & 0xFFEFu);
-                w_u16(object, value & 0xFFFEu);
+                flags = this->lifecycle_flags;
+                value = this->model.flags;
+                this->lifecycle_flags = flags & 0xFFEFu;
+                this->model.flags = value & 0xFFFEu;
                 SetAnimationRange(2u, 0u, 0xFFFFFFFFu);
                 w_u16(object + 474u, r_u16(object + 474u) + 1u);
             }
@@ -548,38 +566,38 @@ void Croc::UpdateState()
             return;
         case 16u:
             floor = r_u32(0x800FF37Cu);
-            height = r_u32(object + 8u);
+            height = this->model.pos[1];
             if ((sint32)height < (sint32)(floor + 0x40000u))
-                w_u32(object + 8u, height + 0x8000u);
+                this->model.pos[1] = height + 0x8000u;
             else
             {
-                flags = r_u16(object + 78u);
+                flags = this->lifecycle_flags;
                 old_state = r_u16(object + 440u);
                 old_phase = r_u16(object + 442u);
-                w_u16(object + 78u, flags & 0xFFEFu);
-                value = r_u16(object);
+                this->lifecycle_flags = flags & 0xFFEFu;
+                value = this->model.flags;
                 w_u16(object + 472u, old_state);
                 w_u16(object + 474u, old_phase);
-                w_u16(object, value | 1u);
+                this->model.flags = value | 1u;
             }
             return;
         case 17u:
-            height = r_u32(object + 8u);
+            height = this->model.pos[1];
             floor = r_u32(0x800FF37Cu);
             if ((sint32)floor < (sint32)height)
             {
-                flags = r_u16(object);
-                value = r_u16(object + 78u);
-                w_u16(object, flags & 0xFFFEu);
-                height = r_u32(object + 8u);
-                w_u16(object + 78u, value | 0x10u);
-                w_u32(object + 8u, height - 0x8000u);
+                flags = this->model.flags;
+                value = this->lifecycle_flags;
+                this->model.flags = flags & 0xFFFEu;
+                height = this->model.pos[1];
+                this->lifecycle_flags = value | 0x10u;
+                this->model.pos[1] = height - 0x8000u;
             }
             else
             {
                 old_state = r_u16(object + 440u);
                 old_phase = r_u16(object + 442u);
-                w_u32(object + 8u, floor);
+                this->model.pos[1] = floor;
                 w_u16(object + 472u, old_state);
                 w_u16(object + 474u, old_phase);
             }

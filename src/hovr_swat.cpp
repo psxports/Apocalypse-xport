@@ -1,3 +1,6 @@
+#include "visual_object.h"
+#include "model_resources.h"
+#include "angle_math.h"
 #include "game_sdk_bindings.h"
 #include "player.h"
 #include "vector_arithmetic.h"
@@ -35,7 +38,7 @@ HovrSwat::HovrSwat(const uint8 *record_data, uint32 index) : Enemy()
     w_u32(object + 68, 0x800A2818);
     cursor = sub_80062B0C(object, data);
     w_u32(object + 400, sub_80062B50(object, cursor));
-    w_u16(object + 214, index);
+    this->record_idx = index;
     Init();
 }
 
@@ -49,12 +52,12 @@ uint32 HovrSwat::Init()
     w_u32(0x800FF308u, count + 1u);
     w_u32(0x800FF4E0u, hover_count + 1u);
     sub_800626C8(object, 0x800A2784u);
-    sub_80062A38(object, 0x800FF4E8u);
-    w_u16(object + 58u, 201u);
-    w_u8(object + 129u, 3u);
-    w_u8(object + 130u, 3u);
-    w_u8(object + 131u, 3u);
-    w_u32(object + 532u, sub_8006696C(object + 4u, r_u32(0x800FF904u) + 4u));
+    AddToList(visual_lists.actors);
+    this->kind = 201u;
+    motion.drag[0] = 3u;
+    motion.drag[1] = 3u;
+    motion.drag[2] = 3u;
+    w_u32(object + 532u, sub_8006696C(object + 4u, visual_lists.cameras + 4u));
     sub_8004BD04(object, 1u, 4u);
     w_u16(object + 436u, 12u);
     w_u16(object + 438u, 128u);
@@ -65,10 +68,10 @@ uint32 HovrSwat::Init()
     InitEffects();
     w_u16(object + 218u, 20u);
     w_u32(object + 528u, sub_80069EF4(101u, object + 4u, 0u));
-    random = sub_80066570(8u);
+    random = RandomRange(8u);
     model = r_u8(0x800FF644u);
     w_u16(object + 524u, random + 1u);
-    w_u8(object + 568u, sub_8006E080(0xDB2D0C4Fu, model));
+    w_u8(object + 568u, ::FindModelResourceIndex(0xDB2D0C4Fu, model));
     w_u8(object + 569u, 10u);
     w_u8(object + 380u, 1u);
     return 1u;
@@ -85,7 +88,7 @@ uint32 HovrSwat::Destroy(uint32 reason)
     count = r_u32(0x800FF4E0);
     w_u32(0x800FF4E0, count - 1);
     DestroyEffects();
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     Enemy::FreeBehaviorTable();
     result = Enemy::Destroy(0);
     if (reason & 1)
@@ -107,18 +110,18 @@ uint32 HovrSwat::Damage(uint32 damage, const sint32 *input_vector, uint32)
     if (health > 0)
     {
         ShiftVectorRight((uint32 *)impulse, native_vector ? (const uint32 *)native_vector : (const uint32 *)psx_addr(guest_vector, 12), &shift);
-        AddVectors((uint32 *)psx_addr(object + 104, 12), (const uint32 *)impulse);
+        AddVectors((uint32 *)motion.velocity, (const uint32 *)impulse);
         remaining = r_u16(object + 218) - damage;
         w_u16(object + 218, remaining);
         if ((sint16)remaining > 0)
             SetColor(3, 255, 255, 255);
         else
         {
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             if (player)
                 TryPlayPlayerKillQuote((const uint32 *)psx_addr(player + 4, 12));
-            flags = r_u16(object + 78);
-            w_u16(object + 78, flags & 0xFFEF);
+            flags = this->lifecycle_flags;
+            this->lifecycle_flags = flags & 0xFFEF;
             Fragment();
             table = r_u32(object + 68);
             receiver = object + (uint32)(sint32)(sint16)r_u16(table + 16);
@@ -131,24 +134,25 @@ uint32 HovrSwat::Damage(uint32 damage, const sint32 *input_vector, uint32)
 
 uint32 HovrSwat::Fragment()
 {
+    uint32 trig_angle;
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 velocity[3], index, angle, factor, table, child, kind, name;
+    uint32 velocity[3], index, angle, factor, child, kind, name;
     FUNCTION_MARKER(0x800594BC, "SLUS_003.73");
-    HandleExplosionProximity((const uint32 *)psx_addr(object + 4, 12), 0);
-    SpawnExplosionRing((const uint32 *)psx_addr(object + 4, 12), 200, 240, 200, 0, 5, 0, 100);
+    HandleExplosionProximity((const uint32 *)this->model.pos, 0);
+    SpawnExplosionRing((const uint32 *)this->model.pos, 200, 240, 200, 0, 5, 0, 100);
     for (index = 0; index < 6; ++index)
     {
-        velocity[0] = r_u32(object + 104);
-        velocity[1] = r_u32(object + 108);
-        velocity[2] = r_u32(object + 112);
+        velocity[0] = motion.velocity[0];
+        velocity[1] = motion.velocity[1];
+        velocity[2] = motion.velocity[2];
         angle = RandomRange(4096);
         factor = RandomRange(8);
-        table = 0x800F863C + (angle & 0xFFF) * 4;
-        velocity[0] += (uint32)(sint32)(sint16)r_u16(table) * (factor + 24);
+        trig_angle = angle & 0xFFF;
+        velocity[0] += (uint32)rsin(trig_angle) * (factor + 24);
         factor = RandomRange(16);
         velocity[1] -= (factor + 32) << 12;
         factor = RandomRange(8);
-        velocity[2] += (uint32)(sint32)(sint16)r_u16(table + 2) * (factor + 24);
+        velocity[2] += (uint32)rcos(trig_angle) * (factor + 24);
         child = AllocateZeroedObject(320);
         if (child)
         {
@@ -156,7 +160,7 @@ uint32 HovrSwat::Fragment()
             kind = (r_u8(object + 568) + factor) & 0xFFFF;
             name = r_u32(0x800FF62C);
             void *dram_addr = AllocateNativeObjectStorage(child, sizeof(Debris));
-            new (dram_addr) Debris((const uint32 *)psx_addr(object + 4, 12), velocity, kind, 0, 2, 32, psx_addr(name, 1));
+            new (dram_addr) Debris((const uint32 *)this->model.pos, velocity, kind, 0, 2, 32, psx_addr(name, 1));
         }
     }
     return 0;
@@ -168,9 +172,9 @@ uint32 HovrSwat::InitEffects()
     uint32 position[3], index, size = 1024u, offset_y = 0u;
     uint32 red = 64u, green = 64u, blue = 128u;
     FUNCTION_MARKER(0x80059644u, "SLUS_003.73");
-    position[0] = r_u32(object + 4u);
-    position[1] = r_u32(object + 8u);
-    position[2] = r_u32(object + 12u);
+    position[0] = this->model.pos[0];
+    position[1] = this->model.pos[1];
+    position[2] = this->model.pos[2];
     w_u32(0x800FF3ACu, 0u);
     for (index = 0u; index < 8u; ++index)
     {
@@ -181,7 +185,7 @@ uint32 HovrSwat::InitEffects()
             if (effect)
             {
                 w_u8(effect + 66u, 1u);
-                position[1] = r_u32(object + 8u) + offset_y;
+                position[1] = this->model.pos[1] + offset_y;
                 xport_draft_host_sub_80032EE4_p2(effect, position);
                 sub_80033354(effect, 0x800FF4F0u);
                 sub_80033290(effect, size & 0xFFFFu);
@@ -225,17 +229,17 @@ uint32 HovrSwat::UpdateEffects()
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 position[3], index;
     FUNCTION_MARKER(0x80059808u, "SLUS_003.73");
-    position[0] = r_u32(object + 4u);
-    position[1] = r_u32(object + 8u);
-    position[2] = r_u32(object + 12u);
+    position[0] = this->model.pos[0];
+    position[1] = this->model.pos[1];
+    position[2] = this->model.pos[2];
     for (index = 0u; index < 8u; ++index)
     {
         uint32 effect = r_u32(object + 536u + index * 4u);
         if (effect)
         {
-            uint32 random = sub_80066570(32u);
+            uint32 random = RandomRange(32u);
             uint32 offset = ((index << 5) + random - 16u) << 12;
-            position[1] = r_u32(object + 8u) + offset;
+            position[1] = this->model.pos[1] + offset;
             xport_draft_host_sub_80032EE4_p2(effect, position);
         }
     }
@@ -244,24 +248,26 @@ uint32 HovrSwat::UpdateEffects()
 
 uint32 HovrSwat::Update()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 flags, hits, timer, distance, target, position[3], current_xy, current_z, desired_xy, scale, sound, old_distance;
     uint16 angles[4];
     FUNCTION_MARKER(0x800598B8u, "SLUS_003.73");
-    flags = r_u16(object + 76u);
+    flags = this->activation_flags;
     w_u16(object + 388u, flags);
     if (flags & 1u)
     {
         hits = r_u8(object + 384u);
-        w_u16(object + 76u, flags & 0xFFFEu);
+        this->activation_flags = flags & 0xFFFEu;
         w_u8(object + 384u, hits + 1u);
     }
     position[0] = r_u32(0x800A71CCu);
     position[1] = r_u32(0x800A71D0u);
     position[2] = r_u32(0x800A71D4u);
-    w_u32(object + 116u, position[0]);
-    w_u32(object + 120u, position[1]);
-    w_u32(object + 124u, position[2]);
+    motion.acceleration[0] = position[0];
+    motion.acceleration[1] = position[1];
+    motion.acceleration[2] = position[2];
     if (r_u8(object + 380u))
     {
         timer = r_u16(object + 476u);
@@ -281,7 +287,7 @@ uint32 HovrSwat::Update()
         {
             xport_draft_host_sub_80066B8C_p1(angles, object + 4u, object + 484u);
             scale = r_u16(object + 436u);
-            xport_draft_host_sub_800667CC_p3(object + 116u, scale, angles);
+            BuildDirectionVector(motion.acceleration, scale, (const uint16 *)angles);
         }
     }
     flags = r_u32(object + 396u);
@@ -306,9 +312,9 @@ uint32 HovrSwat::Update()
         }
         if (flags & 0x1Cu)
         {
-            position[0] = r_u32(object + 4u);
-            position[1] = r_u32(object + 8u);
-            position[2] = r_u32(object + 12u);
+            position[0] = this->model.pos[0];
+            position[1] = this->model.pos[1];
+            position[2] = this->model.pos[2];
             xport_draft_host_sub_80066B8C_p12(angles, position, object + 496u);
             if (flags & 0x10u)
                 angles[0] = 0u;
@@ -316,24 +322,36 @@ uint32 HovrSwat::Update()
         else
             xport_draft_host_sub_80066B8C_p1(angles, object + 4u, object + 484u);
         current_xy = apocalypse_angle_pair_word(object + 16u);
-        current_z = (uint32)(sint32)(sint16)r_u16(object + 20u);
+        current_z = (uint32)(sint32)(sint16)this->model.angles[2];
         desired_xy = (uint32)angles[0] | ((uint32)angles[1] << 16);
         scale = r_u16(object + 438u);
-        sub_80066CF0(current_xy, current_z & 0xFFFFu, object + 132u, object + 138u, desired_xy, angles[2], scale);
+        motion_cur_word = current_xy;
+        motion_cur_tail = current_z & 0xFFFFu;
+        motion_target_word = desired_xy;
+        motion_target_tail = angles[2];
+        motion_cur.vx = (sint16)motion_cur_word;
+        motion_cur.vy = (sint16)(motion_cur_word >> 16);
+        motion_cur.vz = (sint16)motion_cur_tail;
+        motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+        motion_target.vx = (sint16)motion_target_word;
+        motion_target.vy = (sint16)(motion_target_word >> 16);
+        motion_target.vz = (sint16)motion_target_tail;
+        motion_target.pad = (sint16)(motion_target_tail >> 16);
+        UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, scale);
     }
     else
     {
-        w_u16(object + 136u, 0u);
-        w_u16(object + 134u, 0u);
-        w_u16(object + 132u, 0u);
-        w_u16(object + 142u, 0u);
-        w_u16(object + 140u, 0u);
-        w_u16(object + 138u, 0u);
+        motion.angular_velocity[2] = 0u;
+        motion.angular_velocity[1] = 0u;
+        motion.angular_velocity[0] = 0u;
+        motion.angular_acceleration[2] = 0u;
+        motion.angular_acceleration[1] = 0u;
+        motion.angular_acceleration[0] = 0u;
     }
-    w_u16(object + 16u, 0u);
+    this->model.angles[0] = 0u;
     sub_8007FDF0(object);
     if (r_u8(object + 382u))
-        sub_8006C0B8(object + 116u, 0x800A6844u);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844u, 12));
     sub_8004B9A4(object);
     if (r_u32(object + 528u))
     {
@@ -342,7 +360,7 @@ uint32 HovrSwat::Update()
             w_u16(object + 524u, timer - 1u);
         else
         {
-            target = r_u32(0x800FF904u) + 4u;
+            target = visual_lists.cameras + 4u;
             distance = sub_8006696C(object + 4u, target);
             sound = r_u32(object + 528u);
             old_distance = r_u32(object + 532u);
@@ -372,7 +390,7 @@ uint32 HovrSwat::ExecuteCommand(uint32 command)
             position[2] = r_u32(cursor + 8u);
             ShiftVectorLeft(position, &shift);
             if (command == 0x4222u)
-                AddVectors(position, (const uint32 *)psx_addr(object + 4, 12));
+                AddVectors(position, (const uint32 *)this->model.pos);
             w_u32(object + 400u, cursor + 12u);
             SetDestination(position);
             return 1u;
@@ -402,7 +420,7 @@ uint32 HovrSwat::ExecuteCommand(uint32 command)
             value = r_u16(cursor);
             w_u32(object + 400u, cursor + 2u);
             if (value)
-                SetTargetObject(r_u32(0x800FF5A0u));
+                SetTargetObject(visual_lists.players);
             else
                 ClearTarget();
             return 1u;
@@ -456,17 +474,17 @@ uint32 HovrSwat::ClearTarget()
 uint32 HovrSwat::Fire()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 player = r_u32(0x800FF5A0u);
+    uint32 player = visual_lists.players;
     uint32 position[3], target, projectile, damage, speed;
     uint16 rotation[3];
     FUNCTION_MARKER(0x8005A034u, "SLUS_003.73");
     if (!player)
         return player;
     SetAnimationRange(2u, 0u, 0xFFFFFFFFu);
-    target = r_u32(0x800FF5A0u) + 4u;
-    position[0] = r_u32(object + 4u);
-    position[1] = r_u32(object + 8u);
-    position[2] = r_u32(object + 12u);
+    target = visual_lists.players + 4u;
+    position[0] = this->model.pos[0];
+    position[1] = this->model.pos[1];
+    position[2] = this->model.pos[2];
     xport_draft_host_sub_80066B8C_p12(rotation, position, target);
     projectile = sub_80032DC0(108u);
     if (projectile)
@@ -482,6 +500,7 @@ uint32 HovrSwat::Fire()
 
 uint32 HovrSwat::UpdateState()
 {
+    uint32 trig_angle;
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 state, player, value, radius, orbit_size, yaw, table, position[3], vector[3], normal[3];
     sint32 saved_yaw;
@@ -495,9 +514,9 @@ uint32 HovrSwat::UpdateState()
         value = r_u16(object + 388u) & 1u;
         if (value)
         {
-            position[0] = r_u32(object + 4u);
-            position[1] = r_u32(object + 8u);
-            position[2] = r_u32(object + 12u);
+            position[0] = this->model.pos[0];
+            position[1] = this->model.pos[1];
+            position[2] = this->model.pos[2];
             position[1] -= 0x800000u;
             SetDestination(position);
             w_u16(object + 474u, 2u);
@@ -505,21 +524,21 @@ uint32 HovrSwat::UpdateState()
         }
         if (!state)
         {
-            player = r_u32(0x800FF5A0u);
+            player = visual_lists.players;
             if (!player)
                 return 0u;
-            value = r_u32(object + 4u);
+            value = this->model.pos[0];
             vector[0] = (uint32)((sint32)(value - r_u32(player + 4u)) >> 12);
             vector[1] = 0u;
-            value = r_u32(object + 12u);
+            value = this->model.pos[2];
             vector[2] = (uint32)((sint32)(value - r_u32(player + 12u)) >> 12);
-            xport_draft_host_sub_800872BC_p12(vector, normal);
+            NormalizeShortVector(vector, normal);
             w_u16(object + 460u, normal[0]);
             w_u16(object + 464u, 1024u);
             w_u16(object + 466u, 512u);
             w_u16(object + 468u, 0u);
             w_u16(object + 462u, normal[2]);
-            if (sub_80066570(64u) & 1u)
+            if (RandomRange(64u) & 1u)
                 w_u32(object + 396u, r_u32(object + 396u) | 0x20u);
             value = r_u16(object + 474u) + 1u;
             w_u16(object + 474u, value);
@@ -527,20 +546,20 @@ uint32 HovrSwat::UpdateState()
         }
         if (!(r_u32(object + 396u) & 1u))
         {
-            value = sub_80066570(32u);
+            value = RandomRange(32u);
             if (!value)
             {
-                table = 0x800F863Cu + (sub_80066570(4096u) & 0xFFFu) * 4u;
-                w_u16(object + 460u, r_u16(table));
-                value = r_u16(table + 2u);
+                trig_angle = RandomRange(4096u) & 0xFFFu;
+                w_u16(object + 460u, (uint16)rsin(trig_angle));
+                value = (uint16)rcos(trig_angle);
                 w_u16(object + 462u, value);
                 return value;
             }
-            player = r_u32(0x800FF5A0u);
+            player = visual_lists.players;
             if (!player)
                 return value;
             SetTargetObject(player);
-            player = r_u32(0x800FF5A0u);
+            player = visual_lists.players;
             radius = r_u16(object + 464u);
             orbit_size = r_u16(object + 466u);
             yaw = r_u16(object + 468u);
@@ -552,20 +571,20 @@ uint32 HovrSwat::UpdateState()
             value = (uint32)(sint32)(sint16)r_u16(object + 462u) * radius;
             position[1] -= 0x100000u;
             position[2] += value;
-            table = 0x800F863Cu + (sub_80066570(4096u) & 0xFFFu) * 4u;
-            rotation[0] = (uint16)((sint32)(sint16)r_u16(table) >> 6);
+            trig_angle = RandomRange(4096u) & 0xFFFu;
+            rotation[0] = (uint16)((sint32)rsin(trig_angle) >> 6);
             rotation[1] = (uint16)yaw;
             rotation[2] = 0u;
             xport_draft_host_sub_800667CC_p13(vector, orbit_size, rotation);
             xport_draft_host_sub_8006C0B8_p12(position, vector);
             SetDestination(position);
             value = r_u32(object + 396u) & 0x20u;
-            yaw = sub_80066570(64u);
+            yaw = RandomRange(64u);
             yaw = value ? (uint32)saved_yaw + 256u + yaw : (uint32)saved_yaw - 256u - yaw;
             w_u16(object + 468u, yaw & 0xFFFu);
-            if (!sub_80066570(4u))
+            if (!RandomRange(4u))
             {
-                if (sub_80066570(2u))
+                if (RandomRange(2u))
                 {
                     if (radius < 2048u)
                         w_u16(object + 464u, radius + 32u);
@@ -573,10 +592,10 @@ uint32 HovrSwat::UpdateState()
                 else if (radius >= 513u)
                     w_u16(object + 464u, radius - 32u);
             }
-            value = sub_80066570(4u);
+            value = RandomRange(4u);
             if (value)
                 return value;
-            if (sub_80066570(2u))
+            if (RandomRange(2u))
             {
                 value = orbit_size + 16u;
                 if (orbit_size < 1024u)
@@ -590,17 +609,17 @@ uint32 HovrSwat::UpdateState()
             }
             return value;
         }
-        value = r_u8(object + 26u);
+        value = this->model.animation;
         if (value == 1u)
         {
             value = r_u8(object + 303u);
             if (!value)
                 return value;
-            value = (uint32)(sint32)(signed char)r_u8(object + 24u);
+            value = (uint32)(sint32)(signed char)this->model.frame;
             if (!value)
             {
                 value = sub_8004BDFC(object, 0u, 3u) & 0xFFFFu;
-                value = sub_80066570(value);
+                value = RandomRange(value);
                 if (value)
                     return value;
                 return SetAnimationRange(1u, 0u, 0xFFFFFFFFu);
@@ -612,7 +631,7 @@ uint32 HovrSwat::UpdateState()
             value = r_u8(object + 303u);
             if (!value)
                 return value;
-            if (sub_80066570(3u))
+            if (RandomRange(3u))
                 return SetAnimationRange(1u, (uint32)(sint32)(sint16)r_u16(object + 470u), 0u);
         }
         else

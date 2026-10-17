@@ -99,13 +99,7 @@ PanelParticle &PanelParticle::Attach(uint32 object)
     return *static_cast<PanelParticle *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_8005C11C(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x8005C11C, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(PanelParticle));
-    new (dram_addr) PanelParticle((const uint32 *)psx_addr(position, 12));
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_particle_construct_5C11C(uint32 object, const uint32 position[3])
 {

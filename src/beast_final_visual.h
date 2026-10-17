@@ -11,7 +11,7 @@ public:
     virtual ~BeastFinalVisual() {}
     static BeastFinalVisual &Attach(uint32 object);
     virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
+    virtual uint32 Update();
 };
 
 #endif

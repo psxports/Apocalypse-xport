@@ -1,3 +1,6 @@
+#include "visual_object.h"
+#include "angle_math.h"
+#include "object_damage.h"
 #include "game_sdk_bindings.h"
 #include "player.h"
 #include "audio_session.h"
@@ -44,16 +47,16 @@ Bat::Bat(const uint8 *record_data, uint32 index) : Enemy()
         }
     }
     value = r_u32(object + 396);
-    flags = r_u16(object);
+    flags = this->model.flags;
     w_u16(object + 212, 0);
     w_u32(object + 396, value | 0x40);
-    value = r_u16(object + 78);
-    w_u16(object, flags | 1);
-    w_u16(object + 78, value & 0xFFEF);
+    value = this->lifecycle_flags;
+    this->model.flags = flags | 1;
+    this->lifecycle_flags = value & 0xFFEF;
     cursor = sub_80062B0C(object, data);
     cursor = sub_80062B50(object, cursor);
     w_u32(object + 400, cursor);
-    w_u16(object + 214, index);
+    this->record_idx = index;
     Initialize();
 }
 
@@ -63,6 +66,7 @@ Bat::Bat(const uint32 *position, uint32 slot) : Enemy()
     const uint32 *native_position = guest_position ? 0 : position;
     uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z;
+    FUNCTION_MARKER(0x8004A000, "SLUS_003.73");
     w_u32(object + 68, 0x800A26F0);
     if (native_position)
     {
@@ -76,15 +80,15 @@ Bat::Bat(const uint32 *position, uint32 slot) : Enemy()
         y = r_u32(guest_position + 4);
         z = r_u32(guest_position + 8);
     }
-    w_u32(object + 240, x);
-    w_u32(object + 244, y);
-    w_u32(object + 248, z);
-    x = r_u32(object + 240);
-    y = r_u32(object + 244);
-    z = r_u32(object + 248);
-    w_u32(object + 4, x);
-    w_u32(object + 8, y);
-    w_u32(object + 12, z);
+    pos_history.saved[0] = x;
+    pos_history.saved[1] = y;
+    pos_history.saved[2] = z;
+    x = pos_history.saved[0];
+    y = pos_history.saved[1];
+    z = pos_history.saved[2];
+    this->model.pos[0] = x;
+    this->model.pos[1] = y;
+    this->model.pos[2] = z;
     w_u32(object + 400, 0);
     w_u8(object + 496, slot);
     Initialize();
@@ -98,20 +102,20 @@ uint32 Bat::Initialize()
     FUNCTION_MARKER(0x8004A090, "SLUS_003.73");
     total = r_u32(0x800FF308);
     count = r_u32(0x800FF4D0);
-    x = r_u32(object + 4);
-    y = r_u32(object + 8);
-    z = r_u32(object + 12);
+    x = this->model.pos[0];
+    y = this->model.pos[1];
+    z = this->model.pos[2];
     w_u32(object + 484, x);
     w_u32(object + 488, y);
     w_u32(object + 492, z);
     w_u32(0x800FF308, total + 1);
     w_u32(0x800FF4D0, count + 1);
     sub_800626C8(object, 0x800FF4D4);
-    sub_80062A38(object, 0x800FF4E8);
-    w_u16(object + 58, 209);
-    w_u8(object + 129, 3);
-    w_u8(object + 130, 3);
-    w_u8(object + 131, 3);
+    AddToList(visual_lists.actors);
+    this->kind = 209;
+    motion.drag[0] = 3;
+    motion.drag[1] = 3;
+    motion.drag[2] = 3;
     sub_8004BD04(object, 1, 4);
     w_u16(object + 436, 12);
     w_u16(object + 438, 128);
@@ -120,8 +124,8 @@ uint32 Bat::Initialize()
     sub_8004BDCC(object, 0, 2, 80);
     sub_8004BDCC(object, 0, 3, 90);
     StartAnimation(0, 1);
-    value = sub_80066570(16);
-    w_u8(object + 24, value);
+    value = RandomRange(16);
+    this->model.frame = value;
     w_u16(object + 218, 5);
     w_u8(object + 380, 1);
     return 1;
@@ -135,7 +139,7 @@ uint32 Bat::Destroy(uint32 reason)
     count = r_u32(0x800FF4D0);
     w_u32(object + 68, 0x800A26F0);
     w_u32(0x800FF4D0, count - 1);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     Enemy::FreeBehaviorTable();
     flags = r_u32(object + 396);
     if (flags & 0x40)
@@ -168,17 +172,17 @@ uint32 Bat::Damage(uint32 damage, const sint32 *input_vector, uint32 kind)
         value = native_vector ? (uint32)native_vector[axis] : r_u32(guest_vector + axis * 4);
         shifted[axis] = (uint32)((sint32)value >> 3);
     }
-    AddVectors((uint32 *)psx_addr(object + 104, 12), shifted);
+    AddVectors((uint32 *)motion.velocity, shifted);
     value = r_u16(object + 218) - damage;
     w_u16(object + 218, value);
     if ((sint32)(value << 16) > 0)
         return SetColor(3, 255, 255, 255);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (player)
         TryPlayPlayerKillQuote((const uint32 *)psx_addr(player + 4, 12));
-    PlayPositionedSound(77, (const uint32 *)psx_addr(object + 4, 12), 0);
-    flags = r_u16(object + 78);
-    w_u16(object + 78, flags & 0xFFEF);
+    PlayPositionedSound(77, (const uint32 *)this->model.pos, 0);
+    flags = this->lifecycle_flags;
+    this->lifecycle_flags = flags & 0xFFEF;
     if (kind == 5)
     {
         w_u16(object + 472, 2);
@@ -204,17 +208,19 @@ void Bat::FinishFromTable()
 
 uint32 Bat::Update()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 value, flags, node, found, sound, table, player, receiver, target;
+    uint32 value, flags, node, found, sound, player, receiver;
     uint32 constants[3], word, tail, scale, end_word;
     uint16 angles[3];
     FUNCTION_MARKER(0x8004A37Cu, "SLUS_003.73");
-    flags = r_u16(object + 76u);
+    flags = this->activation_flags;
     w_u16(object + 388u, flags);
     if (flags & 1u)
     {
         value = r_u8(object + 384u);
-        w_u16(object + 76u, flags & 0xFFFEu);
+        this->activation_flags = flags & 0xFFFEu;
         w_u8(object + 384u, value + 1u);
     }
     flags = r_u32(object + 396u);
@@ -223,7 +229,7 @@ uint32 Bat::Update()
         if (!(r_u32(0x800FF2F0u) & 63u))
         {
             found = 0u;
-            node = r_u32(0x800FF4E8u);
+            node = visual_lists.actors;
             while (node)
             {
                 if (node != object && r_u16(node + 58u) == 209u)
@@ -252,7 +258,7 @@ uint32 Bat::Update()
                 value = sub_80069EF4(76u, object + 4u, 0u);
                 w_u32(object + 500u, value);
             }
-            else if (!sub_80066570(12u))
+            else if (!RandomRange(12u))
             {
                 sound = r_u32(object + 500u);
                 sub_80069FAC(sound, object + 4u, 0u);
@@ -263,25 +269,23 @@ uint32 Bat::Update()
             sound = r_u32(object + 500u);
             if (sound)
             {
-                sub_8006A294(sound);
+                ::StopSoundVoices(sound);
                 w_u32(object + 500u, 0u);
             }
         }
     }
     else if (r_u32(object + 220u) < 96u)
     {
-        player = r_u32(0x800FF5A0u);
-        table = r_u32(player + 68u);
-        receiver = player + (uint32)(sint32)(sint16)r_u16(table + 48u);
-        target = r_u32(table + 52u);
-        apocalypse_object_virtual52(target, receiver, 1u, 0x800A71CCu, 0u);
+        player = visual_lists.players;
+        receiver = player;
+        ApplyObjectDamage(receiver, 1u, (const sint32 *)psx_addr(0x800A71CCu, 12), 0u);
     }
     constants[0] = r_u32(0x800A71CCu);
     constants[1] = r_u32(0x800A71D0u);
     constants[2] = r_u32(0x800A71D4u);
-    w_u32(object + 116u, constants[0]);
-    w_u32(object + 120u, constants[1]);
-    w_u32(object + 124u, constants[2]);
+    motion.acceleration[0] = constants[0];
+    motion.acceleration[1] = constants[1];
+    motion.acceleration[2] = constants[2];
     if (r_u8(object + 380u))
     {
         value = r_u16(object + 476u);
@@ -304,16 +308,28 @@ uint32 Bat::Update()
         {
             xport_draft_host_sub_80066B8C_p1(angles, object + 4u, object + 484u);
             scale = r_u16(object + 436u);
-            xport_draft_host_sub_800667CC_p3(object + 116u, scale, angles);
+            BuildDirectionVector(motion.acceleration, scale, (const uint16 *)angles);
             word = apocalypse_angle_pair_word(object + 16u);
-            tail = r_u16(object + 20u);
+            tail = this->model.angles[2];
             scale = r_u16(object + 438u);
             end_word = (uint32)angles[0] | ((uint32)angles[1] << 16);
-            sub_80066CF0(word, tail, object + 132u, object + 138u, end_word, angles[2], scale);
+            motion_cur_word = word;
+            motion_cur_tail = tail;
+            motion_target_word = end_word;
+            motion_target_tail = angles[2];
+            motion_cur.vx = (sint16)motion_cur_word;
+            motion_cur.vy = (sint16)(motion_cur_word >> 16);
+            motion_cur.vz = (sint16)motion_cur_tail;
+            motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+            motion_target.vx = (sint16)motion_target_word;
+            motion_target.vy = (sint16)(motion_target_word >> 16);
+            motion_target.vz = (sint16)motion_target_tail;
+            motion_target.pad = (sint16)(motion_target_tail >> 16);
+            UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, scale);
         }
     }
     if (r_u8(object + 382u))
-        sub_8006C0B8(object + 116u, 0x800A6844u);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844u, 12));
     sub_8004B9A4(object);
     sub_8007FDF0(object);
     // The legacy behavior caller discards the original return carrier
@@ -365,11 +381,11 @@ uint32 Bat::ExecuteCommand(uint32 command)
                 point[1] = 0 - RandomRange(512);
                 point[2] = RandomRange(1024) - 512;
                 point[0] -= 512u;
-                value = r_u32(object + 4u);
+                value = this->model.pos[0];
                 point[0] += value;
-                value = r_u32(object + 8u);
+                value = this->model.pos[1];
                 point[1] += value;
-                value = r_u32(object + 12u);
+                value = this->model.pos[2];
                 point[2] += value;
                 child = sub_800625AC(504u);
                 if (child)
@@ -422,6 +438,7 @@ uint32 Bat::SetTarget(const uint32 *target)
 
 void Bat::UpdateState()
 {
+    uint32 trig_angle;
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 state, phase, player, flags, value, left, right, parent, radius, amplitude;
     uint32 yaw, signed_yaw, point[3], normal[3], offset[3], axis, ground, height;
@@ -433,35 +450,35 @@ void Bat::UpdateState()
         phase = r_u16(object + 474u);
         if (phase == 0u)
         {
-            player = r_u32(0x800FF5A0u);
+            player = visual_lists.players;
             if (!player)
                 return;
             if (r_u32(object + 396u) & 64u)
             {
-                left = r_u32(object + 4u);
+                left = this->model.pos[0];
                 right = r_u32(player + 4u);
                 point[0] = (uint32)((sint32)(left - right) >> 12);
                 point[1] = 0u;
-                left = r_u32(object + 12u);
+                left = this->model.pos[2];
                 right = r_u32(player + 12u);
                 point[2] = (uint32)((sint32)(left - right) >> 12);
-                xport_draft_host_sub_800872BC_p12(point, normal);
+                NormalizeShortVector(point, normal);
                 w_u16(object + 460u, normal[0]);
                 value = normal[2] & 0xFFFFu;
                 w_u16(object + 464u, 1024u);
                 w_u16(object + 466u, 1024u);
                 w_u16(object + 468u, 0u);
                 w_u16(object + 462u, value);
-                value = sub_80066570(64u);
+                value = RandomRange(64u);
                 flags = r_u32(object + 396u);
                 w_u32(object + 396u, (value & 1u) ? flags | 32u : flags & 0xFFFFFFDFu);
             }
             else
             {
-                value = sub_80066570(256u);
+                value = RandomRange(256u);
                 amplitude = r_u8(object + 497u) >> 3;
                 w_u16(object + 466u, (value + 128u) * amplitude * amplitude);
-                value = sub_80066570(4096u);
+                value = RandomRange(4096u);
                 w_u16(object + 468u, value);
             }
             phase = r_u16(object + 474u);
@@ -478,9 +495,9 @@ void Bat::UpdateState()
             return;
         if (r_u16(object + 388u) & 1u)
         {
-            point[0] = r_u32(object + 4u);
-            point[1] = r_u32(object + 8u);
-            point[2] = r_u32(object + 12u);
+            point[0] = this->model.pos[0];
+            point[1] = this->model.pos[1];
+            point[2] = this->model.pos[2];
             point[1] -= 0x800000u;
             SetTarget(point);
             w_u16(object + 474u, 2u);
@@ -488,20 +505,20 @@ void Bat::UpdateState()
         }
         if (r_u32(object + 396u) & 1u)
             return;
-        if (!sub_80066570(32u))
+        if (!RandomRange(32u))
         {
-            value = sub_80066570(4096u);
-            value = 0x800F863Cu + 4u * (value & 4095u);
-            left = r_u16(value);
+            value = RandomRange(4096u);
+            trig_angle = value & 4095u;
+            left = (uint16)rsin(trig_angle);
             w_u16(object + 460u, left);
-            right = r_u16(value + 2u);
+            right = (uint16)rcos(trig_angle);
             w_u16(object + 462u, right);
             return;
         }
         flags = r_u32(object + 396u);
         if (!(flags & 64u))
         {
-            if (!sub_80066570(16u) && r_u32(object + 220u) < 1024u)
+            if (!RandomRange(16u) && r_u32(object + 220u) < 1024u)
             {
                 w_u16(object + 472u, 1u);
                 w_u16(object + 474u, 0u);
@@ -511,7 +528,7 @@ void Bat::UpdateState()
         }
         if (flags & 64u)
         {
-            player = r_u32(0x800FF5A0u);
+            player = visual_lists.players;
             if (!player)
                 return;
             radius = r_u16(object + 464u);
@@ -525,10 +542,10 @@ void Bat::UpdateState()
             point[0] += value * radius;
             value = (uint32)(sint32)(sint16)r_u16(object + 462u);
             point[2] += value * radius;
-            value = sub_80066570(128u);
+            value = RandomRange(128u);
             point[1] -= (value + 256u) << 12;
-            value = sub_80066570(4096u);
-            value = r_u16(0x800F863Cu + 4u * (value & 4095u));
+            value = RandomRange(4096u);
+            value = (uint16)rsin(value & 4095u);
             angles[0] = (uint16)((sint32)(sint16)value >> 6);
             angles[1] = (uint16)yaw;
             angles[2] = 0u;
@@ -537,12 +554,12 @@ void Bat::UpdateState()
                 point[axis] += offset[axis];
             SetTarget(point);
             flags = r_u32(object + 396u);
-            value = sub_80066570(64u);
+            value = RandomRange(64u);
             value = (flags & 32u) ? signed_yaw + 256u + value : signed_yaw - 256u - value;
             w_u16(object + 468u, value & 4095u);
-            if (!sub_80066570(4u))
+            if (!RandomRange(4u))
             {
-                if (sub_80066570(2u))
+                if (RandomRange(2u))
                 {
                     if (radius < 2048u)
                         w_u16(object + 464u, radius + 32u);
@@ -550,9 +567,9 @@ void Bat::UpdateState()
                 else if (radius >= 513u)
                     w_u16(object + 464u, radius - 32u);
             }
-            if (!sub_80066570(4u))
+            if (!RandomRange(4u))
             {
-                if (sub_80066570(2u))
+                if (RandomRange(2u))
                 {
                     if (amplitude < 1600u)
                         w_u16(object + 466u, amplitude + 16u);
@@ -574,8 +591,8 @@ void Bat::UpdateState()
         point[0] = r_u32(parent + 484u);
         point[1] = r_u32(parent + 488u);
         point[2] = r_u32(parent + 492u);
-        value = sub_80066570(4096u);
-        value = r_u16(0x800F863Cu + 4u * (value & 4095u));
+        value = RandomRange(4096u);
+        value = (uint16)rsin(value & 4095u);
         angles[0] = (uint16)((sint32)(sint16)value >> 6);
         angles[1] = (uint16)yaw;
         angles[2] = 0u;
@@ -602,14 +619,14 @@ void Bat::UpdateState()
         }
         if (phase > 1u || (phase == 1u && (r_u32(object + 396u) & 1u)))
             return;
-        player = r_u32(0x800FF5A0u);
+        player = visual_lists.players;
         if (!player)
             return;
         point[0] = r_u32(player + 4u);
         point[1] = r_u32(player + 8u);
         point[2] = r_u32(player + 12u);
         if (phase == 0u)
-            point[1] = r_u32(object + 8u) - 0x100000u;
+            point[1] = this->model.pos[1] - 0x100000u;
         else
             point[1] -= 0x80000u;
         SetTarget(point);
@@ -625,8 +642,8 @@ void Bat::UpdateState()
     if (!phase)
     {
         flags = r_u32(object + 396u);
-        w_u32(object + 112u, 0u);
-        w_u32(object + 104u, 0u);
+        motion.velocity[2] = 0u;
+        motion.velocity[0] = 0u;
         w_u8(object + 382u, 1u);
         w_u32(object + 396u, flags & 0xFFFFFFFEu);
         ground = sub_80067A18(object + 4u, 256u, 4096u);
@@ -641,11 +658,11 @@ void Bat::UpdateState()
         }
         /* Failed ground lookup still falls through to the height check */
     }
-    height = r_u32(object + 8u);
+    height = this->model.pos[1];
     value = r_u32(0x800FF37Cu);
     if ((sint32)value < (sint32)height)
     {
-        w_u32(object + 8u, value);
+        this->model.pos[1] = value;
         angles[0] = (uint16)-1024;
         angles[1] = 0u;
         angles[2] = 0u;

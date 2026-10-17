@@ -67,13 +67,7 @@ PointSegments &PointSegments::Attach(uint32 object)
     return *static_cast<PointSegments *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_80032068(uint32 object, uint32 count)
-{
-    FUNCTION_MARKER(0x80032068, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(PointSegments));
-    new (dram_addr) PointSegments(count);
-    return object;
-}
+
 
 extern "C" uint32 sub_80032128(uint32 object, uint32 reason)
 {
@@ -81,8 +75,4 @@ extern "C" uint32 sub_80032128(uint32 object, uint32 reason)
     return PointSegments::Attach(object).PointSegments::Destroy(reason);
 }
 
-extern "C" uint32 sub_80032198(uint32 object)
-{
-    FUNCTION_MARKER(0x80032198, "SLUS_003.73");
-    return PointSegments::Attach(object).EnableSegments();
-}
+

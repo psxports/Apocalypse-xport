@@ -1,3 +1,4 @@
+#include "vector_arithmetic.h"
 #include <stdint.h>
 extern "C"
 {
@@ -71,9 +72,9 @@ uint32 InterpolateQuaternion(uint32 *from, const uint32 *to, uint32 amount, uint
         WriteQuaternionWord(output, 1, 0 - ReadQuaternionWord(from, 0));
         WriteQuaternionWord(output, 2, 0 - ReadQuaternionWord(from, 3));
         WriteQuaternionWord(output, 3, ReadQuaternionWord(from, 2));
-        weight1 = (uint32)(sint32)(sint16)r_u16(0x800F863C + (((3217 * (4096 - amount)) >> 9) & 0x3FFC));
+        weight1 = (uint32)rsin((3217 * (4096 - amount)) >> 11);
         left = ReadQuaternionWord(from, 0);
-        weight2 = (uint32)(sint32)(sint16)r_u16(0x800F863C + (((3217 * amount) >> 9) & 0x3FFC));
+        weight2 = (uint32)rsin((3217 * amount) >> 11);
         right = ReadQuaternionWord(output, 0);
         product = weight1 * left + weight2 * right;
         result = (uint32)((sint32)product >> 12);
@@ -95,13 +96,13 @@ uint32 InterpolateQuaternion(uint32 *from, const uint32 *to, uint32 amount, uint
         {
             angle = sub_80067930(dot);
             product = (4096 - amount) * angle;
-            product = ((uint32)((sint32)product >> 10)) & 0x3FFC;
-            left = (uint32)(sint32)(sint16)r_u16(0x800F863C + product) << 12;
-            denominator = (sint16)r_u16(0x800F863C + (angle & 4095) * 4);
+            product = (uint32)((sint32)product >> 12);
+            left = (uint32)rsin(product) << 12;
+            denominator = rsin(angle);
             weight1 = DivideQuaternionWord(left, denominator);
             product = amount * angle;
-            product = ((uint32)((sint32)product >> 10)) & 0x3FFC;
-            weight2 = DivideQuaternionWord((uint32)(sint32)(sint16)r_u16(0x800F863C + product) << 12, denominator);
+            product = (uint32)((sint32)product >> 12);
+            weight2 = DivideQuaternionWord((uint32)rsin(product) << 12, denominator);
         }
         for (index = 0; index < 4; ++index)
         {
@@ -114,11 +115,7 @@ uint32 InterpolateQuaternion(uint32 *from, const uint32 *to, uint32 amount, uint
     }
     return result;
 }
-extern "C" uint32 sub_80076800(uint32 from, uint32 to, uint32 amount, uint32 output)
-{
-    FUNCTION_MARKER(0x80076800, "SLUS_003.73");
-    return InterpolateQuaternion((uint32 *)psx_addr(from, 16), (const uint32 *)psx_addr(to, 16), amount, (uint32 *)psx_addr(output, 16));
-}
+
 
 static sint32 ReadQuaternionMatrixHalf(const sint16 *matrix, uint32 address, uint32 index)
 {
@@ -193,11 +190,7 @@ uint32 ConvertMatrixToQuaternion(const sint16 *matrix, uint32 *output)
     return result;
 }
 
-extern "C" uint32 sub_80076420(uint32 matrix, uint32 output)
-{
-    FUNCTION_MARKER(0x80076420, "SLUS_003.73");
-    return ConvertMatrixToQuaternion((const sint16 *)psx_addr(matrix, 18), (uint32 *)psx_addr(output, 16));
-}
+
 
 extern "C" uint32 xport_draft_host_sub_80076420_p1(void *matrix, uint32 output)
 {
@@ -207,11 +200,11 @@ extern "C" uint32 xport_draft_host_sub_80076420_p1(void *matrix, uint32 output)
 
 uint32 *BuildRollQuaternion(uint32 *output, uint32 angle)
 {
-    uint32 table = 0x800F863C + ((angle << 1) & 0x3FFC);
+    uint32 half_angle = (angle >> 1) & 4095;
     uint32 cosine, sine;
     FUNCTION_MARKER(0x800762DC, "SLUS_003.73");
-    cosine = (uint32)(sint32)(sint16)r_u16(table + 2);
-    sine = (uint32)(sint32)(sint16)r_u16(table);
+    cosine = (uint32)rcos(half_angle);
+    sine = (uint32)rsin(half_angle);
     WriteQuaternionWord(output, 0, 0);
     WriteQuaternionWord(output, 1, 0);
     WriteQuaternionWord(output, 2, sine);
@@ -269,12 +262,7 @@ uint32 ConvertQuaternionToMatrix(const uint32 *quaternion, MATRIX *output)
     return result;
 }
 
-extern "C" uint32 sub_800762DC(uint32 output, uint32 angle)
-{
-    FUNCTION_MARKER(0x800762DC, "SLUS_003.73");
-    BuildRollQuaternion((uint32 *)psx_addr(output, 16), angle);
-    return output;
-}
+
 
 extern "C" uint32 xport_draft_host_sub_800762DC_p1(void *output, uint32 angle)
 {
@@ -282,19 +270,15 @@ extern "C" uint32 xport_draft_host_sub_800762DC_p1(void *output, uint32 angle)
     return (uint32)(uintptr_t)BuildRollQuaternion((uint32 *)output, angle);
 }
 
-extern "C" uint32 sub_80076310(uint32 quaternion, uint32 output)
-{
-    FUNCTION_MARKER(0x80076310, "SLUS_003.73");
-    return ConvertQuaternionToMatrix((const uint32 *)psx_addr(quaternion, 16), (MATRIX *)psx_addr(output, 32));
-}
+
 
 uint32 *BuildPitchQuaternion(uint32 *output, uint32 angle)
 {
-    uint32 table = 0x800F863C + ((angle << 1) & 0x3FFC);
+    uint32 half_angle = (angle >> 1) & 4095;
     uint32 cosine, sine;
     FUNCTION_MARKER(0x80076274, "SLUS_003.73");
-    cosine = (uint32)(sint32)(sint16)r_u16(table + 2);
-    sine = (uint32)(sint32)(sint16)r_u16(table);
+    cosine = (uint32)rcos(half_angle);
+    sine = (uint32)rsin(half_angle);
     WriteQuaternionWord(output, 1, 0);
     WriteQuaternionWord(output, 2, 0);
     WriteQuaternionWord(output, 0, sine);
@@ -304,11 +288,11 @@ uint32 *BuildPitchQuaternion(uint32 *output, uint32 angle)
 
 uint32 *BuildYawQuaternion(uint32 *output, uint32 angle)
 {
-    uint32 table = 0x800F863C + ((angle << 1) & 0x3FFC);
+    uint32 half_angle = (angle >> 1) & 4095;
     uint32 cosine, sine;
     FUNCTION_MARKER(0x800762A8, "SLUS_003.73");
-    cosine = (uint32)(sint32)(sint16)r_u16(table + 2);
-    sine = (uint32)(sint32)(sint16)r_u16(table);
+    cosine = (uint32)rcos(half_angle);
+    sine = (uint32)rsin(half_angle);
     WriteQuaternionWord(output, 0, 0);
     WriteQuaternionWord(output, 2, 0);
     WriteQuaternionWord(output, 1, sine);
@@ -339,26 +323,11 @@ uint32 *MultiplyQuaternions(uint32 *output, const uint32 *first, const uint32 *s
     return output;
 }
 
-extern "C" uint32 sub_80076274(uint32 output, uint32 angle)
-{
-    FUNCTION_MARKER(0x80076274, "SLUS_003.73");
-    BuildPitchQuaternion((uint32 *)psx_addr(output, 16), angle);
-    return output;
-}
 
-extern "C" uint32 sub_800762A8(uint32 output, uint32 angle)
-{
-    FUNCTION_MARKER(0x800762A8, "SLUS_003.73");
-    BuildYawQuaternion((uint32 *)psx_addr(output, 16), angle);
-    return output;
-}
 
-extern "C" uint32 sub_80075F80(uint32 output, uint32 first, uint32 second)
-{
-    FUNCTION_MARKER(0x80075F80, "SLUS_003.73");
-    MultiplyQuaternions((uint32 *)psx_addr(output, 16), (const uint32 *)psx_addr(first, 16), (const uint32 *)psx_addr(second, 16));
-    return output;
-}
+
+
+
 
 extern "C" uint32 xport_draft_host_sub_80076274_p1(void *output, uint32 angle)
 {
@@ -386,7 +355,7 @@ extern "C" uint32 xport_draft_host_sub_80075F80_p123(void *output, void *first, 
 
 uint32 *BuildAxisAngleQuaternion(uint32 *output, const uint32 *rotation_vector)
 {
-    uint32 x, y, z, length, table, sine, cosine, normal[4], result_x, result_y, result_z;
+    uint32 x, y, z, length, half_angle, sine, cosine, normal[4], result_x, result_y, result_z;
     FUNCTION_MARKER(0x80076168, "SLUS_003.73");
     x = ReadQuaternionWord(rotation_vector, 0);
     y = ReadQuaternionWord(rotation_vector, 1);
@@ -401,13 +370,13 @@ uint32 *BuildAxisAngleQuaternion(uint32 *output, const uint32 *rotation_vector)
         return output;
     }
     // Retain the reviewed native PsyQ normalization boundary
-    xport_draft_host_sub_800872BC_p12((void *)rotation_vector, normal);
-    table = 0x800F863C + ((length << 1) & 0x3FFC);
-    sine = (uint32)(sint32)(sint16)r_u16(table);
+    NormalizeShortVector(rotation_vector, normal);
+    half_angle = (length >> 1) & 4095;
+    sine = (uint32)rsin(half_angle);
     result_x = sine * normal[0];
     result_y = sine * normal[1];
     result_z = sine * normal[2];
-    cosine = (uint32)(sint32)(sint16)r_u16(table + 2);
+    cosine = (uint32)rcos(half_angle);
     WriteQuaternionWord(output, 3, cosine);
     WriteQuaternionWord(output, 0, (uint32)((sint32)result_x >> 12));
     WriteQuaternionWord(output, 1, (uint32)((sint32)result_y >> 12));
@@ -415,9 +384,4 @@ uint32 *BuildAxisAngleQuaternion(uint32 *output, const uint32 *rotation_vector)
     return output;
 }
 
-extern "C" uint32 sub_80076168(uint32 output, uint32 rotation_vector)
-{
-    FUNCTION_MARKER(0x80076168, "SLUS_003.73");
-    BuildAxisAngleQuaternion((uint32 *)psx_addr(output, 16), (const uint32 *)psx_addr(rotation_vector, 12));
-    return output;
-}
+

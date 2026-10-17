@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "object_damage.h"
 #include "mesh_ring_effect.h"
 #include "effect_lifecycle.h"
 #include "game_random.h"
@@ -25,8 +27,9 @@ static uint32 ReadBeastEffectPosition(const uint32 *position, uint32 axis)
 
 BeastOrbitEffect::BeastOrbitEffect(const uint32 *position) : EffectController()
 {
+    uint32 trig_angle;
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 x, y, z, angle, choice, angular_speed, radius, table, sine, cosine, child, size;
+    uint32 x, y, z, angle, choice, angular_speed, radius, sine, cosine, child, size;
     FUNCTION_MARKER(0x80040270, "SLUS_003.73");
     w_u32(object + 68, 0x800A2068);
     x = ReadBeastEffectPosition(position, 0);
@@ -44,14 +47,14 @@ BeastOrbitEffect::BeastOrbitEffect(const uint32 *position) : EffectController()
     radius = RandomRange(256) + 380;
     angle = r_u16(object + 88);
     w_u32(object + 48, radius);
-    table = 0x800F863C + ((angle & 4095) << 2);
-    sine = (uint32)(sint32)(sint16)r_u16(table);
+    trig_angle = angle & 4095;
+    sine = (uint32)rsin(trig_angle);
     x = sine * radius;
     angle = r_u16(object + 88);
     w_u32(object + 28, 0);
     w_u32(object + 24, x);
-    table = 0x800F863C + ((angle & 4095) << 2);
-    cosine = (uint32)(sint32)(sint16)r_u16(table + 2);
+    trig_angle = angle & 4095;
+    cosine = (uint32)rcos(trig_angle);
     radius = r_u32(object + 48);
     w_u32(object + 32, cosine * radius);
     AddVectors((uint32 *)psx_addr(object + 24, 12), (const uint32 *)psx_addr(object + 72, 12));
@@ -89,8 +92,9 @@ uint32 BeastOrbitEffect::Destroy(uint32 reason)
 
 uint32 BeastOrbitEffect::Update()
 {
+    uint32 trig_angle;
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 age, angle, angular_speed, table, sine, cosine, radius, x, z, origin_x, origin_z, delta_y, y, child;
+    uint32 age, angle, angular_speed, sine, cosine, radius, x, z, origin_x, origin_z, delta_y, y, child;
     FUNCTION_MARKER(0x80040460, "SLUS_003.73");
     age = r_u16(object + 8) + 1;
     w_u16(object + 8, age);
@@ -100,14 +104,14 @@ uint32 BeastOrbitEffect::Update()
     angular_speed = r_u16(object + 52);
     angle = (angle + angular_speed) & 4095;
     w_u16(object + 88, angle);
-    table = 0x800F863C + (angle << 2);
-    sine = (uint32)(sint32)(sint16)r_u16(table);
+    trig_angle = angle;
+    sine = (uint32)rsin(trig_angle);
     radius = r_u32(object + 48);
     x = sine * radius;
     angle = r_u16(object + 88);
-    table = 0x800F863C + ((angle & 4095) << 2);
+    trig_angle = angle & 4095;
     w_u32(object + 24, x);
-    cosine = (uint32)(sint32)(sint16)r_u16(table + 2);
+    cosine = (uint32)rcos(trig_angle);
     radius = r_u32(object + 48);
     z = cosine * radius;
     origin_x = r_u32(object + 72);
@@ -187,8 +191,7 @@ uint32 BeastGroundEffect::Destroy(uint32 reason)
 uint32 BeastGroundEffect::Update()
 {
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 age, lifetime, old_radius, speed, player, distance, radius, width, y, height, player_y, table, damage, target, child, angle, other_angle;
-    sint32 adjustment;
+    uint32 age, lifetime, old_radius, speed, player, distance, radius, width, y, height, player_y, damage, child, angle, other_angle;
     FUNCTION_MARKER(0x80040734, "SLUS_003.73");
     age = r_u16(object + 8);
     lifetime = r_u32(object + 92);
@@ -198,7 +201,7 @@ uint32 BeastGroundEffect::Update()
         return Finish();
     old_radius = r_u32(object + 76);
     speed = r_u32(object + 104);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     w_u32(object + 76, old_radius + speed);
     if (player && !r_u32(object + 108))
     {
@@ -209,19 +212,16 @@ uint32 BeastGroundEffect::Update()
             width = r_u32(object + 100);
             if ((sint32)(radius + width) >= (sint32)distance)
             {
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 y = r_u32(object + 28);
                 height = r_u8(player + 582);
                 player_y = r_u32(player + 8);
                 if ((sint32)y < (sint32)(player_y + (height << 12)))
                 {
-                    table = r_u32(player + 68);
                     damage = r_u32(object + 96);
-                    adjustment = (sint16)r_u16(table + 48);
-                    target = r_u32(table + 52);
-                    apocalypse_object_virtual52(target, player + (uint32)adjustment, damage, 0x800A71CC, 0);
+                    ApplyObjectDamage(player, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
                     // Preserve post-call reads whose private vector is discarded by the original
-                    player = r_u32(0x800FF5A0);
+                    player = visual_lists.players;
                     (void)r_u32(player + 4);
                     (void)r_u32(player + 8);
                     (void)r_u32(player + 12);
@@ -251,13 +251,7 @@ BeastGroundEffect &BeastGroundEffect::Attach(uint32 object)
     return *static_cast<BeastGroundEffect *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_80040270(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x80040270, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(BeastOrbitEffect));
-    new (dram_addr) BeastOrbitEffect((const uint32 *)psx_addr(position, 12));
-    return object;
-}
+
 
 extern "C" uint32 sub_800403E4(uint32 object, uint32 reason)
 {
@@ -271,13 +265,7 @@ extern "C" uint32 sub_80040460(uint32 object)
     return BeastOrbitEffect::Attach(object).BeastOrbitEffect::Update();
 }
 
-extern "C" uint32 sub_80040568(uint32 object, uint32 position, uint32 damage, uint32 red, uint32 green, uint32 blue, uint32 segments, uint32 radial_speed, uint32 lifetime)
-{
-    FUNCTION_MARKER(0x80040568, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(BeastGroundEffect));
-    new (dram_addr) BeastGroundEffect((const uint32 *)psx_addr(position, 12), damage, red, green, blue, segments, radial_speed, lifetime);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_beast_ground_effect_native(uint32 object, const uint32 *position, uint32 damage, uint32 red, uint32 green, uint32 blue, uint32 segments, uint32 radial_speed, uint32 lifetime)
 {

@@ -1,3 +1,7 @@
+#include "visual_object.h"
+#include "angle_math.h"
+#include "object_damage.h"
+#include "model_animation.h"
 #include "game_sdk_bindings.h"
 #include "player.h"
 #include "game_random.h"
@@ -35,7 +39,7 @@ Turret::Turret(const uint8 *record_data, uint32 index) : Enemy()
     cursor = sub_80062B50(object, cursor);
     w_u32(object + 400, cursor);
     w_u8(object + 380, 1);
-    w_u16(object + 214, index);
+    this->record_idx = index;
     Init();
     sub_8004BE90(object, r_u32(object + 400));
 }
@@ -43,38 +47,40 @@ Turret::Turret(const uint8 *record_data, uint32 index) : Enemy()
 uint32 Turret::SetMode(uint32 mode)
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 count, level, flags, model, points, links, subtype, result;
+    uint32 count, level, flags, model, subtype, result;
+    const ModelHierarchyTable *hierarchy;
+    const ModelAttachmentTable *attachments;
     FUNCTION_MARKER(0x800580ACu, "SLUS_003.73");
     w_u16(object + 390u, mode);
     if (mode == 0u)
     {
-        flags = r_u16(object);
-        w_u16(object, flags | 16u);
-        sub_80062A38(object, 0x800FF5DCu);
+        flags = this->model.flags;
+        this->model.flags = flags | 16u;
+        AddToList(visual_lists.solids);
         count = r_u32(0x800FF308u);
         level = r_u32(0x800FF378u);
         w_u32(0x800FF308u, count - 1u);
         if (level == 4u)
         {
             model = 0x800A2760u;
-            points = 0x800A6E34u;
-            links = 0x800A6E50u;
+            attachments = &TurretLevel4Attachments;
+            hierarchy = &TurretLevel4Hierarchy;
             subtype = 1u;
             result = 2u;
         }
         else
         {
             model = 0x800FF56Cu;
-            points = 0x800A6D88u;
-            links = 0x800A6DA4u;
+            attachments = &TurretDefaultAttachments;
+            hierarchy = &TurretDefaultHierarchy;
             subtype = 0u;
             result = 3u;
         }
     }
     else if (mode == 16u || mode == 32u)
     {
-        w_u16(object + 58u, 211u);
-        sub_80062A38(object, 0x800FF4E8u);
+        this->kind = 211u;
+        AddToList(visual_lists.actors);
         if (mode == 16u)
         {
             level = r_u32(0x800FF378u);
@@ -90,16 +96,16 @@ uint32 Turret::SetMode(uint32 mode)
         if (level == 10u)
         {
             model = 0x800A276Cu;
-            points = 0x800A6E78u;
-            links = 0x800A6E94u;
+            attachments = &TurretLevel10Attachments;
+            hierarchy = &TurretLevel10Hierarchy;
             subtype = 1u;
             result = 2u;
         }
         else
         {
             model = 0x800A2778u;
-            points = 0x800A6DE4u;
-            links = 0x800A6E00u;
+            attachments = &TurretRaisedAttachments;
+            hierarchy = &TurretRaisedHierarchy;
             subtype = 0u;
             result = 3u;
         }
@@ -107,8 +113,8 @@ uint32 Turret::SetMode(uint32 mode)
     else
         return (sint32)mode < 17 ? 1u : 32u;
     sub_800626C8(object, model);
-    sub_8007CA50(object, points);
-    sub_8007CAC8(object, links);
+    SetModelBoneTable(this->model.bank, *attachments);
+    InitializeModelAnimation(*hierarchy);
     w_u16(object + 496u, subtype);
     w_u16(object + 498u, result);
     return result;
@@ -119,7 +125,7 @@ uint32 Turret::Init()
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 count = r_u32(0x800FF308u);
     FUNCTION_MARKER(0x800582D4u, "SLUS_003.73");
-    w_u16(object + 58u, 206u);
+    this->kind = 206u;
     w_u32(0x800FF308u, count + 1u);
     sub_8004BD04(object, 1u, 5u);
     w_u16(object + 218u, 100u);
@@ -143,26 +149,27 @@ uint32 Turret::Destroy(uint32 reason)
     FUNCTION_MARKER(0x800583A8, "SLUS_003.73");
     mode = r_u16(object + 390);
     w_u32(object + 68, 0x800A2960);
-    RemoveFromList((uint32 *)psx_addr(mode ? 0x800FF4E8 : 0x800FF5DC, 4));
+    RemoveFromList(mode ? visual_lists.actors : visual_lists.solids);
     Enemy::FreeBehaviorTable();
-    Turret::ResetWeapon();
+    Turret::ReleaseResources();
     Enemy::Destroy(0);
     return (reason & 1) ? ReleaseObjectStorage(object) : 0;
 }
 
-void Turret::ResetWeapon()
+uint32 Turret::ReleaseResources()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 child, table, receiver, target;
     FUNCTION_MARKER(0x8005843C, "SLUS_003.73");
     child = r_u32(object + 552);
     if (!child)
-        return;
+        return 0;
     table = r_u32(child);
     receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
     target = r_u32(table + 12);
     (void)apocalypse_object_cleanup(target, receiver, 3);
     w_u32(object + 552, 0);
+    return 0;
 }
 
 uint32 Turret::Update()
@@ -173,22 +180,22 @@ uint32 Turret::Update()
     position[0] = r_u32(0x800A71CCu);
     position[1] = r_u32(0x800A71D0u);
     position[2] = r_u32(0x800A71D4u);
-    w_u32(object + 116u, position[0]);
-    w_u32(object + 120u, position[1]);
-    w_u32(object + 124u, position[2]);
-    flags = r_u16(object + 76u);
+    motion.acceleration[0] = position[0];
+    motion.acceleration[1] = position[1];
+    motion.acceleration[2] = position[2];
+    flags = this->activation_flags;
     w_u16(object + 388u, flags);
     if (flags & 1u)
     {
         hits = r_u8(object + 384u);
-        w_u16(object + 76u, flags & 0xFFFEu);
+        this->activation_flags = flags & 0xFFFEu;
         w_u8(object + 384u, hits + 1u);
     }
     if (!r_u8(object + 381u))
     {
-        flags = r_u16(object);
+        flags = this->model.flags;
         w_u8(object + 381u, 1u);
-        w_u16(object, flags | 4u);
+        this->model.flags = flags | 4u;
         SetAnimationRange(0u, 0u, 0xFFFFFFFFu);
     }
     if (r_u8(object + 380u))
@@ -201,7 +208,7 @@ uint32 Turret::Update()
     }
     else
         UpdateState();
-    if (!(r_u16(object) & 4u))
+    if (!(this->model.flags & 4u))
         return 0u;
     flags = r_u32(object + 396u);
     if (flags & 16u)
@@ -229,10 +236,10 @@ uint32 Turret::Update()
     sub_8006C730(object + 524u, object + 530u);
     sub_8006C624(object + 524u);
     sub_8006C730(object + 530u, object + 536u);
-    sub_8006C8E8(object + 530u, object + 144u);
+    DampAngles((uint16 *)psx_addr(object + 530u, 6), motion.angular_drag);
     sub_8006C64C(object + 530u);
     sub_8007FDF0(object);
-    sub_8007D148(object);
+    BuildModelPose(*this);
     linked = r_u32(object + 544u);
     if (linked)
     {
@@ -254,7 +261,7 @@ uint32 Turret::Update()
             y = r_u32(linked + 8u);
             w_u32(linked + 8u, y - (height << 12u));
             yaw = r_u16(object + 526u);
-            base_yaw = r_u16(object + 18u);
+            base_yaw = this->model.angles[1];
             linked = r_u32(object + 544u);
             w_u16(linked + 18u, yaw + base_yaw);
         }
@@ -268,7 +275,7 @@ uint32 Turret::Update()
     if (!(r_u32(object + 396u) & 64u))
     {
         timer = sub_8004BDFC(object, 0u, 3u) & 0xFFFFu;
-        if (!sub_80066570(timer))
+        if (!RandomRange(timer))
             Fire(1u);
         return 0u;
     }
@@ -295,15 +302,13 @@ uint32 Turret::Update()
 uint32 Turret::DetachAndDestroy()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 flags, table, receiver, target;
+    uint32 flags, receiver;
     FUNCTION_MARKER(0x80058814, "SLUS_003.73");
     flags = r_u32(object + 396);
-    table = r_u32(object + 68);
     w_u32(object + 544, 0);
     w_u32(object + 396, flags & 0xFFFFFFDF);
-    receiver = object + (uint32)(sint32)(sint16)r_u16(table + 48);
-    target = r_u32(table + 52);
-    return apocalypse_object_virtual52_native(target, receiver, 10000, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+    receiver = object;
+    return ApplyObjectDamage(receiver, 10000, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
 }
 
 void Turret::Fire(uint32 fire)
@@ -314,7 +319,7 @@ void Turret::Fire(uint32 fire)
     uint16 angles[3];
     FUNCTION_MARKER(0x80058868u, "SLUS_003.73");
     yaw = r_u16(object + 526u);
-    base_yaw = r_u16(object + 18u);
+    base_yaw = this->model.angles[1];
     pitch = r_u16(object + 524u);
     angles[0] = (uint16)pitch;
     angles[1] = (uint16)(yaw + base_yaw);
@@ -348,7 +353,7 @@ void Turret::Fire(uint32 fire)
         apocalypse_line_projectile_native(child, position, angles, speed, damage,
             0x800FF5A0u, 255u, 64u, 0u, 1u);
     }
-    random = sub_80066570(3u);
+    random = RandomRange(3u);
     xport_draft_host_sub_8001D320_p1(position, 32u, 240u, 64u, 64u, random + 5u, 1u, 32u);
     sub_80069EF4(20u, object + 4u, 0u);
 }
@@ -375,20 +380,20 @@ uint32 Turret::Damage(uint32 damage, const sint32 *, uint32)
     }
     if (r_u16(object + 390))
     {
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         if (player)
             TryPlayPlayerKillQuote((const uint32 *)psx_addr(player + 4, 12));
     }
-    position[0] = r_u32(object + 4);
-    position[1] = r_u32(object + 8);
-    position[2] = r_u32(object + 12);
+    position[0] = this->model.pos[0];
+    position[1] = this->model.pos[1];
+    position[2] = this->model.pos[2];
     position[1] += 0x80000;
     random = RandomRange(2);
-    PlayPositionedSound(random ? 1 : 2, (const uint32 *)psx_addr(object + 4, 12), 0);
-    SpawnExplosionRing((const uint32 *)psx_addr(object + 4, 12), 300, 240, 160, 40, 5, 0, 100);
+    PlayPositionedSound(random ? 1 : 2, (const uint32 *)this->model.pos, 0);
+    SpawnExplosionRing((const uint32 *)this->model.pos, 300, 240, 160, 40, 5, 0, 100);
     SpawnFireCycle(position, 120, 0, 2);
     flags = r_u32(object + 396);
-    node = r_u32(0x800FF4E8);
+    node = visual_lists.actors;
     w_u32(object + 396, flags | 32);
     while (node)
     {
@@ -397,10 +402,8 @@ uint32 Turret::Damage(uint32 damage, const sint32 *, uint32)
             if (!sub_80062F48(node))
             {
                 chained_damage = (uint32)(sint32)(sint16)r_u16(node + 218) << 1;
-                table = r_u32(node + 68);
-                receiver = node + (uint32)(sint32)(sint16)r_u16(table + 48);
-                target = r_u32(table + 52);
-                apocalypse_object_virtual52_native(target, receiver, chained_damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+                receiver = node;
+                ApplyObjectDamage(receiver, chained_damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
             }
             break;
         }
@@ -408,31 +411,22 @@ uint32 Turret::Damage(uint32 damage, const sint32 *, uint32)
     }
     if (r_u32(object + 480))
     {
-        flags = r_u16(object + 78);
-        table = r_u32(object + 68);
+        flags = this->lifecycle_flags;
         w_u16(object + 212, 0);
         w_u8(object + 380, 0);
-        w_u16(object + 78, flags & 0xFFEF);
-        receiver = object + (uint32)(sint32)(sint16)r_u16(table + 56);
-        target = r_u32(table + 60);
-        if (target != 0x8005843C)
-        {
-            /* TODO Audit additional reset methods before routing them */
-            GameDiagnostic("Unsupported class206 damage reset %08X\n", target);
-            abort();
-        }
-        Turret::Attach(receiver).ResetWeapon();
+        this->lifecycle_flags = flags & 0xFFEF;
+        ReleaseResources();
         name = r_u32(0x800FF62C);
         w_u16(object + 472, 2);
         w_u16(object + 474, 0);
         SetModelBank((const char *)psx_addr(name, 1));
         key = r_u32(object + 480);
         bank = r_u8(0x800FF644);
-        w_u16(object + 22, FindModelResourceIndex(key, bank));
-        flags = r_u16(object);
+        this->model.model_idx = FindModelResourceIndex(key, bank);
+        flags = this->model.flags;
         yaw = r_u16(object + 526);
-        w_u16(object, flags & 0xFFF9);
-        w_u16(object + 18, yaw);
+        this->model.flags = flags & 0xFFF9;
+        this->model.angles[1] = yaw;
     }
     else
     {
@@ -455,7 +449,7 @@ uint32 Turret::UpdateState()
         phase = r_u16(object + 474u);
         if (phase)
             return phase;
-        player = r_u32(0x800FF5A0u);
+        player = visual_lists.players;
         if (player)
         {
             SetTargetObject(player);
@@ -479,7 +473,7 @@ uint32 Turret::UpdateState()
     flags = r_u32(object + 396u) & 32u;
     if (flags)
     {
-        player = r_u32(0x800FF5A0u);
+        player = visual_lists.players;
         SetTargetObject(player);
         return sub_8004BDCC(object, 0u, 0u, 1u);
     }
@@ -515,7 +509,7 @@ uint32 Turret::ExecuteCommand(uint32 command)
             value = r_u16(cursor);
             w_u32(object + 400u, cursor + 2u);
             if (value)
-                SetTargetObject(r_u32(0x800FF5A0u));
+                SetTargetObject(visual_lists.players);
             else
                 ClearTarget();
             return 1u;
@@ -542,15 +536,15 @@ uint32 Turret::ExecuteCommand(uint32 command)
     }
 }
 
-uint32 Turret::Aim()
+void Turret::Aim()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 position[3], current_xy, current_z, desired_xy, scale, joint, bones, value, result;
+    uint32 position[3], current_xy, current_z, desired_xy, scale, joint, value;
     uint16 angles[3];
     FUNCTION_MARKER(0x80058F24u, "SLUS_003.73");
     xport_draft_host_sub_8007CC10_p1(position, object, 0u);
     xport_draft_host_sub_80066B8C_p12(angles, position, object + 500u);
-    angles[1] = (uint16)((angles[1] - r_u16(object + 18u)) & 4095u);
+    angles[1] = (uint16)((angles[1] - this->model.angles[1]) & 4095u);
     current_xy = r_u32(object + 524u);
     current_z = r_u16(object + 528u);
     desired_xy = (uint32)angles[0] | ((uint32)angles[1] << 16u);
@@ -559,14 +553,10 @@ uint32 Turret::Aim()
         desired_xy, angles[2], scale);
     joint = r_u16(object + 496u);
     value = r_u16(object + 526u);
-    bones = r_u32(object + 360u);
-    w_u16(bones + 12u * joint + 2u, value);
+    GetModelJointAngles(joint).rotation[1] = (uint16)value;
     joint = r_u16(object + 498u);
     value = r_u16(object + 524u);
-    bones = r_u32(object + 360u);
-    result = bones + 12u * joint;
-    w_u16(result, value);
-    return result;
+    GetModelJointAngles(joint).rotation[0] = (uint16)value;
 }
 
 uint32 Turret::SetTargetRecord(uint32 index)
@@ -624,11 +614,7 @@ uint32 sub_800583A8(uint32 object, uint32 reason)
     return Turret::Attach(object).Turret::Destroy(reason);
 }
 
-void sub_8005843C(uint32 object)
-{
-    FUNCTION_MARKER(0x8005843C, "SLUS_003.73");
-    Turret::Attach(object).Turret::ResetWeapon();
-}
+
 
 void sub_8005848C(uint32 object)
 {
@@ -666,8 +652,4 @@ uint32 Turret::AttachOperator(uint32 operator_object)
     return 1;
 }
 
-extern "C" uint32 sub_800587E8(uint32 object, uint32 operator_object)
-{
-    FUNCTION_MARKER(0x800587E8, "SLUS_003.73");
-    return Turret::Attach(object).AttachOperator(operator_object);
-}
+

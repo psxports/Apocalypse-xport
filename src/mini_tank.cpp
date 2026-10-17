@@ -1,3 +1,6 @@
+#include "visual_object.h"
+#include "object_damage.h"
+#include "model_animation.h"
 #include "game_sdk_bindings.h"
 #include "player.h"
 #include "explosion_effects.h"
@@ -39,13 +42,13 @@ MiniTank::MiniTank(const uint8 *record_data, uint32 index) : Enemy()
     w_u32(object + 68, 0x800A3C98);
     cursor = sub_80062B0C(object, data);
     angle = r_u16(cursor);
-    w_u16(object + 16, angle);
+    this->model.angles[0] = angle;
     angle = r_u16(cursor + 2);
-    w_u16(object + 18, angle);
+    this->model.angles[1] = angle;
     angle = r_u16(cursor + 4);
     w_u32(object + 400, cursor + 6);
-    w_u16(object + 214, index);
-    w_u16(object + 20, angle);
+    this->record_idx = index;
+    this->model.angles[2] = angle;
     Init();
     cursor = r_u32(object + 400);
     if (cursor)
@@ -63,7 +66,7 @@ uint32 MiniTank::Destroy(uint32 reason)
     count = r_u32(0x800FF898);
     w_u32(object + 68, 0x800A3C98);
     w_u32(0x800FF898, count - 1);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     Enemy::FreeBehaviorTable();
     sound = r_u32(object + 512);
     if (sound)
@@ -79,15 +82,15 @@ uint32 MiniTank::Init()
     FUNCTION_MARKER(0x80074A58u, "SLUS_003.73");
     count = r_u32(0x800FF898u);
     total = r_u32(0x800FF308u);
-    angles = r_u32(object + 16u);
-    roll = r_u16(object + 20u);
+    angles = ((uint32)this->model.angles[0] | ((uint32)this->model.angles[1] << 16));
+    roll = this->model.angles[2];
     w_u32(object + 500u, angles);
     w_u16(object + 504u, roll);
     w_u32(0x800FF898u, count + 1u);
     w_u32(0x800FF308u, total + 1u);
     sub_800626C8(object, 0x800A3C88u);
-    sub_80062A38(object, 0x800FF4E8u);
-    w_u16(object + 58u, 207u);
+    AddToList(visual_lists.actors);
+    this->kind = 207u;
     w_u16(object + 456u, 64u);
     sub_8004BD04(object, 1u, 4u);
     w_u16(object + 436u, 50u);
@@ -100,7 +103,7 @@ uint32 MiniTank::Init()
     if (floor != 0xFFFFFFFFu)
     {
         height = (uint32)(sint32)(sint16)r_u16(object + 456u);
-        w_u32(object + 8u, floor - (height << 12));
+        this->model.pos[1] = floor - (height << 12);
     }
     w_u32(object + 516u, 0xFFFFFFFFu);
     sound = sub_80069EF4(89u, object + 4u, 0u);
@@ -133,8 +136,10 @@ uint32 MiniTank::Remainder(uint32 numerator, uint32 denominator)
 
 uint32 MiniTank::Update()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 value, flags, count, radius, factor, damage, table, adjustment, target;
+    uint32 value, flags, count, radius, factor, damage;
     uint32 index, points, radii, factors, tick, word, tail, scale, period, frame, sound;
     uint32 constants[3];
     sint32 distance;
@@ -145,9 +150,9 @@ uint32 MiniTank::Update()
     constants[0] = r_u32(0x800A71CCu);
     constants[1] = r_u32(0x800A71D0u);
     constants[2] = r_u32(0x800A71D4u);
-    w_u32(object + 116u, constants[0]);
-    w_u32(object + 120u, constants[1]);
-    w_u32(object + 124u, constants[2]);
+    motion.acceleration[0] = constants[0];
+    motion.acceleration[1] = constants[1];
+    motion.acceleration[2] = constants[2];
     if (r_u8(object + 380u))
     {
         value = r_u16(object + 476u);
@@ -160,21 +165,21 @@ uint32 MiniTank::Update()
         UpdateState();
     if (!r_u8(object + 381u))
     {
-        sub_8007CA50(object, 0x800ED480u);
-        sub_8007CAC8(object, 0x800ED494u);
-        flags = r_u16(object);
+        SetModelBoneTable(this->model.bank, MiniTankAttachments);
+        InitializeModelAnimation(MiniTankHierarchy);
+        flags = this->model.flags;
         w_u8(object + 381u, 1u);
-        w_u16(object, flags | 4u);
+        this->model.flags = flags | 4u;
     }
-    flags = r_u16(object + 76u);
+    flags = this->activation_flags;
     if (flags & 1u)
     {
         tick = r_u8(object + 384u);
-        flags = r_u16(object + 76u);
+        flags = this->activation_flags;
         w_u8(object + 384u, tick + 1u);
-        w_u16(object + 76u, flags & 0xFFFEu);
+        this->activation_flags = flags & 0xFFFEu;
     }
-    flags = r_u16(object + 76u);
+    flags = this->activation_flags;
     if (flags & 4u)
     {
         index = 0u;
@@ -193,11 +198,7 @@ uint32 MiniTank::Update()
                 value = radius - (uint32)distance;
                 factor = r_u32(factors);
                 damage = Divide(factor * value, radius);
-                table = r_u32(object + 68u);
-                adjustment = (uint32)(sint32)(sint16)r_u16(table + 48u);
-                target = r_u32(table + 52u);
-                apocalypse_object_virtual52(target, object + adjustment,
-                    damage, 0x800A71CCu, 0u);
+                ApplyObjectDamage(object, damage, (const sint32 *)psx_addr(0x800A71CCu, 12), 0u);
                 if ((sint16)r_u16(object + 218u) <= 0)
                     break;
             }
@@ -218,43 +219,54 @@ uint32 MiniTank::Update()
         else
         {
             xport_draft_host_sub_80066B8C_p1(angles, object + 4u, object + 484u);
-            value = r_u16(object + 18u);
+            value = this->model.angles[1];
             value = ((value - (uint16)angles[1]) & 4095u) - 64u;
             if (value < 0xF81u)
             {
-                w_u32(object + 112u, 0u);
-                w_u32(object + 108u, 0u);
-                w_u32(object + 104u, 0u);
+                motion.velocity[2] = 0u;
+                motion.velocity[1] = 0u;
+                motion.velocity[0] = 0u;
                 word = apocalypse_angle_pair_word(object + 16u);
-                tail = r_u16(object + 20u);
+                tail = this->model.angles[2];
                 value = (uint32)(uint16)angles[0] | ((uint32)(uint16)angles[1] << 16);
-                sub_80066CF0(word, tail, object + 132u, object + 138u,
-                    value, (uint16)angles[2], 32u);
+                motion_cur_word = word;
+                motion_cur_tail = tail;
+                motion_target_word = value;
+                motion_target_tail = (uint16)angles[2];
+                motion_cur.vx = (sint16)motion_cur_word;
+                motion_cur.vy = (sint16)(motion_cur_word >> 16);
+                motion_cur.vz = (sint16)motion_cur_tail;
+                motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+                motion_target.vx = (sint16)motion_target_word;
+                motion_target.vy = (sint16)(motion_target_word >> 16);
+                motion_target.vz = (sint16)motion_target_tail;
+                motion_target.pad = (sint16)(motion_target_tail >> 16);
+                UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, 32u);
             }
             else
             {
                 word = apocalypse_angle_pair_word(object + 500u);
                 tail = r_u16(object + 504u);
-                w_u32(object + 16u, word);
-                w_u32(object + 16u, word);
-                w_u16(object + 20u, tail);
-                w_u16(object + 136u, 0u);
-                w_u16(object + 134u, 0u);
-                w_u16(object + 132u, 0u);
-                w_u16(object + 142u, 0u);
-                w_u16(object + 140u, 0u);
+                this->model.SetAnglesXY(word);
+                this->model.SetAnglesXY(word);
+                this->model.angles[2] = tail;
+                motion.angular_velocity[2] = 0u;
+                motion.angular_velocity[1] = 0u;
+                motion.angular_velocity[0] = 0u;
+                motion.angular_acceleration[2] = 0u;
+                motion.angular_acceleration[1] = 0u;
                 scale = r_u16(object + 436u);
-                w_u16(object + 138u, 0u);
-                xport_draft_host_sub_800667CC_p3(object + 104u, scale, angles);
+                motion.angular_acceleration[0] = 0u;
+                BuildDirectionVector(motion.velocity, scale, (const uint16 *)angles);
             }
         }
     }
     Aim();
-    sub_8007CECC(object);
+    UpdateModelAnimationData(object);
     sub_8007FDF0(object);
-    sub_8007D148(object);
+    BuildModelPose(*this);
     if (r_u8(object + 382u))
-        sub_8006C0B8(object + 116u, 0x800A6844u);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844u, 12));
     sub_8004B9A4(object);
     period = r_u32(object + 516u);
     if (period != 0xFFFFFFFFu)
@@ -273,17 +285,16 @@ uint32 MiniTank::Update()
 uint32 MiniTank::Aim()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 position[3], player, angle, yaw, bones;
+    uint32 position[3], player, angle, yaw;
     uint16 rotation[3];
     FUNCTION_MARKER(0x80074F3C, "SLUS_003.73");
     GetModelAttachment(position, object, 1);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     CalculateDirectionAngles(rotation, position, (const uint32 *)psx_addr(player + 4, 12));
     angle = rotation[1];
-    yaw = r_u16(object + 18);
+    yaw = this->model.angles[1];
     angle = (angle - yaw) & 4095;
-    bones = r_u32(object + 360);
-    w_u16(bones + 26, angle);
+    GetModelJointAngles(2).rotation[1] = (uint16)angle;
     return angle;
 }
 
@@ -400,7 +411,7 @@ void MiniTank::UpdateState()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 state, phase, flags, player, count, parameter, random, value, child;
-    uint32 table, adjustment, target, damage, x, y, z, dx, dy, dz, height;
+    uint32 damage, x, y, z, dx, dy, dz, height;
     uint32 candidate[3], position[3];
     sint32 distance, floor;
     FUNCTION_MARKER(0x80074FA8u, "SLUS_003.73");
@@ -414,14 +425,14 @@ void MiniTank::UpdateState()
                 flags = r_u32(object + 396u);
                 if (!(flags & 1u))
                 {
-                    player = r_u32(0x800FF5A0u);
+                    player = visual_lists.players;
                     value = apocalypse_candidate_native(object, candidate, player + 4u,
                         128u, 512u, 64u, 1024u, 1u, 1u);
                     if (value)
                         SetTarget(candidate);
                 }
-                player = r_u32(0x800FF5A0u);
-                distance = (sint32)MeasurePositionDistance((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(player + 4, 12));
+                player = visual_lists.players;
+                distance = (sint32)MeasurePositionDistance((const uint32 *)this->model.pos, (const uint32 *)psx_addr(player + 4, 12));
                 if (distance < 204)
                 {
                     phase = r_u16(object + 474u);
@@ -436,10 +447,10 @@ void MiniTank::UpdateState()
                 count = r_u32(object + 508u);
                 if (count < parameter)
                     return;
-                position[0] = r_u32(object + 4u);
-                player = r_u32(0x800FF5A0u);
-                position[1] = r_u32(object + 8u);
-                position[2] = r_u32(object + 12u);
+                position[0] = this->model.pos[0];
+                player = visual_lists.players;
+                position[1] = this->model.pos[1];
+                position[2] = this->model.pos[2];
                 if (xport_draft_host_sub_800679A4_p1(position, player + 4u))
                 {
                     w_u16(object + 474u, 3u);
@@ -453,29 +464,25 @@ void MiniTank::UpdateState()
                 w_u16(object + 474u, phase + 1u);
                 return;
             case 2u:
-                value = r_u16(object + 18u);
+                value = this->model.angles[1];
                 count = r_u32(object + 524u) & 3u;
-                w_u16(object + 18u, value + 128u);
+                this->model.angles[1] = value + 128u;
                 if (!count)
                     sub_800626F8(object, 3u, 255u, 255u, 255u);
                 else if (count == 2u)
                     sub_800626F8(object, 3u, 255u, 0u, 0u);
                 if (RandomRange(16))
                     return;
-                player = r_u32(0x800FF5A0u);
-                distance = (sint32)MeasurePositionDistance((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(player + 4, 12));
+                player = visual_lists.players;
+                distance = (sint32)MeasurePositionDistance((const uint32 *)this->model.pos, (const uint32 *)psx_addr(player + 4, 12));
                 if (distance < 1024)
                 {
                     damage = (uint32)((sint32)(1024u - (uint32)distance) >> 6);
-                    player = r_u32(0x800FF5A0u);
-                    table = r_u32(player + 68u);
-                    adjustment = (uint32)(sint32)(sint16)r_u16(table + 48u);
-                    target = r_u32(table + 52u);
-                    apocalypse_object_virtual52(target, player + adjustment,
-                        damage, 0x800A71CCu, 0u);
+                    player = visual_lists.players;
+                    ApplyObjectDamage(player, damage, (const sint32 *)psx_addr(0x800A71CCu, 12), 0u);
                 }
-                flags = r_u16(object + 78u);
-                w_u16(object + 78u, flags & 0xFFEFu);
+                flags = this->lifecycle_flags;
+                this->lifecycle_flags = flags & 0xFFEFu;
                 Burst(200u);
                 FinishFromTable();
                 return;
@@ -504,7 +511,7 @@ void MiniTank::UpdateState()
     phase = r_u16(object + 474u);
     if (!phase)
     {
-        value = r_u32(object + 8u);
+        value = this->model.pos[1];
         w_u32(object + 396u, 0u);
         w_u8(object + 382u, 1u);
         w_u16(object + 460u, (uint32)((sint32)value >> 12));
@@ -516,16 +523,16 @@ void MiniTank::UpdateState()
         w_u16(object + 466u, 128u - random);
         random = RandomRange(120);
         w_u32(object + 520u, (random + 40u) << 12);
-        w_u8(object + 131u, 31u);
-        w_u8(object + 130u, 31u);
-        w_u8(object + 129u, 31u);
+        motion.drag[2] = 31u;
+        motion.drag[1] = 31u;
+        motion.drag[0] = 31u;
         random = RandomRange(20);
         value = r_u32(object + 520u);
-        w_u32(object + 104u, (10u - random) << 12);
-        w_u32(object + 108u, 0u - value);
+        motion.velocity[0] = (10u - random) << 12;
+        motion.velocity[1] = 0u - value;
         random = RandomRange(20);
         phase = r_u16(object + 474u);
-        w_u32(object + 112u, (10u - random) << 12);
+        motion.velocity[2] = (10u - random) << 12;
         w_u16(object + 474u, phase + 1u);
         sub_8001D320(object + 4u, 50u, 240u, 220u, 0u, 5u, 0u, 100u);
         w_u32(0x800FF3ACu, 0u);
@@ -533,7 +540,7 @@ void MiniTank::UpdateState()
         if (child)
         {
             void *dram_addr = AllocateNativeObjectStorage(child, sizeof(RibbonTrail));
-            new (dram_addr) RibbonTrail((const uint32 *)psx_addr(object + 4, 12), 4, 128, 128, 128);
+            new (dram_addr) RibbonTrail((const uint32 *)this->model.pos, 4, 128, 128, 128);
         }
         w_u32(object + 496u, child);
         w_u32(0x800FF3ACu, 1u);
@@ -542,26 +549,26 @@ void MiniTank::UpdateState()
     if (phase != 1u)
         return;
     child = r_u32(object + 496u);
-    SpriteTrail::Attach(child).SetPosition((const uint32 *)psx_addr(object + 4, 12));
+    SpriteTrail::Attach(child).SetPosition((const uint32 *)this->model.pos);
     dx = (uint32)(sint32)(sint16)r_u16(object + 462u);
-    x = r_u16(object + 16u);
+    x = this->model.angles[0];
     x += dx;
     dz = (uint32)(sint32)(sint16)r_u16(object + 466u);
-    w_u16(object + 16u, x);
-    z = r_u16(object + 20u);
+    this->model.angles[0] = x;
+    z = this->model.angles[2];
     dy = (uint32)(sint32)(sint16)r_u16(object + 464u);
     z += dz;
-    w_u16(object + 20u, z);
-    y = r_u16(object + 18u);
-    x = r_u16(object + 16u);
+    this->model.angles[2] = z;
+    y = this->model.angles[1];
+    x = this->model.angles[0];
     y += dy;
-    w_u16(object + 18u, y);
-    z = r_u16(object + 20u);
-    w_u16(object + 16u, x & 4095u);
-    y = r_u16(object + 18u);
-    w_u16(object + 20u, z & 4095u);
-    height = r_u32(object + 8u);
-    w_u16(object + 18u, y & 4095u);
+    this->model.angles[1] = y;
+    z = this->model.angles[2];
+    this->model.angles[0] = x & 4095u;
+    y = this->model.angles[1];
+    this->model.angles[2] = z & 4095u;
+    height = this->model.pos[1];
+    this->model.angles[1] = y & 4095u;
     floor = (sint16)r_u16(object + 460u);
     if (floor >= ((sint32)height >> 12))
         return;
@@ -570,7 +577,7 @@ void MiniTank::UpdateState()
     {
         value -= 163840u;
         w_u32(object + 520u, value);
-        w_u32(object + 108u, 0u - value);
+        motion.velocity[1] = 0u - value;
         return;
     }
     Burst(220u);
@@ -582,6 +589,7 @@ void MiniTank::UpdateState()
 
 uint32 MiniTank::Damage(uint32 damage, const sint32 *input_vector, uint32)
 {
+    FUNCTION_MARKER(0x80075930, "SLUS_003.73");
     uint32 guest_vector = GuestMemoryAddress(input_vector);
     const sint32 *native_vector = guest_vector ? 0 : input_vector;
     const uint32 object = NativeObjectGuestAddress(this);
@@ -600,27 +608,27 @@ uint32 MiniTank::Damage(uint32 damage, const sint32 *input_vector, uint32)
         return 1;
     w_u16(object + 218, health - damage);
     ShiftVectorLeft(impulse, native_vector ? (const uint32 *)native_vector : (const uint32 *)psx_addr(guest_vector, 12), &shift);
-    AddVectors((uint32 *)psx_addr(object + 104, 12), impulse);
+    AddVectors((uint32 *)motion.velocity, impulse);
     signed_health = (uint32)(sint32)(sint16)r_u16(object + 218);
-    w_u32(object + 108, 0);
+    motion.velocity[1] = 0;
     if ((sint32)signed_health > 0)
     {
         SetColor(3, 255, 255, 255);
         return 1;
     }
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (player)
         TryPlayPlayerKillQuote((const uint32 *)psx_addr(player + 4, 12));
-    flags = r_u16(object + 78);
-    w_u16(object + 78, flags & 0xFFEF);
+    flags = this->lifecycle_flags;
+    this->lifecycle_flags = flags & 0xFFEF;
     if (!RandomRange(2))
     {
         w_u16(object + 472, 2);
         w_u16(object + 474, 0);
         return 1;
     }
-    HandleExplosionProximity((const uint32 *)psx_addr(object + 4, 12), 0);
-    SpawnExplosionRing((const uint32 *)psx_addr(object + 4, 12), 200, 240, 200, 0, 5, 0, 100);
+    HandleExplosionProximity((const uint32 *)this->model.pos, 0);
+    SpawnExplosionRing((const uint32 *)this->model.pos, 200, 240, 200, 0, 5, 0, 100);
     child = AllocateEffectStorage(120);
     if (child)
     {
@@ -629,7 +637,7 @@ uint32 MiniTank::Damage(uint32 damage, const sint32 *input_vector, uint32)
         acceleration[2] = r_u32(0x800A71D4);
         void *dram_addr = AllocateNativeObjectStorage(child, sizeof(MiniTankRing));
         new (dram_addr) MiniTankRing(acceleration);
-        MiniTankRing::Attach(child).SetGeometry((const uint32 *)psx_addr(object + 4, 12), 0, 0);
+        MiniTankRing::Attach(child).SetGeometry((const uint32 *)this->model.pos, 0, 0);
         w_u16(child + 10, 32);
         w_u16(child + 116, 32);
         w_u16(child + 118, 16);
@@ -642,7 +650,7 @@ uint32 MiniTank::Damage(uint32 damage, const sint32 *input_vector, uint32)
     {
         void *dram_addr = AllocateNativeObjectStorage(child, sizeof(MiniTankRing));
         new (dram_addr) MiniTankRing(acceleration);
-        MiniTankRing::Attach(child).SetGeometry((const uint32 *)psx_addr(object + 4, 12), 0, 0);
+        MiniTankRing::Attach(child).SetGeometry((const uint32 *)this->model.pos, 0, 0);
         w_u16(child + 10, 32);
         w_u16(child + 116, 32);
         w_u16(child + 118, 16);
@@ -662,7 +670,7 @@ uint32 MiniTank::SetTarget(const uint32 *target)
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z, left, right, scale, velocity_x, velocity_z, angle, flags;
     uint32 difference[3], normal[3];
-    if (r_u8(object + 26))
+    if (this->model.animation)
         StartAnimation(0, 1);
     if (native_target)
     {
@@ -680,26 +688,26 @@ uint32 MiniTank::SetTarget(const uint32 *target)
     w_u32(object + 488, y);
     w_u32(object + 492, z);
     left = r_u32(object + 484);
-    right = r_u32(object + 4);
+    right = this->model.pos[0];
     difference[0] = (uint32)((sint32)(left - right) >> 12);
     left = r_u32(object + 488);
-    right = r_u32(object + 8);
+    right = this->model.pos[1];
     difference[1] = (uint32)((sint32)(left - right) >> 12);
     left = r_u32(object + 492);
-    right = r_u32(object + 12);
+    right = this->model.pos[2];
     difference[2] = (uint32)((sint32)(left - right) >> 12);
-    xport_draft_host_sub_800872BC_p12(difference, normal);
+    NormalizeShortVector(difference, normal);
     scale = r_u16(object + 436);
     velocity_x = normal[0] * scale;
     velocity_z = normal[2] * scale;
-    w_u32(object + 104, velocity_x);
-    w_u32(object + 108, 0);
-    w_u32(object + 112, velocity_z);
+    motion.velocity[0] = velocity_x;
+    motion.velocity[1] = 0;
+    motion.velocity[2] = velocity_z;
     left = r_u32(object + 492);
-    right = r_u32(object + 12);
+    right = this->model.pos[2];
     z = left - right;
     left = r_u32(object + 484);
-    right = r_u32(object + 4);
+    right = this->model.pos[0];
     angle = 3072 - (uint32)ratan2((sint32)z, (sint32)(left - right));
     flags = r_u32(object + 396);
     w_u16(object + 502, angle & 4095);
@@ -713,11 +721,11 @@ uint32 MiniTank::Fire()
     uint32 player, position[3], target[3], projectile, damage, lifetime, speed;
     uint16 rotation[3];
     FUNCTION_MARKER(0x80075CFC, "SLUS_003.73");
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (!player)
         return 0;
     GetModelAttachment(position, object, 1);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     GetCharacterAttachment(target, player, 9);
     target[1] += 65536;
     CalculateDirectionAngles(rotation, position, target);
@@ -731,7 +739,7 @@ uint32 MiniTank::Fire()
         void *dram_addr = AllocateNativeObjectStorage(projectile, sizeof(OscillatingProjectile));
         new (dram_addr) OscillatingProjectile(position, (const sint16 *)rotation, damage, lifetime, speed, 16, 240, 240, 240, 96, 128, 0);
     }
-    return PlayPositionedSound(20, (const uint32 *)psx_addr(object + 4, 12), 0);
+    return PlayPositionedSound(20, (const uint32 *)this->model.pos, 0);
 }
 
 MiniTank &MiniTank::Attach(uint32 object)

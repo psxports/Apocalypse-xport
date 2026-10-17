@@ -6,7 +6,6 @@ extern "C"
 }
 #include "visual_object.h"
 #include "vector_arithmetic.h"
-#include "animation.h"
 #include "vector_distance.h"
 #include "activation_record.h"
 #include "native_object_storage.h"
@@ -42,118 +41,118 @@ void FlagObjectNearReference(uint32 object)
     w_u16(object + 78, flags | 256);
 }
 
-void SmoothObjectPositions(uint32 object)
+void SmoothObjectPositions(ModelInstance *instance)
 {
     FUNCTION_MARKER(0x80030168, "SLUS_003.73");
-    uint32 current[3], previous_quarter[3], current_quarter[3], weighted[3], output[3];
+    uint32 cur[3], prev_quarter[3], cur_quarter[3], weighted[3], output[3];
     uint32 shift = 2, weight = 3, axis;
-    uint32 special_head = r_u32(0x800FF5A0);
-    if (object == special_head)
+    if (instance == visual_lists.players)
     {
+        const uint32 object = NativeObjectGuestAddress(instance->owner);
         for (axis = 0; axis < 3; ++axis)
-            current[axis] = r_u32(object + 184 + axis * 4);
-        ShiftVectorRight(previous_quarter, (const uint32 *)psx_addr(object + 588, 12), &shift);
-        ShiftVectorRight(current_quarter, current, &shift);
-        MultiplyScalarVector(weighted, &weight, current_quarter);
-        AddVectors(output, previous_quarter, weighted);
+            cur[axis] = r_u32(object + 184 + axis * 4);
+        ShiftVectorRight(prev_quarter, (const uint32 *)psx_addr(object + 588, 12), &shift);
+        ShiftVectorRight(cur_quarter, cur, &shift);
+        MultiplyScalarVector(weighted, &weight, cur_quarter);
+        AddVectors(output, prev_quarter, weighted);
         for (axis = 0; axis < 3; ++axis)
             w_u32(object + 184 + axis * 4, output[axis]);
         for (axis = 0; axis < 3; ++axis)
-            w_u32(object + 588 + axis * 4, current[axis]);
+            w_u32(object + 588 + axis * 4, cur[axis]);
     }
-    while (object)
+    while (instance)
     {
         for (axis = 0; axis < 3; ++axis)
-            current[axis] = r_u32(object + 4 + axis * 4);
-        ShiftVectorRight(previous_quarter, (const uint32 *)psx_addr(object + 240, 12), &shift);
-        ShiftVectorRight(current_quarter, current, &shift);
-        MultiplyScalarVector(weighted, &weight, current_quarter);
-        AddVectors(output, previous_quarter, weighted);
+            cur[axis] = instance->pos[axis];
+        VisualObject &visual = *static_cast<VisualObject *>(instance->owner);
+        ShiftVectorRight(prev_quarter, visual.pos_history.saved, &shift);
+        ShiftVectorRight(cur_quarter, cur, &shift);
+        MultiplyScalarVector(weighted, &weight, cur_quarter);
+        AddVectors(output, prev_quarter, weighted);
         for (axis = 0; axis < 3; ++axis)
-            w_u32(object + 4 + axis * 4, output[axis]);
+            instance->pos[axis] = output[axis];
         for (axis = 0; axis < 3; ++axis)
-            w_u32(object + 240 + axis * 4, current[axis]);
-        object = r_u32(object + 28);
+            visual.pos_history.saved[axis] = cur[axis];
+        instance = instance->next;
     }
 }
 
-uint32 SaveObjectPositions(uint32 object)
+ModelInstance *SaveObjectPositions(ModelInstance *instance)
 {
     FUNCTION_MARKER(0x8003032C, "SLUS_003.73");
-    uint32 special_head = r_u32(0x800FF5A0);
-    if (object == special_head)
-        CopyObjectPosition(object + 588, object + 184);
-    while (object)
+    ModelInstance *special_head = visual_lists.players;
+    if (instance == special_head)
     {
-        CopyObjectPosition(object + 240, object + 4);
-        object = r_u32(object + 28);
+        const uint32 object = NativeObjectGuestAddress(instance->owner);
+        CopyObjectPosition(object + 588, object + 184);
+    }
+    while (instance)
+    {
+        VisualObject &visual = *static_cast<VisualObject *>(instance->owner);
+        for (uint32 axis = 0; axis < 3; ++axis)
+            visual.pos_history.saved[axis] = instance->pos[axis];
+        instance = instance->next;
     }
     return special_head;
 }
 
-uint32 RestoreObjectPositions(uint32 object)
+ModelInstance *RestoreObjectPositions(ModelInstance *instance)
 {
     FUNCTION_MARKER(0x80030390, "SLUS_003.73");
-    uint32 special_head = r_u32(0x800FF5A0);
-    if (object == special_head)
-        CopyObjectPosition(object + 184, object + 588);
-    while (object)
+    ModelInstance *special_head = visual_lists.players;
+    if (instance == special_head)
     {
-        CopyObjectPosition(object + 4, object + 240);
-        object = r_u32(object + 28);
+        const uint32 object = NativeObjectGuestAddress(instance->owner);
+        CopyObjectPosition(object + 184, object + 588);
+    }
+    while (instance)
+    {
+        VisualObject &visual = *static_cast<VisualObject *>(instance->owner);
+        for (uint32 axis = 0; axis < 3; ++axis)
+            instance->pos[axis] = visual.pos_history.saved[axis];
+        instance = instance->next;
     }
     return special_head;
 }
 
-void UpdateVisualObjects(uint32 *head)
+void UpdateVisualObjects(ModelInstance *&head)
 {
-    uint32 list = GuestMemoryAddress(head);
-    if (!list)
-    {
-        // TODO Bind native list heads to the original update traversal
-        GameDiagnostic("TODO Native visual update list head\n");
-        abort();
-    }
     FUNCTION_MARKER(0x80063770, "SLUS_003.73");
-    uint32 object = r_u32(list);
-    uint32 next = object ? r_u32(object + 28) : 0;
-    while (object)
+    ModelInstance *instance = head;
+    ModelInstance *next = instance ? instance->next : 0;
+    while (instance)
     {
-        VisualObject::Attach(object).AdvanceColor();
-        uint32 flags = r_u16(object + 78);
+        VisualObject &visual = *static_cast<VisualObject *>(instance->owner);
+        const uint32 object = NativeObjectGuestAddress(&visual);
+        visual.AdvanceColor();
+        uint32 flags = visual.lifecycle_flags;
         if (flags & 64)
         {
             if (flags & 128)
-            {
-                uint32 table = r_u32(object + 68);
-                sint32 adjustment = (sint16)r_u16(table + 8);
-                uint32 target = r_u32(table + 12);
-                apocalypse_object_cleanup(target, object + (uint32)adjustment, 3);
-            }
+                visual.Destroy(3);
             else
-                w_u16(object + 78, flags | 128);
+                visual.lifecycle_flags = flags | 128;
         }
         else
         {
-            uint32 player = r_u32(0x800FF5A0);
-            uint32 distance = MeasurePositionDistance((const uint32 *)psx_addr(player + 4, 12), (const uint32 *)psx_addr(object + 4, 12));
+            uint32 distance = MeasurePositionDistance(visual_lists.players->pos, instance->pos);
             if (!DeactivateDistantObject(object, distance))
             {
-                flags = r_u16(object + 78);
+                flags = visual.lifecycle_flags;
                 w_u32(object + 220, distance);
                 if ((flags & 2) && r_u32(0x800FF5EC) < distance)
-                    VisualObject::Attach(object).MoveToTemporaryList(head);
+                    visual.MoveToTemporaryList(head);
                 else
                 {
-                    UpdateAnimationPose((uint8 *)psx_addr(object, 1));
-                    VisualObject::Attach(object).UpdateShadow();
+                    visual.UpdateAnimationPose();
+                    visual.UpdateShadow();
                 }
             }
         }
-        object = next;
+        instance = next;
         if (!next)
             return;
-        next = r_u32(next + 28);
+        next = next->next;
     }
 }
 
@@ -166,25 +165,13 @@ extern "C" void sub_80063770(uint32 list)
 extern "C" uint32 sub_80030168(uint32 object)
 {
     FUNCTION_MARKER(0x80030168, "SLUS_003.73");
-    SmoothObjectPositions(object);
+    SmoothObjectPositions(object ? &VisualObject::Attach(object).model : 0);
     // Native ABI omits the unused original local-pointer return carrier
     return 0;
 }
 
-extern "C" uint32 sub_8003032C(uint32 object)
-{
-    FUNCTION_MARKER(0x8003032C, "SLUS_003.73");
-    return SaveObjectPositions(object);
-}
 
-extern "C" uint32 sub_80030390(uint32 object)
-{
-    FUNCTION_MARKER(0x80030390, "SLUS_003.73");
-    return RestoreObjectPositions(object);
-}
 
-extern "C" void sub_80029CC4(uint32 object)
-{
-    FUNCTION_MARKER(0x80029CC4, "SLUS_003.73");
-    FlagObjectNearReference(object);
-}
+
+
+

@@ -18,7 +18,7 @@ public:
     uint32 Configure();
     uint32 SetDestination(const uint32 *position);
     uint32 TrackTarget(uint32 target);
-    uint32 ClearFacing();
+    uint16 *ClearFacing();
 
 private:
     // Native helper retains original inline facing interpolation

@@ -1,3 +1,4 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -27,9 +28,9 @@ uint32 BeamTrigger::InitializeEffect()
         new (dram_addr) PointSegments(1);
     }
     w_u32(object + 320, effect);
-    x = r_u32(object + 4);
-    y = r_u32(object + 8);
-    z = r_u32(object + 12);
+    x = this->model.pos[0];
+    y = this->model.pos[1];
+    z = this->model.pos[2];
     w_u32(effect + 84, x);
     w_u32(effect + 88, y);
     w_u32(effect + 92, z);
@@ -61,14 +62,14 @@ BeamTrigger::BeamTrigger(const uint8 *, uint32 index) : VisualObject()
     uint32 flags, secondary_flags, cursor, reference, records, record, value;
     FUNCTION_MARKER(0x8001A2E8, "SLUS_003.73");
     w_u32(object + 68, 0x800A0700);
-    flags = r_u16(object);
-    secondary_flags = r_u16(object + 78);
-    w_u16(object, flags | 1);
-    w_u16(object + 78, secondary_flags & 0xFFEF);
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
+    flags = this->model.flags;
+    secondary_flags = this->lifecycle_flags;
+    this->model.flags = flags | 1;
+    this->lifecycle_flags = secondary_flags & 0xFFEF;
+    AddToList(visual_lists.actors);
     index &= 65535;
     w_u8(object + 299, 0);
-    ReadRecordPosition((uint32 *)psx_addr(object + 4, 12), index);
+    ReadRecordPosition((uint32 *)this->model.pos, index);
     cursor = GetRecordPayload(index);
     reference = r_u16(cursor + 2);
     records = r_u32(0x800FF624);
@@ -100,7 +101,7 @@ uint32 BeamTrigger::Destroy(uint32 reason)
     uint32 child, table, receiver, target;
     FUNCTION_MARKER(0x8001A3E8, "SLUS_003.73");
     w_u32(object + 68, 0x800A0700);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     child = r_u32(object + 320);
     if (child)
     {
@@ -119,10 +120,10 @@ uint32 BeamTrigger::Update()
     uint32 effect, player, storage, active, value, flags, result, timer, random, table, receiver, target, axis;
     FUNCTION_MARKER(0x8001A550, "SLUS_003.73");
     effect = r_u32(object + 320);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     storage = r_u32(effect + 80);
     active = 0;
-    if (player && TraceSegmentCollision((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 308, 12), player))
+    if (player && TraceSegmentCollision((const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 308, 12), player))
     {
         value = r_u8(object + 299);
         active = 1;
@@ -139,11 +140,11 @@ uint32 BeamTrigger::Update()
         }
         w_u16(object + 304, 0);
     }
-    flags = r_u16(object + 76);
+    flags = this->activation_flags;
     result = flags & 0xFFFE;
     if (flags & 1)
     {
-        w_u16(object + 76, result);
+        this->activation_flags = result;
         result = 1;
         w_u8(object + 299, 1);
     }
@@ -181,14 +182,7 @@ uint32 BeamTrigger::Update()
     return result;
 }
 
-extern "C" uint32 sub_8001A2E8(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x8001A2E8, "SLUS_003.73");
-    void *storage = AllocateNativeObjectStorage(object, sizeof(BeamTrigger));
-    // Original data input is unused; do not dereference or validate it
-    new (storage) BeamTrigger(0, index);
-    return object;
-}
+
 
 extern "C" uint32 sub_8001A3E8(uint32 object, uint32 reason)
 {
@@ -196,11 +190,7 @@ extern "C" uint32 sub_8001A3E8(uint32 object, uint32 reason)
     return BeamTrigger::Attach(object).BeamTrigger::Destroy(reason);
 }
 
-extern "C" uint32 sub_8001A478(uint32 object)
-{
-    FUNCTION_MARKER(0x8001A478, "SLUS_003.73");
-    return BeamTrigger::Attach(object).InitializeEffect();
-}
+
 
 extern "C" uint32 sub_8001A550(uint32 object)
 {

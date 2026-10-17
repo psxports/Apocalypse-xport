@@ -386,26 +386,10 @@ uint32 UpdateButtonState(uint32 state, uint32 pressed)
     return result;
 }
 
-extern "C" uint32 sub_800702E0(uint32 state, uint32 pressed)
-{
-    FUNCTION_MARKER(0x800702E0, "SLUS_003.73");
-    return UpdateButtonState(state, pressed);
-}
-extern "C" uint32 sub_80070354(uint32 state, uint32 pressed, uint32 index)
-{
-    FUNCTION_MARKER(0x80070354, "SLUS_003.73");
-    return RecordButton(state, pressed, index);
-}
-extern "C" uint32 sub_80070410(uint32 state, uint32 index)
-{
-    FUNCTION_MARKER(0x80070410, "SLUS_003.73");
-    return ReplayButton(state, index);
-}
-extern "C" uint32 sub_800706B0(uint32 raw, uint32 minimum, uint32 maximum, uint32 centre)
-{
-    FUNCTION_MARKER(0x800706B0, "SLUS_003.73");
-    return (uint32)ScalePadAxis(raw, minimum, maximum, centre);
-}
+
+
+
+
 extern "C" uint32 apocalypse_pad_poll(void) { return PollPadPackets(); }
 extern "C" uint32 apocalypse_pad_normalize(void) { return NormalizePadPackets(); }
 extern "C" void apocalypse_pad_stop(void) { StopPadCommunication(); }
@@ -431,16 +415,8 @@ extern "C" uint32 sub_80070288(uint32 port, uint32 button)
     return ClearGamePadButton(port, button);
 }
 
-extern "C" uint32 sub_800705F8(uint32 destination, uint32 source)
-{
-    FUNCTION_MARKER(0x800705F8, "SLUS_003.73");
-    return CopyGamePadPacket((uint8 *)psx_addr(destination, 8), (const uint8 *)psx_addr(source, 8));
-}
-extern "C" uint32 sub_8007047C(void)
-{
-    FUNCTION_MARKER(0x8007047C, "SLUS_003.73");
-    return NormalizePadPackets();
-}
+
+
 
 static uint32 InitializeGamePadPort(uint32 controller)
 {
@@ -537,11 +513,7 @@ uint32 SetGamePadActuator(uint32 controller, uint32 value, uint32 actuator, uint
     return result;
 }
 
-extern "C" uint32 sub_8007011C(uint32 controller, uint32 value, uint32 actuator, uint32 enabled)
-{
-    FUNCTION_MARKER(0x8007011C, "SLUS_003.73");
-    return SetGamePadActuator(controller, value, actuator, enabled);
-}
+
 
 static uint32 ConfigureGamePadButtonMasks(uint32 controller, uint32 first, uint32 second, uint32 third, uint32 fourth)
 {
@@ -666,13 +638,5 @@ uint32 ReloadGamePadConfiguration()
     return LoadGamePadConfiguration();
 }
 
-extern "C" uint32 sub_80071054(void)
-{
-    FUNCTION_MARKER(0x80071054, "SLUS_003.73");
-    return LoadGamePadConfiguration();
-}
-extern "C" uint32 sub_8007113C(void)
-{
-    FUNCTION_MARKER(0x8007113C, "SLUS_003.73");
-    return ReloadGamePadConfiguration();
-}
+
+

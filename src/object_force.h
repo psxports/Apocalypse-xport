@@ -6,9 +6,11 @@ extern "C"
 #include "psx.h"
 }
 
-uint32 ApplyObjectContactImpulse(uint32 hero, uint32 object);
+uint32 *ApplyObjectContactImpulse(uint32 hero, uint32 object);
 
-class Force
+#include "object.h"
+
+class Force : public Object
 {
 public:
     static Force &Attach(uint32 object);

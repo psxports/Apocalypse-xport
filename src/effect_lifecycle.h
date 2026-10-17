@@ -6,7 +6,15 @@ extern "C"
 #include "psx.h"
 }
 
-uint32 InitializeEffectResources();
+#include "texture_resources.h"
+
+void InitializeEffectResources();
+const TextureGroup *GetEffectResourceGroup(uint32 resource);
+const TextureGroup *GetButtonResourceGroup();
+const TextureResource *GetShadowTexture();
+void ForgetEffectTexture(const TextureGroup *grp);
+void ForgetEffectTexture(const TextureResource *tex);
+void ClearEffectResourceBindings();
 void UpdateEffectList(uint32 head);
 void UpdateEffects(void);
 void DestroyTransientEffectList(uint32 object);

@@ -12,5 +12,6 @@ void *AllocateNativeObjectStorage(uint32 guest_address, size_t size);
 void *FindNativeObjectStorage(uint32 guest_address);
 uint32 NativeObjectGuestAddress(const void *object);
 uint32 GuestMemoryAddress(const void *pointer);
+void ReleaseNativeObjectStorage(uint32 guest_address);
 
 #endif

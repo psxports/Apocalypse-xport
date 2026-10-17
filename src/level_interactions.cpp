@@ -1,3 +1,4 @@
+#include "visual_object.h"
 #include "game_sdk_bindings.h"
 #include "audio_session.h"
 #include "game_object_allocation.h"
@@ -76,15 +77,15 @@ OneShotActivator::OneShotActivator(const uint8 *record_data, uint32 index) : Vis
     bank = r_u32(0x800FF62C);
     w_u32(object + 68, 0x800A3264);
     SetModelBank((const char *)psx_addr(bank, 1));
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
+    AddToList(visual_lists.actors);
     cursor = ReadPosition(record_data);
     angle = ReadOneShotActivatorHalf(cursor);
-    model = r_u8(object + 27);
-    w_u16(object + 16, angle);
+    model = this->model.bank;
+    this->model.angles[0] = angle;
     angle = ReadOneShotActivatorHalf(cursor + 2);
-    w_u16(object + 18, angle);
+    this->model.angles[1] = angle;
     angle = ReadOneShotActivatorHalf(cursor + 4);
-    w_u16(object + 20, angle);
+    this->model.angles[2] = angle;
     uint32 cursor_address = GuestMemoryAddress(cursor);
     if (cursor_address)
         key = r_u32((cursor_address + 9) & ~3);
@@ -93,15 +94,15 @@ OneShotActivator::OneShotActivator(const uint8 *record_data, uint32 index) : Vis
         uint32 alignment = (uint32)((uintptr_t)(cursor + 9) & 3);
         key = ReadOneShotActivatorWord(cursor + 9 - alignment);
     }
-    w_u16(object + 22, FindModelResourceIndex(key, model));
+    this->model.model_idx = FindModelResourceIndex(key, model);
     uint32 *offset = (uint32 *)psx_addr(object + 296, 12);
-    BuildDirectionVector(offset, (uint32)-96, (const uint16 *)psx_addr(object + 16, 6));
-    AddVectors(offset, (const uint32 *)psx_addr(object + 4, 12));
-    flags = r_u16(object + 78);
+    BuildDirectionVector(offset, (uint32)-96, (const uint16 *)this->model.angles);
+    AddVectors(offset, (const uint32 *)this->model.pos);
+    flags = this->lifecycle_flags;
     w_u16(object + 212, 0);
     w_u32(object + 308, 0);
-    w_u16(object + 214, index);
-    w_u16(object + 78, flags & 0xFFEF);
+    this->record_idx = index;
+    this->lifecycle_flags = flags & 0xFFEF;
 }
 
 uint32 OneShotActivator::Destroy(uint32 reason)
@@ -110,7 +111,7 @@ uint32 OneShotActivator::Destroy(uint32 reason)
     uint32 result;
     FUNCTION_MARKER(0x80061CBC, "SLUS_003.73");
     w_u32(object + 68, 0x800A3264);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     result = VisualObject::Destroy(0);
     if (reason & 1)
         result = ReleaseObjectStorage(object);
@@ -125,13 +126,13 @@ uint32 OneShotActivator::Update()
     result = r_u32(object + 308);
     if (result)
         return result;
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (!player)
         return result;
     result = (sint32)MeasurePositionDistance((const uint32 *)psx_addr(player + 4, 12), (const uint32 *)psx_addr(object + 296, 12)) < 192;
     if (result)
     {
-        result = r_u32(0x800FF5A0);
+        result = visual_lists.players;
         w_u32(result + 516, object);
     }
     return result;
@@ -150,7 +151,7 @@ uint32 OneShotActivator::SpawnObjects()
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 index, list;
     FUNCTION_MARKER(0x80061D8C, "SLUS_003.73");
-    index = r_u16(object + 214);
+    index = this->record_idx;
     list = GetRecordPayload(index);
     SpawnEnemyIndices((const uint16 *)psx_addr(list, 2));
     return PlaySoundEffect(47, 0x2000, 0);
@@ -165,34 +166,34 @@ ResettingActivator::ResettingActivator(const uint8 *record_data, uint32 index) :
     bank = r_u32(0x800FF62C);
     w_u32(object + 68, 0x800A3224);
     SetModelBank((const char *)psx_addr(bank, 1));
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
+    AddToList(visual_lists.actors);
     cursor = GuestMemoryAddress(ReadPosition(record_data));
-    x = r_u32(object + 4);
-    y = r_u32(object + 8);
-    z = r_u32(object + 12);
+    x = this->model.pos[0];
+    y = this->model.pos[1];
+    z = this->model.pos[2];
     w_u32(object + 296, x);
     w_u32(object + 300, y);
     w_u32(object + 304, z);
     value = r_u16(cursor);
-    bank = r_u8(object + 27);
-    w_u16(object + 16, value);
-    w_u16(object + 18, r_u16(cursor + 2));
-    w_u16(object + 20, r_u16(cursor + 4));
+    bank = this->model.bank;
+    this->model.angles[0] = value;
+    this->model.angles[1] = r_u16(cursor + 2);
+    this->model.angles[2] = r_u16(cursor + 4);
     data = (cursor + 9) & 0xFFFFFFFC;
     value = r_u32(data);
     w_u32(object + 332, value);
-    value = sub_8006E080(value, bank);
+    value = ::FindModelResourceIndex(value, bank);
     data = (cursor + 13) & 0xFFFFFFFC;
-    w_u16(object + 22, value);
+    this->model.model_idx = value;
     value = r_u32(data);
     w_u32(object + 328, value);
     sub_800667CC(object + 308, (uint32)-128, object + 16);
     sub_8006C0B8(object + 308, object + 4);
-    flags = r_u16(object + 78);
+    flags = this->lifecycle_flags;
     w_u16(object + 212, 0);
     w_u32(object + 320, 0);
-    w_u16(object + 214, index);
-    w_u16(object + 78, flags & 65519);
+    this->record_idx = index;
+    this->lifecycle_flags = flags & 65519;
 }
 
 uint32 ResettingActivator::Destroy(uint32 reason)
@@ -201,7 +202,7 @@ uint32 ResettingActivator::Destroy(uint32 reason)
     uint32 result;
     FUNCTION_MARKER(0x80061EF0, "SLUS_003.73");
     w_u32(object + 68, 0x800A3224);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     result = VisualObject::Destroy(0);
     return (reason & 1) ? ReleaseObjectStorage(object) : result;
 }
@@ -211,11 +212,11 @@ uint32 ResettingActivator::Update()
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 result, value, player, x, y, z, resource, bank;
     FUNCTION_MARKER(0x80061F54, "SLUS_003.73");
-    if (r_u16(object + 76) & 1)
+    if (this->activation_flags & 1)
     {
         BeginActivation();
         Activate();
-        w_u16(object + 76, r_u16(object + 76) & 65534);
+        this->activation_flags = this->activation_flags & 65534;
     }
     result = r_u32(object + 320);
     if (result)
@@ -229,25 +230,25 @@ uint32 ResettingActivator::Update()
             x = r_u32(object + 296);
             y = r_u32(object + 300);
             z = r_u32(object + 304);
-            w_u32(object + 4, x);
-            w_u32(object + 8, y);
-            w_u32(object + 12, z);
+            this->model.pos[0] = x;
+            this->model.pos[1] = y;
+            this->model.pos[2] = z;
             resource = r_u32(object + 332);
-            bank = r_u8(object + 27);
-            result = sub_8006E080(resource, bank);
-            w_u16(object + 22, result);
+            bank = this->model.bank;
+            result = ::FindModelResourceIndex(resource, bank);
+            this->model.model_idx = result;
         }
     }
     else
     {
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         result = player;
         if (player)
         {
             result = (sint32)sub_8006696C(player + 4, object + 308) < 192;
             if (result)
             {
-                result = r_u32(0x800FF5A0);
+                result = visual_lists.players;
                 w_u32(result + 520, object);
             }
         }
@@ -270,15 +271,15 @@ uint32 ResettingActivator::Activate()
     uint32 descriptor, resource, bank, result;
     uint32 offset[4];
     FUNCTION_MARKER(0x80062044, "SLUS_003.73");
-    descriptor = sub_80066088(r_u16(object + 214));
+    descriptor = sub_80066088(this->record_idx);
     SpawnEnemyIndices((const uint16 *)psx_addr(descriptor, 2));
     sub_80069DF0(47, 8192, 0);
     xport_draft_host_sub_800667CC_p1(offset, 16, object + 16);
     xport_draft_host_sub_8006C0B8_p2(object + 4, offset);
     resource = r_u32(object + 328);
-    bank = r_u8(object + 27);
-    result = sub_8006E080(resource, bank);
-    w_u16(object + 22, result);
+    bank = this->model.bank;
+    result = ::FindModelResourceIndex(resource, bank);
+    this->model.model_idx = result;
     return result;
 }
 
@@ -290,33 +291,33 @@ TraversalRegion::TraversalRegion(const uint8 *record_data, uint32 index) : Visua
     uint32 data, words, descriptor, delta_z, delta_x, value;
     sint32 heading, current;
     w_u32(object + 68, 0x800A31E4);
-    value = r_u16(object + 78);
-    current = r_u16(object);
+    value = this->lifecycle_flags;
+    current = this->model.flags;
     w_u16(object + 212, 0);
-    w_u16(object + 214, index);
-    w_u16(object + 78, value & 0xFFEF);
-    w_u16(object, (uint32)current | 1);
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
+    this->record_idx = index;
+    this->lifecycle_flags = value & 0xFFEF;
+    this->model.flags = (uint32)current | 1;
+    AddToList(visual_lists.actors);
     data = GuestMemoryAddress(ReadPosition(record_data));
-    w_u16(object + 16, r_u16(data));
-    w_u16(object + 18, r_u16(data + 2));
-    w_u16(object + 20, r_u16(data + 4));
+    this->model.angles[0] = r_u16(data);
+    this->model.angles[1] = r_u16(data + 2);
+    this->model.angles[2] = r_u16(data + 4);
     descriptor = sub_80066088(index);
     sub_8006613C(object + 324, r_u16(descriptor + 2));
     words = (data + 9) & 0xFFFFFFFC;
     value = r_u32(words);
-    delta_z = r_u32(object + 332) - r_u32(object + 12);
+    delta_z = r_u32(object + 332) - this->model.pos[2];
     delta_x = r_u32(object + 324);
     w_u32(object + 296, value << 12);
     value = r_u32(words + 4);
-    delta_x -= r_u32(object + 4);
+    delta_x -= this->model.pos[0];
     w_u32(object + 300, value << 12);
     w_u32(object + 304, r_u32(words + 8) << 12);
     w_u32(object + 308, r_u32(words + 12) << 12);
     w_u32(object + 312, r_u32(words + 16) << 12);
     w_u32(object + 316, r_u32(words + 20) << 12);
     heading = (3072 - (uint32)ratan2((sint32)delta_z >> 12, (sint32)delta_x >> 12)) & 0xFFF;
-    current = (sint16)r_u16(object + 18);
+    current = (sint16)this->model.angles[1];
     if (current < heading)
         w_u8(object + 320, heading - current < 2048 ? 1 : 0);
     else if (heading < current)
@@ -329,26 +330,21 @@ uint32 TraversalRegion::Destroy(uint32 reason)
     uint32 player;
     FUNCTION_MARKER(0x80062254, "SLUS_003.73");
     w_u32(object + 68, 0x800A31E4);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
-    player = r_u32(0x800FF5A0);
+    RemoveFromList(visual_lists.actors);
+    player = visual_lists.players;
     if (player && r_u32(player + 524) == object)
         w_u32(player + 524, 0);
     VisualObject::Destroy(0);
     return (reason & 1) ? ReleaseObjectStorage(object) : 0;
 }
 
-void TraversalRegion::Update()
+uint32 TraversalRegion::Update()
 {
     FUNCTION_MARKER(0x800622D8, "SLUS_003.73");
+    return 0;
 }
 
-extern "C" uint32 sub_80061BD4(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x80061BD4, "SLUS_003.73");
-    void *storage = AllocateNativeObjectStorage(object, sizeof(OneShotActivator));
-    new (storage) OneShotActivator((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
+
 
 extern "C" uint32 sub_80061CBC(uint32 object, uint32 reason)
 {
@@ -362,25 +358,11 @@ extern "C" uint32 sub_80061D20(uint32 object)
     return OneShotActivator::Attach(object).OneShotActivator::Update();
 }
 
-extern "C" uint32 sub_80061D80(uint32 object)
-{
-    FUNCTION_MARKER(0x80061D80, "SLUS_003.73");
-    return OneShotActivator::Attach(object).Activate();
-}
 
-extern "C" uint32 sub_80061D8C(uint32 object)
-{
-    FUNCTION_MARKER(0x80061D8C, "SLUS_003.73");
-    return OneShotActivator::Attach(object).SpawnObjects();
-}
 
-extern "C" uint32 sub_800620B8(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x800620B8, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(TraversalRegion));
-    new (dram_addr) TraversalRegion((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
+
+
+
 
 extern "C" uint32 sub_80062254(uint32 object, uint32 reason)
 {
@@ -394,13 +376,7 @@ extern "C" void sub_800622D8(uint32 object)
     TraversalRegion::Attach(object).TraversalRegion::Update();
 }
 
-extern "C" uint32 sub_80061DC8(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x80061DC8, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(ResettingActivator));
-    new (dram_addr) ResettingActivator((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
+
 
 extern "C" uint32 sub_80061EF0(uint32 object, uint32 reason)
 {
@@ -414,11 +390,7 @@ extern "C" uint32 sub_80061F54(uint32 object)
     return ResettingActivator::Attach(object).ResettingActivator::Update();
 }
 
-extern "C" uint32 sub_80062034(uint32 object)
-{
-    FUNCTION_MARKER(0x80062034, "SLUS_003.73");
-    return ResettingActivator::Attach(object).ResettingActivator::BeginActivation();
-}
+
 
 extern "C" uint32 sub_80062044(uint32 object)
 {

@@ -209,11 +209,7 @@ static uint32 StopAndResetSequence(sint16 sequence)
     return result;
 }
 
-extern "C" uint32 sub_8008DD9C(uint32 sequence)
-{
-    FUNCTION_MARKER(0x8008DD9C, "SLUS_003.73");
-    return StopAndResetSequence((sint16)sequence);
-}
+
 
 extern "C" uint32 sub_8008DF18(uint32 sequence)
 {

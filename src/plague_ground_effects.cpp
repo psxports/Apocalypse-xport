@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "object_damage.h"
 #include "game_random.h"
 extern "C"
 {
@@ -143,9 +145,8 @@ uint32 PlagueGroundEffect::Destroy(uint32 reason)
 void PlagueGroundEffect::Update()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 age, child, first, second, red, green, blue, old_radius, speed, player, distance, radius, width, y, height, player_y, table, damage, target;
+    uint32 age, child, first, second, red, green, blue, old_radius, speed, player, distance, radius, width, y, height, player_y, damage;
     uint32 position[3];
-    sint32 adjustment;
     FUNCTION_MARKER(0x80044DA8, "SLUS_003.73");
     age = r_u16(object + 8) + 1;
     w_u16(object + 8, age);
@@ -186,7 +187,7 @@ void PlagueGroundEffect::Update()
         return;
     old_radius = r_u32(object + 76);
     speed = r_u32(object + 104);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     w_u32(object + 76, old_radius + speed);
     if (player && !r_u32(object + 108))
     {
@@ -197,18 +198,15 @@ void PlagueGroundEffect::Update()
             width = r_u32(object + 100);
             if ((sint32)(radius + width) >= (sint32)distance)
             {
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 y = r_u32(object + 28);
                 height = r_u8(player + 582);
                 player_y = r_u32(player + 8);
                 if ((sint32)y < (sint32)(player_y + (height << 12)))
                 {
-                    table = r_u32(player + 68);
                     damage = r_u32(object + 96);
-                    adjustment = (sint16)r_u16(table + 48);
-                    target = r_u32(table + 52);
-                    apocalypse_object_virtual52(target, player + (uint32)adjustment, damage, 0x800A71CC, 0);
-                    player = r_u32(0x800FF5A0);
+                    ApplyObjectDamage(player, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+                    player = visual_lists.players;
                     position[0] = r_u32(player + 4);
                     position[1] = r_u32(player + 8);
                     position[2] = r_u32(player + 12);
@@ -253,13 +251,7 @@ PlagueGroundEffect &PlagueGroundEffect::Attach(uint32 object)
     return *static_cast<PlagueGroundEffect *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_80044C64(uint32 object, uint32 position, uint32 damage, uint32 red, uint32 green, uint32 blue, uint32 segments, uint32 radial_speed)
-{
-    FUNCTION_MARKER(0x80044C64, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(PlagueGroundEffect));
-    new (dram_addr) PlagueGroundEffect((const uint32 *)psx_addr(position, 12), damage, red, green, blue, segments, radial_speed);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_enemy_effect_constructor_native(uint32 object, const void *position, uint32 damage, uint32 red, uint32 green, uint32 blue, uint32 segments, uint32 radial_speed)
 {

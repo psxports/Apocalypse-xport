@@ -1,3 +1,6 @@
+#include "game_tick.h"
+#include "visual_object.h"
+#include "model_render_view.h"
 #include "debug_finish_repro.h"
 #include "scene_effect_packets.h"
 #include "camera.h"
@@ -29,37 +32,30 @@ extern "C"
 #include "audio_session.h"
 #include "model_resources.h"
 
-void DestroyTransientSceneObjects(uint32 object)
+void DestroyTransientSceneObjects(ModelInstance *instance)
 {
-    uint32 next, flags, table, target;
-    sint32 adjustment;
     FUNCTION_MARKER(0x8007115C, "SLUS_003.73");
-    while (object)
+    while (instance)
     {
-        next = r_u32(object + 28);
-        flags = r_u16(object + 78);
-        if (!(flags & 32))
-        {
-            table = r_u32(object + 68);
-            adjustment = (sint16)r_u16(table + 8);
-            target = r_u32(table + 12);
-            apocalypse_object_cleanup(target, object + (uint32)adjustment, 3);
-        }
-        object = next;
+        ModelInstance *next = instance->next;
+        VisualObject &object = *static_cast<VisualObject *>(instance->owner);
+        if (!(object.lifecycle_flags & 32))
+            object.Destroy(3);
+        instance = next;
     }
 }
 
 uint32 ClearScene()
 {
     FUNCTION_MARKER(0x800711D0, "SLUS_003.73");
-    DestroyTransientSceneObjects(r_u32(0x800FF5A0));
-    DestroyTransientSceneObjects(r_u32(0x800FF904));
-    DestroyTransientSceneObjects(r_u32(0x800FF4E8));
-    DestroyTransientSceneObjects(r_u32(0x800FF5DC));
-    DestroyTransientSceneObjects(r_u32(0x800FF8A0));
-    DestroyTransientSceneObjects(r_u32(0x800FF204));
-    DestroyTransientSceneObjects(r_u32(0x800FF220));
-    DestroyTransientSceneObjects(r_u32(0x800FF5E0));
+    DestroyTransientSceneObjects(visual_lists.players);
+    DestroyTransientSceneObjects(visual_lists.cameras);
+    DestroyTransientSceneObjects(visual_lists.actors);
+    DestroyTransientSceneObjects(visual_lists.solids);
+    DestroyTransientSceneObjects(visual_lists.registry);
+    DestroyTransientSceneObjects(visual_lists.pickups);
+    DestroyTransientSceneObjects(visual_lists.projectiles);
+    DestroyTransientSceneObjects(visual_lists.suspended);
     DeleteActivationRecords();
     DestroyTransientEffects();
     ClearAnimatedHudText();
@@ -77,7 +73,7 @@ uint32 ResetScene(uint32 retain_resources)
     ClearScene();
     ClearResourceScripts();
     if (retain_resources)
-        sub_8006F004();
+        ::UnloadActiveModelBanks();
     else
     {
         StopMusicPlayback();
@@ -87,16 +83,16 @@ uint32 ResetScene(uint32 retain_resources)
         UnloadUnprotectedModelBanks();
         ReleaseScriptHeap();
         UnloadLevelRecords();
-        sub_800691B8();
+        RebuildModelVramAllocations();
         ReleaseMovieFrameBuffers();
         w_u8(0x800A53E1, 0);
     }
     SetRandomSeed(0x12A6CC58);
     ClearActivationRecords();
     ClearModelBankGrids();
-    sub_8001BE54();
+    ::ResetScreenFlash();
     InitializeObjectFlashes();
-    sub_8006CDA0();
+    LoadPanelResource();
     position[0] = 0;
     position[1] = 0x8000;
     position[2] = 0;
@@ -110,23 +106,11 @@ uint32 ResetScene(uint32 retain_resources)
     return (uint32)-20;
 }
 
-extern "C" void sub_8007115C(uint32 object)
-{
-    FUNCTION_MARKER(0x8007115C, "SLUS_003.73");
-    DestroyTransientSceneObjects(object);
-}
 
-extern "C" uint32 sub_800711D0(void)
-{
-    FUNCTION_MARKER(0x800711D0, "SLUS_003.73");
-    return ClearScene();
-}
 
-extern "C" uint32 sub_80071288(uint32 retain_resources)
-{
-    FUNCTION_MARKER(0x80071288, "SLUS_003.73");
-    return ResetScene(retain_resources);
-}
+
+
+
 
 uint32 RunLevelLoop(void)
 {
@@ -157,10 +141,10 @@ uint32 RunLevelLoop(void)
         frame_start = r_u32(0x800FF64C);
         BeginSceneFrame();
         UpdateScenePacketLimit();
-        sub_8002FF90();
+        ::AdvanceGameTick();
         if (r_u32(0x800FF2EC))
             break;
-        sub_8002FF90();
+        ::AdvanceGameTick();
         if (r_u32(0x800FF2EC))
             break;
         DrawSceneFrame();
@@ -185,23 +169,23 @@ uint32 RunLevelLoop(void)
         elapsed = (sint32)(r_u32(0x800FF64C) - 2 - frame_start);
         if ((((!r_u32(0x800FF304) && (r_u32(0x800FF818) != 1)) && (elapsed > 0)) && !r_u8(0x800FF8F1)))
         {
-            sub_8002FF90();
+            ::AdvanceGameTick();
             if (r_u32(0x800FF2EC))
                 break;
             if ((elapsed >= 2))
             {
-                sub_8002FF90();
+                ::AdvanceGameTick();
                 if (r_u32(0x800FF2EC))
                     break;
             }
         }
-        if (sub_80062F48(r_u32(0x800FF5A0)))
+        if (sub_80062F48(visual_lists.players))
             w_u32(0x800FF2EC, 2);
     }
 
-    sub_8006F7D8();
+    ::WaitForModelBankLoads();
     w_u16(0x800FFAAC, 1);
-    sub_8002E2B8();
+    ::ReleaseMovieFrameBuffers();
     if (r_u32(0x800FF304))
         sub_80063A38();
     packed = r_u32(0x800FF368);
@@ -216,11 +200,7 @@ uint32 RunLevelLoop(void)
     return xport_draft_host_sub_8008847C_p1(rectangle, 0, 0, 0);
 }
 
-extern "C" uint32 sub_80030AD4(void)
-{
-    FUNCTION_MARKER(0x80030AD4, "SLUS_003.73");
-    return RunLevelLoop();
-}
+
 
 uint32 WaitForGameFrames(uint32 frames)
 {
@@ -238,11 +218,7 @@ uint32 WaitForGameFrames(uint32 frames)
     return waiting;
 }
 
-extern "C" uint32 sub_800664E4(uint32 frames)
-{
-    FUNCTION_MARKER(0x800664E4, "SLUS_003.73");
-    return WaitForGameFrames(frames);
-}
+
 
 uint32 ServiceGameFrame()
 {
@@ -307,11 +283,7 @@ uint32 ServiceGameFrame()
     return result;
 }
 
-extern "C" uint32 sub_800662A0(void)
-{
-    FUNCTION_MARKER(0x800662A0, "SLUS_003.73");
-    return ServiceGameFrame();
-}
+
 
 uint32 DrawSceneFrame()
 {
@@ -324,8 +296,8 @@ uint32 DrawSceneFrame()
         sub_8001AA28(256, 60, r_u32(0x800FF2E0), 0, 0, 256);
     }
     bool smoothed = false;
-    uint32 object = r_u32(0x800FF904);
-    w_u16(0x800A67C8, Camera::Attach(object).GetProjDistance());
+    ModelInstance *object = visual_lists.cameras;
+    w_u16(0x800A67C8, static_cast<Camera *>(object->owner)->GetProjDistance());
     BlurMenuBuffers();
     if (!r_u32(0x800FF360))
     {
@@ -337,41 +309,41 @@ uint32 DrawSceneFrame()
     uint32 previous_frame = r_u32(0x800FFB8C);
     if ((sint32)(current_frame - previous_frame) >= 2 && r_u32(0x800FF35C))
     {
-        object = r_u32(0x800FF5A0);
+        object = visual_lists.players;
         w_u32(0x800FF35C, 0);
         smoothed = true;
-        sub_80030168(object);
-        sub_80030168(r_u32(0x800FF4E8));
-        sub_80030168(r_u32(0x800FF5DC));
+        SmoothObjectPositions(object);
+        SmoothObjectPositions(visual_lists.actors);
+        SmoothObjectPositions(visual_lists.solids);
         SmoothTexturedQuadPositions();
     }
     else
     {
-        object = r_u32(0x800FF5A0);
+        object = visual_lists.players;
         w_u32(0x800FF35C, 1);
-        sub_8003032C(object);
-        sub_8003032C(r_u32(0x800FF4E8));
-        sub_8003032C(r_u32(0x800FF5DC));
+        ::SaveObjectPositions(object);
+        ::SaveObjectPositions(visual_lists.actors);
+        ::SaveObjectPositions(visual_lists.solids);
         SaveTexturedQuadPositions();
     }
     w_u32(0x800FFB8C, r_u32(0x800FF2F0));
-    sub_80063770(0x800FF904);
-    ConfigureModelRenderView(0x800ED51C, 0x800A67B8, r_u32(0x800FF660) + 112);
-    RenderVisibleModelObjectList(r_u32(0x800FF794));
-    RenderVisibleModelObjectList(r_u32(0x800FF5DC));
-    object = r_u32(0x800FF5A0);
+    UpdateVisualObjects(visual_lists.cameras);
+    ConfigureModelRenderView(GetModelRenderView(), 0x800A67B8, r_u32(0x800FF660) + 112);
+    RenderVisibleModelObjectList(GetModelSceneObjects());
+    RenderVisibleModelObjectList(visual_lists.solids);
+    object = visual_lists.players;
     uint32 first_clip = r_u16(0x800FFAAC);
     uint32 second_clip = r_u16(0x800FFAAE);
     w_u16(0x800FFAAC, 8);
     w_u16(0x800FFAAE, (uint32)-8);
     RenderVisibleModelObjectList(object);
-    object = r_u32(0x800FF4E8);
+    object = visual_lists.actors;
     w_u16(0x800FFAAC, first_clip);
     w_u16(0x800FFAAE, second_clip);
     RenderVisibleModelObjectList(object);
-    RenderVisibleModelObjectList(r_u32(0x800FF204));
-    RenderVisibleModelObjectList(r_u32(0x800FF220));
-    RenderModelObjectList(r_u32(0x800FF8A0));
+    RenderVisibleModelObjectList(visual_lists.pickups);
+    RenderVisibleModelObjectList(visual_lists.projectiles);
+    RenderModelObjectList(visual_lists.registry);
     AdvanceModelRenderCounter();
     BuildSceneEffectPackets();
     DrawHudTextQueue();
@@ -385,19 +357,15 @@ uint32 DrawSceneFrame()
     w_u32(0x800FF34C, (packet_end & 0x7FFFFFFF) - result);
     if (smoothed)
     {
-        sub_80030390(r_u32(0x800FF5A0));
-        sub_80030390(r_u32(0x800FF4E8));
-        sub_80030390(r_u32(0x800FF5DC));
+        ::RestoreObjectPositions(visual_lists.players);
+        ::RestoreObjectPositions(visual_lists.actors);
+        ::RestoreObjectPositions(visual_lists.solids);
         return RestoreTexturedQuadPositions();
     }
     return result;
 }
 
-extern "C" uint32 sub_800307F0(void)
-{
-    FUNCTION_MARKER(0x800307F0, "SLUS_003.73");
-    return DrawSceneFrame();
-}
+
 
 uint32 BeginSceneFrame()
 {
@@ -423,16 +391,8 @@ void SubmitSceneFrame()
     DrawOTag((uint32 *)psx_addr(r_u32(0x800FF660) + 16492, 4));
 }
 
-extern "C" uint32 sub_80068160(void)
-{
-    FUNCTION_MARKER(0x80068160, "SLUS_003.73");
-    return BeginSceneFrame();
-}
-extern "C" void sub_800681B8(void)
-{
-    FUNCTION_MARKER(0x800681B8, "SLUS_003.73");
-    SubmitSceneFrame();
-}
+
+
 
 
 uint32 UpdateScenePacketLimit()
@@ -444,11 +404,7 @@ uint32 UpdateScenePacketLimit()
     return limit;
 }
 
-extern "C" uint32 sub_8002FF54(void)
-{
-    FUNCTION_MARKER(0x8002FF54, "SLUS_003.73");
-    return UpdateScenePacketLimit();
-}
+
 
 uint32 AdvanceSceneVBlank()
 {
@@ -496,19 +452,7 @@ uint32 InitializeSceneDisplay()
     return 1;
 }
 
-extern "C" uint32 sub_80066458(void)
-{
-    FUNCTION_MARKER(0x80066458, "SLUS_003.73");
-    return AdvanceSceneVBlank();
-}
-extern "C" uint32 sub_8006805C(void)
-{
-    FUNCTION_MARKER(0x8006805C, "SLUS_003.73");
-    return ResetSceneDisplayOffsets();
-}
-extern "C" uint32 sub_80068084(void)
-{
-    FUNCTION_MARKER(0x80068084, "SLUS_003.73");
-    return InitializeSceneDisplay();
-}
+
+
+
 

@@ -3,13 +3,11 @@ extern "C"
 #include "draft_first_signatures.h"
 }
 #include "hud_sprites.h"
+#include "texture_resources.h"
 #include "native_object_storage.h"
 #include <string.h>
 
-static uint32 ReadHudByte(const uint8 *input, uint32 address, uint32 offset)
-{
-    return address ? r_u8(address + offset) : input[offset];
-}
+
 
 static uint32 ReadHudHalf(const uint8 *input, uint32 address, uint32 offset)
 {
@@ -20,14 +18,7 @@ static uint32 ReadHudHalf(const uint8 *input, uint32 address, uint32 offset)
     return value;
 }
 
-static uint32 ReadHudWord(const uint8 *input, uint32 address, uint32 offset)
-{
-    uint32 value;
-    if (address)
-        return r_u32(address + offset);
-    memcpy(&value, input + offset, 4);
-    return value;
-}
+
 
 static void WriteHudHalf(uint8 *output, uint32 address, uint32 offset, uint32 value)
 {
@@ -38,10 +29,9 @@ static void WriteHudHalf(uint8 *output, uint32 address, uint32 offset, uint32 va
         memcpy(output + offset, &half, 2);
 }
 
-uint8 *AllocateHudSprite(const uint8 *texture)
+uint8 *AllocateHudSprite(const TextureFrame &frame)
 {
-    uint32 packet, next, limit, data, uv0, uv1, uv2, tail, buffer, tag, head;
-    uint32 address = GuestMemoryAddress(texture);
+    uint32 packet, next, limit, uv0, uv1, uv2, tail, buffer, tag, head;
     FUNCTION_MARKER(0x8006D028, "SLUS_003.73");
     packet = r_u32(0x800FF668);
     limit = r_u32(0x800FF374);
@@ -51,11 +41,11 @@ uint8 *AllocateHudSprite(const uint8 *texture)
     w_u32(0x800FF668, next);
     w_u32(packet, 0x09000000);
     w_u32(packet + 4, 0x2C808080);
-    data = ReadHudWord(texture, address, 4);
-    uv0 = r_u32(data);
-    uv1 = r_u32(data + 4);
-    uv2 = r_u32(data + 8);
-    tail = r_u16(data + 10);
+    const TextureResource &tex = *frame.tex;
+    uv0 = PackTextureUv(tex, 0);
+    uv1 = PackTextureUv(tex, 1);
+    uv2 = PackTextureUv(tex, 2);
+    tail = tex.uv[3].uv;
     w_u32(packet + 20, uv1);
     w_u32(packet + 12, uv0);
     w_u32(packet + 28, uv2);
@@ -69,18 +59,18 @@ uint8 *AllocateHudSprite(const uint8 *texture)
     return (uint8 *)psx_addr(packet, 40);
 }
 
-uint32 PlaceScaledHudSprite(uint32 x, uint32 y, uint8 *packet, const uint8 *texture)
+uint32 PlaceScaledHudSprite(uint32 x, uint32 y, uint8 *packet, const TextureFrame &frame)
 {
-    uint32 destination = GuestMemoryAddress(packet), source = GuestMemoryAddress(texture);
+    uint32 destination = GuestMemoryAddress(packet);
     uint32 offset, width, top, height, left, right, bottom;
     sint32 offset_high, width_high;
     FUNCTION_MARKER(0x8006D0D4, "SLUS_003.73");
-    offset = (uint32)(sint32)(sint8)ReadHudByte(texture, source, 0) << 9;
+    offset = (uint32)(sint32)frame.ox << 9;
     offset_high = (sint32)(((sint64)(sint32)offset * (sint64)0x66666667) >> 32);
-    width = ReadHudByte(texture, source, 2) << 9;
-    top = y + (uint32)(sint32)(sint8)ReadHudByte(texture, source, 1);
+    width = (uint32)frame.w << 9;
+    top = y + (uint32)(sint32)frame.oy;
     width_high = (sint32)(((sint64)(sint32)width * (sint64)0x66666667) >> 32);
-    height = ReadHudByte(texture, source, 3);
+    height = (uint32)frame.h;
     WriteHudHalf(packet, destination, 10, top);
     WriteHudHalf(packet, destination, 26, top + height);
     left = x + (uint32)(offset_high >> 7) - (uint32)((sint32)offset >> 31);
@@ -95,15 +85,15 @@ uint32 PlaceScaledHudSprite(uint32 x, uint32 y, uint8 *packet, const uint8 *text
     return bottom;
 }
 
-uint32 PlaceHudSprite(uint32 x, uint32 y, uint8 *packet, const uint8 *texture)
+uint32 PlaceHudSprite(uint32 x, uint32 y, uint8 *packet, const TextureFrame &frame)
 {
-    uint32 destination = GuestMemoryAddress(packet), source = GuestMemoryAddress(texture);
+    uint32 destination = GuestMemoryAddress(packet);
     uint32 width, height, left, top, right, bottom;
     FUNCTION_MARKER(0x8006D164, "SLUS_003.73");
-    width = ReadHudByte(texture, source, 2);
-    height = ReadHudByte(texture, source, 3);
-    left = x + (uint32)(sint32)(sint8)ReadHudByte(texture, source, 0);
-    top = y + (uint32)(sint32)(sint8)ReadHudByte(texture, source, 1);
+    width = (uint32)frame.w;
+    height = (uint32)frame.h;
+    left = x + (uint32)(sint32)frame.ox;
+    top = y + (uint32)(sint32)frame.oy;
     WriteHudHalf(packet, destination, 8, left);
     WriteHudHalf(packet, destination, 10, top);
     WriteHudHalf(packet, destination, 16, left + width);
@@ -117,24 +107,11 @@ uint32 PlaceHudSprite(uint32 x, uint32 y, uint8 *packet, const uint8 *texture)
     return top;
 }
 
-extern "C" uint32 sub_8006D028(uint32 texture)
-{
-    FUNCTION_MARKER(0x8006D028, "SLUS_003.73");
-    uint8 *packet = AllocateHudSprite((const uint8 *)psx_addr(texture, 8));
-    return packet ? GuestMemoryAddress(packet) : 0;
-}
 
-extern "C" uint32 sub_8006D0D4(uint32 x, uint32 y, uint32 packet, uint32 texture)
-{
-    FUNCTION_MARKER(0x8006D0D4, "SLUS_003.73");
-    return PlaceScaledHudSprite(x, y, (uint8 *)psx_addr(packet, 40), (const uint8 *)psx_addr(texture, 4));
-}
 
-extern "C" uint32 sub_8006D164(uint32 x, uint32 y, uint32 packet, uint32 texture)
-{
-    FUNCTION_MARKER(0x8006D164, "SLUS_003.73");
-    return PlaceHudSprite(x, y, (uint8 *)psx_addr(packet, 40), (const uint8 *)psx_addr(texture, 4));
-}
+
+
+
 
 uint8 *AllocateHudRectangle(uint32 x, uint32 y, uint32 width, uint32 height, uint32 red, uint32 green, uint32 blue, uint32 depth)
 {
@@ -223,9 +200,5 @@ uint32 QueueHudGradientRectangle(uint32 x, uint32 y, uint32 width, uint32 height
     return result;
 }
 
-extern "C" uint32 sub_8006D294(uint32 x, uint32 y, uint32 width, uint32 height, uint32 right_red, uint32 right_green, uint32 right_blue, uint32 left_red, uint32 left_green, uint32 left_blue, uint32 depth)
-{
-    FUNCTION_MARKER(0x8006D294, "SLUS_003.73");
-    return QueueHudGradientRectangle(x, y, width, height, right_red, right_green, right_blue, left_red, left_green, left_blue, depth);
-}
+
 

@@ -1,3 +1,4 @@
+#include "model_resources.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -17,37 +18,29 @@ static uint32 ReadRegionWord(const uint32 *input, uint32 axis)
     return value;
 }
 
-uint32 ApplyRegionToObjects(const uint32 *lower, const uint32 *upper, uint32 object, uint32 trigger)
+uint32 ApplyRegionToObjects(const uint32 *lower, const uint32 *upper, ModelInstance *instance, uint32 trigger)
 {
-    uint32 next, count = 0, x, y, z, table, receiver, target;
+    uint32 count = 0;
     FUNCTION_MARKER(0x80067ABC, "SLUS_003.73");
-    while (object)
+    while (instance)
     {
-        next = r_u32(object + 28);
-        if (!sub_80062F48(object))
+        ModelInstance *next = instance->next;
+        VisualObject &object = *static_cast<VisualObject *>(instance->owner);
+        if (!object.IsFinished())
         {
-            x = r_u32(object + 4);
-            y = r_u32(object + 8);
-            z = r_u32(object + 12);
+            uint32 x = instance->pos[0];
+            uint32 y = instance->pos[1];
+            uint32 z = instance->pos[2];
             if ((sint32)x >= (sint32)ReadRegionWord(lower, 0) && (sint32)ReadRegionWord(upper, 0) >= (sint32)x && (sint32)z >= (sint32)ReadRegionWord(lower, 2) && (sint32)ReadRegionWord(upper, 2) >= (sint32)z && (sint32)y >= (sint32)ReadRegionWord(lower, 1) && (sint32)ReadRegionWord(upper, 1) >= (sint32)y)
             {
-                table = r_u32(object + 68);
                 if (trigger)
-                {
-                    receiver = object + (uint32)(sint32)(sint16)r_u16(table + 16);
-                    target = r_u32(table + 20);
-                    (void)DispatchObjectFinish(target, receiver);
-                }
+                    object.Finish();
                 else
-                {
-                    receiver = object + (uint32)(sint32)(sint16)r_u16(table + 8);
-                    target = r_u32(table + 12);
-                    apocalypse_object_cleanup(target, receiver, 3);
-                }
+                    object.Destroy(3);
                 ++count;
             }
         }
-        object = next;
+        instance = next;
     }
     return count;
 }
@@ -89,10 +82,10 @@ uint32 ClearRegion(const uint32 *lower, const uint32 *upper)
 {
     uint32 count;
     FUNCTION_MARKER(0x80067C20, "SLUS_003.73");
-    count = ApplyRegionToObjects(lower, upper, r_u32(0x800FF4E8), 1);
-    count += ApplyRegionToObjects(lower, upper, r_u32(0x800FF5DC), 1);
-    count += ApplyRegionToObjects(lower, upper, r_u32(0x800FF204), 1);
-    count += ApplyRegionToObjects(lower, upper, r_u32(0x800FF5E0), 0);
+    count = ApplyRegionToObjects(lower, upper, visual_lists.actors, 1);
+    count += ApplyRegionToObjects(lower, upper, visual_lists.solids, 1);
+    count += ApplyRegionToObjects(lower, upper, visual_lists.pickups, 1);
+    count += ApplyRegionToObjects(lower, upper, visual_lists.suspended, 0);
     return count + RemoveRegionEffects(lower, upper);
 }
 
@@ -101,38 +94,26 @@ extern "C" uint32 apocalypse_clear_region_native(const uint32 *lower, const uint
     return ClearRegion(lower, upper);
 }
 
-extern "C" uint32 sub_80067ABC(uint32 lower, uint32 upper, uint32 object, uint32 trigger)
-{
-    FUNCTION_MARKER(0x80067ABC, "SLUS_003.73");
-    return ApplyRegionToObjects((const uint32 *)psx_addr(lower, 12), (const uint32 *)psx_addr(upper, 12), object, trigger);
-}
 
-extern "C" uint32 sub_8001F7A0(uint32 lower, uint32 upper)
-{
-    FUNCTION_MARKER(0x8001F7A0, "SLUS_003.73");
-    return RemoveRegionEffects((const uint32 *)psx_addr(lower, 12), (const uint32 *)psx_addr(upper, 12));
-}
 
-extern "C" uint32 sub_80067C20(uint32 lower, uint32 upper)
-{
-    FUNCTION_MARKER(0x80067C20, "SLUS_003.73");
-    return ClearRegion((const uint32 *)psx_addr(lower, 12), (const uint32 *)psx_addr(upper, 12));
-}
+
+
+
 
 uint32 SetRegionObjectsEnabled(const uint32 *lower, const uint32 *upper, uint32 enabled)
 {
-    uint32 object, resource, position[3], order[3] = {0, 2, 1}, index, axis, result = 0x800F0000;
+    ModelInstance *object;
+    uint32 position[3], order[3] = {0, 2, 1}, index, axis, result = 0x800F0000;
     FUNCTION_MARKER(0x80067CCC, "SLUS_003.73");
-    object = r_u32(0x800FF794);
+    object = GetModelSceneObjects();
     while (object)
     {
-        resource = 0x800EAEF8 + r_u8(object + 27) * 64;
-        result = r_u8(resource + 10);
+        result = GetModelBank(object->bank).loaded;
         if (result)
         {
-            position[0] = r_u32(object + 4);
-            position[1] = r_u32(object + 8);
-            position[2] = r_u32(object + 12);
+            position[0] = object->pos[0];
+            position[1] = object->pos[1];
+            position[2] = object->pos[2];
             for (index = 0; index < 3; ++index)
             {
                 axis = order[index];
@@ -145,12 +126,12 @@ uint32 SetRegionObjectsEnabled(const uint32 *lower, const uint32 *upper, uint32 
             }
             if (index == 3)
             {
-                result = r_u16(object);
+                result = object->flags;
                 result = enabled ? result & 65534 : result | 1;
-                w_u16(object, result);
+                object->flags = result;
             }
         }
-        object = r_u32(object + 28);
+        object = object->next;
     }
     return result;
 }
@@ -160,8 +141,4 @@ extern "C" uint32 apocalypse_region_enabled_native(const uint32 *lower, const ui
     return SetRegionObjectsEnabled(lower, upper, enabled);
 }
 
-extern "C" uint32 sub_80067CCC(uint32 lower, uint32 upper, uint32 enabled)
-{
-    FUNCTION_MARKER(0x80067CCC, "SLUS_003.73");
-    return SetRegionObjectsEnabled((const uint32 *)psx_addr(lower, 12), (const uint32 *)psx_addr(upper, 12), enabled);
-}
+

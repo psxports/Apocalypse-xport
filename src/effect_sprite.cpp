@@ -362,13 +362,7 @@ extern "C" uint32 sub_80034DE8(uint32 object, uint32 reason)
     return Sprite::Attach(object).Sprite::Destroy(reason);
 }
 
-extern "C" uint32 sub_800353A4(uint32 object, uint32 position, uint32 name, uint32 size, uint32 initialize, uint32 first, uint32 last)
-{
-    FUNCTION_MARKER(0x800353A4, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(AnimatedSprite));
-    new (dram_addr) AnimatedSprite((const uint32 *)psx_addr(position, 12), (const char *)psx_addr(name, 1), size, initialize, first, last);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_sprite_construct_native(uint32 object, const uint32 position[3], uint32 name, uint32 size, uint32 initialize, uint32 first, uint32 last)
 {
@@ -377,13 +371,7 @@ extern "C" uint32 apocalypse_sprite_construct_native(uint32 object, const uint32
     return object;
 }
 
-extern "C" uint32 sub_80035478(uint32 object, uint32 position, uint32 resource, uint32 size, uint32 initialize, uint32 first, uint32 last)
-{
-    FUNCTION_MARKER(0x80035478, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(AnimatedSprite));
-    new (dram_addr) AnimatedSprite((const uint32 *)psx_addr(position, 12), resource, size, initialize, first, last);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_effect_construct_35478(uint32 object, const void *position, uint32 resource, uint32 size, uint32 initialize, uint32 first, uint32 last)
 {
@@ -404,13 +392,7 @@ extern "C" uint32 sub_800355A0(uint32 object)
     return AnimatedSprite::Attach(object).AnimatedSprite::Update();
 }
 
-extern "C" uint32 sub_80035638(uint32 object, uint32 position, uint32 velocity, uint32 name, uint32 size, uint32 lifetime, uint32 mode)
-{
-    FUNCTION_MARKER(0x80035638, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(MovingSprite));
-    new (dram_addr) MovingSprite((const uint32 *)psx_addr(position, 12), (const uint32 *)psx_addr(velocity, 12), (const char *)psx_addr(name, 1), size, lifetime, mode);
-    return object;
-}
+
 
 extern "C" uint32 xport_draft_host_sub_80035638_p3(uint32 object, uint32 position, const void *velocity, uint32 name, uint32 size, uint32 lifetime, uint32 mode)
 {
@@ -432,13 +414,7 @@ extern "C" uint32 sub_80035758(uint32 object)
     return MovingSprite::Attach(object).MovingSprite::Update();
 }
 
-extern "C" uint32 sub_800358B4(uint32 object, uint32 position, uint32 red, uint32 green, uint32 blue, uint32 resource, uint32 size, uint32 initialize, uint32 spread, uint32 acceleration, uint32 lifetime)
-{
-    FUNCTION_MARKER(0x800358B4, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(ParticleSprite));
-    new (dram_addr) ParticleSprite((const uint32 *)psx_addr(position, 12), red, green, blue, resource, size, initialize, spread, acceleration, lifetime);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_particle_construct_358B4(uint32 object, const void *position, uint32 red, uint32 green, uint32 blue, uint32 resource, uint32 size, uint32 initialize, uint32 spread, uint32 acceleration, uint32 lifetime)
 {
@@ -459,21 +435,9 @@ extern "C" uint32 sub_80035A54(uint32 object)
     return ParticleSprite::Attach(object).ParticleSprite::Update();
 }
 
-extern "C" uint32 sub_80034E4C(uint32 object)
-{
-    FUNCTION_MARKER(0x80034E4C, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(EndpointSprite));
-    new (dram_addr) EndpointSprite();
-    return object;
-}
 
-extern "C" uint32 sub_8003658C(uint32 object)
-{
-    FUNCTION_MARKER(0x8003658C, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(LoopingEndpointSprite));
-    new (dram_addr) LoopingEndpointSprite();
-    return object;
-}
+
+
 
 extern "C" uint32 sub_80034E90(uint32 object, uint32 reason)
 {

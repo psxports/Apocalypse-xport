@@ -18,12 +18,12 @@ extern "C" {
 #include <new>
 #include <string.h>
 
-SpiralRayWeapon::SpiralRayWeapon(uint32 target) : WeaponNode(target, 0)
+SpiralRayWeapon::SpiralRayWeapon(ModelInstance **target) : WeaponNode(target, 0)
 {
     uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80023B2C, "SLUS_003.73");
     w_u32(object, 0x800A14F0);
-    w_u32(object + 4, WPN_SPIRAL_RAY);
+    this->type = WPN_SPIRAL_RAY;
     Configure(0, 0, 1, 6000, 20, 256);
 }
 
@@ -174,14 +174,17 @@ uint32 SpiralRayWeapon::ReadMasked(uint32 address, uint32 mask)
 
 uint32 SpiralRayWeapon::Fire(const uint32 *input_position, const sint16 *input_angles)
 {
+    uint32 trig_angle;
+    CollisionRay &shared_ray = GetSharedCollisionRay();
     uint32 guest_position = GuestMemoryAddress(input_position), guest_angles = GuestMemoryAddress(input_angles);
     const uint32 *native_position = guest_position ? 0 : input_position;
     const void *native_angles = guest_angles ? 0 : input_angles;
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80023C14, "SLUS_003.73");
     uint32 x, y, z, enabled, previous, frame, sound, radius, child;
-    uint32 scale20, scale14, scale10, random, spread, packed, target, filter, material, damage;
-    uint32 distance, offset, ring_index, index, address, cosine, sine, old_x, shift;
+    uint32 scale20, scale14, scale10, random, spread, target, damage;
+    ModelInstance **filter;
+    uint32 distance, offset, ring_index, index, cosine, sine, old_x;
     uint32 direction[3], endpoint[3], ring[16][3], temporary[3], side[3], scaled[3];
     sint16 angles[3], effect_angles[3];
     x = SpiralRayWeapon::ReadWord(guest_position, native_position, 0);
@@ -200,7 +203,7 @@ uint32 SpiralRayWeapon::Fire(const uint32 *input_position, const sint16 *input_a
     }
     sound = PlaySoundEffect((sint32)r_u32(object + 76), 8192, 0);
     radius = r_u32(object + 80);
-    w_u32(object + 52, sound);
+    this->sound = sound;
     w_u32(object + 84, 1);
     if (radius)
     {
@@ -229,46 +232,43 @@ uint32 SpiralRayWeapon::Fire(const uint32 *input_position, const sint16 *input_a
     BuildDirectionVector(endpoint, r_u32(object + 72), (const uint16 *)angles);
     DivideVector(direction, endpoint, (const uint32 *)psx_addr(object + 72, 4));
     AddVectors(endpoint, (const uint32 *)psx_addr(object + 8, 12));
-    w_u32(0x800ED638, r_u32(object + 8));
-    w_u32(0x800ED63C, r_u32(object + 12));
+    shared_ray.pos[0][0] = (r_u32(object + 8));
+    shared_ray.pos[0][1] = (r_u32(object + 12));
     z = r_u32(object + 16);
-    w_u32(0x800ED644, endpoint[0]);
-    w_u32(0x800ED648, endpoint[1]);
-    w_u32(0x800ED64C, endpoint[2]);
-    w_u32(0x800ED640, z);
-    InitializeCollisionRay((uint8 *)psx_addr(0x800ED638, 140));
+    shared_ray.pos[1][0] = (endpoint[0]);
+    shared_ray.pos[1][1] = (endpoint[1]);
+    shared_ray.pos[1][2] = (endpoint[2]);
+    shared_ray.pos[0][2] = (z);
+    InitializeCollisionRay(shared_ray);
     w_u32(0x800FF974, 1);
-    QueryCollisionRay((uint8 *)psx_addr(0x800ED638, 140), 1);
+    QueryCollisionRay(shared_ray, 1);
     w_u32(0x800FF974, 0);
     w_u8(object + 88, 0);
-    target = r_u32(0x800ED6A0);
+    target = shared_ray.hit.GetObject();
     if (target)
     {
-        endpoint[0] = r_u32(0x800ED6A4);
-        material = r_u32(0x800ED6B8);
-        endpoint[1] = r_u32(0x800ED6A8);
-        endpoint[2] = r_u32(0x800ED6AC);
-        damage = r_u32(object + 40);
-        DamageLevelObject(target, material, (sint32)damage);
-        target = r_u32(0x800ED6A0);
+        endpoint[0] = shared_ray.hit_pos[0];
+
+        endpoint[1] = shared_ray.hit_pos[1];
+        endpoint[2] = shared_ray.hit_pos[2];
+        damage = this->damage;
+        DamageLevelObject(target, shared_ray.hit.GetPolygon(), (sint32)damage);
+        target = shared_ray.hit.GetObject();
         if (r_u16(target) & 16)
         {
-            uint32 table = r_u32(target + 68);
-            uint32 receiver, callback;
-            damage = r_u32(object + 40);
-            receiver = target + (uint32)(sint32)(sint16)r_u16(table + 48);
-            callback = r_u32(table + 52);
-            apocalypse_object_virtual52_native(callback, receiver, damage, (const sint32 *)direction, 28);
+            uint32 receiver;
+            damage = this->damage;
+            receiver = target;
+            ApplyObjectDamage(receiver, damage, (const sint32 *)direction, 28);
         }
-        filter = r_u32(object + 44);
-        target = IntersectObjectSpheres((const uint32 *)psx_addr(object + 8, 12), endpoint, endpoint, r_u32(filter), 0);
+        filter = this->owner_list;
+        target = IntersectObjectSpheres((const uint32 *)psx_addr(object + 8, 12), endpoint, endpoint, *filter, 0);
         if (target)
         {
-            uint32 table = r_u32(target + 68), receiver, callback;
-            damage = r_u32(object + 40);
-            receiver = target + (uint32)(sint32)(sint16)r_u16(table + 48);
-            callback = r_u32(table + 52);
-            apocalypse_object_virtual52_native(callback, receiver, damage, (const sint32 *)direction, 28);
+            uint32 receiver;
+            damage = this->damage;
+            receiver = target;
+            ApplyObjectDamage(receiver, damage, (const sint32 *)direction, 28);
         }
         else
         {
@@ -276,9 +276,9 @@ uint32 SpiralRayWeapon::Fire(const uint32 *input_position, const sint16 *input_a
             w_u32(object + 92, endpoint[0]);
             w_u32(object + 96, endpoint[1]);
             w_u32(object + 100, endpoint[2]);
-            w_u16(object + 104, r_u16(0x800ED6B0));
-            w_u16(object + 106, r_u16(0x800ED6B2));
-            w_u16(object + 108, r_u16(0x800ED6B4));
+            w_u16(object + 104, (uint16)shared_ray.n.vx);
+            w_u16(object + 106, (uint16)shared_ray.n.vy);
+            w_u16(object + 108, (uint16)shared_ray.n.vz);
             x = r_u32(object + 8);
             y = r_u32(object + 12);
             z = r_u32(object + 16);
@@ -290,42 +290,41 @@ uint32 SpiralRayWeapon::Fire(const uint32 *input_position, const sint16 *input_a
     }
     else
     {
-        filter = r_u32(object + 44);
-        target = IntersectObjectSpheres((const uint32 *)psx_addr(object + 8, 12), endpoint, endpoint, r_u32(filter), 0);
+        filter = this->owner_list;
+        target = IntersectObjectSpheres((const uint32 *)psx_addr(object + 8, 12), endpoint, endpoint, *filter, 0);
         if (target)
         {
-            uint32 table = r_u32(target + 68), receiver, callback;
-            damage = r_u32(object + 40);
-            receiver = target + (uint32)(sint32)(sint16)r_u16(table + 48);
-            callback = r_u32(table + 52);
-            apocalypse_object_virtual52_native(callback, receiver, damage, (const sint32 *)direction, 28);
+            uint32 receiver;
+            damage = this->damage;
+            receiver = target;
+            ApplyObjectDamage(receiver, damage, (const sint32 *)direction, 28);
             apocalypse_projectile_impact_2289C(4, (const sint32 *)endpoint);
         }
     }
     /* The original delay loop has no memory or call side effects */
     for (index = 0; index < 16; ++index)
     {
-        address = 0x800F863C + ((index << 10) & 0x3C00);
-        ring[index][0] = 48 * (uint32)(sint32)(sint16)r_u16(address);
+        trig_angle = (index << 8) & 0xF00;
+        ring[index][0] = 48 * (uint32)rsin(trig_angle);
         ring[index][2] = 0;
-        ring[index][1] = 0 - 48 * (uint32)(sint32)(sint16)r_u16(address + 2);
+        ring[index][1] = 0 - 48 * (uint32)rcos(trig_angle);
         if (angles[0])
         {
-            address = 0x800F863C + 4 * ((uint16)angles[0] & 4095);
-            cosine = (uint32)(sint32)(sint16)r_u16(address + 2);
+            trig_angle = (uint16)angles[0] & 4095;
+            cosine = (uint32)rcos(trig_angle);
             ring[index][1] = (uint32)((sint32)(ring[index][1] * cosine) >> 12);
-            sine = (uint32)(sint32)(sint16)r_u16(address);
+            sine = (uint32)rsin(trig_angle);
             ring[index][2] = (uint32)((sint32)((0 - ring[index][1]) * sine) >> 12);
         }
         if (angles[1])
         {
-            address = 0x800F863C + 4 * ((uint16)angles[1] & 4095);
+            trig_angle = (uint16)angles[1] & 4095;
             old_x = ring[index][0];
-            cosine = (uint32)(sint32)(sint16)r_u16(address + 2);
-            sine = (uint32)(sint32)(sint16)r_u16(address);
+            cosine = (uint32)rcos(trig_angle);
+            sine = (uint32)rsin(trig_angle);
             ring[index][0] = (uint32)((sint32)(old_x * cosine + ring[index][2] * sine) >> 12);
-            sine = (uint32)(sint32)(sint16)r_u16(address);
-            cosine = (uint32)(sint32)(sint16)r_u16(address + 2);
+            sine = (uint32)rsin(trig_angle);
+            cosine = (uint32)rcos(trig_angle);
             ring[index][2] = (uint32)((sint32)(old_x * sine - ring[index][2] * cosine) >> 12);
         }
     }

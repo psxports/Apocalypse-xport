@@ -1,6 +1,8 @@
 #ifndef SCENE_LIFECYCLE_H
 #define SCENE_LIFECYCLE_H
 
+struct ModelInstance;
+
 extern "C"
 {
 #include "psx.h"
@@ -17,7 +19,7 @@ uint32 BeginSceneFrame();
 uint32 UpdateScenePacketLimit();
 void SubmitSceneFrame();
 
-void DestroyTransientSceneObjects(uint32 object);
+void DestroyTransientSceneObjects(ModelInstance *instance);
 uint32 ClearScene();
 uint32 ResetScene(uint32 retain_resources);
 

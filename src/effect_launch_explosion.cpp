@@ -85,13 +85,7 @@ LaunchExplosionEffect &LaunchExplosionEffect::Attach(uint32 object)
     return *static_cast<LaunchExplosionEffect *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_80035B60(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x80035B60, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(LaunchExplosionEffect));
-    new (dram_addr) LaunchExplosionEffect((const uint32 *)psx_addr(position, 12));
-    return object;
-}
+
 
 extern "C" uint32 sub_80035BD0(uint32 object, uint32 reason)
 {

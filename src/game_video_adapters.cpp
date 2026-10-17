@@ -1,3 +1,4 @@
+#include "movie_lifecycle.h"
 #include "game_sdk_bindings.h"
 extern "C"
 {
@@ -115,7 +116,7 @@ static uint32 output_callback;
 
 static void CompleteMovieOutput(void)
 {
-    sub_8002F84C();
+    ::OutputMovieSlice();
 }
 
 extern "C" void sub_8009BC3C(uint32 mode)

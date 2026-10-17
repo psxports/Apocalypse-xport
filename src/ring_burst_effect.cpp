@@ -166,11 +166,7 @@ extern "C" uint32 xport_draft_host_sub_8001CF9C_p2(uint32 object, const void *po
     return object;
 }
 
-extern "C" uint32 sub_8001D114(uint32 object)
-{
-    FUNCTION_MARKER(0x8001D114, "SLUS_003.73");
-    return RingBurstEffect::Attach(object).RegenerateRadii();
-}
+
 
 extern "C" uint32 sub_8001FCD4(uint32 object, uint32 reason)
 {

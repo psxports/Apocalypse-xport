@@ -3,10 +3,9 @@
 
 #include "visual_object.h"
 
-uint32 ResetCameraPresetData();
+void ResetCameraDefaults();
 
 
-uint32 ClearCameraPresetFlags();
 
 class Camera : public VisualObject
 {
@@ -29,7 +28,7 @@ public:
     uint32 SetProjDistanceTransition(uint32 target, uint32 frames);
     uint32 GetProjDistance();
     uint32 SetYawTransition(uint32 target, uint32 frames);
-    uint32 PrepareView();
+    MATRIX *PrepareView();
     uint32 BuildView();
     uint32 ResolveCollisions();
     uint32 UpdatePlayerRelativeTracking();

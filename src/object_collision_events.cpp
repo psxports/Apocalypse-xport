@@ -1,3 +1,4 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -15,6 +16,14 @@ extern "C"
 #include "model_projection.h"
 #include "player.h"
 #include "native_object_storage.h"
+
+static CollisionRay shared_collision_ray;
+static SVECTOR collision_normal;
+
+CollisionRay &GetSharedCollisionRay()
+{
+    return shared_collision_ray;
+}
 
 static uint32 ReadSegmentPoint(const uint32 *point, uint32 axis)
 {
@@ -123,10 +132,11 @@ static uint32 ReadCollisionRayHalf(const void *record, uint32 offset)
 
 uint32 ChooseCandidatePosition(uint32 object, uint32 *output, const uint32 *target, uint32 minimum, uint32 maximum, uint32 height_limit, uint32 spread, uint32 ground, uint32 check_collision)
 {
+    uint32 trig_angle;
     FUNCTION_MARKER(0x8004BA64, "SLUS_003.73");
-    uint32 angle, table, radius, delta, sign, absolute, left, right, sine, offset;
+    uint32 angle, radius, delta, sign, absolute, left, right, sine, offset;
     sint32 height;
-    uint32 collision[35];
+    CollisionRay collision;
     uint32 pass;
     left = r_u32(object + 12);
     right = ReadCollisionRayWord(target, 8);
@@ -137,13 +147,13 @@ uint32 ChooseCandidatePosition(uint32 object, uint32 *output, const uint32 *targ
     angle += RandomRange((uint32)(sint32)(sint16)spread);
     angle -= (uint32)((sint32)(sint16)spread >> 1);
     radius = minimum + RandomRange(maximum - minimum);
-    table = 0x800F863C + 4 * (angle & 4095);
-    sine = (uint32)(sint32)(sint16)r_u16(table);
+    trig_angle = angle & 4095;
+    sine = (uint32)rsin(trig_angle);
     left = ReadCollisionRayWord(target, 0);
     WriteCollisionRayWord(output, 0, left + radius * sine);
     left = ReadCollisionRayWord(target, 4);
     WriteCollisionRayWord(output, 4, left);
-    sine = (uint32)(sint32)(sint16)r_u16(table + 2);
+    sine = (uint32)rcos(trig_angle);
     left = ReadCollisionRayWord(target, 8);
     WriteCollisionRayWord(output, 8, left + radius * sine);
     if (ground != 0)
@@ -158,27 +168,27 @@ uint32 ChooseCandidatePosition(uint32 object, uint32 *output, const uint32 *targ
     {
         for (pass = 0; pass < 2; ++pass)
         {
-            collision[0] = r_u32(object + 4);
-            collision[1] = r_u32(object + 8);
-            collision[2] = r_u32(object + 12);
+            collision.pos[0][0] = r_u32(object + 4);
+            collision.pos[0][1] = r_u32(object + 8);
+            collision.pos[0][2] = r_u32(object + 12);
             if (!pass)
             {
                 offset = (uint32)(sint32)(sint16)r_u16(object + 458) << 12;
-                collision[1] -= offset;
+                collision.pos[0][1] -= offset;
             }
-            collision[3] = ReadCollisionRayWord(output, 0);
-            collision[4] = ReadCollisionRayWord(output, 4);
-            collision[5] = ReadCollisionRayWord(output, 8);
+            collision.pos[1][0] = ReadCollisionRayWord(output, 0);
+            collision.pos[1][1] = ReadCollisionRayWord(output, 4);
+            collision.pos[1][2] = ReadCollisionRayWord(output, 8);
             if (!pass)
             {
                 offset = (uint32)(sint32)(sint16)r_u16(object + 458) << 12;
-                collision[4] -= offset;
+                collision.pos[1][1] -= offset;
             }
-            InitializeCollisionRay((uint8 *)collision);
-            ((uint8 *)collision)[136] = 0;
+            InitializeCollisionRay(collision);
+            collision.triggers = 0;
             w_u32(0x800FF970, 1);
-            QueryCollisionRay((uint8 *)collision, 1);
-            uint32 hit = ReadCollisionRayWord(collision, 104);
+            QueryCollisionRay(collision, 1);
+            uint32 hit = collision.hit.GetObject();
             w_u32(0x800FF970, 0);
             if (hit != 0)
                 return 0;
@@ -192,22 +202,23 @@ uint32 ChooseCandidatePosition(uint32 object, uint32 *output, const uint32 *targ
     return (uint32)(((sint32)absolute >> 12) < (sint32)height_limit);
 }
 
-uint32 TraceSegmentCollision(const uint32 *start, const uint32 *end, uint32 list)
+ModelInstance *TraceSegmentCollision(const uint32 *start, const uint32 *end, ModelInstance *list)
 {
+    CollisionRay &shared_ray = GetSharedCollisionRay();
     FUNCTION_MARKER(0x80067508, "SLUS_003.73");
     uint32 hit[4];
-    uint32 result = IntersectObjectSpheres(start, end, hit, list, 0);
+    ModelInstance *result = IntersectObjectSpheres(start, end, hit, list, 0);
     if (!result)
     {
         for (uint32 axis = 0; axis < 3; ++axis)
-            w_u32(0x800ED638 + axis * 4, ReadSegmentPoint(start, axis));
+            shared_ray.pos[0][axis] = ReadSegmentPoint(start, axis);
         for (uint32 axis = 0; axis < 3; ++axis)
-            w_u32(0x800ED644 + axis * 4, ReadSegmentPoint(end, axis));
-        sub_8007BB24(0x800ED638);
-        uint32 objects = r_u32(0x800FF5DC);
+            shared_ray.pos[1][axis] = ReadSegmentPoint(end, axis);
+        InitializeCollisionRay(shared_ray);
+        ModelInstance *objects = visual_lists.solids;
         w_u32(0x800FF974, 1);
-        sub_8007BEA0(objects, 0x800ED638);
-        result = r_u32(0x800ED6A0);
+        VisitCollisionObjects(objects, shared_ray);
+        result = shared_ray.hit.GetObject();
         w_u32(0x800FF974, 0);
     }
     return result;
@@ -216,37 +227,35 @@ uint32 TraceSegmentCollision(const uint32 *start, const uint32 *end, uint32 list
 uint32 IsSegmentVisible(const uint32 *start, const uint32 *end)
 {
     FUNCTION_MARKER(0x800679A4, "SLUS_003.73");
-    uint32 collision[36];
-    uint8 *record = (uint8 *)collision;
-    collision[0] = ReadCollisionRayWord(start, 0);
-    collision[1] = ReadCollisionRayWord(start, 4);
-    collision[2] = ReadCollisionRayWord(start, 8);
-    collision[3] = ReadCollisionRayWord(end, 0);
-    collision[4] = ReadCollisionRayWord(end, 4);
-    collision[5] = ReadCollisionRayWord(end, 8);
-    InitializeCollisionRay(record);
-    QueryCollisionRay(record, 1);
-    return ReadCollisionRayWord(record, 104) == 0;
+    CollisionRay collision;
+    collision.pos[0][0] = ReadCollisionRayWord(start, 0);
+    collision.pos[0][1] = ReadCollisionRayWord(start, 4);
+    collision.pos[0][2] = ReadCollisionRayWord(start, 8);
+    collision.pos[1][0] = ReadCollisionRayWord(end, 0);
+    collision.pos[1][1] = ReadCollisionRayWord(end, 4);
+    collision.pos[1][2] = ReadCollisionRayWord(end, 8);
+    InitializeCollisionRay(collision);
+    QueryCollisionRay(collision, 1);
+    return collision.hit.GetObject() == 0;
 }
 
 uint32 FindGroundHeight(const uint32 *position, uint32 below, uint32 above)
 {
     FUNCTION_MARKER(0x80067A18, "SLUS_003.73");
-    uint32 collision[36];
-    uint8 *record = (uint8 *)collision;
-    collision[0] = ReadCollisionRayWord(position, 0);
-    collision[1] = ReadCollisionRayWord(position, 4) - (below << 12);
-    collision[2] = ReadCollisionRayWord(position, 8);
-    collision[3] = ReadCollisionRayWord(position, 0);
-    collision[4] = ReadCollisionRayWord(position, 4) + (above << 12);
-    collision[5] = ReadCollisionRayWord(position, 8);
-    InitializeCollisionRay(record);
-    WriteCollisionRayByte(record, 136, 0);
-    QueryCollisionRay(record, 1);
-    if (ReadCollisionRayWord(record, 104))
+    CollisionRay collision;
+    collision.pos[0][0] = ReadCollisionRayWord(position, 0);
+    collision.pos[0][1] = ReadCollisionRayWord(position, 4) - (below << 12);
+    collision.pos[0][2] = ReadCollisionRayWord(position, 8);
+    collision.pos[1][0] = ReadCollisionRayWord(position, 0);
+    collision.pos[1][1] = ReadCollisionRayWord(position, 4) + (above << 12);
+    collision.pos[1][2] = ReadCollisionRayWord(position, 8);
+    InitializeCollisionRay(collision);
+    collision.triggers = 0;
+    QueryCollisionRay(collision, 1);
+    if (collision.hit.GetObject())
     {
-        if ((sint16)ReadCollisionRayHalf(record, 122) < -3071)
-            return ReadCollisionRayWord(record, 112);
+        if ((sint16)collision.n.vy < -3071)
+            return collision.hit_pos[1];
     }
     return 0xFFFFFFFF;
 }
@@ -258,52 +267,51 @@ uint32 AdvanceCollisionGeneration()
     w_u16(0x800FF968, (uint16)generation);
     if (!(generation & 0xFFFF))
     {
-        uint32 node = r_u32(0x800FF794);
+        ModelInstance *scene_object = GetModelSceneObjects();
         w_u16(0x800FF968, 1);
-        while (node)
+        while (scene_object)
         {
-            w_u16(node + 2, 0);
-            node = r_u32(node + 28);
+            scene_object->generation = 0;
+            scene_object = scene_object->next;
         }
-        node = r_u32(0x800FF5DC);
+        ModelInstance *node = visual_lists.solids;
         while (node)
         {
-            w_u16(node + 2, 0);
-            node = r_u32(node + 28);
+            node->generation = 0;
+            node = node->next;
         }
     }
     return 1;
 }
 
-uint32 InitializeCollisionRay(uint8 *record)
+uint32 InitializeCollisionRay(CollisionRay &record)
 {
     FUNCTION_MARKER(0x8007BB24, "SLUS_003.73");
-    uint32 guest_address = GuestMemoryAddress(record);
     uint32 first, second, delta, horizontal, horizontal_root, full, full_root;
     uint32 normalization, shift, full_shift, sine, cosine, length, generation;
-    uint32 axis, start_address, end_address;
+    uint32 axis;
     sint32 dx, dy, dz;
-    const uint8 *start, *end;
-    MATRIX *matrix = (MATRIX *)((uint8 *)record + 72);
+    const uint32 *start = record.pos[0], *end = record.pos[1];
+    MATRIX *matrix = &record.basis;
 
-    WriteCollisionRayWord(record, 64, 0x7FFFFFFF);
-    second = ReadCollisionRayWord(record, 12);
-    first = ReadCollisionRayWord(record, 0);
-    WriteCollisionRayWord(record, 104, 0);
-    WriteCollisionRayWord(record, 132, 0xFFFFFFFF);
-    WriteCollisionRayByte(record, 136, 0);
-    WriteCollisionRayByte(record, 137, 0);
+    record.distance = (0x7FFFFFFF);
+    second = record.pos[1][0];
+    first = record.pos[0][0];
+    record.hit.SetObject((0));
+    record.endpoint = (0xFFFFFFFF);
+    record.triggers = (uint8)(0);
+    record.upward = (uint8)(0);
     delta = (uint32)((sint32)(second - first) >> 12);
     w_u16(0x800FFA3C, (uint16)delta);
     dx = (sint16)delta;
     horizontal = (uint32)(dx * dx);
-    second = ReadCollisionRayWord(record, 16);
-    first = ReadCollisionRayWord(record, 4);
+    second = record.pos[1][1];
+    first = record.pos[0][1];
     delta = (uint32)((sint32)(second - first) >> 12);
     w_u16(0x800FFA3E, (uint16)delta);
     dy = (sint16)delta;
-    second = ReadCollisionRayWord(record, 20);
-    first = ReadCollisionRayWord(record, 8);
+    second = record.pos[1][2];
+    first = record.pos[0][2];
     delta = (uint32)((sint32)(second - first) >> 12);
     dz = (sint16)delta;
     w_u16(0x800FFA40, (uint16)delta);
@@ -335,186 +343,174 @@ uint32 InitializeCollisionRay(uint8 *record)
         full_root = LookupDistanceRoot(full << (normalization & 30));
         cosine = (uint32)DivideCollisionWord(horizontal_root << 12, full_root << ((shift - full_shift) & 31));
         length = (uint32)((sint32)full_root >> (full_shift & 31));
-        WriteCollisionRayWord(record, 68, length);
+        record.len = (length);
         dy = (sint16)r_u16(0x800FFA3E);
         sine = (uint32)DivideCollisionWord((uint32)dy << ((full_shift + 12) & 31), full_root);
         w_u16(0x800FFA2C, (uint16)cosine);
         w_u16(0x800FFA2E, (uint16)sine);
-        WriteCollisionRayHalf(record, 72, 4096);
-        WriteCollisionRayHalf(record, 74, 0);
-        WriteCollisionRayHalf(record, 76, 0);
-        WriteCollisionRayHalf(record, 78, 0);
-        WriteCollisionRayHalf(record, 80, (uint16)cosine);
-        WriteCollisionRayHalf(record, 82, (uint16)(0 - sine));
-        WriteCollisionRayHalf(record, 84, 0);
-        WriteCollisionRayHalf(record, 86, (uint16)sine);
-        WriteCollisionRayHalf(record, 88, (uint16)cosine);
+        record.basis.m[0][0] = (sint16)(4096);
+        record.basis.m[0][1] = (sint16)(0);
+        record.basis.m[0][2] = (sint16)(0);
+        record.basis.m[1][0] = (sint16)(0);
+        record.basis.m[1][1] = (sint16)((uint16)cosine);
+        record.basis.m[1][2] = (sint16)((uint16)(0 - sine));
+        record.basis.m[2][0] = (sint16)(0);
+        record.basis.m[2][1] = (sint16)((uint16)sine);
+        record.basis.m[2][2] = (sint16)((uint16)cosine);
         MulMatrix0(matrix, (MATRIX *)psx_addr(0x800ED740, sizeof(MATRIX)), matrix);
     }
     else
     {
         sine = dy < 0 ? 0xFFFFF000 : 4096;
         w_u16(0x800FFA2E, (uint16)sine);
-        WriteCollisionRayWord(record, 68, dy < 0 ? 0 - (uint32)dy : (uint32)dy);
+        record.len = (dy < 0 ? 0 - (uint32)dy : (uint32)dy);
         if (dy >= 0)
-            WriteCollisionRayByte(record, 137, 1);
-        WriteCollisionRayHalf(record, 72, 4096);
-        WriteCollisionRayHalf(record, 74, 0);
-        WriteCollisionRayHalf(record, 76, 0);
-        WriteCollisionRayHalf(record, 78, 0);
-        WriteCollisionRayHalf(record, 80, 0);
+            record.upward = (uint8)(1);
+        record.basis.m[0][0] = (sint16)(4096);
+        record.basis.m[0][1] = (sint16)(0);
+        record.basis.m[0][2] = (sint16)(0);
+        record.basis.m[1][0] = (sint16)(0);
+        record.basis.m[1][1] = (sint16)(0);
         sine = r_u16(0x800FFA2E);
-        WriteCollisionRayHalf(record, 84, 0);
-        WriteCollisionRayHalf(record, 88, 0);
-        WriteCollisionRayHalf(record, 82, (uint16)(0 - sine));
-        WriteCollisionRayHalf(record, 86, (uint16)sine);
+        record.basis.m[2][0] = (sint16)(0);
+        record.basis.m[2][2] = (sint16)(0);
+        record.basis.m[1][2] = (sint16)((uint16)(0 - sine));
+        record.basis.m[2][1] = (sint16)((uint16)sine);
     }
     SetRotMatrix(matrix);
-    first = ReadCollisionRayWord(record, 0);
-    second = ReadCollisionRayWord(record, 12);
-    if (guest_address)
-    {
-        w_u32(0x800FFA68, guest_address);
-        w_u32(0x800FFA6C, guest_address + 12);
-    }
+    first = record.pos[0][0];
+    second = record.pos[1][0];
     if ((sint32)first < (sint32)second)
-        WriteCollisionRayWord(record, 24, first);
+        record.min[0] = (first);
     else
     {
-        first = ReadCollisionRayWord(record, 0);
-        WriteCollisionRayWord(record, 24, second);
+        first = record.pos[0][0];
+        record.min[0] = (second);
         second = first;
     }
-    WriteCollisionRayWord(record, 36, second);
+    record.max[0] = (second);
     for (axis = 1; axis < 3; ++axis)
     {
-        if (guest_address)
-        {
-            start_address = r_u32(0x800FFA68);
-            end_address = r_u32(0x800FFA6C);
-            start = (const uint8 *)psx_addr(start_address, 12);
-            end = (const uint8 *)psx_addr(end_address, 12);
-        }
-        else
-        {
-            /* Local C records retain native pointer carriers */
-            start = (const uint8 *)record;
-            end = start + 12;
-        }
         first = ReadCollisionRayWord(start, axis * 4);
         second = ReadCollisionRayWord(end, axis * 4);
         if ((sint32)first < (sint32)second)
         {
-            WriteCollisionRayWord(record, 24 + axis * 4, first);
+            record.min[axis] = (first);
             second = ReadCollisionRayWord(end, axis * 4);
         }
         else
         {
-            WriteCollisionRayWord(record, 24 + axis * 4, second);
+            record.min[axis] = (second);
             second = ReadCollisionRayWord(start, axis * 4);
         }
-        WriteCollisionRayWord(record, 36 + axis * 4, second);
+        record.max[axis] = (second);
     }
     AdvanceCollisionGeneration();
     generation = r_u16(0x800FF968);
-    WriteCollisionRayHalf(record, 138, (uint16)generation);
+    record.generation = (uint16)((uint16)generation);
     return generation;
 }
 
-void VisitCollisionObjects(uint32 list, uint8 *record)
+void VisitCollisionObjects(ModelInstance *list, CollisionRay &record)
 {
+    ModelBorrow borrow;
     FUNCTION_MARKER(0x8007BEA0, "SLUS_003.73");
     uint32 generation;
     if (!list)
         return;
-    if (!ReadCollisionRayWord(record, 68))
+    if (!record.len)
         return;
-    SetRotMatrix((MATRIX *)((uint8 *)record + 72));
-    generation = ReadCollisionRayHalf(record, 138);
-    MarkLinkedCollisionCandidates(list, (const sint32 *)record, generation);
+    SetRotMatrix(&record.basis);
+    generation = record.generation;
+    MarkLinkedCollisionCandidates(list, (const sint32 *)record.pos, generation);
     do
     {
-        generation = ReadCollisionRayHalf(record, 138);
-        if (r_u16(list + 2) != generation)
+        generation = record.generation;
+        if (list->generation != generation)
         {
-            w_u16(list + 2, generation);
+            list->generation = generation;
             (void)IntersectCollisionObject(list, record);
         }
-        list = r_u32(list + 28);
+        list = list->next;
     } while (list);
 }
 
-void VisitCollisionCells(uint32 list, uint8 *record)
+void VisitCollisionCells(const ModelGridCell &cell, CollisionRay &record)
 {
+    ModelBorrow borrow;
     FUNCTION_MARKER(0x8007BF2C, "SLUS_003.73");
-    uint32 object, generation;
-    if (!list)
+    ModelInstance *object;
+    uint32 generation;
+    if (!cell.present)
         return;
-    if (!ReadCollisionRayWord(record, 68))
+    if (!record.len)
         return;
-    SetRotMatrix((MATRIX *)((uint8 *)record + 72));
-    generation = ReadCollisionRayHalf(record, 138);
-    MarkArrayCollisionCandidates(list, (const sint32 *)record, generation);
-    if (!r_u32(list))
+    SetRotMatrix(&record.basis);
+    generation = record.generation;
+    MarkArrayCollisionCandidates(cell.objects, cell.count, (const sint32 *)record.pos, generation);
+    uint32 count = cell.count;
+    ModelInstance *const *objects = cell.objects;
+    if (!count)
         return;
     do
     {
-        object = r_u32(list);
-        generation = ReadCollisionRayHalf(record, 138);
-        if (r_u16(object + 2) != generation)
+        object = *objects;
+        generation = record.generation;
+        if (object->active && object->generation != generation)
         {
-            w_u16(object + 2, generation);
-            object = r_u32(list);
+            object->generation = generation;
+            object = *objects;
             (void)IntersectCollisionObject(object, record);
         }
-        list += 4;
-    } while (r_u32(list));
+        ++objects;
+        --count;
+    } while (count);
 }
 
-uint32 FinishCollisionRay(uint8 *record)
+uint32 FinishCollisionRay(CollisionRay &record)
 {
     FUNCTION_MARKER(0x8007BFD4, "SLUS_003.73");
-    uint32 object = ReadCollisionRayWord(record, 104);
+    ModelInstance *object = record.hit.GetObject();
     if (!object)
         return 0;
-    BuildModelRotationMatrix((const uint32 *)psx_addr(object + 16, 8), (uint16 *)psx_addr(0x800ED720, 18));
+    BuildModelRotationMatrix(object->angles, (uint16 *)psx_addr(0x800ED720, 18));
     SetRotMatrix((MATRIX *)psx_addr(0x800ED720, sizeof(MATRIX)));
-    uint32 normal = r_u32(0x800ED61C);
-    xport_gte_write_data(0, r_u32(normal));
-    xport_gte_write_data(1, r_u32(normal + 4));
+    const SVECTOR *normal = &collision_normal;
+    xport_gte_write_data(0, xport_load_le32(normal));
+    xport_gte_write_data(1, xport_load_le32((const uint8 *)normal + 4));
     xport_gte_execute(0x486012);
     uint32 normal_x = xport_gte_read_data(9);
     uint32 normal_y = xport_gte_read_data(10);
     uint32 normal_z = xport_gte_read_data(11);
-    WriteCollisionRayHalf(record, 120, (uint16)normal_x);
-    WriteCollisionRayHalf(record, 122, (uint16)normal_y);
-    WriteCollisionRayHalf(record, 124, (uint16)normal_z);
+    record.n.vx = (sint16)((uint16)normal_x);
+    record.n.vy = (sint16)((uint16)normal_y);
+    record.n.vz = (sint16)((uint16)normal_z);
     return 1;
 }
 
-uint32 IntersectCollisionObject(uint32 object, uint8 *record)
+uint32 IntersectCollisionObject(ModelInstance *object, CollisionRay &record)
 {
     FUNCTION_MARKER(0x8007C06C, "SLUS_003.73");
-    uint32 result, model, entry, geometry, count, output, index, trigger, target, axis;
+    if (!object->active)
+        return 0;
+    uint32 result, model, count, output, index, trigger, target, axis;
     uint32 first, second, height_mode;
     sint32 translation[3];
-    result = r_u16(object) & 0x21;
+    result = object->flags & 0x21;
     if (result)
         return result;
-    SetColorMatrix((MATRIX *)((uint8 *)record + 72));
-    model = r_u8(object + 27);
-    index = r_u16(object + 22);
-    entry = r_u32(0x800EAEF8 + 64 * model + 16);
-    geometry = r_u32(entry + 4 * index);
-    count = r_u32(geometry + 4);
-    w_u32(0x800FF9E8, geometry);
+    SetColorMatrix(&record.basis);
+    model = object->bank;
+    index = object->model_idx;
+    const ModelGeometry &geometry = GetModelGeometry(model, index);
+    count = geometry.vertex_count;
     output = count < 129 ? 0x1F800000 : r_u32(0x800FFAC0);
-    if (!r_u32(object + 16) && !r_u16(object + 20) && !(r_u16(object) & 0x200))
+    if (!((uint32)object->angles[0] | ((uint32)object->angles[1] << 16)) && !object->angles[2] && !(object->flags & 0x200))
     {
         for (axis = 0; axis < 3; ++axis)
         {
-            first = r_u32(object + 4 + axis * 4);
-            second = ReadCollisionRayWord(record, axis * 4);
+            first = object->pos[axis];
+            second = record.pos[0][axis];
             translation[axis] = (sint32)(first - second) >> 12;
         }
         xport_gte_write_control(5, 0);
@@ -523,26 +519,26 @@ uint32 IntersectCollisionObject(uint32 object, uint8 *record)
     }
     else
     {
-        height_mode = ReadCollisionRayByte(record, 137);
-        first = r_u32(object + 4);
-        second = ReadCollisionRayWord(record, 0);
+        height_mode = record.upward;
+        first = object->pos[0];
+        second = record.pos[0][0];
         w_u32(0x800ED734, (uint32)((sint32)(first - second) >> 12));
         if (height_mode)
         {
-            first = ReadCollisionRayWord(record, 8);
-            second = r_u32(object + 12);
+            first = record.pos[0][2];
+            second = object->pos[2];
             w_u32(0x800ED738, (uint32)((sint32)(first - second) >> 12));
-            first = r_u32(object + 8);
-            second = ReadCollisionRayWord(record, 4);
+            first = object->pos[1];
+            second = record.pos[0][1];
             w_u32(0x800ED73C, (uint32)((sint32)(first - second) >> 12));
         }
         else
         {
-            first = r_u32(object + 8);
-            second = ReadCollisionRayWord(record, 4);
+            first = object->pos[1];
+            second = record.pos[0][1];
             w_u32(0x800ED738, (uint32)((sint32)(first - second) >> 12));
-            first = r_u32(object + 12);
-            second = ReadCollisionRayWord(record, 8);
+            first = object->pos[2];
+            second = record.pos[0][2];
             w_u32(0x800ED73C, (uint32)((sint32)(first - second) >> 12));
             second = r_u16(0x800ED738);
             first = r_u16(0x800ED734);
@@ -555,47 +551,44 @@ uint32 IntersectCollisionObject(uint32 object, uint8 *record)
         }
         SetTransMatrix((MATRIX *)psx_addr(0x800ED720, 32));
         translation[0] = translation[1] = translation[2] = 0;
-        if (r_u32(object + 16) || r_u16(object + 20))
+        if (((uint32)object->angles[0] | ((uint32)object->angles[1] << 16)) || object->angles[2])
         {
-            BuildModelRotationMatrix((const uint32 *)psx_addr(object + 16, 8), (uint16 *)psx_addr(0x800ED720, 18));
-            if (r_u16(object) & 0x200)
-                ScaleModelRotationMatrix((const uint8 *)psx_addr(object, 42), (uint16 *)psx_addr(0x800ED720, 18));
+            BuildModelRotationMatrix(object->angles, (uint16 *)psx_addr(0x800ED720, 18));
+            if (object->flags & 0x200)
+                ScaleModelRotationMatrix(object->scale, (uint16 *)psx_addr(0x800ED720, 18));
         }
         else
         {
             InitializeModelIdentityMatrix((uint32 *)psx_addr(0x800ED720, 20));
-            ScaleModelRotationMatrix((const uint8 *)psx_addr(object, 42), (uint16 *)psx_addr(0x800ED720, 18));
+            ScaleModelRotationMatrix(object->scale, (uint16 *)psx_addr(0x800ED720, 18));
         }
         TransformPackedMatrixForProjection(0x800ED720, 0x800ED720);
         SetColorMatrix((MATRIX *)psx_addr(0x800ED720, 32));
     }
-    geometry = r_u32(0x800FF9E8);
-    first = ReadCollisionRayWord(record, 68);
+    first = record.len;
     result = TransformCollisionVertices(geometry, output, first, translation);
     w_u16(0x800FFA32, result);
     result &= 0x60F;
     if (result)
         return result;
-    geometry = r_u32(0x800FF9E8);
     w_u32(0x800FFA88, 0xFFFFFFFF);
     (void)IntersectCollisionPolygons(geometry, output, record, object);
     result = r_u32(0x800FFA88);
     if (result == 0xFFFFFFFF)
         return result;
-    index = FindActiveModelBankSlot(r_u8(object + 27));
+    index = FindActiveModelBankSlot(object->bank);
     trigger = r_u32(0x800FFA88);
-    entry = r_u32(0x800FF7B4 + 4 * index);
-    target = r_u32(entry + 4 * trigger);
-    w_u32(0x800FF798, index ^ 1);
+    target = ReadModelKey(GetActiveModelScriptKeys(index), trigger);
+    SelectModelBankReplacement(index ^ 1);
     w_u32(0x800FF978, 0);
     return ActivateResourceScript(target);
 }
 
-uint32 IntersectObjectSpheres(const uint32 *start, const uint32 *end, uint32 *output, uint32 list, uint32 excluded)
+ModelInstance *IntersectObjectSpheres(const uint32 *start, const uint32 *end, uint32 *output, ModelInstance *list, ModelInstance *excluded)
 {
     FUNCTION_MARKER(0x8007C398, "SLUS_003.73");
     uint32 difference[3], vector[3], shifted[3], shift = 12, axis;
-    w_u32(0x800FFA84, 0);
+    ModelInstance *closest = 0;
     w_u32(0x800ED634, 0x7FFFFFFF);
     SubtractVectors(difference, end, start);
     ShiftVectorRight(vector, difference, &shift);
@@ -642,14 +635,16 @@ uint32 IntersectObjectSpheres(const uint32 *start, const uint32 *end, uint32 *ou
         }
         w_u32(0x800ED5D8 + axis * 4, second);
     }
-    for (uint32 object = list; object; object = r_u32(object + 28))
+    for (ModelInstance *object = list; object; object = object->next)
     {
-        if (r_u16(object + 78) & 64)
+        VisualObject &visual = *static_cast<VisualObject *>(object->owner);
+        const uint32 record = NativeObjectGuestAddress(&visual);
+        if (visual.lifecycle_flags & 64)
             continue;
         if (object == excluded)
             continue;
-        uint32 radius = (uint32)r_u16(object + 212) << 12;
-        uint32 x = r_u32(object + 4);
+        uint32 radius = (uint32)r_u16(record + 212) << 12;
+        uint32 x = object->pos[0];
         uint32 bound = r_u32(0x800ED5CC);
         w_u32(0x800FF9F0, radius);
         if ((sint32)(x + radius) < (sint32)bound)
@@ -657,21 +652,21 @@ uint32 IntersectObjectSpheres(const uint32 *start, const uint32 *end, uint32 *ou
         bound = r_u32(0x800ED5D8);
         if ((sint32)bound < (sint32)(x - radius))
             continue;
-        uint32 y = r_u32(object + 8);
+        uint32 y = object->pos[1];
         bound = r_u32(0x800ED5D0);
         if ((sint32)(y + radius) < (sint32)bound)
             continue;
         bound = r_u32(0x800ED5DC);
         if ((sint32)bound < (sint32)(y - radius))
             continue;
-        uint32 z = r_u32(object + 12);
+        uint32 z = object->pos[2];
         bound = r_u32(0x800ED5D4);
         if ((sint32)(z + radius) < (sint32)bound)
             continue;
         bound = r_u32(0x800ED5E0);
         if ((sint32)bound < (sint32)(z - radius))
             continue;
-        SubtractVectors(difference, (const uint32 *)psx_addr(object + 4, 12), start);
+        SubtractVectors(difference, object->pos, start);
         ShiftVectorRight(vector, difference, &shift);
         for (axis = 0; axis < 3; ++axis)
             w_u32(0x800ED5F0 + axis * 4, vector[axis]);
@@ -681,7 +676,7 @@ uint32 IntersectObjectSpheres(const uint32 *start, const uint32 *end, uint32 *ou
         xport_gte_execute(0x178000C);
         xport_gte_execute(0xA00428);
         StoreCollisionSquareResult();
-        radius = r_u16(object + 212);
+        radius = r_u16(record + 212);
         uint32 squared_radius = radius * radius;
         uint32 squared = ReadCollisionSquareSum();
         w_u32(0x800FFA10, squared_radius);
@@ -708,7 +703,7 @@ uint32 IntersectObjectSpheres(const uint32 *start, const uint32 *end, uint32 *ou
             length = r_u32(0x800FFA14);
             if ((sint32)length < (sint32)projection)
             {
-                SubtractVectors(difference, (const uint32 *)psx_addr(object + 4, 12), end);
+                SubtractVectors(difference, object->pos, end);
                 ShiftVectorRight(vector, difference, &shift);
                 for (axis = 0; axis < 3; ++axis)
                     w_u32(0x800ED5FC + axis * 4, vector[axis]);
@@ -724,10 +719,10 @@ uint32 IntersectObjectSpheres(const uint32 *start, const uint32 *end, uint32 *ou
                 continue;
         }
         projection = r_u32(0x800FFA18);
-        w_u32(0x800FFA84, object);
+        closest = object;
         w_u32(0x800ED634, projection);
     }
-    uint32 result = r_u32(0x800FFA84);
+    ModelInstance *result = closest;
     if (!result)
         return result;
     xport_gte_write_data(9, r_u32(0x800ED5C0));
@@ -742,16 +737,15 @@ uint32 IntersectObjectSpheres(const uint32 *start, const uint32 *end, uint32 *ou
     return r_u32(0x800FFA84);
 }
 
-uint32 QueryCollisionRay(uint8 *record, uint32 include_objects)
+uint32 QueryCollisionRay(CollisionRay &record, uint32 include_objects)
 {
     FUNCTION_MARKER(0x8007DD04, "SLUS_003.73");
-    uint32 next_grid;
+    ModelBorrow borrow;
     sint32 start_x;
     sint32 end_x;
     sint32 start_z;
     sint32 min_x;
     sint32 end_z;
-    uint32 grid_cursor;
     sint32 max_x;
     sint32 min_z;
     sint32 max_z;
@@ -774,7 +768,6 @@ uint32 QueryCollisionRay(uint8 *record, uint32 include_objects)
     sint32 initial_cell_x;
     sint32 remainder_x;
     sint32 remainder_z;
-    uint32 dimension_grid;
     sint32 target_cell_z;
     sint32 remaining_x;
     sint32 grid_columns;
@@ -793,8 +786,7 @@ uint32 QueryCollisionRay(uint8 *record, uint32 include_objects)
     sint32 out_of_grid;
     sint32 step_x;
     sint32 step_z;
-    uint32 grid;
-    sint32 grid_word_offset;
+    uint32 grid_index;
     sint32 saved_delta_z;
     sint32 call_delta_z;
     sint32 saved_target_column;
@@ -813,24 +805,22 @@ uint32 QueryCollisionRay(uint8 *record, uint32 include_objects)
     if (r_u32(0x800FF978))
         w_u32(0x800FF984, (r_u32(0x800FF984) ^ (0x20000)));
     if (include_objects)
-        VisitCollisionObjects(r_u32(0x800FF5DC), record);
-    grid = 0x800EDA30;
-    grid_word_offset = 0;
-    do
+        VisitCollisionObjects(visual_lists.solids, record);
+    for (grid_index = 0; grid_index < 2; ++grid_index)
     {
-        next_grid = (grid + (408) * 4);
-        if (!(((sint32)(r_u32(grid)))))
+        const ModelBankGrid grid = GetModelBankGrid(grid_index);
+        if (!(((sint32)(grid.active))))
             goto LABEL_106;
-        start_x = ((sint32)(ReadCollisionRayWord(record, 0)));
-        end_x = ((sint32)(ReadCollisionRayWord(record, 12)));
-        start_z = ((sint32)(ReadCollisionRayWord(record, 8)));
-        min_x = ((sint32)(r_u32((grid + (1) * 4))));
-        end_z = ((sint32)(ReadCollisionRayWord(record, 20)));
-        grid_cursor = grid;
-        max_x = ((sint32)(r_u32((grid + (3) * 4))));
-        min_z = ((sint32)(r_u32((grid + (2) * 4))));
-        max_z = ((sint32)(r_u32((grid + (4) * 4))));
-        cell_size = ((sint32)(r_u32((grid + (5) * 4))));
+        start_x = ((sint32)(record.pos[0][0]));
+        end_x = ((sint32)(record.pos[1][0]));
+        start_z = ((sint32)(record.pos[0][2]));
+        min_x = ((sint32)(grid.min_x));
+        end_z = ((sint32)(record.pos[1][2]));
+
+        max_x = ((sint32)(grid.max_x));
+        min_z = ((sint32)(grid.min_z));
+        max_z = ((sint32)(grid.max_z));
+        cell_size = ((sint32)(grid.cell_size));
         if ((start_x < min_x) && (end_x < min_x))
             goto LABEL_105;
         if (((((max_x < start_x) && (max_x < end_x)) || ((start_z < min_z) && (end_z < min_z))) || ((max_z < start_z) && (max_z < end_z))))
@@ -838,12 +828,12 @@ uint32 QueryCollisionRay(uint8 *record, uint32 include_objects)
         if (((start_x == end_x) && (start_z == end_z)))
         {
             cell_x = DivideCollisionWord((uint32)start_x - (uint32)min_x, (uint32)cell_size);
-            grid_columns = (sint16)r_u16(grid + 28);
+            grid_columns = (sint16)grid.columns;
             initial_cell_z = DivideCollisionWord((uint32)start_z - (uint32)min_z, (uint32)cell_size);
             if (cell_x == grid_columns)
                 cell_x = (sint32)((uint32)cell_x - 1);
             cell_index_z = initial_cell_z;
-            if ((initial_cell_z != ((sint16)(r_u16((((uint32)(grid)) + (15) * 2))))))
+            if ((initial_cell_z != ((sint16)(grid.rows))))
                 goto LABEL_103;
             cell_z = ((sint32)((uint32)initial_cell_z - 1));
         }
@@ -946,18 +936,18 @@ uint32 QueryCollisionRay(uint8 *record, uint32 include_objects)
             remainder_x = RemainderCollisionWord((uint32)start_x - (uint32)min_x, (uint32)cell_size);
             cell_z = DivideCollisionWord((uint32)start_z - (uint32)min_z, (uint32)cell_size);
             remainder_z = RemainderCollisionWord((uint32)start_z - (uint32)min_z, (uint32)cell_size);
-            dimension_grid = grid;
+
             target_cell_z = DivideCollisionWord((uint32)end_z - (uint32)min_z, (uint32)cell_size);
             remaining_x = remainder_x;
-            grid_columns = ((sint16)(r_u16((((uint32)(grid)) + (14) * 2))));
+            grid_columns = ((sint16)(grid.columns));
             remaining_z = remainder_z;
             if ((initial_cell_x == grid_columns))
             {
                 initial_cell_x = (sint32)((uint32)initial_cell_x - 1);
                 remaining_x = (sint32)((uint32)remaining_x + (uint32)cell_size);
-                dimension_grid = grid;
+
             }
-            grid_rows = ((sint16)(r_u16((((uint32)(dimension_grid)) + (15) * 2))));
+            grid_rows = ((sint16)(grid.rows));
             if ((cell_z == grid_rows))
             {
                 cell_z = (sint32)((uint32)cell_z - 1);
@@ -991,15 +981,15 @@ uint32 QueryCollisionRay(uint8 *record, uint32 include_objects)
             {
                 if ((cell_x < 0))
                     goto LABEL_104;
-                grid_cursor = grid;
-                if (((cell_x >= ((sint16)(r_u16((((uint32)(grid)) + (14) * 2))))) || (cell_z < 0)))
+
+                if (((cell_x >= ((sint16)(grid.columns))) || (cell_z < 0)))
                     break;
-                if ((cell_z >= ((sint16)(r_u16((((uint32)(grid)) + (15) * 2))))))
+                if ((cell_z >= ((sint16)(grid.rows))))
                     goto LABEL_99;
                 call_delta_z = step_delta_z;
                 call_target_column = target_column;
                 call_delta_x = step_delta_x;
-                VisitCollisionCells(((uint32)(r_u32((0x800EDA30 + (((((20 * (uint32)cell_x) + 8) + (uint32)cell_z) + (uint32)grid_word_offset)) * 4)))), record);
+                VisitCollisionCells(grid.cells[cell_x][cell_z], record);
                 step_delta_z = call_delta_z;
                 target_column = call_target_column;
                 step_delta_x = call_delta_x;
@@ -1017,31 +1007,29 @@ uint32 QueryCollisionRay(uint8 *record, uint32 include_objects)
 
             if ((cell_x < 0))
                 goto LABEL_104;
-            grid_cursor = grid;
+
         LABEL_99:
-            if (((cell_x >= ((sint16)(r_u16((((uint32)(grid_cursor)) + (14) * 2))))) || (cell_z < 0)))
+            if (((cell_x >= ((sint16)(grid.columns))) || (cell_z < 0)))
                 goto LABEL_105;
 
-            out_of_grid = (cell_z >= ((sint16)(r_u16((((uint32)(grid_cursor)) + (15) * 2)))));
-            next_grid = (grid_cursor + (408) * 4);
+            out_of_grid = (cell_z >= ((sint16)(grid.rows)));
+
             if (out_of_grid)
                 goto LABEL_106;
         }
         cell_index_z = cell_z;
     LABEL_103:
-        VisitCollisionCells(((uint32)(r_u32((0x800EDA30 + (((((20 * (uint32)cell_x) + 8) + (uint32)cell_index_z) + (uint32)grid_word_offset)) * 4)))), record);
+        VisitCollisionCells(grid.cells[cell_x][cell_index_z], record);
 
     LABEL_104:
-        grid_cursor = grid;
+
 
     LABEL_105:
-        next_grid = (grid_cursor + (408) * 4);
+
 
     LABEL_106:
-        grid = next_grid;
-
-        grid_word_offset = (sint32)((uint32)grid_word_offset + 408);
-    } while ((((sint32)(next_grid)) < ((sint32)(0x800EE6F0))));
+        ;
+    }
     return FinishCollisionRay(record);
 }
 
@@ -1082,10 +1070,10 @@ void NormalizeCollisionBounds(sint32 low[3], sint32 high[3], uint32 *flip_bits)
     }
 }
 
-void PrepareCollisionBounds(uint32 geometry, uint32 mirror_flags, const xport_draft_bounds *reference, const uint32 translation[3], xport_draft_bounds *result)
+void PrepareCollisionBounds(const ModelGeometry &geometry, uint32 mirror_flags, const xport_draft_bounds *reference, const uint32 translation[3], xport_draft_bounds *result)
 {
     FUNCTION_MARKER(0x80084814, "SLUS_003.73");
-    uint32 packed[3], minimum[3], maximum[3], offset[3], center[3];
+    uint32 minimum[3], maximum[3], offset[3], center[3];
     uint32 axis;
     // Snapshot the original register inputs before exposing the output
     for (axis = 0; axis < 3; ++axis)
@@ -1093,13 +1081,10 @@ void PrepareCollisionBounds(uint32 geometry, uint32 mirror_flags, const xport_dr
         offset[axis] = translation[axis];
         center[axis] = reference->minimum[axis] + reference->maximum[axis];
     }
-    packed[0] = r_u32(geometry + 20);
-    packed[1] = r_u32(geometry + 24);
-    packed[2] = r_u32(geometry + 28);
     for (axis = 0; axis < 3; ++axis)
     {
-        minimum[axis] = (uint32)(sint32)(sint16)packed[axis] + offset[axis] + 2;
-        maximum[axis] = (uint32)(sint32)(sint16)(packed[axis] >> 16) + offset[axis] - 2;
+        minimum[axis] = (uint32)(sint32)geometry.bounds[axis].max + offset[axis] + 2;
+        maximum[axis] = (uint32)(sint32)geometry.bounds[axis].min + offset[axis] - 2;
     }
     for (axis = 0; axis < 3; ++axis)
     {
@@ -1170,36 +1155,35 @@ CheckX:
     return first < 0 || second > 0 ? 0 : 1;
 }
 
-void MarkLinkedCollisionCandidates(uint32 object, const sint32 bounds[6], uint32 mark)
+void MarkLinkedCollisionCandidates(ModelInstance *object, const sint32 bounds[6], uint32 mark)
 {
     FUNCTION_MARKER(0x800849FC, "SLUS_003.73");
-    uint32 geometry, entry, object_flags, scale, axis, delta, flip_bits, index;
+    uint32 object_flags, scale, axis, delta, flip_bits, index;
     uint32 translation[3] = {0, 0, 0};
     sint32 lower[3], upper[3], first[3], second[3];
     xport_draft_bounds reference, result;
     uint32 matrix[5];
     do
     {
-        object_flags = r_u32(object);
-        index = r_u16(object + 22);
+        object_flags = ((uint32)object->flags | ((uint32)object->generation << 16));
+        index = object->model_idx;
         if (object_flags & 0x21)
-            w_u16(object + 2, mark);
+            object->generation = mark;
         else if ((object_flags >> 16) != mark)
         {
-            entry = 0x800EAEF8 + 64 * r_u8(object + 27);
-            geometry = r_u32(r_u32(entry + 16) + 4 * index);
+            const ModelGeometry &geometry = GetModelGeometry(object->bank, index);
             LoadCollisionBounds(bounds, lower, upper, &flip_bits);
             for (axis = 0; axis < 3; ++axis)
             {
-                delta = (uint32)((sint32)r_u32(object + 4 + 4 * axis) >> 12);
+                delta = (uint32)((sint32)object->pos[axis] >> 12);
                 lower[axis] = (sint32)((uint32)lower[axis] - delta);
                 upper[axis] = (sint32)((uint32)upper[axis] - delta);
             }
-            delta = r_u32(object + 16);
-            index = r_u16(object + 20);
+            delta = ((uint32)object->angles[0] | ((uint32)object->angles[1] << 16));
+            index = object->angles[2];
             if (delta | index)
             {
-                BuildModelRotationMatrix((const uint32 *)psx_addr(object + 16, 8), (uint16 *)psx_addr(0x1F800028, 18));
+                BuildModelRotationMatrix(object->angles, (uint16 *)psx_addr(0x1F800028, 18));
                 TransposeRotationMatrix((uint16 *)psx_addr(0x1F800028, 18));
                 for (axis = 0; axis < 5; ++axis)
                     matrix[axis] = r_u32(0x1F800028 + axis * 4);
@@ -1228,45 +1212,52 @@ void MarkLinkedCollisionCandidates(uint32 object, const sint32 bounds[6], uint32
                 first[axis] = (sint32)result.minimum[axis];
                 second[axis] = (sint32)result.maximum[axis];
             }
-            if (r_u32(object) & 0x200)
+            if (((uint32)object->flags | ((uint32)object->generation << 16)) & 0x200)
             {
                 for (axis = 0; axis < 3; ++axis)
                 {
-                    scale = (uint32)(sint32)(sint16)r_u16(object + 36 + 2 * axis);
+                    scale = (uint32)(sint32)(sint16)object->scale[axis];
                     first[axis] = (sint32)((uint32)first[axis] * scale) >> 12;
                     second[axis] = (sint32)((uint32)second[axis] * scale) >> 12;
                 }
             }
             if (!IntersectCollisionBounds(lower, upper, first, second))
-                w_u16(object + 2, mark);
+                object->generation = mark;
         }
-        object = r_u32(object + 28);
+        object = object->next;
     } while (object);
 }
 
-void MarkArrayCollisionCandidates(uint32 list, const sint32 bounds[6], uint32 mark)
+void MarkArrayCollisionCandidates(ModelInstance *const *objects, uint32 count, const sint32 bounds[6], uint32 mark)
 {
     FUNCTION_MARKER(0x80084C50, "SLUS_003.73");
     sint32 lower[3], upper[3], first[3], second[3];
-    uint32 object = r_u32(list), flip_bits, table, geometry, axis, index;
+    ModelInstance *object = count ? *objects : 0;
+    uint32 flip_bits, axis, index;
     uint32 translation[3];
     xport_draft_bounds reference, result;
     if (!object)
         return;
     LoadCollisionBounds(bounds, lower, upper, &flip_bits);
-    table = r_u32(0x800EAEF8 + 64 * r_u8(object + 27) + 16);
     do
     {
-        uint32 flags = r_u32(object);
-        index = r_u16(object + 22);
+        if (!object->active)
+        {
+            ++objects;
+            --count;
+            object = count ? *objects : 0;
+            continue;
+        }
+        uint32 flags = ((uint32)object->flags | ((uint32)object->generation << 16));
+        index = object->model_idx;
         if (flags & 0x21)
-            w_u16(object + 2, mark);
+            object->generation = mark;
         else if ((flags >> 16) != mark)
         {
-            geometry = r_u32(table + 4 * index);
+            const ModelGeometry &geometry = GetModelGeometry(object->bank, index);
             for (axis = 0; axis < 3; ++axis)
             {
-                translation[axis] = (uint32)((sint32)r_u32(object + 4 + axis * 4) >> 12);
+                translation[axis] = (uint32)((sint32)object->pos[axis] >> 12);
                 reference.minimum[axis] = (uint32)lower[axis];
                 reference.maximum[axis] = (uint32)upper[axis];
             }
@@ -1277,38 +1268,41 @@ void MarkArrayCollisionCandidates(uint32 list, const sint32 bounds[6], uint32 ma
                 second[axis] = (sint32)result.maximum[axis];
             }
             if (!IntersectCollisionBounds(lower, upper, first, second))
-                w_u16(object + 2, mark);
+                object->generation = mark;
         }
-        list += 4;
-        object = r_u32(list);
+        ++objects;
+        --count;
+        object = count ? *objects : 0;
     } while (object);
 }
 
-uint32 TransformCollisionVertices(uint32 geometry, uint32 output, uint32 depth_limit, const sint32 translation[3])
+uint32 TransformCollisionVertices(const ModelGeometry &geometry, uint32 output, uint32 depth_limit, const sint32 translation[3])
 {
     FUNCTION_MARKER(0x80084D4C, "SLUS_003.73");
     uint32 translation_x = ReadCollisionRayWord(translation, 0);
     uint32 translation_y = ReadCollisionRayWord(translation, 4);
     uint32 translation_z = ReadCollisionRayWord(translation, 8);
-    uint32 remaining = r_u32(geometry + 4), vertex = geometry + 32;
-    uint32 packed = r_u32(vertex), zword = r_u32(vertex + 4);
+    uint32 remaining = geometry.vertex_count;
+    if (!remaining)
+        return 0x60F;
+    const SVECTOR *vertex = geometry.vertices;
+    uint32 packed = xport_load_le32(vertex), zword = xport_load_le32((const uint8 *)vertex + 4);
     uint32 x = packed + translation_x;
     uint32 y = (uint32)((sint32)packed >> 16) + translation_y;
     uint32 z = zword + translation_z;
     uint32 result = 0x60F, mask;
     sint32 transformed_x, transformed_y, transformed_z;
-    // TODO Original zero vertex count enters the loop and underflows
     do
     {
         xport_gte_write_data(9, x);
         xport_gte_write_data(10, y);
         xport_gte_write_data(11, z);
-        vertex += 8;
+        ++vertex;
         --remaining;
         xport_gte_execute(0x4D8012);
         // Prefetch the next vertex before storing the current result
-        packed = r_u32(vertex);
-        zword = r_u32(vertex + 4);
+        packed = remaining ? xport_load_le32(vertex) : 0;
+        zword = remaining ? xport_load_le32((const uint8 *)vertex + 4) : 0;
         x = packed + translation_x;
         y = (uint32)((sint32)packed >> 16) + translation_y;
         z = zword + translation_z;
@@ -1325,35 +1319,35 @@ uint32 TransformCollisionVertices(uint32 geometry, uint32 output, uint32 depth_l
     return result;
 }
 
-uint32 IntersectCollisionPolygons(uint32 geometry, uint32 output, uint8 *record, uint32 object)
+void IntersectCollisionPolygons(const ModelGeometry &geometry, uint32 output, CollisionRay &record, ModelInstance *object)
 {
     FUNCTION_MARKER(0x80084E24, "SLUS_003.73");
-    uint32 required, rejected, count, vertex_count, normal_count;
-    uint32 normals, polygon, header, flags, stride, length;
+    uint32 required, rejected, count;
+    uint32 header, flags, length;
+    ModelPolygon *polygon;
     uint32 vertices[4], packed[3], y[3], clip[4];
-    uint32 cross0, cross1, cross2, normal, first_vertex;
+    uint32 cross0, cross1, cross2, first_vertex;
+    const SVECTOR *normal;
     uint32 start, numerator, endpoint, denominator, distance;
     uint32 direction, trigger_enabled, trigger_index, axis;
 
-    length = ReadCollisionRayWord(record, 68);
+    length = record.len;
     xport_gte_write_control(11, 0);
     xport_gte_write_control(12, length);
     required = r_u32(0x800FF984);
     rejected = r_u32(0x800FF988);
-    vertex_count = r_u32(geometry + 4);
-    normal_count = r_u32(geometry + 8);
-    count = r_u32(geometry + 12);
-    normals = geometry + 32 + (vertex_count << 3);
-    polygon = normals + (normal_count << 3);
-    // TODO Original zero polygon count enters the loop and underflows
+    count = geometry.poly_count;
+    if (!count)
+        return;
+    polygon = geometry.polys;
     do
     {
-        flags = r_u32(polygon + 16);
-        header = r_u32(polygon);
+        flags = (((uint32)polygon->n << 3) | ((uint32)polygon->surface << 16));
+        header = (((uint32)polygon->source_stride << 16) | polygon->flags);
         if (!(flags & rejected) && (flags | required) == 0xFFFFFFFF && ((flags >> 16) & 3) != 1)
         {
-            packed[0] = r_u32(polygon + 4);
-            packed[1] = r_u32(polygon + 8);
+            packed[0] = (((uint32)polygon->v[0] << 3) | ((uint32)polygon->v[1] << 19));
+            packed[1] = (((uint32)polygon->v[2] << 3) | ((uint32)polygon->v[3] << 19));
             vertices[0] = output + (packed[0] & 0xFFFF);
             clip[0] = r_u16(vertices[0] + 6);
             vertices[1] = output + (packed[0] >> 16);
@@ -1393,10 +1387,10 @@ uint32 IntersectCollisionPolygons(uint32 geometry, uint32 output, uint8 *record,
                 }
                 if ((sint32)(cross1 | cross2) >= 0)
                 {
-                    normal = normals + (flags & 0xFFFF);
-                    xport_gte_write_data(0, r_u32(normal));
-                    xport_gte_write_data(1, r_u32(normal + 4));
-                    first_vertex = output + (r_u32(polygon + 4) & 0xFFFF);
+                    normal = geometry.normals + polygon->n;
+                    xport_gte_write_data(0, xport_load_le32(normal));
+                    xport_gte_write_data(1, xport_load_le32((const uint8 *)normal + 4));
+                    first_vertex = output + ((((uint32)polygon->v[0] << 3) | ((uint32)polygon->v[1] << 19)) & 0xFFFF);
                     start = r_u32(first_vertex);
                     endpoint = r_u16(first_vertex + 4);
                     xport_gte_execute(0x4C6012);
@@ -1411,43 +1405,41 @@ uint32 IntersectCollisionPolygons(uint32 geometry, uint32 output, uint8 *record,
                     distance = (uint32)DivideCollisionWord(numerator, denominator);
                     if ((sint32)numerator < (sint32)endpoint)
                         goto next_polygon;
-                    trigger_enabled = ReadCollisionRayByte(record, 136);
+                    trigger_enabled = record.triggers;
                     if (flags & 0x20000)
                     {
-                        trigger_index = r_u16(object + 22);
+                        trigger_index = object->model_idx;
                         if (trigger_enabled)
                             w_u32(0x800FFA88, trigger_index);
                     }
-                    else if ((sint32)(ReadCollisionRayWord(record, 64) - distance) > 0)
+                    else if ((sint32)(record.distance - distance) > 0)
                     {
-                        WriteCollisionRayWord(record, 104, object);
-                        WriteCollisionRayWord(record, 64, distance);
-                        WriteCollisionRayWord(record, 128, polygon);
-                        WriteCollisionRayWord(record, 132, endpoint);
+                        record.hit.SetObject((object));
+                        record.distance = (distance);
+                        record.hit.SetPolygon((polygon));
+                        record.endpoint = (endpoint);
                         for (axis = 0; axis < 3; ++axis)
-                            xport_gte_write_data(25 + axis, ReadCollisionRayWord(record, axis * 4));
-                        direction = ReadCollisionRayWord(record, 84);
-                        endpoint = ReadCollisionRayWord(record, 88);
+                            xport_gte_write_data(25 + axis, record.pos[0][axis]);
+                        direction = ((uint16)record.basis.m[2][0] | ((uint32)(uint16)record.basis.m[2][1] << 16));
+                        endpoint = (uint32)(uint16)record.basis.m[2][2];
                         xport_gte_write_data(9, direction);
                         xport_gte_write_data(10, direction >> 16);
                         xport_gte_write_data(11, endpoint);
                         xport_gte_write_data(8, distance);
                         xport_draft_gte_execute(0x1A0003E);
                         for (axis = 0; axis < 3; ++axis)
-                            WriteCollisionRayWord(record, 108 + axis * 4, xport_gte_read_data(25 + axis));
-                        normal = normals + (flags & 0xFFFF);
-                        w_u32(0x800ED61C, normal);
-                        w_u32(0x800ED618, polygon);
+                            record.hit_pos[axis] = (xport_gte_read_data(25 + axis));
+                        normal = geometry.normals + polygon->n;
+                        collision_normal = *normal;
                     }
                 }
             }
         }
     next_polygon:
-        stride = header >> 16;
-        polygon += stride;
+        polygon = polygon->next;
         --count;
     } while (count);
-    return stride;
+    return;
 }
 
 extern "C" uint32 sub_80067508(uint32 start, uint32 end, uint32 list)
@@ -1471,127 +1463,57 @@ extern "C" uint32 apocalypse_collision_sphere_segment(uint32 start, uint32 end, 
     return IntersectObjectSpheres((const uint32 *)psx_addr(start, 12), (const uint32 *)psx_addr(end, 12), (uint32 *)output, list, excluded);
 }
 
-extern "C" uint32 sub_8007C398(uint32 start, uint32 end, uint32 output, uint32 list, uint32 excluded)
-{
-    FUNCTION_MARKER(0x8007C398, "SLUS_003.73");
-    return IntersectObjectSpheres((const uint32 *)psx_addr(start, 12), (const uint32 *)psx_addr(end, 12), (uint32 *)psx_addr(output, 12), list, excluded);
-}
 
-extern "C" uint32 apocalypse_collision_init(void *record)
-{
-    return InitializeCollisionRay((uint8 *)record);
-}
 
-extern "C" uint32 sub_8007BB24(uint32 record)
-{
-    FUNCTION_MARKER(0x8007BB24, "SLUS_003.73");
-    return InitializeCollisionRay((uint8 *)psx_addr(record, 140));
-}
 
-extern "C" uint32 apocalypse_collision_query(void *record, uint32 include_objects)
-{
-    return QueryCollisionRay((uint8 *)record, include_objects);
-}
 
-extern "C" uint32 sub_8007DD04(uint32 record, uint32 include_objects)
-{
-    FUNCTION_MARKER(0x8007DD04, "SLUS_003.73");
-    return QueryCollisionRay((uint8 *)psx_addr(record, 140), include_objects);
-}
 
-extern "C" uint32 sub_8007BAB0(void)
-{
-    FUNCTION_MARKER(0x8007BAB0, "SLUS_003.73");
-    return AdvanceCollisionGeneration();
-}
 
-extern "C" uint32 apocalypse_collision_finish(void *record) { return FinishCollisionRay((uint8 *)record); }
 
-extern "C" uint32 sub_8007BFD4(uint32 record)
-{
-    FUNCTION_MARKER(0x8007BFD4, "SLUS_003.73");
-    return FinishCollisionRay((uint8 *)psx_addr(record, 140));
-}
 
-extern "C" uint32 apocalypse_collision_transform(uint32 geometry, uint32 output, uint32 depth_limit, const sint32 translation[3]) { return TransformCollisionVertices(geometry, output, depth_limit, translation); }
 
-extern "C" uint32 sub_80084D4C(uint32 geometry, uint32 output, uint32 depth_limit, uint32 translation)
-{
-    FUNCTION_MARKER(0x80084D4C, "SLUS_003.73");
-    return TransformCollisionVertices(geometry, output, depth_limit, (const sint32 *)psx_addr(translation, 12));
-}
 
-extern "C" uint32 apocalypse_collision_polygons(uint32 geometry, uint32 output, void *record, uint32 object) { return IntersectCollisionPolygons(geometry, output, (uint8 *)record, object); }
 
-extern "C" uint32 sub_80084E24(uint32 geometry, uint32 output, uint32 record, uint32 object)
-{
-    FUNCTION_MARKER(0x80084E24, "SLUS_003.73");
-    return IntersectCollisionPolygons(geometry, output, (uint8 *)psx_addr(record, 140), object);
-}
 
-extern "C" void apocalypse_collision_objects(uint32 list, void *record) { VisitCollisionObjects(list, (uint8 *)record); }
 
-extern "C" void sub_8007BEA0(uint32 list, uint32 record)
-{
-    FUNCTION_MARKER(0x8007BEA0, "SLUS_003.73");
-    VisitCollisionObjects(list, (uint8 *)psx_addr(record, 140));
-}
 
-extern "C" void apocalypse_collision_cells(uint32 list, void *record) { VisitCollisionCells(list, (uint8 *)record); }
 
-extern "C" void sub_8007BF2C(uint32 list, uint32 record)
-{
-    FUNCTION_MARKER(0x8007BF2C, "SLUS_003.73");
-    VisitCollisionCells(list, (uint8 *)psx_addr(record, 140));
-}
 
-extern "C" uint32 apocalypse_collision_object(uint32 object, void *record) { return IntersectCollisionObject(object, (uint8 *)record); }
 
-extern "C" uint32 sub_8007C06C(uint32 object, uint32 record)
-{
-    FUNCTION_MARKER(0x8007C06C, "SLUS_003.73");
-    return IntersectCollisionObject(object, (uint8 *)psx_addr(record, 140));
-}
 
-extern "C" uint32 sub_800848D0(const sint32 query_low[3], const sint32 query_high[3], const sint32 object_low[3], const sint32 object_high[3])
-{
-    FUNCTION_MARKER(0x800848D0, "SLUS_003.73");
-    return IntersectCollisionBounds(query_low, query_high, object_low, object_high);
-}
 
-extern "C" void sub_80084814(uint32 geometry, uint32 mirror_flags, const xport_draft_bounds *reference, const uint32 translation[3], xport_draft_bounds *result)
-{
-    FUNCTION_MARKER(0x80084814, "SLUS_003.73");
-    PrepareCollisionBounds(geometry, mirror_flags, reference, translation, result);
-}
 
-extern "C" void sub_800847AC(sint32 low[3], sint32 high[3], uint32 *flip_bits)
-{
-    FUNCTION_MARKER(0x800847AC, "SLUS_003.73");
-    NormalizeCollisionBounds(low, high, flip_bits);
-}
 
-extern "C" void apocalypse_mark_array_collision_candidates(uint32 list, const sint32 bounds[6], uint32 mark) { MarkArrayCollisionCandidates(list, bounds, mark); }
 
-extern "C" void sub_80084C50(uint32 list, uint32 unused, uint32 bounds, uint32 mark)
-{
-    FUNCTION_MARKER(0x80084C50, "SLUS_003.73");
-    MarkArrayCollisionCandidates(list, (const sint32 *)psx_addr(bounds, 24), mark);
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 extern "C" void apocalypse_mark_linked_collision_candidates(uint32 list, const sint32 bounds[6], uint32 mark) { MarkLinkedCollisionCandidates(list, bounds, mark); }
 
-extern "C" void sub_800849FC(uint32 list, uint32 unused, uint32 bounds, uint32 mark)
-{
-    FUNCTION_MARKER(0x800849FC, "SLUS_003.73");
-    MarkLinkedCollisionCandidates(list, (const sint32 *)psx_addr(bounds, 24), mark);
-}
 
-extern "C" void sub_80084778(uint32 bounds, sint32 low[3], sint32 high[3], uint32 *flip_bits)
-{
-    FUNCTION_MARKER(0x80084778, "SLUS_003.73");
-    LoadCollisionBounds((const sint32 *)psx_addr(bounds, 24), low, high, flip_bits);
-}
+
+
 
 extern "C" uint32 apocalypse_ground_native(const void *position, uint32 below, uint32 above) { return FindGroundHeight((const uint32 *)position, below, above); }
 
@@ -1603,11 +1525,7 @@ extern "C" uint32 sub_80067A18(uint32 position, uint32 below, uint32 above)
 
 extern "C" uint32 apocalypse_visibility_native(const void *start, uint32 end) { return IsSegmentVisible((const uint32 *)start, (const uint32 *)psx_addr(end, 12)); }
 
-extern "C" uint32 sub_800679A4(uint32 start, uint32 end)
-{
-    FUNCTION_MARKER(0x800679A4, "SLUS_003.73");
-    return IsSegmentVisible((const uint32 *)psx_addr(start, 12), (const uint32 *)psx_addr(end, 12));
-}
+
 
 extern "C" uint32 sub_8004BA64(uint32 object, uint32 output, uint32 target, uint32 minimum, uint32 maximum, uint32 height, uint32 spread, uint32 ground, uint32 collision)
 {

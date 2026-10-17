@@ -5,6 +5,9 @@ extern "C"
 #include "psx.h"
 }
 
+#include "texture_resources.h"
+#include "object.h"
+
 // Original texture slots initialized from the table at 800A67CC
 enum EffectResource
 {
@@ -25,7 +28,7 @@ enum EffectResource
     VFX_FIRECYCL = 14
 };
 
-class EffectObject
+class EffectObject : public Object
 {
 public:
     virtual ~EffectObject() {}
@@ -87,6 +90,8 @@ protected:
 class TexturedEffect : public EffectObject
 {
 public:
+    static TexturedEffect &Attach(uint32 object);
+    const TextureFrame &GetTextureFrame() const;
     virtual ~TexturedEffect() {}
     virtual uint32 Destroy(uint32 reason);
     uint32 SelectResource(const char *name);
@@ -107,6 +112,10 @@ public:
 
 protected:
     TexturedEffect();
+
+private:
+    const TextureGroup *tex_group;
+    sint32 tex_frame;
 };
 
 #endif

@@ -62,11 +62,7 @@ uint32 ReadMenuInput(uint32 *confirm, uint32 *cancel, uint32 *any, uint32 *start
     return value;
 }
 
-extern "C" uint32 sub_80017364(uint32 confirm, uint32 cancel, uint32 any, uint32 start)
-{
-    FUNCTION_MARKER(0x80017364, "SLUS_003.73");
-    return ReadMenuInput((uint32 *)psx_addr(confirm, 4), (uint32 *)psx_addr(cancel, 4), (uint32 *)psx_addr(any, 4), (uint32 *)psx_addr(start, 4));
-}
+
 
 extern "C" uint32 xport_draft_host_sub_80017364_p1234(void *confirm, void *cancel, void *any, void *start)
 {

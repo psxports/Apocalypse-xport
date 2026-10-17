@@ -7,16 +7,16 @@ extern "C"
 }
 
 uint32 InitializeAudioOutput();
-uint32 InitializeAudioSession(uint32 resource);
+uint32 InitializeAudioSession(const char *resource);
 uint32 ReleaseAudioSession();
 
 uint32 ReleaseSoundBank(sint16 bank, uint32 header);
 uint32 LoadSoundBank(const char *name, uint32 header_output);
 
-uint32 LoadLevelSoundBank(uint32 basename);
+uint32 LoadLevelSoundBank(const char *basename);
 void ReleaseLevelSoundBank();
-uint32 LoadAudioSequence(uint32 basename);
-uint32 SwitchMenuAudioSequence(uint32 basename);
+uint32 LoadAudioSequence(const char *basename);
+uint32 SwitchMenuAudioSequence(const char *basename);
 
 uint32 PlaySoundEffect(sint32 sound_id, sint16 volume, uint32 pitch_variation);
 uint32 PlayScaledSound(sint32 sound_id, sint16 left, sint16 right, uint32 pitch_variation);

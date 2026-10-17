@@ -1,3 +1,9 @@
+#include "visual_object.h"
+#include "particle_settings.h"
+#include "angle_math.h"
+#include "object_damage.h"
+#include "vector_arithmetic.h"
+#include "object_collision_events.h"
 #include "game_sdk_bindings.h"
 #include "player.h"
 #include "audio_session.h"
@@ -31,22 +37,22 @@ HoundRat::HoundRat(const uint8 *record_data, uint32 index, uint32 mode) : Enemy(
     w_u32(object + 68, 0x800A3C30);
     if (mode)
     {
-        w_u16(object + 58, 208);
+        this->kind = 208;
         sub_800626C8(object, 0x800FF88C);
-        w_u16(object + 40, 6144);
-        w_u16(object + 38, 6144);
-        w_u16(object + 36, 6144);
+        this->model.scale[2] = 6144;
+        this->model.scale[1] = 6144;
+        this->model.scale[0] = 6144;
         w_u16(object + 456, 52);
         w_u16(object + 458, 32);
-        flags = r_u16(object);
+        flags = this->model.flags;
         w_u16(object + 218, 60);
-        w_u16(object, flags | 0x200);
+        this->model.flags = flags | 0x200;
         sub_8004BD04(object, 1, 2);
         sub_8004BDCC(object, 0, 1, 10);
     }
     else
     {
-        w_u16(object + 58, 210);
+        this->kind = 210;
         sub_800626C8(object, 0x800FF894);
         w_u16(object + 456, 64);
         w_u16(object + 458, 48);
@@ -56,9 +62,9 @@ HoundRat::HoundRat(const uint8 *record_data, uint32 index, uint32 mode) : Enemy(
     }
     cursor = sub_80062B0C(object, data);
     cursor = sub_80062B50(object, cursor);
-    sub_80062A38(object, 0x800FF4E8);
+    AddToList(visual_lists.actors);
     w_u32(object + 400, cursor);
-    w_u16(object + 214, index);
+    this->record_idx = index;
     w_u16(object + 472, 1);
     Init();
     cursor = r_u32(object + 400);
@@ -86,7 +92,7 @@ uint32 HoundRat::Init()
     if (ground != 0xFFFFFFFFu)
     {
         height = (uint32)(sint32)(sint16)r_u16(object + 456u);
-        w_u32(object + 8u, ground - (height << 12));
+        this->model.pos[1] = ground - (height << 12);
     }
     w_u8(object + 380u, 1u);
     return 1u;
@@ -100,7 +106,7 @@ uint32 HoundRat::Destroy(uint32 reason)
     count = r_u32(0x800FF884);
     w_u32(object + 68, 0x800A3C30);
     w_u32(0x800FF884, count - 1);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     Enemy::FreeBehaviorTable();
     result = Enemy::Destroy(0);
     if (reason & 1)
@@ -110,18 +116,20 @@ uint32 HoundRat::Destroy(uint32 reason)
 
 uint32 HoundRat::Update()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 constants[3], difference[3], normal[3];
     uint32 value, flags, left, right, x, y, z, scale, angle, word, tail;
     FUNCTION_MARKER(0x80073A3Cu, "SLUS_003.73");
-    if (r_u16(object + 58u) == 208u && !sub_80066570(240u))
+    if (this->kind == 208u && !RandomRange(240u))
         sub_80069EF4(112u, object + 4u, 0u);
     constants[0] = r_u32(0x800A71CCu);
     constants[1] = r_u32(0x800A71D0u);
     constants[2] = r_u32(0x800A71D4u);
-    w_u32(object + 116u, constants[0]);
-    w_u32(object + 120u, constants[1]);
-    w_u32(object + 124u, constants[2]);
+    motion.acceleration[0] = constants[0];
+    motion.acceleration[1] = constants[1];
+    motion.acceleration[2] = constants[2];
     sub_8007FDF0(object);
     if (r_u8(object + 380u))
     {
@@ -134,7 +142,7 @@ uint32 HoundRat::Update()
     else
         UpdateState();
     if (r_u8(object + 382u))
-        sub_8006C0B8(object + 116u, 0x800A6844u);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844u, 12));
     sub_8004B9A4(object);
     if (!(r_u32(object + 396u) & 1u))
         return 0u;
@@ -146,32 +154,44 @@ uint32 HoundRat::Update()
         return 0u;
     }
     left = r_u32(object + 484u);
-    right = r_u32(object + 4u);
+    right = this->model.pos[0];
     difference[0] = (uint32)((sint32)(left - right) >> 12);
     left = r_u32(object + 488u);
-    right = r_u32(object + 8u);
+    right = this->model.pos[1];
     difference[1] = (uint32)((sint32)(left - right) >> 12);
     left = r_u32(object + 492u);
-    right = r_u32(object + 12u);
+    right = this->model.pos[2];
     difference[2] = (uint32)((sint32)(left - right) >> 12);
-    xport_draft_host_sub_800872BC_p12(difference, normal);
+    NormalizeShortVector(difference, normal);
     scale = r_u16(object + 436u);
     x = normal[0] * scale;
     y = normal[1] * scale;
     z = normal[2] * scale;
-    w_u32(object + 104u, x);
-    w_u32(object + 108u, y);
-    w_u32(object + 112u, z);
+    motion.velocity[0] = x;
+    motion.velocity[1] = y;
+    motion.velocity[2] = z;
     left = r_u32(object + 492u);
-    right = r_u32(object + 12u);
+    right = this->model.pos[2];
     z = left - right;
     left = r_u32(object + 484u);
-    right = r_u32(object + 4u);
+    right = this->model.pos[0];
     angle = (3072u - (uint32)ratan2((sint32)z, (sint32)(left - right))) & 4095u;
     word = apocalypse_angle_pair_word(object + 16u);
-    tail = r_u16(object + 20u);
+    tail = this->model.angles[2];
     scale = r_u16(object + 438u);
-    sub_80066CF0(word, tail, object + 132u, object + 138u, angle << 16, 0u, scale);
+    motion_cur_word = word;
+    motion_cur_tail = tail;
+    motion_target_word = angle << 16;
+    motion_target_tail = 0u;
+    motion_cur.vx = (sint16)motion_cur_word;
+    motion_cur.vy = (sint16)(motion_cur_word >> 16);
+    motion_cur.vz = (sint16)motion_cur_tail;
+    motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+    motion_target.vx = (sint16)motion_target_word;
+    motion_target.vy = (sint16)(motion_target_word >> 16);
+    motion_target.vz = (sint16)motion_target_tail;
+    motion_target.pad = (sint16)(motion_target_tail >> 16);
+    UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, scale);
     // The legacy behavior caller discards the original return carrier
     return 0u;
 }
@@ -217,15 +237,16 @@ void HoundRat::FinishFromTable()
 
 void HoundRat::Orbit(uint32 point[3], uint32 angle, uint32 reload_angle)
 {
+    uint32 trig_angle;
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 radius, table, sine, cosine, player;
+    uint32 radius, sine, cosine, player;
     if (reload_angle)
         angle = r_u16(object + 464u);
     radius = (uint32)(sint32)(sint16)r_u16(object + 460u);
-    table = 0x800F863Cu + 4u * (angle & 4095u);
-    sine = (uint32)(sint32)(sint16)r_u16(table);
-    cosine = (uint32)(sint32)(sint16)r_u16(table + 2u);
-    player = r_u32(0x800FF5A0u);
+    trig_angle = angle & 4095u;
+    sine = (uint32)rsin(trig_angle);
+    cosine = (uint32)rcos(trig_angle);
+    player = visual_lists.players;
     point[0] = radius * sine;
     point[1] = 0u;
     point[2] = radius * cosine;
@@ -234,62 +255,74 @@ void HoundRat::Orbit(uint32 point[3], uint32 angle, uint32 reload_angle)
 
 void HoundRat::UpdateState()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 player, distance, damage, table, offset, target, state, phase;
+    uint32 player, distance, damage, state, phase;
     uint32 flags, value, left, right, angle, word, tail, speed, direction;
-    uint32 candidate[3], point[3], difference[3], collision[35], divisor;
+    uint32 candidate[3], point[3], difference[3], divisor;
+    CollisionRay collision;
     uint32 count, child, red, green, blue;
     sint16 angles[3];
     FUNCTION_MARKER(0x80073D3Cu, "SLUS_003.73");
-    player = r_u32(0x800FF5A0u);
+    player = visual_lists.players;
     if (!player)
         w_u16(object + 472u, 666u);
     distance = r_u32(object + 220u);
     if (distance < 129u)
     {
         damage = sub_8004BDFC(object, 0u, 1u) & 0xFFFFu;
-        player = r_u32(0x800FF5A0u);
-        table = r_u32(player + 68u);
-        offset = (uint32)(sint32)(sint16)r_u16(table + 48u);
-        target = r_u32(table + 52u);
-        apocalypse_object_virtual52(target, player + offset, damage, 0x800A71CCu, 0u);
+        player = visual_lists.players;
+        ApplyObjectDamage(player, damage, (const sint32 *)psx_addr(0x800A71CCu, 12), 0u);
     }
     state = r_u16(object + 472u);
     switch (state)
     {
         case 0u:
-            value = r_u8(object + 26u);
+            value = this->model.animation;
             if (value)
             {
                 if (value != 1u || r_u8(object + 303u))
                 {
                     StartAnimation(0u, 1u);
-                    value = sub_80066570(32u);
-                    w_u8(object + 24u, value);
+                    value = RandomRange(32u);
+                    this->model.frame = value;
                 }
             }
-            else if (!sub_80066570(512u))
+            else if (!RandomRange(512u))
                 SetAnimationRange(1u, 0u, 0xFFFFFFFFu);
             flags = r_u32(object + 396u);
-            player = r_u32(0x800FF5A0u);
-            right = r_u32(object + 12u);
+            player = visual_lists.players;
+            right = this->model.pos[2];
             w_u32(object + 396u, flags & 0xFFFFFFFEu);
             left = r_u32(player + 12u);
             direction = left - right;
             left = r_u32(player + 4u);
-            right = r_u32(object + 4u);
+            right = this->model.pos[0];
             angle = (3072u - (uint32)ratan2((sint32)direction, (sint32)(left - right))) & 4095u;
             word = apocalypse_angle_pair_word(object + 16u);
-            tail = r_u16(object + 20u);
+            tail = this->model.angles[2];
             speed = r_u16(object + 438u);
-            sub_80066CF0(word, tail, object + 132u, object + 138u, angle << 16, 0u, speed);
-            if (!sub_80066570(16u))
+            motion_cur_word = word;
+            motion_cur_tail = tail;
+            motion_target_word = angle << 16;
+            motion_target_tail = 0u;
+            motion_cur.vx = (sint16)motion_cur_word;
+            motion_cur.vy = (sint16)(motion_cur_word >> 16);
+            motion_cur.vz = (sint16)motion_cur_tail;
+            motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+            motion_target.vx = (sint16)motion_target_word;
+            motion_target.vy = (sint16)(motion_target_word >> 16);
+            motion_target.vz = (sint16)motion_target_tail;
+            motion_target.pad = (sint16)(motion_target_tail >> 16);
+            UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, speed);
+            if (!RandomRange(16u))
                 w_u16(object + 472u, 1u);
             return;
         case 1u:
             if (r_u32(object + 220u) < 513u)
             {
-                player = r_u32(0x800FF5A0u);
+                player = visual_lists.players;
                 value = r_u16(object + 220u);
                 w_u16(object + 460u, value);
                 xport_draft_host_sub_80066B8C_p1(angles, player + 4u, object + 4u);
@@ -302,7 +335,7 @@ void HoundRat::UpdateState()
             }
             if (r_u32(object + 396u) & 1u)
                 return;
-            player = r_u32(0x800FF5A0u);
+            player = visual_lists.players;
             if (player)
             {
                 point[0] = r_u32(player + 4u);
@@ -318,7 +351,7 @@ void HoundRat::UpdateState()
             w_u16(object + 472u, 0u);
             return;
         case 2u:
-            if (r_u8(object + 26u) == 3u)
+            if (this->model.animation == 3u)
             {
                 if (r_u8(object + 303u))
                     FinishFromTable();
@@ -326,9 +359,9 @@ void HoundRat::UpdateState()
             }
             flags = r_u32(object + 396u);
             w_u32(object + 396u, flags & 0xFFFFFFFEu);
-            w_u32(object + 112u, 0u);
-            w_u32(object + 108u, 0u);
-            w_u32(object + 104u, 0u);
+            motion.velocity[2] = 0u;
+            motion.velocity[1] = 0u;
+            motion.velocity[0] = 0u;
             w_u32(object + 304u, 0x18000u);
             SetAnimationRange(3u, 0u, 0xFFFFFFFFu);
             return;
@@ -336,12 +369,12 @@ void HoundRat::UpdateState()
             phase = r_u16(object + 474u);
             if (!phase)
             {
-                if (!sub_80066570(32u))
-                    w_u16(object + 466u, sub_80066570(2u) ? 0u : 1u);
-                if (!sub_80066570(16u))
+                if (!RandomRange(32u))
+                    w_u16(object + 466u, RandomRange(2u) ? 0u : 1u);
+                if (!RandomRange(16u))
                 {
                     value = (uint32)(sint32)(sint16)r_u16(object + 460u);
-                    value = value - 128u + sub_80066570(256u);
+                    value = value - 128u + RandomRange(256u);
                     if ((sint32)value > 1024)
                         value = 1024u;
                     if ((sint32)value < 400)
@@ -350,7 +383,7 @@ void HoundRat::UpdateState()
                 }
                 direction = (uint32)(sint32)(sint16)r_u16(object + 466u);
                 value = (uint32)(sint32)(sint16)r_u16(object + 464u);
-                angle = sub_80066570(128u) + 256u;
+                angle = RandomRange(128u) + 256u;
                 value = (direction ? value - angle : value + angle) & 4095u;
                 w_u16(object + 464u, value);
                 Orbit(point, value, 1u);
@@ -371,7 +404,7 @@ void HoundRat::UpdateState()
                 w_u32(object + 304u, 0x18000u);
             value = (uint32)(sint32)(sint16)r_u16(object + 462u) + 1u;
             w_u16(object + 462u, value);
-            if ((sint16)value < 9 || sub_80066570(8u))
+            if ((sint16)value < 9 || RandomRange(8u))
             {
                 w_u16(object + 474u, 0u);
                 return;
@@ -385,12 +418,12 @@ void HoundRat::UpdateState()
                 w_u16(object + 474u, 0u);
                 return;
             }
-            value = r_u16(object + 58u);
+            value = this->kind;
             sub_80069EF4(value == 208u ? 111u : 54u, object + 4u, 0u);
             SetTarget(candidate);
             w_u16(object + 462u, 0u);
             w_u32(object + 304u, 0u);
-            w_u8(object + 24u, 7u);
+            this->model.frame = 7u;
             return;
         case 10u:
             phase = r_u16(object + 474u);
@@ -407,7 +440,7 @@ void HoundRat::UpdateState()
                 if ((sint16)r_u16(object + 460u))
                 {
                     sub_80034F9C(object + 16u);
-                    sub_800350E8(2u);
+                    ::SetParticleSize(2u);
                     red = r_u8(0x800ECC94u);
                     green = r_u8(0x800ECC96u);
                     blue = r_u8(0x800ECC98u);
@@ -428,21 +461,21 @@ void HoundRat::UpdateState()
                     w_u16(object + 460u, value - 1u);
                     return;
                 }
-                w_u32(object + 112u, 0u);
-                w_u32(object + 108u, 0u);
+                motion.velocity[2] = 0u;
+                motion.velocity[1] = 0u;
                 value = r_u16(object + 474u);
-                w_u32(object + 104u, 0u);
+                motion.velocity[0] = 0u;
                 w_u16(object + 474u, value + 1u);
                 return;
             }
-            w_u16(object + 16u, 0u);
-            w_u16(object + 136u, 0u);
-            w_u16(object + 134u, 0u);
-            w_u16(object + 132u, 0u);
-            w_u16(object + 142u, 0u);
-            w_u16(object + 140u, 0u);
+            this->model.angles[0] = 0u;
+            motion.angular_velocity[2] = 0u;
+            motion.angular_velocity[1] = 0u;
+            motion.angular_velocity[0] = 0u;
+            motion.angular_acceleration[2] = 0u;
+            motion.angular_acceleration[1] = 0u;
             flags = r_u32(object + 396u);
-            w_u16(object + 138u, 0u);
+            motion.angular_acceleration[0] = 0u;
             w_u32(object + 396u, flags & 0xFFFFFFFEu);
             sub_80062D84(object);
             sub_800667CC(object + 484u, 1024u, object + 16u);
@@ -450,22 +483,22 @@ void HoundRat::UpdateState()
             w_u32(object + 484u, point[0]);
             w_u32(object + 488u, point[1]);
             w_u32(object + 492u, point[2]);
-            collision[0] = r_u32(object + 4u);
-            collision[1] = r_u32(object + 8u);
-            collision[2] = r_u32(object + 12u);
-            collision[3] = r_u32(object + 484u);
-            collision[4] = r_u32(object + 488u);
-            collision[5] = r_u32(object + 492u);
-            xport_draft_host_sub_8007BB24_p1(collision);
-            xport_draft_host_sub_8007DD04_p1(collision, 1u);
-            if (collision[26])
+            collision.pos[0][0] = this->model.pos[0];
+            collision.pos[0][1] = this->model.pos[1];
+            collision.pos[0][2] = this->model.pos[2];
+            collision.pos[1][0] = r_u32(object + 484u);
+            collision.pos[1][1] = r_u32(object + 488u);
+            collision.pos[1][2] = r_u32(object + 492u);
+            InitializeCollisionRay(collision);
+            QueryCollisionRay(collision, 1u);
+            if (collision.hit.GetObject())
             {
-                value = collision[16] - 256u;
+                value = collision.distance - 256u;
                 if ((sint32)value < 64)
                 {
-                    w_u32(object + 112u, 0u);
-                    w_u32(object + 108u, 0u);
-                    w_u32(object + 104u, 0u);
+                    motion.velocity[2] = 0u;
+                    motion.velocity[1] = 0u;
+                    motion.velocity[0] = 0u;
                     w_u16(object + 460u, 1u);
                     goto death_motion;
                 }
@@ -486,15 +519,15 @@ void HoundRat::UpdateState()
                 divisor = 16u;
             }
             xport_draft_host_sub_8006C4EC_p123(point, difference, &divisor);
-            w_u32(object + 104u, point[0]);
-            w_u32(object + 108u, point[1]);
-            w_u32(object + 112u, point[2]);
+            motion.velocity[0] = point[0];
+            motion.velocity[1] = point[1];
+            motion.velocity[2] = point[2];
 death_motion:
-            w_u32(object + 108u, 0xFFFC0000u);
+            motion.velocity[1] = 0xFFFC0000u;
             w_u8(object + 382u, 1u);
-            w_u8(object + 129u, 31u);
-            w_u8(object + 130u, 3u);
-            w_u8(object + 131u, 31u);
+            motion.drag[0] = 31u;
+            motion.drag[1] = 3u;
+            motion.drag[2] = 31u;
             SetAnimationRange(3u, 0u, 0xFFFFFFFFu);
             w_u16(object + 212u, 0u);
             sub_8004B948(object);
@@ -502,11 +535,11 @@ death_motion:
             w_u16(object + 474u, value + 1u);
             return;
         case 666u:
-            if (r_u8(object + 26u) != 1u)
+            if (this->model.animation != 1u)
             {
                 StartAnimation(1u, 1u);
-                value = sub_80066570(30u);
-                w_u8(object + 24u, value);
+                value = RandomRange(30u);
+                this->model.frame = value;
             }
             flags = r_u32(object + 396u);
             w_u16(object + 472u, 0u);
@@ -524,11 +557,11 @@ uint32 HoundRat::SetTarget(const uint32 *target)
     FUNCTION_MARKER(0x80074730, "SLUS_003.73");
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z, value;
-    if (r_u8(object + 26) != 2)
+    if (this->model.animation != 2)
     {
         StartAnimation(2, 1);
         value = RandomRange(16);
-        w_u8(object + 24, value);
+        this->model.frame = value;
     }
     if (native_target)
     {
@@ -573,17 +606,17 @@ uint32 HoundRat::Damage(uint32 damage, const sint32 *, uint32 kind)
         SetColor(3, 255, 255, 255);
         return 1;
     }
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (player)
     {
         // The original reads the kind although the quote callee ignores it
-        (void)r_u16(object + 58);
+        (void)this->kind;
         TryPlayPlayerKillQuote((const uint32 *)psx_addr(player + 4, 12));
     }
-    flags = r_u16(object + 78);
-    type = r_u16(object + 58);
-    w_u16(object + 78, flags & 0xFFEF);
-    PlayPositionedSound(type == 208 ? 110 : 53, (const uint32 *)psx_addr(object + 4, 12), 0);
+    flags = this->lifecycle_flags;
+    type = this->kind;
+    this->lifecycle_flags = flags & 0xFFEF;
+    PlayPositionedSound(type == 208 ? 110 : 53, (const uint32 *)this->model.pos, 0);
     w_u16(object + 472, 10);
     w_u16(object + 474, 0);
     return 1;

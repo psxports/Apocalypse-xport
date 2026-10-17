@@ -54,8 +54,4 @@ extern "C" uint32 sub_800625AC(uint32 size)
     return AllocateZeroedObject(size);
 }
 
-extern "C" uint32 sub_80062608(uint32 object)
-{
-    FUNCTION_MARKER(0x80062608, "SLUS_003.73");
-    return ReleaseObjectStorage(object);
-}
+

@@ -147,60 +147,11 @@ uint32 xport_draft_host_sub_800679A4_p1(void *argument1, uint32 argument2)
     return apocalypse_visibility_native(argument1, argument2);
 }
 
-uint32 xport_draft_host_sub_8007BB24_p1(void *argument1)
-{
-    FUNCTION_MARKER(0x8007BB24, "SLUS_003.73");
-    return apocalypse_collision_init(argument1);
-}
 
-uint32 xport_draft_host_sub_8007DD04_p1(void *argument1, uint32 argument2)
-{
-    FUNCTION_MARKER(0x8007DD04, "SLUS_003.73");
-    return apocalypse_collision_query(argument1, argument2);
-}
 
-uint32 xport_draft_host_sub_800872BC_p12(void *argument1, void *argument2)
-{
-    FUNCTION_MARKER(0x800872BC, "SLUS_003.73");
-    uint32 input[3], output[3], first, second, third, partial, sum, leading, normalized, shift, coefficient;
-    memcpy(input, argument1, 12);
-    xport_draft_gte_data_write(9, input[0]);
-    xport_draft_gte_data_write(10, input[1]);
-    xport_draft_gte_data_write(11, input[2]);
-    xport_draft_gte_execute(0xA00428);
-    first = xport_draft_gte_data_read(25);
-    second = xport_draft_gte_data_read(26);
-    third = xport_draft_gte_data_read(27);
-    partial = first + second;
-    sum = partial + third;
-    if (((first ^ partial) & (second ^ partial) & 0x80000000) || ((partial ^ sum) & (third ^ sum) & 0x80000000))
-    {
-        /* TODO Original ADD overflow traps require a native exception contract */
-        GameDiagnostic("TODO VectorNormal original ADD overflow\n");
-        abort();
-    }
-    xport_draft_gte_data_write(30, sum);
-    leading = xport_draft_gte_data_read(31) & 0xFFFFFFFE;
-    shift = (uint32)((sint32)(31 - leading) >> 1) & 31;
-    if ((sint32)(leading - 24) < 0)
-        normalized = (uint32)((sint32)sum >> ((24 - leading) & 31));
-    else
-        normalized = sum << ((leading - 24) & 31);
-    coefficient = (uint32)(sint32)(sint16)r_u16(0x800F84B0 + (normalized - 64) * 2);
-    xport_draft_gte_data_write(8, coefficient);
-    xport_draft_gte_data_write(9, input[0]);
-    xport_draft_gte_data_write(10, input[1]);
-    xport_draft_gte_data_write(11, input[2]);
-    xport_draft_gte_execute(0x190003D);
-    first = xport_draft_gte_data_read(25);
-    second = xport_draft_gte_data_read(26);
-    third = xport_draft_gte_data_read(27);
-    output[0] = (uint32)((sint32)first >> shift);
-    output[1] = (uint32)((sint32)second >> shift);
-    output[2] = (uint32)((sint32)third >> shift);
-    memcpy(argument2, output, 12);
-    return sum;
-}
+
+
+
 
 uint32 xport_draft_host_sub_80032EE4_p2(uint32 argument1, void *argument2)
 {
@@ -225,8 +176,6 @@ uint32 xport_draft_host_sub_8005BBB0_p3(uint32 object, uint32 position, const vo
     return apocalypse_debris_construct_5BBB0(object, position, velocity, kind, life, flags, parameter, name);
 }
 
-uint32 sub_8007CF38(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5, uint32 a6);
-void sub_8008445C(uint32 a1, uint32 a2, uint32 a3);
 
 uint32 xport_draft_host_sub_80066B8C_p1(void *output, uint32 origin, uint32 target)
 {
@@ -476,7 +425,6 @@ uint32 xport_draft_missing_sub_80024428(uint32 object, uint32 list, uint32 mode)
     return sub_80024428(object, list, mode);
 }
 
-uint32 sub_8005CF0C(uint32 player);
 uint32 sub_8005DD40(uint32 player);
 uint32 sub_8004B8C8(uint32 object);
 uint32 sub_80062F0C(uint32 object);
@@ -493,16 +441,12 @@ uint32 xport_draft_guest_call1(uint32 target, uint32 argument1)
     }
     if (target == 0x80020264)
         return sub_80020264(argument1);
-    if (target == 0x80020168)
-        return sub_80020168(argument1);
     if (target == 0x80026C68)
         return sub_80026C68(argument1);
     if (target == 0x8002948C)
         return sub_8002948C(argument1);
     if (target == 0x80026488)
         return sub_80026488(argument1);
-    if (target == 0x80042038)
-        return sub_80042038(argument1);
     if (target == 0x8002BFFC)
         return sub_8002BFFC(argument1);
     if (target == 0x8002DB9C)
@@ -513,8 +457,6 @@ uint32 xport_draft_guest_call1(uint32 target, uint32 argument1)
         return sub_80025E2C(argument1);
     if (target == 0x8005DD40)
         return sub_8005DD40(argument1);
-    if (target == 0x8005CF0C)
-        return sub_8005CF0C(argument1);
     if (target == 0x8004B8C8)
         return sub_8004B8C8(argument1);
     if (target == 0x80062F0C)
@@ -523,11 +465,7 @@ uint32 xport_draft_guest_call1(uint32 target, uint32 argument1)
     abort();
 }
 
-uint32 xport_draft_host_sub_80084D4C_p4(uint32 geometry, uint32 output, uint32 flags, const void *translation)
-{
-    FUNCTION_MARKER(0x80084D4C, "SLUS_003.73");
-    return apocalypse_collision_transform(geometry, output, flags, (const sint32 *)translation);
-}
+
 
 uint32 xport_draft_gte_control_read(uint32 index)
 {
@@ -588,14 +526,7 @@ uint32 xport_draft_host_sub_800878DC_p1(const void *matrix)
     return 0;
 }
 
-void xport_draft_host_sub_8007FC60_p2(uint32 model, const void *vector)
-{
-    FUNCTION_MARKER(0x8007FC60, "SLUS_003.73");
-    {
-        (void)(apocalypse_render_geometry(model, (const sint32 *)vector));
-        return;
-    }
-}
+
 
 uint32 xport_draft_host_sub_8001EB64_p2(uint32 object, const void *position, uint32 red, uint32 green, uint32 blue, uint32 size, uint32 duration)
 {

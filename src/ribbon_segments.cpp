@@ -1,3 +1,4 @@
+#include "game_sdk_bindings.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -10,8 +11,9 @@ extern "C"
 #include "effect_lifecycle.h"
 #include "native_object_storage.h"
 #include <new>
+#include <stdlib.h>
 
-RibbonSegments::RibbonSegments(uint32 segments, uint32 mode) : RenderableEffect()
+RibbonSegments::RibbonSegments(uint32 segments, uint32 mode) : RenderableEffect(), tex(0)
 {
     uint32 object = NativeObjectGuestAddress(this);
     uint32 buffer, count, index = 0, offset = 0;
@@ -62,13 +64,10 @@ extern "C" uint32 sub_80026AF4(uint32 object, uint32 reason)
     return RibbonSegments::Attach(object).RibbonSegments::Destroy(reason);
 }
 
-uint32 RibbonSegments::SetMaterial(uint32 name)
+void RibbonSegments::SetMaterial(uint32 name)
 {
-    uint32 material;
     FUNCTION_MARKER(0x80026B54, "SLUS_003.73");
-    material = FindModelResourceEntry(name);
-    w_u32(NativeObjectGuestAddress(this) + 76, material);
-    return material;
+    tex = &GetTextureResource(name);
 }
 
 uint32 RibbonSegments::SetColors(uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue)
@@ -116,31 +115,13 @@ uint32 RibbonSegments::SetSize(uint32 width, uint32 height)
     return result;
 }
 
-extern "C" uint32 sub_80026A44(uint32 object, uint32 segments, uint32 mode)
-{
-    FUNCTION_MARKER(0x80026A44, "SLUS_003.73");
-    void *storage = AllocateNativeObjectStorage(object, sizeof(RibbonSegments));
-    new (storage) RibbonSegments(segments, mode);
-    return object;
-}
 
-extern "C" uint32 sub_80026B54(uint32 object, uint32 name)
-{
-    FUNCTION_MARKER(0x80026B54, "SLUS_003.73");
-    return RibbonSegments::Attach(object).SetMaterial(name);
-}
 
-extern "C" uint32 sub_80026B80(uint32 object, uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue)
-{
-    FUNCTION_MARKER(0x80026B80, "SLUS_003.73");
-    return RibbonSegments::Attach(object).SetColors(red, green, blue, tail_red, tail_green, tail_blue);
-}
 
-extern "C" uint32 sub_80026C18(uint32 object, uint32 width, uint32 height)
-{
-    FUNCTION_MARKER(0x80026C18, "SLUS_003.73");
-    return RibbonSegments::Attach(object).SetSize(width, height);
-}
+
+
+
+
 
 static uint32 ReadRibbonNormal(const sint32 *output)
 {
@@ -190,11 +171,7 @@ uint32 CalculateRibbonNormal(uint32 first, uint32 second, sint32 *output_x, sint
     return result;
 }
 
-extern "C" uint32 sub_8002626C(uint32 first, uint32 second, uint32 output_x, uint32 output_y, uint32 minimum)
-{
-    FUNCTION_MARKER(0x8002626C, "SLUS_003.73");
-    return CalculateRibbonNormal(first, second, (sint32 *)psx_addr(output_x, 4), (sint32 *)psx_addr(output_y, 4), minimum);
-}
+
 
 // Native helpers retain the original inline packet and coordinate operations
 static uint32 PackRibbonOffset(uint32 center, uint32 x, uint32 y)
@@ -239,7 +216,7 @@ uint32 RibbonSegments::Render()
     uint32 result, current, next, current_colors, next_colors, index = 0, first = 1, phase;
     uint32 normal_x = 0, normal_y = 0, start_x, start_y, end_x, end_y;
     uint32 current_depth, next_depth, current_width, current_height, next_width, next_height;
-    uint32 previous_edges[4], edges[4], packet, quad[4], ordering_table, depth, value, texture, u, v, tick, width;
+    uint32 previous_edges[4], edges[4], packet, quad[4], ordering_table, depth, value, u, v, tick, width;
     sint32 computed_x, computed_y, wave;
     FUNCTION_MARKER(0x80026C68, "SLUS_003.73");
     result = r_u8(object + 80);
@@ -316,11 +293,11 @@ uint32 RibbonSegments::Render()
         if (r_u32(object + 96) && (sint32)index >= (sint32)r_u32(object + 100) / 2)
         {
             tick = r_u32(0x800FF2F0);
-            wave = (sint16)r_u16(0x800F863C + ((tick * 200 + 130) & 4095) * 4);
+            wave = rsin((tick * 200 + 130) & 4095);
             edges[0] += (uint32)(wave / 2048) << 16;
-            wave = (sint16)r_u16(0x800F863C + ((tick * 1000) & 0x3FF8));
+            wave = rsin(((tick * 1000) & 0x3FF8) >> 2);
             value = (uint32)((wave * 3) / 4096);
-            wave = (sint16)r_u16(0x800F863C + ((tick * 150 + 100) & 4095) * 4);
+            wave = rsin((tick * 150 + 100) & 4095);
             edges[1] += (value + (uint32)(wave / 2048)) << 16;
         }
         next_depth = r_u32(0x1F80002C);
@@ -339,9 +316,13 @@ uint32 RibbonSegments::Render()
         w_u8(packet + 223, 2);
         w_u32(packet + 228, 0);
         w_u32(packet + 224, 0xE2000000);
-        texture = r_u32(object + 76);
-        u = r_u8(texture);
-        v = r_u8(r_u32(object + 76) + 1);
+        if (!tex)
+        {
+            GameDiagnostic("Ribbon texture is not selected\n");
+            abort();
+        }
+        u = tex->uv[0].u;
+        v = tex->uv[0].v;
         w_u8(packet + 211, 2);
         w_u32(packet + 216, 0);
         w_u32(packet + 212, 0xE2000318 | ((v >> 3) << 15) | ((u >> 3) << 10));
@@ -350,20 +331,19 @@ uint32 RibbonSegments::Render()
         w_u32(quad[2], 0x0C000000);
         w_u32(quad[1], 0x0C000000);
         w_u32(quad[0], 0x0C000000);
-        value = r_u16(r_u32(object + 76) + 2);
+        value = tex->clut;
         w_u16(quad[3] + 14, value);
         w_u16(quad[2] + 14, value);
         w_u16(quad[1] + 14, value);
         w_u16(quad[0] + 14, value);
-        value = r_u16(r_u32(object + 76) + 6);
+        value = tex->tpage;
         w_u16(quad[3] + 26, value);
         w_u16(quad[2] + 26, value);
         w_u16(quad[1] + 26, value);
         w_u16(quad[0] + 26, value);
         value = r_u32(object + 84) & 63;
-        texture = r_u32(object + 76);
-        u = r_u8(texture) + value;
-        v = r_u8(texture + 1) + (phase & 63);
+        u = tex->uv[0].u + value;
+        v = tex->uv[0].v + (phase & 63);
         // Original texture strips are written in quad order 2, 0, 1, 3
         w_u8(quad[2] + 12, u);
         w_u8(quad[2] + 36, u + 16);

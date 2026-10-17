@@ -165,21 +165,9 @@ static void InterpolateReverseSubdivisionGrid(uint32 attributes, uint32 stride, 
     /* The packet cursor is unchanged by this interpolation helper */
 }
 
-extern "C" void sub_80082508(uint32 input0, uint32 input1, uint32 input2)
-{
-    FUNCTION_MARKER(0x80082508, "SLUS_003.73");
-    LoadSubdivisionGeometry(input0, input1, input2);
-}
-extern "C" void sub_80082638(uint32 vertices, uint32 stride, uint32 flags, const uint32 geometry[3], uint32 subdivisions, uint32 step)
-{
-    FUNCTION_MARKER(0x80082638, "SLUS_003.73");
-    InterpolateSubdivisionGrid(vertices, stride, flags, geometry, subdivisions, step);
-}
-extern "C" void sub_8008267C(uint32 attributes, uint32 stride, uint32 attribute_flags, const uint32 geometry[3], uint32 subdivisions, uint32 step, uint32 destination)
-{
-    FUNCTION_MARKER(0x8008267C, "SLUS_003.73");
-    InterpolateReverseSubdivisionGrid(attributes, stride, attribute_flags, geometry, subdivisions, step, destination);
-}
+
+
+
 
 static uint32 SelectSubdivisionResolution(uint32 packet, uint32 area, uint32 *step, uint32 *subdivisions)
 {
@@ -199,11 +187,7 @@ static uint32 SelectSubdivisionResolution(uint32 packet, uint32 area, uint32 *st
     return packet;
 }
 
-extern "C" uint32 sub_80082394(uint32 packet, uint32 area, uint32 *step, uint32 *subdivisions)
-{
-    FUNCTION_MARKER(0x80082394, "SLUS_003.73");
-    return SelectSubdivisionResolution(packet, area, step, subdivisions);
-}
+
 
 static uint32 InterpolateSubdivisionEdge(uint32 position, uint32 count, uint32 stride, uint32 previous, uint32 next)
 {
@@ -244,22 +228,10 @@ static void PrepareTriangleSubdivisionEdges(uint32 count, uint32 corner0, uint32
     InterpolateSubdivisionEdge(position, count, 0xFFFFFF80, corner2, corner0);
 }
 
-extern "C" void sub_8008270C(uint32 count, uint32 corner0, uint32 corner1, uint32 corner2)
-{
-    FUNCTION_MARKER(0x8008270C, "SLUS_003.73");
-    PrepareTriangleSubdivisionEdges(count, corner0, corner1, corner2);
-}
 
-extern "C" void sub_800826C4(uint32 position, uint32 count, uint32 stride, uint32 previous, uint32 next)
-{
-    FUNCTION_MARKER(0x800826C4, "SLUS_003.73");
-    InterpolateSubdivisionEdge(position, count, stride, previous, next);
-}
-extern "C" void sub_80082750(uint32 count, uint32 corner0, uint32 corner1, uint32 corner2, uint32 corner3)
-{
-    FUNCTION_MARKER(0x80082750, "SLUS_003.73");
-    PrepareSubdivisionEdges(count, corner0, corner1, corner2, corner3);
-}
+
+
+
 
 uint32 EmitFlatPolygonStrip(uint32 geometry, xport_draft_polygon_strip_context *context)
 {
@@ -304,11 +276,7 @@ uint32 EmitFlatPolygonStrip(uint32 geometry, xport_draft_polygon_strip_context *
     return packet;
 }
 
-extern "C" uint32 sub_800827A4(uint32 geometry, xport_draft_polygon_strip_context *context)
-{
-    FUNCTION_MARKER(0x800827A4, "SLUS_003.73");
-    return EmitFlatPolygonStrip(geometry, context);
-}
+
 
 uint32 EmitTexturedPolygonStrip(uint32 geometry, xport_draft_polygon_strip_context *context)
 {
@@ -377,11 +345,7 @@ uint32 EmitTexturedPolygonStrip(uint32 geometry, xport_draft_polygon_strip_conte
     return packet;
 }
 
-extern "C" uint32 sub_80082B14(uint32 geometry, xport_draft_polygon_strip_context *context)
-{
-    FUNCTION_MARKER(0x80082B14, "SLUS_003.73");
-    return EmitTexturedPolygonStrip(geometry, context);
-}
+
 
 uint32 EmitColoredPolygonStrip(uint32 geometry, xport_draft_polygon_strip_context *context)
 {
@@ -607,11 +571,7 @@ uint32 SubdivideFlatTriangle(uint32 packet, uint32 limit, uint32 scratch, const 
     return packet;
 }
 
-extern "C" uint32 sub_80082930(uint32 geometry, xport_draft_polygon_strip_context *context)
-{
-    FUNCTION_MARKER(0x80082930, "SLUS_003.73");
-    return EmitColoredPolygonStrip(geometry, context);
-}
+
 extern "C" uint32 apocalypse_model_subdivide_colored_native(uint32 packet, uint32 limit, uint32 scratch, const uint32 points[4], uint32 area, uint32 quad, uint32 *last_stride) { return SubdivideColoredPolygon(packet, limit, scratch, points, area, quad, last_stride); }
 extern "C" uint32 apocalypse_model_subdivide_flat_triangle_native(uint32 packet, uint32 limit, uint32 scratch, const uint32 points[4], uint32 area, uint32 textured, uint32 *last_stride) { return SubdivideFlatTriangle(packet, limit, scratch, points, area, textured, last_stride); }
 
@@ -764,11 +724,7 @@ uint32 SubdivideColoredTexturedPolygon(uint32 packet, uint32 limit, uint32 scrat
     return packet;
 }
 
-extern "C" uint32 sub_80082D1C(uint32 geometry, xport_draft_polygon_strip_context *context)
-{
-    FUNCTION_MARKER(0x80082D1C, "SLUS_003.73");
-    return EmitColoredTexturedPolygonStrip(geometry, context);
-}
+
 extern "C" uint32 apocalypse_model_subdivide_textured_native(uint32 packet, uint32 limit, uint32 scratch, const uint32 points[4], uint32 area, uint32 quad, uint32 *last_stride) { return SubdivideColoredTexturedPolygon(packet, limit, scratch, points, area, quad, last_stride); }
 
 

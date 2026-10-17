@@ -82,11 +82,7 @@ uint32 SmokeEmitter::Update()
     return (uint32)(sint32)(sint16)age;
 }
 
-extern "C" uint32 sub_800325B0(uint32 object, uint32 position, uint32 duration, uint32 count, uint32 red, uint32 green, uint32 blue, uint32 speed_min, uint32 speed_range, uint32 size_min, uint32 size_range)
-{
-    FUNCTION_MARKER(0x800325B0, "SLUS_003.73");
-    return apocalypse_effect_construct_325B0(object, (const sint32 *)psx_addr(position, 12), duration, count, red, green, blue, speed_min, speed_range, size_min, size_range);
-}
+
 
 extern "C" uint32 sub_80032694(uint32 object, uint32 reason)
 {

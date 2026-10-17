@@ -1,3 +1,4 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -89,11 +90,7 @@ extern "C" uint32 sub_8002F130(void)
     return ResetMoviePlayback();
 }
 
-extern "C" void sub_8002E2B8(void)
-{
-    FUNCTION_MARKER(0x8002E2B8, "SLUS_003.73");
-    ReleaseMovieFrameBuffers();
-}
+
 
 uint32 StartMovieStream(void)
 {
@@ -113,23 +110,11 @@ uint32 StartMovieStream(void)
     return result;
 }
 
-extern "C" uint32 sub_8002FA48(void)
-{
-    FUNCTION_MARKER(0x8002FA48, "SLUS_003.73");
-    return StartMovieStream();
-}
 
-static uint32 ReadMovieInputByte(const void *input, uint32 offset)
-{
-    uint32 address = GuestMemoryAddress(input);
-    return address ? r_u8(address + offset) : ((const uint8 *)input)[offset];
-}
 
-static uint32 ReadMovieInputHalf(const void *input, uint32 offset)
-{
-    uint32 address = GuestMemoryAddress(input);
-    return address ? r_u16(address + offset) : xport_load_le16((const uint8 *)input + offset);
-}
+
+
+
 
 static uint32 ReadMovieInputWord(const void *input, uint32 offset)
 {
@@ -137,90 +122,32 @@ static uint32 ReadMovieInputWord(const void *input, uint32 offset)
     return address ? r_u32(address + offset) : xport_load_le32((const uint8 *)input + offset);
 }
 
-uint32 RemapMovieTexturePolygons(uint32 tpage, const uint8 *texture)
+uint32 RemapMovieTexturePolygons(uint32 tpage, const TextureResource &texture)
 {
     FUNCTION_MARKER(0x8002F50C, "SLUS_003.73");
     for (uint32 slot = 0; slot < 2; ++slot)
     {
-        uint32 model = r_u32(0x800FF778 + slot * 4);
-        if (model == 0xFFFFFFFF)
+        const uint32 bank = GetActiveModelBank(slot);
+        if (bank == 0xFFFFFFFF)
             continue;
-        uint32 objects = r_u32(0x800EAEF8 + (model << 6) + 16);
-        uint32 count = r_u32(objects - 4);
-        for (uint32 index = 0; index < count; ++index, objects += 4)
+        ModelGeometrySet &models = GetModelBank(bank).geometry;
+        for (uint32 idx = 0; idx < models.count; ++idx)
         {
-            uint32 geometry = r_u32(objects);
-            uint32 vertices = r_u32(geometry + 4);
-            uint32 polygons = r_u32(geometry + 12);
-            uint32 normals = r_u32(geometry + 8);
-            uint32 polygon = geometry + (vertices << 3) + 32 + (normals << 3);
-            for (uint32 item = 0; item < polygons; ++item)
+            ModelGeometry &model = models.models[idx];
+            for (uint32 p = 0; p < model.poly_count; ++p)
             {
-                uint32 flags = r_u32(polygon);
-                if ((flags & 1) && (flags & 2))
-                {
-                    uint32 page = r_u16(polygon + 26);
-                    uint32 resource_page = ReadMovieInputHalf(texture, 6);
-                    if (page == resource_page)
-                    {
-                        uint32 clut = r_u16(polygon + 22);
-                        uint32 resource_clut = ReadMovieInputHalf(texture, 2);
-                        if (clut == resource_clut)
-                        {
-                            uint32 u = r_u8(polygon + 20);
-                            uint32 min_u = ReadMovieInputByte(texture, 0);
-                            if (u >= min_u)
-                            {
-                                uint32 max_u = ReadMovieInputByte(texture, 4);
-                                if (u <= max_u)
-                                {
-                                    u = r_u8(polygon + 24);
-                                    if (u >= min_u && u <= max_u)
-                                    {
-                                        u = r_u8(polygon + 28);
-                                        if (u >= min_u && u <= max_u)
-                                        {
-                                            u = r_u8(polygon + 30);
-                                            if (u >= min_u && u <= max_u)
-                                            {
-                                                uint32 v = r_u8(polygon + 21);
-                                                uint32 min_v = ReadMovieInputByte(texture, 1);
-                                                if (v >= min_v)
-                                                {
-                                                    uint32 max_v = ReadMovieInputByte(texture, 9);
-                                                    if (v <= max_v)
-                                                    {
-                                                        v = r_u8(polygon + 25);
-                                                        if (v >= min_v && v <= max_v)
-                                                        {
-                                                            v = r_u8(polygon + 29);
-                                                            if (v >= min_v && v <= max_v)
-                                                            {
-                                                                v = r_u8(polygon + 31);
-                                                                if (v >= min_v && v <= max_v)
-                                                                {
-                                                                    w_u16(polygon + 26, tpage);
-                                                                    w_u8(polygon + 20, (r_u8(polygon + 20) + 1) >> 1);
-                                                                    uint32 u1 = r_u8(polygon + 24);
-                                                                    uint32 u2 = r_u8(polygon + 28);
-                                                                    w_u8(polygon + 24, (u1 + 1) >> 1);
-                                                                    uint32 u3 = r_u8(polygon + 30);
-                                                                    w_u8(polygon + 28, (u2 + 1) >> 1);
-                                                                    w_u8(polygon + 30, (u3 + 1) >> 1);
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                polygon += r_u16(polygon + 2) & 0xFFFC;
+                ModelPolygon &poly = model.polys[p];
+                if ((poly.flags & 3) != 3 || poly.tpage != texture.tpage || poly.clut != texture.clut)
+                    continue;
+                uint32 v;
+                for (v = 0; v < 4; ++v)
+                    if (poly.uv[v].u < texture.uv[0].u || poly.uv[v].u > texture.uv[1].u || poly.uv[v].v < texture.uv[0].v || poly.uv[v].v > texture.uv[2].v)
+                        break;
+                if (v != 4)
+                    continue;
+                poly.tpage = (uint16)tpage;
+                for (v = 0; v < 4; ++v)
+                    poly.uv[v].u = (poly.uv[v].u + 1) >> 1;
             }
         }
     }
@@ -233,9 +160,9 @@ uint32 PrepareMovieTexture(uint32 resource)
     uint32 active = r_u32(0x800FF250);
     if (active)
         return active;
-    uint32 texture = FindModelResourceEntry(resource);
-    uint32 x = r_u16(texture + 28);
-    uint32 y = r_u16(texture + 30);
+    const TextureResource &texture = GetTextureResource(resource);
+    uint32 x = (uint16)texture.x;
+    uint32 y = (uint16)texture.y;
     uint32 width = r_u16(0x800FF290);
     uint32 height = r_u16(0x800FF292);
     sint16 rectangle[4];
@@ -255,7 +182,7 @@ uint32 PrepareMovieTexture(uint32 resource)
     w_u16(0x800FF28E, x + width);
     x = r_u16(0x800FF28A);
     uint32 tpage = ((y & 0x100) >> 4) | ((x & 0x3FF) >> 6) | 0x100 | ((y & 0x200) << 2);
-    return RemapMovieTexturePolygons(tpage, (const uint8 *)psx_addr(texture, 10));
+    return RemapMovieTexturePolygons(tpage, texture);
 }
 
 uint32 QueueMoviePosition(const uint32 *position)
@@ -281,21 +208,13 @@ uint32 QueueMoviePosition(const uint32 *position)
     return result;
 }
 
-extern "C" uint32 sub_8002E600(uint32 resource)
-{
-    FUNCTION_MARKER(0x8002E600, "SLUS_003.73");
-    return PrepareMovieTexture(resource);
-}
+
 extern "C" uint32 sub_8002E6D8(uint32 position)
 {
     FUNCTION_MARKER(0x8002E6D8, "SLUS_003.73");
     return QueueMoviePosition((const uint32 *)psx_addr(position, 12));
 }
-extern "C" uint32 sub_8002F50C(uint32 tpage, uint32 texture)
-{
-    FUNCTION_MARKER(0x8002F50C, "SLUS_003.73");
-    return RemapMovieTexturePolygons(tpage, (const uint8 *)psx_addr(texture, 10));
-}
+
 
 uint32 PrepareMoviePlaybackBuffers(void)
 {
@@ -411,26 +330,10 @@ uint32 DecodeNextMovieFrame(void)
     return 1;
 }
 
-extern "C" uint32 sub_8002EF68(void)
-{
-    FUNCTION_MARKER(0x8002EF68, "SLUS_003.73");
-    return PrepareMoviePlaybackBuffers();
-}
-extern "C" uint32 sub_8002F7C8(void)
-{
-    FUNCTION_MARKER(0x8002F7C8, "SLUS_003.73");
-    return InitializeMovieDecoder();
-}
-extern "C" uint32 sub_8002F990(void)
-{
-    FUNCTION_MARKER(0x8002F990, "SLUS_003.73");
-    return NextMovieFrame();
-}
-extern "C" uint32 sub_8002F9E4(void)
-{
-    FUNCTION_MARKER(0x8002F9E4, "SLUS_003.73");
-    return DecodeNextMovieFrame();
-}
+
+
+
+
 
 uint32 OutputMovieSlice(void)
 {
@@ -479,11 +382,7 @@ uint32 OutputMovieSlice(void)
     return xport_draft_host_sub_800885A4_p1((const sint16 *)rectangle, pixels);
 }
 
-extern "C" uint32 sub_8002F84C(void)
-{
-    FUNCTION_MARKER(0x8002F84C, "SLUS_003.73");
-    return OutputMovieSlice();
-}
+
 
 uint32 UpdateMoviePlayback(void)
 {
@@ -535,7 +434,7 @@ uint32 UpdateMoviePlayback(void)
                 sint32 best = 0xFFFFFF;
                 while ((sint32)index < (sint32)r_u32(0x800FF294))
                 {
-                    sint32 distance = (sint32)MeasureEuclideanDistance((const uint32 *)psx_addr(r_u32(0x800FF904) + 4, 12), (const uint32 *)psx_addr(point, 12));
+                    sint32 distance = (sint32)MeasureEuclideanDistance((const uint32 *)psx_addr(visual_lists.cameras + 4, 12), (const uint32 *)psx_addr(point, 12));
                     if (distance < best)
                     {
                         best = distance;
@@ -567,11 +466,7 @@ uint32 UpdateMoviePlayback(void)
     return result;
 }
 
-extern "C" uint32 sub_8002F284(void)
-{
-    FUNCTION_MARKER(0x8002F284, "SLUS_003.73");
-    return UpdateMoviePlayback();
-}
+
 
 uint32 SelectMovieRecord(uint32 movie)
 {
@@ -614,11 +509,7 @@ uint32 SelectMovieRecord(uint32 movie)
     return result;
 }
 
-extern "C" uint32 sub_8002EE7C(uint32 movie)
-{
-    FUNCTION_MARKER(0x8002EE7C, "SLUS_003.73");
-    return SelectMovieRecord(movie);
-}
+
 
 uint32 PlayMovie(uint32 movie)
 {
@@ -692,7 +583,7 @@ uint32 PlayMovie(uint32 movie)
     volume[0] = volume[1] = (uint8)volume_setting;
     volume[2] = volume[3] = 0;
     xport_draft_host_sub_800981B4_p1(volume);
-    sub_8002F7C8();
+    ::InitializeMovieDecoder();
     sub_80070748();
     w_u8(0x800EC1D9, 0);
     w_u8(0x800EC129, 0);
@@ -703,7 +594,7 @@ uint32 PlayMovie(uint32 movie)
             if (i != 3)
                 w_u8(0x800EC0F9 + 16 * i, 0);
     }
-    while (!sub_8002F9E4())
+    while (!::DecodeNextMovieFrame())
     {
     }
     for (;;)
@@ -717,7 +608,7 @@ uint32 PlayMovie(uint32 movie)
             break;
         }
         timeout = 0x800000;
-        while (!sub_8002F9E4())
+        while (!::DecodeNextMovieFrame())
             if (timeout-- == 0)
                 goto finish;
         if (!timeout)
@@ -798,11 +689,7 @@ cleanup:
 }
 
 extern "C" uint32 apocalypse_play_movie(uint32 movie) { return PlayMovie(movie); }
-extern "C" uint32 sub_8002E814(uint32 movie)
-{
-    FUNCTION_MARKER(0x8002E814, "SLUS_003.73");
-    return PlayMovie(movie);
-}
+
 
 uint32 WaitForMovieCdStop()
 {
@@ -818,11 +705,7 @@ uint32 WaitForMovieCdStop()
     return status[0] & 2;
 }
 
-extern "C" uint32 sub_8002F758(void)
-{
-    FUNCTION_MARKER(0x8002F758, "SLUS_003.73");
-    return WaitForMovieCdStop();
-}
+
 
 
 uint32 InitializeMovieResourceTable()
@@ -846,8 +729,4 @@ uint32 InitializeMovieResourceTable()
     return 0;
 }
 
-extern "C" uint32 sub_8002E738(void)
-{
-    FUNCTION_MARKER(0x8002E738, "SLUS_003.73");
-    return InitializeMovieResourceTable();
-}
+

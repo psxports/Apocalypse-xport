@@ -43,11 +43,7 @@ uint32 SetGravityVector(const uint32 *vector)
     return result;
 }
 
-extern "C" uint32 sub_8003AA20(uint32 vector)
-{
-    FUNCTION_MARKER(0x8003AA20, "SLUS_003.73");
-    return SetGravityVector((const uint32 *)psx_addr(vector, 12));
-}
+
 
 extern "C" uint32 xport_draft_host_sub_8003AA20_p1(const void *vector)
 {

@@ -14,7 +14,7 @@ extern "C"
 #include <stdlib.h>
 #include <string.h>
 
-TexturedQuad::TexturedQuad() : EffectObject()
+TexturedQuad::TexturedQuad() : EffectObject(), tex(0)
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80033688, "SLUS_003.73");
@@ -35,14 +35,15 @@ uint32 TexturedQuad::Destroy(uint32 reason)
     return result;
 }
 
-uint32 TexturedQuad::SelectResource(const char *name, uint32 index)
+void TexturedQuad::SelectResource(const char *name, uint32 index)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80033764, "SLUS_003.73");
-    uint32 resource = FindModelTextureGroup(name);
-    uint32 result = r_u32(resource + (index << 3) + 4);
-    w_u32(object + 148, result);
-    return result;
+    tex = GetTextureFrame(FindModelTextureGroup(name), (sint32)index).tex;
+}
+
+const TextureResource *TexturedQuad::GetTexture() const
+{
+    return tex;
 }
 
 uint32 TexturedQuad::AddFlags(uint32 flags)
@@ -79,13 +80,7 @@ TexturedQuad &TexturedQuad::Attach(uint32 object)
     return *static_cast<TexturedQuad *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_80033688(uint32 object)
-{
-    FUNCTION_MARKER(0x80033688, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(TexturedQuad));
-    new (dram_addr) TexturedQuad();
-    return object;
-}
+
 
 extern "C" uint32 sub_800336D8(uint32 object, uint32 reason)
 {
@@ -93,17 +88,9 @@ extern "C" uint32 sub_800336D8(uint32 object, uint32 reason)
     return TexturedQuad::Attach(object).TexturedQuad::Destroy(reason);
 }
 
-extern "C" uint32 sub_80033764(uint32 object, uint32 name, uint32 index)
-{
-    FUNCTION_MARKER(0x80033764, "SLUS_003.73");
-    return TexturedQuad::Attach(object).SelectResource((const char *)psx_addr(name, 1), index);
-}
 
-extern "C" uint32 sub_8003384C(uint32 object, uint32 flags)
-{
-    FUNCTION_MARKER(0x8003384C, "SLUS_003.73");
-    return TexturedQuad::Attach(object).AddFlags(flags);
-}
+
+
 
 extern "C" uint32 sub_80033874(uint32 object)
 {
@@ -111,19 +98,12 @@ extern "C" uint32 sub_80033874(uint32 object)
     return TexturedQuad::Attach(object).EnableSemiTransparency();
 }
 
-extern "C" uint32 sub_800338A0(uint32 object, uint32 brightness)
-{
-    FUNCTION_MARKER(0x800338A0, "SLUS_003.73");
-    return TexturedQuad::Attach(object).SetBrightness(brightness);
-}
 
-uint32 TexturedQuad::SelectResource(uint32 key)
+
+void TexturedQuad::SelectResource(uint32 key)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800337B4, "SLUS_003.73");
-    uint32 result = FindModelResourceEntry(key);
-    w_u32(object + 148, result);
-    return result;
+    tex = FindModelResourceEntry(key);
 }
 
 uint32 TexturedQuad::SetColors(uint32 red, uint32 green, uint32 blue)
@@ -135,17 +115,9 @@ uint32 TexturedQuad::SetColors(uint32 red, uint32 green, uint32 blue)
     return result;
 }
 
-extern "C" uint32 sub_800337B4(uint32 object, uint32 key)
-{
-    FUNCTION_MARKER(0x800337B4, "SLUS_003.73");
-    return TexturedQuad::Attach(object).SelectResource(key);
-}
 
-extern "C" uint32 sub_800338CC(uint32 object, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x800338CC, "SLUS_003.73");
-    return TexturedQuad::Attach(object).SetColors(red, green, blue);
-}
+
+
 
 // Native input adapter for original signed direction halfword loads
 static uint32 ReadQuadDirection(const sint16 *direction, uint32 offset)
@@ -214,13 +186,7 @@ void TexturedQuad::SetPosition(const uint32 *position, const sint16 *direction, 
     w_u32(object + 104, out[2]);
 }
 
-extern "C" uint32 sub_80033900(uint32 object, uint32 position, uint32 direction, uint32 first_scale, uint32 second_scale, uint32, uint32)
-{
-    FUNCTION_MARKER(0x80033900, "SLUS_003.73");
-    TexturedQuad::Attach(object).SetPosition((const uint32 *)psx_addr(position, 12), (const sint16 *)psx_addr(direction, 6), first_scale, second_scale);
-    // Native ABI excludes the original local-stack pointer carrier
-    return 0;
-}
+
 
 extern "C" uint32 apocalypse_shadow_quad_native(uint32 object, uint32 position, const void *direction, uint32 first_scale, uint32 second_scale, uint32, uint32)
 {
@@ -306,19 +272,7 @@ uint32 RestoreTexturedQuadPositions(void)
     return object;
 }
 
-extern "C" void sub_800303F4(void)
-{
-    FUNCTION_MARKER(0x800303F4, "SLUS_003.73");
-    SmoothTexturedQuadPositions();
-}
-extern "C" uint32 sub_800306D8(void)
-{
-    FUNCTION_MARKER(0x800306D8, "SLUS_003.73");
-    return SaveTexturedQuadPositions();
-}
-extern "C" uint32 sub_80030764(void)
-{
-    FUNCTION_MARKER(0x80030764, "SLUS_003.73");
-    return RestoreTexturedQuadPositions();
-}
+
+
+
 

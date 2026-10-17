@@ -6,6 +6,7 @@ extern "C"
 #include "psx.h"
 }
 
+struct TextureGroup;
 class MenuWindow;
 uint32 DrawMenuVolumeSlider(MenuWindow &menu);
 
@@ -27,7 +28,9 @@ void DrawTrackedObjectHealth();
 void DrawWeaponAmmoIndicator(uint32 slot);
 void DrawGamePanel();
 uint32 DrawDebugPanel();
-uint32 LoadPanelResource();
+void LoadPanelResource();
+void ForgetPanelTexture(const TextureGroup *grp);
+void ClearPanelTextureBinding();
 uint32 ResetPanelDisplayTimer();
 
 uint32 SetMenuDarkRedText();

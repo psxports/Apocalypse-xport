@@ -1,3 +1,4 @@
+#include "visual_object.h"
 #include "game_sdk_bindings.h"
 extern "C"
 {
@@ -42,7 +43,7 @@ Pickup::Pickup(uint32 resource, const uint32 *position, const uint32 *velocity, 
     uint32 x, y, z, value, bank, key = 0;
     FUNCTION_MARKER(0x8001FD28, "SLUS_003.73");
     w_u32(object + 68, 0x800A11AC);
-    w_u16(object + 58, resource);
+    this->kind = resource;
     w_u16(object + 336, yaw);
     value = r_u8(0x800EC530);
     w_u8(object + 306, 1);
@@ -56,25 +57,25 @@ Pickup::Pickup(uint32 resource, const uint32 *position, const uint32 *velocity, 
     x = ReadPickupWord(position, 0);
     y = ReadPickupWord(position, 1);
     z = ReadPickupWord(position, 2);
-    w_u32(object + 4, x);
-    w_u32(object + 8, y);
-    w_u32(object + 12, z);
+    this->model.pos[0] = x;
+    this->model.pos[1] = y;
+    this->model.pos[2] = z;
     if (flags & 8)
-        w_u32(object + 108, (uint32)-245760);
+        motion.velocity[1] = (uint32)-245760;
     else
     {
         x = ReadPickupWord(velocity, 0);
         y = ReadPickupWord(velocity, 1);
         z = ReadPickupWord(velocity, 2);
-        w_u32(object + 104, x);
-        w_u32(object + 108, y);
-        w_u32(object + 112, z);
+        motion.velocity[0] = x;
+        motion.velocity[1] = y;
+        motion.velocity[2] = z;
     }
-    w_u8(object + 129, 5);
-    w_u8(object + 130, 5);
-    w_u8(object + 131, 5);
-    w_u16(object + 134, 100);
-    w_u32(object + 120, 32768);
+    motion.drag[0] = 5;
+    motion.drag[1] = 5;
+    motion.drag[2] = 5;
+    motion.angular_velocity[1] = 100;
+    motion.acceleration[1] = 32768;
     value = RandomRange(20);
     w_u16(object + 334, value + 90);
     w_u16(object + 330, 50);
@@ -94,7 +95,7 @@ Pickup::Pickup(uint32 resource, const uint32 *position, const uint32 *velocity, 
     EnableShadow();
     w_u16(object + 204, 300);
     SetModelBank((const char *)psx_addr(0x800FF208, 1));
-    resource = r_u16(object + 58);
+    resource = this->kind;
     value = resource - 1;
     value = value < 20 ? r_u32(0x800A11EC + value * 4) : 0x80020004;
     switch (value)
@@ -113,7 +114,7 @@ Pickup::Pickup(uint32 resource, const uint32 *position, const uint32 *velocity, 
         value = r_u16(0x800EC656 + (resource - 14) * 2);
         w_u8(object + 305, 1);
         bank = r_u8(0x800FF645);
-        w_u16(object + 134, 100 + (resource - 14) * 50);
+        motion.angular_velocity[1] = 100 + (resource - 14) * 50;
         w_u16(object + 218, value);
         key = 0x7E74F3D4;
         goto resolve;
@@ -122,7 +123,7 @@ Pickup::Pickup(uint32 resource, const uint32 *position, const uint32 *velocity, 
         bank = r_u8(0x800FF645);
     resolve:
         value = FindModelResourceIndex(key, bank);
-        w_u16(object + 22, value);
+        this->model.model_idx = value;
         break;
     case 0x8001FF14:
         SetModelBank((const char *)psx_addr(0x800A119C, 1));
@@ -131,7 +132,7 @@ Pickup::Pickup(uint32 resource, const uint32 *position, const uint32 *velocity, 
         break;
     case 0x8001FFF8:
         w_u8(object + 305, 1);
-        w_u16(object + 22, 0);
+        this->model.model_idx = 0;
         break;
     case 0x80020004:
         break;
@@ -140,15 +141,15 @@ Pickup::Pickup(uint32 resource, const uint32 *position, const uint32 *velocity, 
         GameDiagnostic("Unsupported pickup branch: %08X\n", value);
         abort();
     }
-    AddToList((uint32 *)psx_addr(0x800FF204, 4));
+    AddToList(visual_lists.pickups);
     if (!r_u8(object + 305))
     {
-        value = r_u16(object);
-        w_u16(object, value | 1);
+        value = this->model.flags;
+        this->model.flags = value | 1;
     }
 }
 
-uint32 Pickup::ReleaseEffects()
+uint32 Pickup::ReleaseResources()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 result, child, table, target;
@@ -182,8 +183,8 @@ uint32 Pickup::Destroy(uint32 reason)
     uint32 result;
     FUNCTION_MARKER(0x800201F8, "SLUS_003.73");
     w_u32(object + 68, 0x800A11AC);
-    RemoveFromList((uint32 *)psx_addr(0x800FF204, 4));
-    Pickup::ReleaseEffects();
+    RemoveFromList(visual_lists.pickups);
+    Pickup::ReleaseResources();
     result = VisualObject::Destroy(0);
     return (reason & 1) ? ReleaseObjectStorage(object) : result;
 }
@@ -193,13 +194,7 @@ Pickup &Pickup::Attach(uint32 object)
     return *static_cast<Pickup *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_8001FD28(uint32 object, uint32 resource, uint32 position, uint32 velocity, uint32 flags, uint32 yaw)
-{
-    FUNCTION_MARKER(0x8001FD28, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(Pickup));
-    new (dram_addr) Pickup(resource, (const uint32 *)psx_addr(position, 12), flags & 8 ? 0 : (const uint32 *)psx_addr(velocity, 12), flags, yaw);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_pickup_constructor_native(uint32 object, uint32 resource, const void *position, uint32 velocity, uint32 flags, uint32 yaw)
 {
@@ -214,11 +209,7 @@ extern "C" uint32 sub_800201F8(uint32 object, uint32 reason)
     return Pickup::Attach(object).Pickup::Destroy(reason);
 }
 
-extern "C" uint32 sub_80020168(uint32 object)
-{
-    FUNCTION_MARKER(0x80020168, "SLUS_003.73");
-    return Pickup::Attach(object).Pickup::ReleaseEffects();
-}
+
 
 static void AttachPickupChildPosition(uint32 object, uint32 position, sint16 yaw)
 {
@@ -251,7 +242,7 @@ static void AttachPickupChildPosition(uint32 object, uint32 position, sint16 yaw
     abort();
 }
 
-uint32 Pickup::AdvanceEffects()
+uint32 Pickup::Update()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800209EC, "SLUS_003.73");
@@ -272,21 +263,18 @@ uint32 Pickup::AdvanceEffects()
     UpdateLifetime();
     if ((r_u32(((uint32)((object + 220)))) >= 0x1F41))
     {
-        uint32 table = r_u32(object + 68);
-        uint32 adjustment = (uint32)(sint32)(sint16)r_u16(table + 56);
-        uint32 target = r_u32(table + 60);
-        return xport_draft_guest_call1(target, object + adjustment);
+        return ReleaseResources();
     }
     UpdateMotion();
     if (!(r_u8(((uint32)((object + 305))))))
     {
         if (!(r_u32(((uint32)((object + 340))))))
             CreateChildEffect();
-        AttachPickupChildPosition(r_u32(object + 340), object + 4, (sint16)r_u16(object + 18));
+        AttachPickupChildPosition(r_u32(object + 340), object + 4, (sint16)this->model.angles[1]);
     }
     if (!(r_u32(((uint32)((object + 296))))))
     {
-        if ((r_u16(((uint32)((object + 58)))) == 15))
+        if ((this->kind == 15))
         {
             v3 = AllocateEffectStorage(104);
             v4 = v3;
@@ -316,7 +304,7 @@ uint32 Pickup::AdvanceEffects()
         RingEffect::Attach(r_u32(((uint32)((object + 296))))).SetRowColors(1, 0, 0, 0);
         RingEffect::Attach(r_u32(((uint32)((object + 296))))).SetRadii(0);
         w_u8(((uint32)((r_u32(((uint32)((object + 296)))) + 66))), 1);
-        switch (r_u16(((uint32)((object + 58)))))
+        switch (this->kind)
         {
             case 1:
 
@@ -421,10 +409,10 @@ uint32 Pickup::AdvanceEffects()
         w_u32(((uint32)((r_u32(((uint32)((object + 296)))) + 100))), -1);
     else
         w_u32(((uint32)((r_u32(((uint32)((object + 296)))) + 100))), 0);
-    RingEffect::Attach(r_u32(object + 296)).SetPosition((const uint32 *)psx_addr(object + 4, 12));
+    RingEffect::Attach(r_u32(object + 296)).SetPosition((const uint32 *)this->model.pos);
     uint32 phase = (600 * r_u32(0x800FF2F0)) & 0x3FF8;
     uint32 amplitude = r_u16(object + 302);
-    sint32 sine = (sint16)r_u16(0x800F863C + phase);
+    sint32 sine = rsin((phase) >> 2);
     uint32 product = amplitude * (uint32)sine;
     uint32 base = r_u16(object + 300);
     if ((sint32)product < 0)
@@ -432,7 +420,7 @@ uint32 Pickup::AdvanceEffects()
     v14 = (sint32)(base + (uint32)((sint32)product >> 12));
     RingEffect::Attach(r_u32(((uint32)((object + 296))))).SetRowExtent(0, v14);
     RingEffect::Attach(r_u32(((uint32)((object + 296))))).SetRowExtent(1, v14);
-    if ((r_u16(((uint32)((object + 58)))) == 15))
+    if ((this->kind == 15))
         RingEffect::Attach(r_u32(((uint32)((object + 296))))).SetRowExtent(2, v14);
     v15 = r_u32(((uint32)((object + 296))));
     result = (r_u16(((uint32)((v15 + 96)))) + 50);
@@ -443,7 +431,7 @@ uint32 Pickup::AdvanceEffects()
 extern "C" uint32 sub_800209EC(uint32 object)
 {
     FUNCTION_MARKER(0x800209EC, "SLUS_003.73");
-    return Pickup::Attach(object).AdvanceEffects();
+    return Pickup::Attach(object).Update();
 }
 
 uint32 Pickup::Finish()
@@ -458,10 +446,10 @@ uint32 Pickup::Finish()
             uint32 indices = GetRecordPayload(r_u16(object + 310));
             SpawnEnemyIndices((const uint16 *)psx_addr(indices, 2));
         }
-        result = r_u16(object + 78) | 64;
-        uint32 flags = r_u16(object) | 1;
-        w_u16(object + 78, result);
-        w_u16(object, flags);
+        result = this->lifecycle_flags | 64;
+        uint32 flags = this->model.flags | 1;
+        this->lifecycle_flags = result;
+        this->model.flags = flags;
     }
     return result;
 }
@@ -476,7 +464,7 @@ uint32 Pickup::CreateChildEffect()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80020068, "SLUS_003.73");
-    uint32 kind = r_u16(object + 58);
+    uint32 kind = this->kind;
     uint32 child;
     w_u32(0x800FF3AC, 0);
     switch (kind)
@@ -521,11 +509,7 @@ uint32 Pickup::CreateChildEffect()
     return 1;
 }
 
-extern "C" uint32 sub_80020068(uint32 object)
-{
-    FUNCTION_MARKER(0x80020068, "SLUS_003.73");
-    return Pickup::Attach(object).CreateChildEffect();
-}
+
 
 uint32 Pickup::UpdateMotion()
 {
@@ -534,26 +518,26 @@ uint32 Pickup::UpdateMotion()
     uint32 x, y, z, phase, amplitude, product, velocity, gravity, shift;
     uint32 unrestricted, damped, offset, floor, result;
     sint32 height, ground;
-    AddAngleVector((uint16 *)psx_addr(object + 16, 6), (const uint16 *)psx_addr(object + 132, 6));
-    NormalizeAngles((uint16 *)psx_addr(object + 16, 6));
+    AddAngleVector((uint16 *)this->model.angles, (const uint16 *)motion.angular_velocity);
+    NormalizeAngles((uint16 *)this->model.angles);
     if (!r_u8(object + 307))
     {
         x = r_u32(object + 316);
         y = r_u32(object + 320);
         z = r_u32(object + 324);
-        w_u32(object + 4, x);
-        w_u32(object + 8, y);
-        w_u32(object + 12, z);
+        this->model.pos[0] = x;
+        this->model.pos[1] = y;
+        this->model.pos[2] = z;
         phase = r_u16(object + 328) & 4095;
         amplitude = r_u16(object + 332);
-        product = amplitude * (uint32)(sint32)(sint16)r_u16(0x800F863C + phase * 4);
+        product = amplitude * (uint32)rsin(phase);
         if ((sint32)product < 0)
             product += 4095;
         offset = (uint32)((sint32)product >> 12) << 12;
-        y = r_u32(object + 8);
+        y = this->model.pos[1];
         phase = r_u16(object + 328);
         amplitude = r_u16(object + 334);
-        w_u32(object + 8, y + offset);
+        this->model.pos[1] = y + offset;
         w_u16(object + 328, phase + amplitude);
         goto UpdateShadowHeight;
     }
@@ -578,15 +562,15 @@ uint32 Pickup::UpdateMotion()
             goto UpdateShadowHeight;
         }
     }
-    AddVectors((uint32 *)psx_addr(object + 316, 12), (const uint32 *)psx_addr(object + 104, 12));
-    velocity = r_u32(object + 108);
-    gravity = r_u32(object + 120);
-    shift = r_u8(object + 130) & 31;
+    AddVectors((uint32 *)psx_addr(object + 316, 12), (const uint32 *)motion.velocity);
+    velocity = motion.velocity[1];
+    gravity = motion.acceleration[1];
+    shift = motion.drag[1] & 31;
     velocity += gravity;
     damped = velocity - (uint32)((sint32)velocity >> shift);
     unrestricted = r_u8(object + 308);
-    w_u32(object + 108, velocity);
-    w_u32(object + 108, damped);
+    motion.velocity[1] = velocity;
+    motion.velocity[1] = damped;
     if (!unrestricted)
     {
         offset = r_u8(object + 309) << 12;
@@ -596,18 +580,18 @@ uint32 Pickup::UpdateMotion()
         if ((sint32)floor < (sint32)y && (sint32)damped > 0)
         {
             w_u32(object + 320, floor);
-            w_u32(object + 104, 0);
-            w_u32(object + 108, 0);
-            w_u32(object + 112, 0);
+            motion.velocity[0] = 0;
+            motion.velocity[1] = 0;
+            motion.velocity[2] = 0;
             w_u8(object + 307, 0);
         }
     }
     x = r_u32(object + 316);
     y = r_u32(object + 320);
     z = r_u32(object + 324);
-    w_u32(object + 4, x);
-    w_u32(object + 8, y);
-    w_u32(object + 12, z);
+    this->model.pos[0] = x;
+    this->model.pos[1] = y;
+    this->model.pos[2] = z;
 UpdateShadowHeight:
     x = r_u32(object + 316);
     y = r_u32(object + 320);
@@ -616,7 +600,7 @@ UpdateShadowHeight:
     w_u32(object + 188, y);
     w_u32(object + 192, z);
     floor = r_u32(object + 312);
-    y = r_u32(object + 8);
+    y = this->model.pos[1];
     result = (uint32)((sint32)(floor - y) >> 12);
     w_u16(object + 202, result);
     result <<= 16;
@@ -635,11 +619,7 @@ UpdateShadowHeight:
     return result;
 }
 
-extern "C" uint32 sub_800202CC(uint32 object)
-{
-    FUNCTION_MARKER(0x800202CC, "SLUS_003.73");
-    return Pickup::Attach(object).UpdateMotion();
-}
+
 
 void Pickup::UpdateLifetime()
 {
@@ -666,13 +646,13 @@ void Pickup::UpdateLifetime()
     if (r_u8(object + 305))
     {
         uint32 blinking = r_u8(object + 306);
-        uint32 flags = r_u16(object);
-        w_u16(object, blinking ? flags & 65534 : flags | 1);
+        uint32 flags = this->model.flags;
+        this->model.flags = blinking ? flags & 65534 : flags | 1;
     }
     if (!r_u16(object + 336))
     {
         if (r_u32(object + 220) < 8001)
-            SpawnExplosionRing((const uint32 *)psx_addr(object + 4, 12), 20, 255, 255, 255, 4, 1, 20);
+            SpawnExplosionRing((const uint32 *)this->model.pos, 20, 255, 255, 255, 4, 1, 20);
         uint32 table = r_u32(object + 68);
         uint32 adjustment = (uint32)(sint32)(sint16)r_u16(table + 16);
         uint32 target = r_u32(table + 20);
@@ -680,13 +660,7 @@ void Pickup::UpdateLifetime()
     }
 }
 
-extern "C" uint32 sub_80020518(uint32 object)
-{
-    FUNCTION_MARKER(0x80020518, "SLUS_003.73");
-    Pickup::Attach(object).UpdateLifetime();
-    // The original caller does not consume the incidental V0 carrier
-    return 0;
-}
+
 
 static void MissingCollectedPickupKind(uint32 kind)
 {
@@ -707,9 +681,9 @@ uint32 Pickup::Collect(Player &player)
     uint32 v10;
     sint32 v25;
     sint32 v26;
-    result = r_u16(((uint32)((object + 58))));
+    result = this->kind;
     v6 = 0;
-    switch (r_u16(((uint32)((object + 58)))))
+    switch (this->kind)
     {
         case 1:
             result = player.ReplaceWeapon(WPN_RIP_LASER);
@@ -834,7 +808,7 @@ uint32 Pickup::Collect(Player &player)
             if (result)
             {
                 ClearAnimatedHudText();
-                v25 = r_u16(((uint32)((object + 58))));
+                v25 = this->kind;
                 if ((v25 == 15))
                 {
                     v9 = r_u32((0x800A5728 + (0) * 4));
@@ -892,18 +866,14 @@ uint32 Pickup::Collect(Player &player)
     return result;
 }
 
-extern "C" uint32 sub_800206C4(uint32 object, uint32 player)
-{
-    FUNCTION_MARKER(0x800206C4, "SLUS_003.73");
-    return Pickup::Attach(object).Collect(Player::Attach(player));
-}
+
 
 void Pickup::SetMotionParameters(uint32 gravity, uint32 damping_shift)
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8002005C, "SLUS_003.73");
-    w_u32(object + 120, gravity);
-    w_u8(object + 130, damping_shift);
+    motion.acceleration[1] = gravity;
+    motion.drag[1] = damping_shift;
 }
 
 extern "C" void sub_8002005C(uint32 object, uint32 gravity, uint32 damping_shift)

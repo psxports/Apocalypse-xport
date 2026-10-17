@@ -1,32 +1,29 @@
+#include "game_sdk_bindings.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 }
 #include "vector_distance.h"
-#include "native_object_storage.h"
 #include <string.h>
+#include <stdlib.h>
 
-static uint32 ReadDistanceWord(const uint32 *vector, uint32 mapped, uint32 axis)
+static uint32 ReadDistanceWord(const uint32 *vector, uint32 axis)
 {
     uint32 value;
-    if (mapped)
-        return r_u32(mapped + axis * 4);
     memcpy(&value, (const uint8 *)vector + axis * 4, 4);
     return value;
 }
 
 uint32 MeasurePositionDistance(const uint32 *origin, const uint32 *target)
 {
-    uint32 left_address, right_address, left, right, delta[3], axis, value;
+    uint32 left, right, delta[3], axis, value;
     sint32 x, y, z;
     FUNCTION_MARKER(0x8006696C, "SLUS_003.73");
-    left_address = GuestMemoryAddress(origin);
-    right_address = GuestMemoryAddress(target);
     for (axis = 0; axis < 3; axis += 1)
     {
-        left = ReadDistanceWord(origin, left_address, axis);
-        right = ReadDistanceWord(target, right_address, axis);
+        left = ReadDistanceWord(origin, axis);
+        right = ReadDistanceWord(target, axis);
         delta[axis] = left - right;
     }
     for (axis = 0; axis < 3; axis += 1)
@@ -77,15 +74,15 @@ extern "C" uint32 apocalypse_position_distance_native(const void *origin, const 
 
 uint32 MeasureHorizontalDistance(const uint32 *origin, const uint32 *target)
 {
-    uint32 first = GuestMemoryAddress(origin), second = GuestMemoryAddress(target);
+
     uint32 x, z, left, right;
     FUNCTION_MARKER(0x80066918, "SLUS_003.73");
-    left = ReadDistanceWord(origin, first, 0);
-    right = ReadDistanceWord(target, second, 0);
+    left = ReadDistanceWord(origin, 0);
+    right = ReadDistanceWord(target, 0);
     x = (uint32)((sint32)(left - right) >> 12);
     x *= x;
-    left = ReadDistanceWord(origin, first, 2);
-    right = ReadDistanceWord(target, second, 2);
+    left = ReadDistanceWord(origin, 2);
+    right = ReadDistanceWord(target, 2);
     z = (uint32)((sint32)(left - right) >> 12);
     z *= z;
     return LookupDistanceRoot(x + z);
@@ -100,9 +97,9 @@ extern "C" uint32 sub_80066918(uint32 origin, uint32 target)
 // Native adapter for the identical original input and GTE command sequence
 static uint32 SquareShiftedVector(const uint32 *vector)
 {
-    uint32 address = GuestMemoryAddress(vector), shifted[3], squares[3], axis;
+    uint32 shifted[3], squares[3], axis;
     for (axis = 0; axis < 3; axis += 1)
-        shifted[axis] = (uint32)((sint32)ReadDistanceWord(vector, address, axis) >> 12);
+        shifted[axis] = (uint32)((sint32)ReadDistanceWord(vector, axis) >> 12);
     for (axis = 0; axis < 3; axis += 1)
         xport_gte_write_data(9 + axis, shifted[axis]);
     xport_gte_execute(0xA00428);
@@ -123,12 +120,6 @@ uint32 MeasureSquaredVectorLength(const uint32 *vector)
     return SquareShiftedVector(vector);
 }
 
-extern "C" uint32 sub_8006BF04(uint32 vector)
-{
-    FUNCTION_MARKER(0x8006BF04, "SLUS_003.73");
-    return MeasureVectorLength((const uint32 *)psx_addr(vector, 12));
-}
-
 extern "C" uint32 xport_draft_host_sub_8006BF04_p1(const void *input)
 {
     FUNCTION_MARKER(0x8006BF04, "SLUS_003.73");
@@ -142,17 +133,17 @@ extern "C" uint32 apocalypse_vector_squared_length_native(const uint32 vector[3]
 
 uint32 MeasureEuclideanDistance(const uint32 *origin, const uint32 *target)
 {
-    uint32 first = GuestMemoryAddress(origin), second = GuestMemoryAddress(target);
+
     uint32 left, right, x, y, z;
     FUNCTION_MARKER(0x8006689C, "SLUS_003.73");
-    left = ReadDistanceWord(origin, first, 0);
-    right = ReadDistanceWord(target, second, 0);
+    left = ReadDistanceWord(origin, 0);
+    right = ReadDistanceWord(target, 0);
     x = (uint32)((sint32)(left - right) >> 12);
-    left = ReadDistanceWord(origin, first, 1);
-    right = ReadDistanceWord(target, second, 1);
+    left = ReadDistanceWord(origin, 1);
+    right = ReadDistanceWord(target, 1);
     y = (uint32)((sint32)(left - right) >> 12);
-    right = ReadDistanceWord(target, second, 2);
-    left = ReadDistanceWord(origin, first, 2);
+    right = ReadDistanceWord(target, 2);
+    left = ReadDistanceWord(origin, 2);
     z = (uint32)((sint32)(left - right) >> 12);
     return LookupDistanceRoot(x * x + y * y + z * z);
 }
@@ -175,15 +166,26 @@ extern "C" uint32 xport_draft_host_sub_8006689C_p12(const void *origin, const vo
     return MeasureEuclideanDistance((const uint32 *)origin, (const uint32 *)target);
 }
 
+static const uint16 distance_root_values[3072] =
+{
+#include "distance_root_table.inc"
+};
+
 uint32 LookupDistanceRoot(uint32 value)
 {
     FUNCTION_MARKER(0x80085B54, "SLUS_003.73");
     xport_gte_write_data(30, value);
     uint32 shift = xport_gte_read_data(31) & 254;
-    if ((sint32)value < 0)
-        return r_u16(0x800F5130 + 2 * (value >> 20));
-    uint32 index = (value << (shift & 31)) >> 20;
-    return r_u16(0x800F5130 + 2 * index) >> ((shift >> 1) & 31);
+    if (!value)
+        return 0;
+    uint32 index = (sint32)value < 0 ? value >> 20 : (value << (shift & 31)) >> 20;
+    if (index < 1024 || index >= 4096)
+    {
+        GameDiagnostic("Invalid normalized distance-root index\n");
+        abort();
+    }
+    uint32 result = distance_root_values[index - 1024];
+    return (sint32)value < 0 ? result : result >> ((shift >> 1) & 31);
 }
 
 extern "C" uint32 sub_80085B54(uint32 value)

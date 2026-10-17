@@ -26,7 +26,10 @@ enum WeaponType
 };
 
 // TODO Recover the original base class name
-class WeaponNodeBase
+#include "object.h"
+#include "model_instance.h"
+
+class WeaponNodeBase : public Object
 {
 public:
     virtual ~WeaponNodeBase() {}
@@ -41,7 +44,7 @@ protected:
 class WeaponNode : public WeaponNodeBase
 {
 public:
-    WeaponNode(uint32 list, uint32 mode);
+    WeaponNode(ModelInstance **list, ModelInstance **secondary_list);
     static WeaponNode &Attach(uint32 object);
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
@@ -51,6 +54,14 @@ public:
     void ClearChild();
     uint32 ConsumeAmmo(uint32 amount);
 
+    uint32 type;
+    uint32 child;
+    uint32 damage;
+    ModelInstance **owner_list;
+    ModelInstance **secondary_list;
+    uint32 sound;
+    uint32 ammo;
+
 protected:
     // Native helper retains the original paired LWL/LWR angle load
     static uint32 ReadAnglesWord(uint32 address);
@@ -59,7 +70,7 @@ protected:
 class HomingMissiles : public WeaponNode
 {
 public:
-    HomingMissiles(uint32 list);
+    HomingMissiles(ModelInstance **list);
     static HomingMissiles &Attach(uint32 object);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
@@ -72,7 +83,7 @@ private:
 class PulseLaser : public WeaponNode
 {
 public:
-    PulseLaser(uint32 list);
+    PulseLaser(ModelInstance **list);
     static PulseLaser &Attach(uint32 object);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
@@ -85,7 +96,7 @@ private:
 class ParticleBeam : public WeaponNode
 {
 public:
-    ParticleBeam(uint32 list, uint32 range, uint32 mode, uint32 effect_scale, uint32 sound);
+    ParticleBeam(ModelInstance **list, uint32 range, uint32 mode, uint32 effect_scale, uint32 sound);
     static ParticleBeam &Attach(uint32 object);
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
     virtual uint32 Destroy(uint32 reason);
@@ -102,7 +113,7 @@ private:
 class RipLaser : public WeaponNode
 {
 public:
-    RipLaser(uint32 list);
+    RipLaser(ModelInstance **list);
     static RipLaser &Attach(uint32 object);
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
@@ -119,7 +130,7 @@ private:
 class Grenades : public WeaponNode
 {
 public:
-    Grenades(uint32 list);
+    Grenades(ModelInstance **list);
     static Grenades &Attach(uint32 object);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
@@ -132,7 +143,7 @@ private:
 class Rockets : public WeaponNode
 {
 public:
-    Rockets(uint32 list);
+    Rockets(ModelInstance **list);
     static Rockets &Attach(uint32 object);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);

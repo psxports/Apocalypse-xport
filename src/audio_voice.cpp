@@ -1,3 +1,4 @@
+#include "game_random.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -18,7 +19,7 @@ uint32 PlaySoundVoices(uint32 configuration, uint8 note, sint16 left, sint16 rig
     FUNCTION_MARKER(0x8006A4C4, "SLUS_003.73");
     // TODO Review unused local fields still initialized by the prior native adapter contract
     if (pitch_variation)
-        random_offset = sub_80066570(pitch_variation << 1) - pitch_variation;
+        random_offset = RandomRange(pitch_variation << 1) - pitch_variation;
     if ((uint16)remaining >= 2)
     {
         voice_count = 0;
@@ -82,11 +83,7 @@ uint32 PlaySoundVoices(uint32 configuration, uint8 note, sint16 left, sint16 rig
     return voices;
 }
 
-extern "C" uint32 sub_8006A4C4(uint32 configuration, uint32 note, uint32 left, uint32 right, uint32 pitch_variation)
-{
-    FUNCTION_MARKER(0x8006A4C4, "SLUS_003.73");
-    return PlaySoundVoices(configuration, (uint8)note, (sint16)left, (sint16)right, pitch_variation);
-}
+
 
 static void QueueSoundVoiceOff(sint16 voice)
 {
@@ -125,11 +122,7 @@ void StopSoundVoices(uint32 mask)
             QueueSoundVoiceOff((sint16)voice);
 }
 
-extern "C" void sub_8006A294(uint32 mask)
-{
-    FUNCTION_MARKER(0x8006A294, "SLUS_003.73");
-    StopSoundVoices(mask);
-}
+
 
 void UpdatePositionedSoundVoices(uint32 voices, const uint32 *origin, sint32 pitch_delta)
 {

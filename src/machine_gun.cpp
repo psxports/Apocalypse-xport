@@ -21,13 +21,13 @@ extern "C"
 #include <new>
 #include <string.h>
 
-MachineGun::MachineGun(uint32 list)
+MachineGun::MachineGun(ModelInstance **list)
     : WeaponNode(list, 0)
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80022B8C, "SLUS_003.73");
     w_u32(object, 0x800A1548);
-    w_u32(object + 4, WPN_MACHINE_GUN);
+    this->type = WPN_MACHINE_GUN;
     Configure(10, 32, 10, 8000, 1, 1, 11, 256);
 }
 
@@ -68,11 +68,8 @@ static sint32 DivideMachineGunFire(uint32 n, uint32 d)
 
 static void DamageMachineGunTarget(uint32 object, uint32 weapon, const sint32 vector[3], uint32 reason)
 {
-    uint32 table = r_u32(object + 68);
     uint32 damage = r_u32(weapon + 40);
-    sint32 adjustment = (sint16)r_u16(table + 48);
-    uint32 target = r_u32(table + 52);
-    apocalypse_object_virtual52_native(target, object + (uint32)adjustment, damage, vector, reason);
+    ApplyObjectDamage(object, damage, vector, reason);
 }
 
 static void CreateMachineGunTrace(uint32 object, const sint32 start[3], const sint32 end[3])
@@ -90,6 +87,7 @@ static void CreateMachineGunImpact(uint32 effect, const sint32 position[3])
 
 uint32 MachineGun::Fire(const uint32 *input_position, const sint16 *input_rotation)
 {
+    CollisionRay &shared_ray = GetSharedCollisionRay();
     const sint32 *position = (const sint32 *)input_position;
     const uint32 weapon = NativeObjectGuestAddress(this);
     const uint32 guest_position = GuestMemoryAddress(position);
@@ -107,7 +105,7 @@ uint32 MachineGun::Fire(const uint32 *input_position, const sint16 *input_rotati
     sint32 object_hit;
     sint32 hit_object;
     sint32 v16;
-    uint32 v17;
+    ModelInstance **v17;
     sint32 v18;
     sint32 impact_kind;
     sint32 v20;
@@ -158,7 +156,7 @@ uint32 MachineGun::Fire(const uint32 *input_position, const sint16 *input_rotati
         ClearChild();
         v8 = r_u32(((uint32)((weapon + 76))));
         w_u32(((uint32)((weapon + 28))), r_u32(0x800FF2F0));
-        w_u32(((uint32)((weapon + 52))), PlaySoundEffect(v8, 8192, 0));
+        this->sound = PlaySoundEffect(v8, 8192, 0);
     }
     if (r_u32(((uint32)((weapon + 80)))))
     {
@@ -228,36 +226,36 @@ uint32 MachineGun::Fire(const uint32 *input_position, const sint16 *input_rotati
     rotation.words[0] = ((rotation.words[0] & 0xFFFF0000) | (((0) & 0xFFFF) << 0));
     BuildDirectionVector((uint32 *)near_ray_start, (uint32)-150, (const uint16 *)rotation.halves);
     AddVectors((uint32 *)near_ray_start, (const uint32 *)psx_addr(weapon + 8, 12));
-    w_u32(0x800ED638, near_ray_start[0]);
-    w_u32(0x800ED640, near_ray_start[2]);
-    w_u32(0x800ED63C, near_ray_start[1]);
+    shared_ray.pos[0][0] = (near_ray_start[0]);
+    shared_ray.pos[0][2] = (near_ray_start[2]);
+    shared_ray.pos[0][1] = (near_ray_start[1]);
     geometry_hit = 0;
-    w_u32(0x800ED644, r_u32(((uint32)((weapon + 8)))));
+    shared_ray.pos[1][0] = (r_u32(((uint32)((weapon + 8)))));
     object_hit = 0;
-    w_u32(0x800ED648, r_u32(((uint32)((weapon + 12)))));
-    w_u32(0x800ED64C, r_u32(((uint32)((weapon + 16)))));
-    InitializeCollisionRay((uint8 *)psx_addr(0x800ED638, 140));
+    shared_ray.pos[1][1] = (r_u32(((uint32)((weapon + 12)))));
+    shared_ray.pos[1][2] = (r_u32(((uint32)((weapon + 16)))));
+    InitializeCollisionRay(shared_ray);
     w_u32(0x800FF974, 1);
-    QueryCollisionRay((uint8 *)psx_addr(0x800ED638, 140), 1);
+    QueryCollisionRay(shared_ray, 1);
     w_u32(0x800FF974, 0);
     hit_object = 0;
-    if (r_u32(0x800ED6A0))
+    if (shared_ray.hit.GetObject())
         goto LABEL_13;
-    w_u32(0x800ED638, r_u32(((uint32)((weapon + 8)))));
-    w_u32(0x800ED63C, r_u32(((uint32)((weapon + 12)))));
+    shared_ray.pos[0][0] = (r_u32(((uint32)((weapon + 8)))));
+    shared_ray.pos[0][1] = (r_u32(((uint32)((weapon + 12)))));
     v16 = r_u32(((uint32)((weapon + 16))));
-    w_u32(0x800ED644, endpoint[0]);
-    w_u32(0x800ED648, endpoint[1]);
-    w_u32(0x800ED64C, endpoint[2]);
-    w_u32(0x800ED640, v16);
-    InitializeCollisionRay((uint8 *)psx_addr(0x800ED638, 140));
+    shared_ray.pos[1][0] = (endpoint[0]);
+    shared_ray.pos[1][1] = (endpoint[1]);
+    shared_ray.pos[1][2] = (endpoint[2]);
+    shared_ray.pos[0][2] = (v16);
+    InitializeCollisionRay(shared_ray);
     w_u32(0x800FF974, 1);
-    QueryCollisionRay((uint8 *)psx_addr(0x800ED638, 140), 1);
-    v17 = r_u32(((uint32)((weapon + 44))));
+    QueryCollisionRay(shared_ray, 1);
+    v17 = this->owner_list;
     w_u32(0x800FF974, 0);
-    v18 = IntersectObjectSpheres((const uint32 *)psx_addr(weapon + 8, 12), (const uint32 *)endpoint, (uint32 *)collision_position, r_u32(v17), 0);
+    v18 = IntersectObjectSpheres((const uint32 *)psx_addr(weapon + 8, 12), (const uint32 *)endpoint, (uint32 *)collision_position, *v17, 0);
     hit_object = v18;
-    if (!r_u32(0x800ED6A0))
+    if (!shared_ray.hit.GetObject())
     {
         if (!v18)
             goto LABEL_20;
@@ -267,7 +265,7 @@ uint32 MachineGun::Fire(const uint32 *input_position, const sint16 *input_rotati
     {
         {
             uint32 object_distance = MeasureEuclideanDistance((const uint32 *)psx_addr((uint32)v18 + 4, 12), (const uint32 *)psx_addr(weapon + 8, 12));
-            uint32 geometry_distance = r_u32(0x800ED678);
+            uint32 geometry_distance = shared_ray.distance;
             if (object_distance >= geometry_distance)
             {
                 geometry_hit = 1;
@@ -288,26 +286,26 @@ LABEL_20:
     if (!geometry_hit)
         goto LABEL_37;
     {
-        uint32 level_object = r_u32(0x800ED6A0);
-        uint32 polygon = r_u32(0x800ED6B8);
-        sint32 damage = (sint32)r_u32(weapon + 40);
+        uint32 level_object = shared_ray.hit.GetObject();
+        ModelPolygon *polygon = shared_ray.hit.GetPolygon();
+        sint32 damage = (sint32)this->damage;
         DamageLevelObject(level_object, polygon, damage);
     }
     {
-        uint32 geometry_object = r_u32(0x800ED6A0);
+        uint32 geometry_object = shared_ray.hit.GetObject();
         if (r_u16(geometry_object) & 16)
             DamageMachineGunTarget(geometry_object, weapon, (const sint32 *)hit_direction, 28);
     }
     impact_kind = 12;
-    endpoint[0] = r_u32(0x800ED6A4);
-    endpoint[1] = r_u32(0x800ED6A8);
-    endpoint[2] = r_u32(0x800ED6AC);
+    endpoint[0] = shared_ray.hit_pos[0];
+    endpoint[1] = shared_ray.hit_pos[1];
+    endpoint[2] = shared_ray.hit_pos[2];
     if (!RandomRange(4))
     {
         SubtractVectors((uint32 *)ricochet_delta, (const uint32 *)endpoint, (const uint32 *)psx_addr(weapon + 8, 12));
-        sint32 normal_x = (sint16)r_u16(0x800ED6B0);
-        sint32 normal_y = (sint16)r_u16(0x800ED6B2);
-        sint32 normal_z = (sint16)r_u16(0x800ED6B4);
+        sint32 normal_x = (sint16)(uint16)shared_ray.n.vx;
+        sint32 normal_y = (sint16)(uint16)shared_ray.n.vy;
+        sint32 normal_z = (sint16)(uint16)shared_ray.n.vz;
         v20 = (sint32)((uint32)(ricochet_delta[0] >> 6) * (uint32)normal_x + (uint32)(ricochet_delta[1] >> 6) * (uint32)normal_y + (uint32)(ricochet_delta[2] >> 6) * (uint32)normal_z);
         v21 = (v20 > 0);
         v22 = (v20 >> 12);
@@ -386,7 +384,7 @@ uint32 MachineGun::Update(const sint32 *position, const sint16 *)
 {
     const uint32 weapon = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80023380, "SLUS_003.73");
-    uint32 child = r_u32(weapon + 32), result, sound;
+    uint32 child = this->child, result, sound;
     if (child)
     {
         static_cast<EffectObject *>(FindNativeObjectStorage(child))->SetPosition((const uint32 *)position);
@@ -398,7 +396,7 @@ uint32 MachineGun::Update(const sint32 *position, const sint16 *)
     result = r_u32(weapon + 20);
     if (result)
     {
-        sound = r_u32(weapon + 52);
+        sound = this->sound;
         w_u32(weapon + 20, 0);
         if (sound)
             StopSoundVoices(sound);
@@ -413,7 +411,7 @@ uint32 MachineGun::Update(const sint32 *position, const sint16 *)
                 void *dram_addr = AllocateNativeObjectStorage(child, sizeof(SmokeEmitter));
                 new (dram_addr) SmokeEmitter((const uint32 *)position, (uint32)-1, 1, 100, 100, 100, 3, 8, 188, 188);
             }
-            w_u32(weapon + 32, child);
+            this->child = child;
             w_u8(child + 66, 1);
             result = r_u32(0x800FF2F0);
             w_u32(weapon + 36, result);

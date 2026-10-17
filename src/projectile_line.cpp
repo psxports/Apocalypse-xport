@@ -1,3 +1,4 @@
+#include "visual_object.h"
 #include "game_sdk_bindings.h"
 #include "angle_math.h"
 #include "ring_burst_effect.h"
@@ -73,7 +74,7 @@ LineProjectile::LineProjectile(const uint32 *input_position, const sint16 *input
         abort();
     }
     w_u32(object + 68, 0x800A1458);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     w_u32(object + 80, speed);
     w_u16(object + 76, damage);
     w_u32(object + 72, owner_address);
@@ -169,27 +170,27 @@ uint32 LineProjectile::InitializeTrace()
     dx = r_u32(object + 96);
     dy = r_u32(object + 100);
     x = r_u32(object + 24);
-    w_u32(object + 124, x - 300 * dx);
+    trace.pos[0][0] = x - 300 * dx;
     y = r_u32(object + 28);
     dz = r_u32(object + 104);
-    w_u32(object + 128, y - 300 * dy);
+    trace.pos[0][1] = y - 300 * dy;
     z = r_u32(object + 32);
     dx = r_u32(object + 96);
-    w_u32(object + 132, z - 300 * dz);
+    trace.pos[0][2] = z - 300 * dz;
     x = r_u32(object + 24);
     dy = r_u32(object + 100);
-    w_u32(object + 136, x + 10000 * dx);
+    trace.pos[1][0] = x + 10000 * dx;
     y = r_u32(object + 28);
     dz = r_u32(object + 104);
-    w_u32(object + 140, y + 10000 * dy);
+    trace.pos[1][1] = y + 10000 * dy;
     z = r_u32(object + 32);
-    w_u32(object + 144, z + 10000 * dz);
-    InitializeCollisionRay((uint8 *)psx_addr(object + 124, 140));
+    trace.pos[1][2] = z + 10000 * dz;
+    InitializeCollisionRay(trace);
     w_u32(0x800FF974, 1);
-    QueryCollisionRay((uint8 *)psx_addr(object + 124, 140), 0);
-    hit = r_u32(object + 228);
+    QueryCollisionRay(trace, 0);
+    hit = trace.object;
     w_u32(0x800FF974, 0);
-    distance = hit ? r_u32(object + 188) : 10000;
+    distance = hit ? trace.distance : 10000;
     speed = r_u32(object + 80);
     result = DivideLifetime(distance, speed);
     w_u16(object + 10, result);
@@ -198,6 +199,7 @@ uint32 LineProjectile::InitializeTrace()
 
 uint32 LineProjectile::Render()
 {
+    const ModelProjectionConfig &proj_cfg = GetModelProjectionConfig();
     uint32 object = NativeObjectGuestAddress(this);
     uint32 packet, limit, next, red, green, blue, color, screen, depth, result;
     uint32 ordering_table, bucket, header, old, draw_mode, draw_word;
@@ -224,11 +226,11 @@ uint32 LineProjectile::Render()
     w_u32(packet + 16, screen);
     ProjectWorldPoint((const uint32 *)psx_addr(object + 108, 12), &screen);
     w_u32(packet + 8, screen);
-    limit = r_u32(0x800FFAE8);
+    limit = proj_cfg.near_depth;
     result = (sint32)depth < (sint32)limit;
     if (!result)
     {
-        limit = r_u32(0x800FFAD8);
+        limit = proj_cfg.max_distance;
         result = (sint32)limit < (sint32)depth;
     }
     if (result)
@@ -260,9 +262,8 @@ uint32 LineProjectile::Update()
 {
     uint32 object = NativeObjectGuestAddress(this);
     uint32 child, value, distance, scalar, scaled[3], position[4];
-    uint32 hit, list, head, table, callback, damage, mode, node, next, particle;
+    uint32 hit, list, head, damage, mode, node, next, particle;
     uint32 release = 0, age, lifetime, result, x, y, z;
-    sint32 adjustment;
     FUNCTION_MARKER(0x80025E2C, "SLUS_003.73");
     AddVectors((uint32 *)psx_addr(object + 24, 12), (const uint32 *)psx_addr(object + 36, 12));
     child = r_u32(object + 120);
@@ -294,11 +295,8 @@ uint32 LineProjectile::Update()
     if (hit)
     {
         release = 1;
-        table = r_u32(hit + 68);
         damage = r_u16(object + 76);
-        adjustment = (sint16)r_u16(table + 48);
-        callback = r_u32(table + 52);
-        apocalypse_object_virtual52_native(callback, hit + (uint32)adjustment, damage, (const sint32 *)psx_addr(object + 96, 12), 9);
+        ApplyObjectDamage(hit, damage, (const sint32 *)psx_addr(object + 96, 12), 9);
         mode = r_u32(0x800FF378);
         if (mode == 6)
         {
@@ -333,16 +331,15 @@ CheckLifetime:
     result = (sint32)age < (sint32)lifetime;
     if (!result)
     {
-        hit = r_u32(object + 228);
+        hit = trace.object;
         release = 1;
         if (hit)
         {
-            callback = r_u32(object + 252);
             damage = r_u16(object + 76);
-            DamageLevelObject(hit, callback, (sint32)damage);
-            x = r_u32(object + 232);
-            y = r_u32(object + 236);
-            z = r_u32(object + 240);
+            DamageLevelObject(hit, trace.poly, (sint32)damage);
+            x = trace.hit_pos[0];
+            y = trace.hit_pos[1];
+            z = trace.hit_pos[2];
             w_u32(object + 24, x);
             w_u32(object + 28, y);
             w_u32(object + 32, z);
@@ -359,11 +356,7 @@ extern "C" uint32 sub_800258F8(uint32 object, uint32 reason)
     return LineProjectile::Attach(object).LineProjectile::Destroy(reason);
 }
 
-extern "C" uint32 sub_80025974(uint32 object)
-{
-    FUNCTION_MARKER(0x80025974, "SLUS_003.73");
-    return LineProjectile::Attach(object).Finish();
-}
+
 
 extern "C" uint32 sub_80025BEC(uint32 object)
 {
@@ -382,13 +375,7 @@ LineProjectile &LineProjectile::Attach(uint32 object)
     return *static_cast<LineProjectile *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_800256F0(uint32 object, uint32 position, uint32 angles, uint32 speed, uint32 damage, uint32 owner_pointer, uint32 red, uint32 green, uint32 blue, uint32 mode)
-{
-    FUNCTION_MARKER(0x800256F0, "SLUS_003.73");
-    void *storage = AllocateNativeObjectStorage(object, sizeof(LineProjectile));
-    new (storage) LineProjectile((const uint32 *)psx_addr(position, 12), (const sint16 *)psx_addr(angles, 6), speed, damage, (const uint32 *)psx_addr(owner_pointer, 4), red, green, blue, mode);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_line_projectile_native(uint32 object, const void *position, const void *angles, uint32 speed, uint32 damage, uint32 owner_pointer, uint32 red, uint32 green, uint32 blue, uint32 mode)
 {
@@ -398,11 +385,7 @@ extern "C" uint32 apocalypse_line_projectile_native(uint32 object, const void *p
 }
 
 
-extern "C" uint32 sub_80025A74(uint32 object)
-{
-    FUNCTION_MARKER(0x80025A74, "SLUS_003.73");
-    return LineProjectile::Attach(object).InitializeTrace();
-}
+
 
 static uint32 ReadTracerEndpoint(const uint32 *position, uint32 axis)
 {
@@ -493,11 +476,7 @@ extern "C" uint32 apocalypse_projectile_spawn_234CC(uint32 object, const sint32 
     return object;
 }
 
-extern "C" uint32 sub_800234CC(uint32 object, uint32 start, uint32 end)
-{
-    FUNCTION_MARKER(0x800234CC, "SLUS_003.73");
-    return apocalypse_projectile_spawn_234CC(object, (const sint32 *)psx_addr(start, 12), (const sint32 *)psx_addr(end, 12));
-}
+
 
 extern "C" uint32 sub_800236D4(uint32 object)
 {
@@ -558,8 +537,4 @@ extern "C" uint32 apocalypse_projectile_impact_2289C(uint32 flags, const sint32 
     return CreateProjectileImpact(flags, (const uint32 *)position);
 }
 
-extern "C" uint32 sub_8002289C(uint32 flags, uint32 position)
-{
-    FUNCTION_MARKER(0x8002289C, "SLUS_003.73");
-    return CreateProjectileImpact(flags, (const uint32 *)psx_addr(position, 12));
-}
+

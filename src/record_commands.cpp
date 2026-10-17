@@ -1,3 +1,7 @@
+#include "visual_object.h"
+#include "audio_voice.h"
+#include "cd_voice_event.h"
+#include "model_projection.h"
 #include "hud_text.h"
 #include "level_session.h"
 extern "C"
@@ -305,7 +309,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
 
             case 106:
                 v42 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                sub_8006A294(v42);
+                ::StopSoundVoices(v42);
                 continue;
 
             case 119:
@@ -335,7 +339,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 130:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_104;
                 v58 = ((sint16)(r_u16(cursor)));
@@ -386,7 +390,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 goto LABEL_60;
 
             case 135:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_104;
                 v60 = ((unsigned short)(((sint16)(r_u16(cursor)))));
@@ -409,7 +413,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 139:
-                sub_8002FD2C(r_u16(cursor), r_u16(cursor + 2));
+                ::SelectCdVoice(r_u16(cursor), r_u16(cursor + 2));
                 goto LABEL_104;
 
             case 140:
@@ -423,7 +427,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                     if ((v13 != 176))
                     {
                         ClearAnimatedHudText();
-                        sub_8001B788(((sint32)(r_u32((0x800A5720 + (0) * 4)))), ((sint32)(0x800A57A8)));
+                        ::AddAnimatedHudText(((sint32)(r_u32((0x800A5720 + (0) * 4)))), ((sint32)(0x800A57A8)));
                     }
                     CaptureCurrentPlayerSave();
                 }
@@ -459,7 +463,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 143:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_104;
                 v62 = ((sint16)(r_u16(cursor)));
@@ -469,7 +473,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 144:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_104;
                 v64 = ((sint16)(r_u16(cursor)));
@@ -479,7 +483,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 145:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_104;
                 v66 = ((sint16)(r_u16(cursor)));
@@ -489,7 +493,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 146:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_104;
                 v68 = ((sint16)(r_u16(cursor)));
@@ -526,13 +530,13 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 152:
-                receiver = r_u32(0x800FF5A0);
+                receiver = visual_lists.players;
                 if (receiver)
                     sub_8005E708(receiver);
                 continue;
 
             case 153:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_60;
                 v70 = (uint32)(sint32)r_s16((cursor += 2, cursor - 2));
@@ -540,7 +544,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 154:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_60;
                 v71 = (uint32)(sint32)r_s16((cursor += 2, cursor - 2));
@@ -567,20 +571,20 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 159:
-                LoadAudioSequence(cursor);
+                LoadAudioSequence((const char *)psx_addr(cursor, 1));
             LABEL_63:
                 cursor = ((uint32)(SkipRecordString(((uint32)(cursor)))));
 
                 continue;
 
             case 160:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (receiver)
                     w_u32(receiver + 564, r_u16(cursor));
                 goto LABEL_60;
 
             case 161:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_60;
                 v74 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
@@ -588,7 +592,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 break;
 
             case 163:
-                receiver = r_u32(0x800FF5A0);
+                receiver = visual_lists.players;
                 if (receiver)
                 {
                     v47 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
@@ -597,7 +601,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 164:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_60;
                 v72 = r_u16((cursor += 2, cursor - 2));
@@ -605,7 +609,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 break;
 
             case 165:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_60;
                 v73 = r_u16((cursor += 2, cursor - 2));
@@ -617,7 +621,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 167:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (!receiver)
                     goto LABEL_104;
                 v56 = ((unsigned short)(((sint16)(r_u16(cursor)))));
@@ -627,7 +631,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 break;
 
             case 168:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (receiver)
                     w_u16(receiver + 412, r_u16(cursor));
                 goto LABEL_60;
@@ -653,7 +657,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 172:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (receiver)
                     w_u16(receiver + 414, r_u16(cursor));
             LABEL_60:
@@ -662,7 +666,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 break;
 
             case 173:
-                receiver = r_u32(0x800FF904);
+                receiver = visual_lists.cameras;
                 if (receiver)
                 {
                     v76 = r_u32(receiver + 296);
@@ -671,7 +675,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 break;
 
             case 174:
-                receiver = r_u32(0x800FF5A0);
+                receiver = visual_lists.players;
                 if (receiver)
                 {
                     v75 = r_u16(cursor);
@@ -685,13 +689,13 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 break;
 
             case 175:
-                receiver = r_u32(0x800FF5A0);
+                receiver = visual_lists.players;
                 if (receiver)
                     w_u32(receiver + 484, 0);
                 break;
 
             case 177:
-                receiver = r_u32(0x800FF5A0);
+                receiver = visual_lists.players;
                 if (receiver)
                 {
                     v48 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
@@ -705,34 +709,14 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
     }
 
     if (has_final_call)
-        return sub_8007D76C(final_first, final_second, final_third);
+        return ::ConfigureProjectionDepth(final_first, final_second, final_third);
     return result;
 }
 
-extern "C" uint32 sub_8006541C(uint32 cursor, uint32 index, uint32 synchronous)
-{
-    FUNCTION_MARKER(0x8006541C, "SLUS_003.73");
-    return ExecuteRecordCommands(cursor, index, synchronous);
-}
 
-extern "C" uint32 sub_800650B4(uint32 cursor)
-{
-    FUNCTION_MARKER(0x800650B4, "SLUS_003.73");
-    return SkipRecordString(cursor);
-}
-extern "C" uint32 sub_800650EC(uint32 cursor)
-{
-    FUNCTION_MARKER(0x800650EC, "SLUS_003.73");
-    return SkipRecordCommand(cursor);
-}
 
-extern "C" uint32 sub_800653B8(uint32 size)
-{
-    FUNCTION_MARKER(0x800653B8, "SLUS_003.73");
-    return AllocateScriptHeap(size);
-}
-extern "C" void sub_800653F4(void)
-{
-    FUNCTION_MARKER(0x800653F4, "SLUS_003.73");
-    ReleaseScriptHeap();
-}
+
+
+
+
+

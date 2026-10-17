@@ -1,9 +1,11 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 }
 #include "player.h"
+#include "scripted_level_object.h"
 #include "object_collision_events.h"
 #include "angle_math.h"
 #include "vector_arithmetic.h"
@@ -12,9 +14,9 @@ extern "C"
 #include <stdio.h>
 #include <stdlib.h>
 
-static uint32 ReadPlayerVelocitySquare(uint32 object, uint32 offset)
+static uint32 SquarePlayerVelocityComponent(uint32 velocity)
 {
-    uint32 component = (uint32)((sint32)r_u32(object + offset) >> 9);
+    uint32 component = (uint32)((sint32)velocity >> 9);
     return component * component;
 }
 
@@ -28,31 +30,27 @@ static uint32 DividePlayerCollisionScalar(uint32 numerator, sint32 denominator)
     return (uint32)(value / denominator);
 }
 
-static void MarkPlayerCollisionLink(uint32 hit)
+static void MarkPlayerCollisionLink(ModelInstance *hit)
 {
     // Original helper ignores the other prepared contact arguments
-    sub_8003C79C(hit);
+    static_cast<ScriptedLevelObject *>(hit->owner)->ActivateContact();
 }
 
-static void MarkPlayerCollisionOwner(uint32 hit)
+static void MarkPlayerCollisionOwner(ModelInstance *hit)
 {
-    sub_8003BB60(hit);
+    static_cast<ScriptedLevelObject *>(hit->owner)->ApplyPlayerDamage();
 }
 
 uint32 ResolvePlayerCollisionMotion(uint32 a1)
 {
     FUNCTION_MARKER(0x8003ACB8, "SLUS_003.73");
-    union
-    {
-        uint32 words[36];
-        sint16 halves[72];
-    } collision;
+    CollisionRay collision;
+    Player &player = Player::Attach(a1);
 
     uint32 vector0[3], vector1[3], vector2[3], vector3[3];
     sint8 v2;
     sint32 v3;
     sint32 v4;
-    sint32 v5;
     sint32 v6;
     sint32 v7;
     sint32 v8;
@@ -81,7 +79,7 @@ uint32 ResolvePlayerCollisionMotion(uint32 a1)
     sint32 v31;
     sint32 v32;
     sint32 v33;
-    sint32 v34;
+    ModelInstance *v34;
     sint32 v35;
     short v36;
     sint32 v37;
@@ -99,7 +97,6 @@ uint32 ResolvePlayerCollisionMotion(uint32 a1)
     sint32 v49;
     sint32 v50;
     sint32 v51;
-    sint32 v52;
     sint32 v53;
     sint32 v54;
     sint32 v55;
@@ -129,11 +126,9 @@ uint32 ResolvePlayerCollisionMotion(uint32 a1)
     {
         v2 = 11;
     LABEL_6:
-        v5 = (a1 + 104);
 
         goto LABEL_7;
     }
-    v5 = (a1 + 104);
     if ((v3 == 6))
     {
     LABEL_5:
@@ -142,29 +137,29 @@ uint32 ResolvePlayerCollisionMotion(uint32 a1)
         goto LABEL_6;
     }
 LABEL_7:
-    v57[0] = r_u32(a1 + 104);
-    v6 = r_u32(a1 + 108);
-    v7 = r_u32(a1 + 112);
+    v57[0] = player.motion.velocity[0];
+    v6 = player.motion.velocity[1];
+    v7 = player.motion.velocity[2];
     v57[1] = v6;
     v57[2] = v7;
-    sub_8006C0B8(v5, (a1 + 116));
-    sub_8006C270(v5, (a1 + 129));
-    sub_8006C05C(v5);
+    AddVectors(player.motion.velocity, player.motion.acceleration);
+    DampVector(player.motion.velocity, player.motion.drag);
+    SnapSmallVector(player.motion.velocity);
     v8 = -1;
-    vertical_velocity = r_u32(a1 + 108);
+    vertical_velocity = player.motion.velocity[1];
     if ((sint32)vertical_velocity >= 0)
     {
         v8 = (sint32)vertical_velocity;
-        w_u32(((uint32)((a1 + 108))), 0);
+        player.motion.velocity[1] = 0;
     }
-    v58[0] = r_u32(a1 + 104);
-    v9 = r_u32(a1 + 108);
-    v10 = r_u32(a1 + 112);
+    v58[0] = player.motion.velocity[0];
+    v9 = player.motion.velocity[1];
+    v10 = player.motion.velocity[2];
     v58[1] = v9;
     v58[2] = v10;
-    v11 = (sint32)ReadPlayerVelocitySquare(a1, 104);
-    v12 = (sint32)ReadPlayerVelocitySquare(a1, 108);
-    v13 = (sint32)ReadPlayerVelocitySquare(a1, 112);
+    v11 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[0]);
+    v12 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[1]);
+    v13 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[2]);
     v14 = 0;
     v95 = v85;
     v96 = &vector1[0];
@@ -172,9 +167,9 @@ LABEL_7:
     v93 = sub_80085B54((uint32)v11 + (uint32)v12 + (uint32)v13);
     do
     {
-        v15 = (sint32)ReadPlayerVelocitySquare(a1, 104);
-        v12 = (sint32)ReadPlayerVelocitySquare(a1, 108);
-        v16 = (sint32)ReadPlayerVelocitySquare(a1, 112);
+        v15 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[0]);
+        v12 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[1]);
+        v16 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[2]);
         v90 = sub_80085B54((uint32)v15 + (uint32)v12 + (uint32)v16);
         if (!v90)
             break;
@@ -186,8 +181,8 @@ LABEL_7:
         if ((v19 < v17))
             v18 = (sint32)((uint32)v18 + DividePlayerCollisionScalar((uint32)v18 * ((uint32)v17 - (uint32)v19), v19));
         v20 = r_u16(((uint32)((a1 + 584))));
-        v21 = (sint32)DividePlayerCollisionScalar((uint32)v20 * (r_u32(a1 + 112) << 2), v90);
-        v22 = (sint32)DividePlayerCollisionScalar((0 - (uint32)v20) * (r_u32(a1 + 104) << 2), v90);
+        v21 = (sint32)DividePlayerCollisionScalar((uint32)v20 * (player.motion.velocity[2] << 2), v90);
+        v22 = (sint32)DividePlayerCollisionScalar((0 - (uint32)v20) * (player.motion.velocity[0] << 2), v90);
         vector0[1] = 0;
         vector0[0] = v21;
         vector0[2] = v22;
@@ -196,30 +191,30 @@ LABEL_7:
         v23 = r_u32(a1 + 12);
         vector1[1] = v24;
         vector1[2] = v23;
-        vector2[0] = (sint32)DividePlayerCollisionScalar((uint32)v18 * (r_u32(a1 + 104) << 3), v17);
-        vector2[1] = (sint32)DividePlayerCollisionScalar((uint32)r_u16(a1 + 584) * (r_u32(a1 + 108) << 3), v90);
-        v25 = (8 * r_u32(((uint32)((a1 + 112)))));
-        collision.words[0] = (vector1[0] + v21);
-        collision.words[1] = v24;
-        collision.words[2] = (v23 + v22);
-        collision.words[3] = ((vector1[0] + v21) + vector2[0]);
-        collision.words[4] = (v24 + vector2[1]);
+        vector2[0] = (sint32)DividePlayerCollisionScalar((uint32)v18 * (player.motion.velocity[0] << 3), v17);
+        vector2[1] = (sint32)DividePlayerCollisionScalar((uint32)r_u16(a1 + 584) * (player.motion.velocity[1] << 3), v90);
+        v25 = (8 * player.motion.velocity[2]);
+        collision.pos[0][0] = (vector1[0] + v21);
+        collision.pos[0][1] = v24;
+        collision.pos[0][2] = (v23 + v22);
+        collision.pos[1][0] = ((vector1[0] + v21) + vector2[0]);
+        collision.pos[1][1] = (v24 + vector2[1]);
         vector2[2] = (sint32)DividePlayerCollisionScalar((uint32)v18 * (uint32)v25, v17);
-        collision.words[5] = ((v23 + v22) + vector2[2]);
-        InitializeCollisionRay((uint8 *)collision.words);
-        QueryCollisionRay((uint8 *)collision.words, 1);
+        collision.pos[1][2] = ((v23 + v22) + vector2[2]);
+        InitializeCollisionRay(collision);
+        QueryCollisionRay(collision, 1);
         ++v14;
-        if (collision.words[26])
+        if (collision.hit.GetObject())
             goto LABEL_21;
-        collision.words[0] = (vector1[0] - vector0[0]);
-        collision.words[3] = ((vector1[0] - vector0[0]) + vector2[0]);
-        collision.words[1] = vector1[1];
-        collision.words[2] = (vector1[2] - vector0[2]);
-        collision.words[5] = ((vector1[2] - vector0[2]) + vector2[2]);
-        collision.words[4] = (vector1[1] + vector2[1]);
-        InitializeCollisionRay((uint8 *)collision.words);
-        QueryCollisionRay((uint8 *)collision.words, 1);
-        if (collision.words[26])
+        collision.pos[0][0] = (vector1[0] - vector0[0]);
+        collision.pos[1][0] = ((vector1[0] - vector0[0]) + vector2[0]);
+        collision.pos[0][1] = vector1[1];
+        collision.pos[0][2] = (vector1[2] - vector0[2]);
+        collision.pos[1][2] = ((vector1[2] - vector0[2]) + vector2[2]);
+        collision.pos[1][1] = (vector1[1] + vector2[1]);
+        InitializeCollisionRay(collision);
+        QueryCollisionRay(collision, 1);
+        if (collision.hit.GetObject())
             goto LABEL_21;
         v26 = (v2 & 4);
         if (((v2 & 2) == 0))
@@ -229,7 +224,7 @@ LABEL_7:
         v27 = ((r_u8(((uint32)((a1 + 26)))) == 12)) ? ((r_u32(((uint32)((a1 + 8)))) - 0x10000)) : ((r_u32(((uint32)((a1 + 8)))) - 0x40000));
         vector1[1] = v27;
         v88 = 3;
-        xport_draft_host_sub_8006C5C4_p13(v87, a1 + 104, &v88);
+        ShiftVectorLeft((uint32 *)v87, player.motion.velocity, (const uint32 *)&v88);
         v89 = (r_u16(((uint32)((a1 + 584)))) - 16);
         xport_draft_host_sub_8006C47C_p123(v86, &v89, v87);
         xport_draft_host_sub_8006C4EC_p123(v95, v86, &v90);
@@ -237,32 +232,32 @@ LABEL_7:
         vector2[0] = vector3[0];
         vector2[1] = vector3[1];
         vector2[2] = vector3[2];
-        collision.words[0] = vector1[0];
-        collision.words[1] = vector1[1];
-        collision.words[2] = vector1[2];
-        collision.words[3] = vector3[0];
-        collision.words[4] = vector3[1];
-        collision.words[5] = vector3[2];
-        InitializeCollisionRay((uint8 *)collision.words);
-        QueryCollisionRay((uint8 *)collision.words, 1);
+        collision.pos[0][0] = vector1[0];
+        collision.pos[0][1] = vector1[1];
+        collision.pos[0][2] = vector1[2];
+        collision.pos[1][0] = vector3[0];
+        collision.pos[1][1] = vector3[1];
+        collision.pos[1][2] = vector3[2];
+        InitializeCollisionRay(collision);
+        QueryCollisionRay(collision, 1);
         v26 = (v2 & 4);
-        if (collision.words[26])
+        if (collision.hit.GetObject())
         {
         LABEL_21:
             uint32 contact_flags = r_u16(a1 + 216);
-            v28 = r_u32(a1 + 104);
+            v28 = player.motion.velocity[0];
             w_u16(a1 + 216, contact_flags | 1);
-            v29 = (sint32)((uint32)(v28 >> 6) * (uint32)(sint32)collision.halves[60] + (uint32)((sint32)r_u32(a1 + 112) >> 6) * (uint32)(sint32)collision.halves[62]);
+            v29 = (sint32)((uint32)(v28 >> 6) * (uint32)(sint32)collision.n.vx + (uint32)((sint32)player.motion.velocity[2] >> 6) * (uint32)(sint32)collision.n.vz);
             v4 = (v29 > 0);
             v30 = (v29 >> 12);
             if (!v4)
             {
-                w_u32(a1 + 104, (uint32)v28 - (uint32)((sint32)((uint32)v30 * (uint32)(sint32)collision.halves[60]) >> 6));
-                w_u32(a1 + 112, r_u32(a1 + 112) - (uint32)((sint32)((uint32)v30 * (uint32)(sint32)collision.halves[62]) >> 6));
-                uint32 velocity_x = r_u32(a1 + 104);
-                v31 = (sint32)r_u32(a1 + 112) >> 2;
-                w_u32(a1 + 104, (uint32)((sint32)velocity_x >> 2));
-                w_u32(((uint32)((a1 + 112))), v31);
+                player.motion.velocity[0] = (uint32)v28 - (uint32)((sint32)((uint32)v30 * (uint32)(sint32)collision.n.vx) >> 6);
+                player.motion.velocity[2] = player.motion.velocity[2] - (uint32)((sint32)((uint32)v30 * (uint32)(sint32)collision.n.vz) >> 6);
+                uint32 velocity_x = player.motion.velocity[0];
+                v31 = (sint32)player.motion.velocity[2] >> 2;
+                player.motion.velocity[0] = (uint32)((sint32)velocity_x >> 2);
+                player.motion.velocity[2] = v31;
             }
         }
         else
@@ -277,15 +272,15 @@ LABEL_7:
                 vector2[0] = vector3[0];
                 vector2[1] = vector3[1];
                 vector2[2] = vector3[2];
-                collision.words[0] = vector1[0];
-                collision.words[1] = vector1[1];
-                collision.words[2] = vector1[2];
-                collision.words[3] = vector3[0];
-                collision.words[4] = vector3[1];
-                collision.words[5] = vector3[2];
-                InitializeCollisionRay((uint8 *)collision.words);
-                QueryCollisionRay((uint8 *)collision.words, 1);
-                if (!collision.words[26])
+                collision.pos[0][0] = vector1[0];
+                collision.pos[0][1] = vector1[1];
+                collision.pos[0][2] = vector1[2];
+                collision.pos[1][0] = vector3[0];
+                collision.pos[1][1] = vector3[1];
+                collision.pos[1][2] = vector3[2];
+                InitializeCollisionRay(collision);
+                QueryCollisionRay(collision, 1);
+                if (!collision.hit.GetObject())
                 {
                     vector1[0] = r_u32(((uint32)((a1 + 4))));
                     vector1[1] = (r_u32(((uint32)((a1 + 8)))) + 0x10000);
@@ -294,107 +289,107 @@ LABEL_7:
                     vector2[0] = vector3[0];
                     vector2[1] = vector3[1];
                     vector2[2] = vector3[2];
-                    collision.words[0] = vector1[0];
-                    collision.words[1] = vector1[1];
-                    collision.words[2] = vector1[2];
-                    collision.words[3] = vector3[0];
-                    collision.words[4] = vector3[1];
-                    collision.words[5] = vector3[2];
-                    InitializeCollisionRay((uint8 *)collision.words);
-                    QueryCollisionRay((uint8 *)collision.words, 1);
+                    collision.pos[0][0] = vector1[0];
+                    collision.pos[0][1] = vector1[1];
+                    collision.pos[0][2] = vector1[2];
+                    collision.pos[1][0] = vector3[0];
+                    collision.pos[1][1] = vector3[1];
+                    collision.pos[1][2] = vector3[2];
+                    InitializeCollisionRay(collision);
+                    QueryCollisionRay(collision, 1);
                     v32 = (v14 < 3);
-                    if (!collision.words[26])
+                    if (!collision.hit.GetObject())
                         goto LABEL_30;
                 }
-                w_u32(((uint32)((a1 + 104))), (r_u32(((uint32)((a1 + 104)))) + ((16 * collision.halves[60]))));
-                w_u32(((uint32)((a1 + 112))), (r_u32(((uint32)((a1 + 112)))) + ((16 * collision.halves[62]))));
-                collision.words[26] = 0;
+                player.motion.velocity[0] = (player.motion.velocity[0] + ((16 * collision.n.vx)));
+                player.motion.velocity[2] = (player.motion.velocity[2] + ((16 * collision.n.vz)));
+                collision.hit.SetObject(0);
             }
         }
-    } while ((collision.words[26] && (v14 < 3)));
+    } while ((collision.hit.GetObject() && (v14 < 3)));
     v32 = (v14 < 3);
 LABEL_30:
     if (v32)
-        sub_8006C0B8((a1 + 4), (a1 + 104));
+        AddVectors((uint32 *)psx_addr((a1 + 4), 12), player.motion.velocity);
     else
-        w_u32(((uint32)((a1 + 8))), (r_u32(((uint32)((a1 + 8)))) + (r_u32(((uint32)((a1 + 108)))))));
+        w_u32(((uint32)((a1 + 8))), (r_u32(((uint32)((a1 + 8)))) + (player.motion.velocity[1])));
 
     v33 = 0;
-    if (((((sint32)(r_u32(((uint32)((a1 + 108)))))) < 0) || ((v34 = r_u32(((uint32)((a1 + 428)))) != 0) && (((sint32)(r_u32(((uint32)((v34 + 108)))))) < 0))))
+    if (((((sint32)(player.motion.velocity[1])) < 0) || (((v34 = player.ground.GetObject()) != 0) && (((sint32)(static_cast<VisualObject *>(v34->owner)->motion.velocity[1])) < 0))))
         v33 = 1;
     if (v33)
     {
-        collision.words[0] = r_u32(((uint32)((a1 + 4))));
-        collision.words[1] = r_u32(((uint32)((a1 + 8))));
+        collision.pos[0][0] = r_u32(((uint32)((a1 + 4))));
+        collision.pos[0][1] = r_u32(((uint32)((a1 + 8))));
         v35 = r_u32(((uint32)((a1 + 12))));
-        collision.words[3] = collision.words[0];
-        collision.words[4] = (collision.words[1] - 753664);
-        collision.words[2] = v35;
-        collision.words[5] = v35;
-        InitializeCollisionRay((uint8 *)collision.words);
-        QueryCollisionRay((uint8 *)collision.words, 1);
-        if (collision.words[26])
+        collision.pos[1][0] = collision.pos[0][0];
+        collision.pos[1][1] = (collision.pos[0][1] - 753664);
+        collision.pos[0][2] = v35;
+        collision.pos[1][2] = v35;
+        InitializeCollisionRay(collision);
+        QueryCollisionRay(collision, 1);
+        if (collision.hit.GetObject())
         {
-            if ((sint32)(r_u32(a1 + 8) - 491520) < (sint32)collision.words[28])
+            if ((sint32)(r_u32(a1 + 8) - 491520) < (sint32)collision.hit_pos[1])
             {
                 v36 = r_u16(((uint32)((a1 + 216))));
-                w_u32(((uint32)((a1 + 8))), (collision.words[28] + 491520));
-                w_u32(((uint32)((a1 + 108))), 0);
+                w_u32(((uint32)((a1 + 8))), (collision.hit_pos[1] + 491520));
+                player.motion.velocity[1] = 0;
                 w_u16(((uint32)((a1 + 216))), (v36 | 0x100));
             }
         }
     }
     if ((v8 >= 0))
     {
-        collision.words[0] = r_u32(((uint32)((a1 + 4))));
-        collision.words[1] = (r_u32(((uint32)((a1 + 8)))) - (((uint32)(sint32)(sint16)r_u16(0x800EC4BA) - 64) << 12));
+        collision.pos[0][0] = r_u32(((uint32)((a1 + 4))));
+        collision.pos[0][1] = (r_u32(((uint32)((a1 + 8)))) - (((uint32)(sint32)(sint16)r_u16(0x800EC4BA) - 64) << 12));
         v37 = r_u32(((uint32)((a1 + 12))));
-        collision.words[3] = collision.words[0];
-        collision.words[4] = ((collision.words[1] + v8) + ((uint32)(sint32)(sint16)r_u16(0x800EC4BC) << 12));
-        collision.words[2] = v37;
-        collision.words[5] = v37;
-        InitializeCollisionRay((uint8 *)collision.words);
-        QueryCollisionRay((uint8 *)collision.words, 1);
-        if (collision.words[26])
+        collision.pos[1][0] = collision.pos[0][0];
+        collision.pos[1][1] = ((collision.pos[0][1] + v8) + ((uint32)(sint32)(sint16)r_u16(0x800EC4BC) << 12));
+        collision.pos[0][2] = v37;
+        collision.pos[1][2] = v37;
+        InitializeCollisionRay(collision);
+        QueryCollisionRay(collision, 1);
+        if (collision.hit.GetObject())
         {
-            sub_8005D20C(a1, collision.words[32], collision.words[26]);
-            if ((collision.halves[61] >= -3072))
+            Player::Attach(a1).SetContactColor(*collision.hit.GetPolygon(), collision.hit.GetObject());
+            if ((collision.n.vy >= -3072))
             {
-                v41 = (v8 - (v8 >> (r_u8(a1 + 129) & 31)));
-                w_u32(((uint32)((a1 + 8))), (collision.words[28] - (r_u8(((uint32)((a1 + 582)))) << 12)));
-                v42 = (sint32)((uint32)(v41 >> 12) * (uint32)(sint32)collision.halves[60]);
-                v43 = (v8 - (v8 >> (r_u8(a1 + 131) & 31)));
+                v41 = (v8 - (v8 >> (player.motion.drag[0] & 31)));
+                w_u32(((uint32)((a1 + 8))), (collision.hit_pos[1] - (r_u8(((uint32)((a1 + 582)))) << 12)));
+                v42 = (sint32)((uint32)(v41 >> 12) * (uint32)(sint32)collision.n.vx);
+                v43 = (v8 - (v8 >> (player.motion.drag[2] & 31)));
                 w_u32(((uint32)((a1 + 4))), (r_u32(((uint32)((a1 + 4)))) + (v42)));
-                v44 = (sint32)((uint32)(v43 >> 12) * (uint32)(sint32)collision.halves[62]);
+                v44 = (sint32)((uint32)(v43 >> 12) * (uint32)(sint32)collision.n.vz);
                 v45 = r_u32(((uint32)((a1 + 12))));
-                w_u32(((uint32)((a1 + 108))), v8);
-                w_u32(((uint32)((a1 + 8))), (r_u32(((uint32)((a1 + 8)))) + ((v8 - (v8 >> (r_u8(a1 + 130) & 31))))));
+                player.motion.velocity[1] = v8;
+                w_u32(((uint32)((a1 + 8))), (r_u32(((uint32)((a1 + 8)))) + ((v8 - (v8 >> (player.motion.drag[1] & 31))))));
                 w_u32(((uint32)((a1 + 12))), (v45 + v44));
             }
             else
             {
                 v38 = r_u8(((uint32)((a1 + 582))));
-                v39 = collision.words[28];
+                v39 = collision.hit_pos[1];
                 v40 = r_u16(((uint32)((a1 + 216))));
-                w_u32(((uint32)((a1 + 108))), 0);
+                player.motion.velocity[1] = 0;
                 w_u32(((uint32)((a1 + 8))), (v39 - (v38 << 12)));
                 w_u16(((uint32)((a1 + 216))), (v40 | 2));
             }
-            w_u16(((uint32)((a1 + 164))), collision.halves[60]);
-            w_u16(((uint32)((a1 + 166))), collision.halves[61]);
-            w_u16(((uint32)((a1 + 168))), collision.halves[62]);
-            w_u32(((uint32)((a1 + 184))), collision.words[27]);
-            w_u32(((uint32)((a1 + 188))), collision.words[28]);
-            w_u32(((uint32)((a1 + 192))), collision.words[29]);
-            if (((r_u16(collision.words[26]) & 0x100) != 0))
+            w_u16(((uint32)((a1 + 164))), collision.n.vx);
+            w_u16(((uint32)((a1 + 166))), collision.n.vy);
+            w_u16(((uint32)((a1 + 168))), collision.n.vz);
+            w_u32(((uint32)((a1 + 184))), collision.hit_pos[0]);
+            w_u32(((uint32)((a1 + 188))), collision.hit_pos[1]);
+            w_u32(((uint32)((a1 + 192))), collision.hit_pos[2]);
+            if (((collision.hit.GetObject()->flags & 0x100) != 0))
             {
-                MarkPlayerCollisionLink((uint32)collision.words[26]);
-                MarkPlayerCollisionOwner((uint32)collision.words[26]);
-                w_u32(((uint32)((a1 + 428))), collision.words[26]);
+                MarkPlayerCollisionLink(collision.hit.GetObject());
+                MarkPlayerCollisionOwner(collision.hit.GetObject());
+                player.ground.SetObject(collision.hit.GetObject());
             }
             else
             {
-                w_u32(((uint32)((a1 + 428))), 0);
+                player.ground.Reset();
             }
         }
         else
@@ -406,98 +401,92 @@ LABEL_30:
             v92 = (r_u16(((uint32)((a1 + 584)))) + 8);
             xport_draft_host_sub_8006C47C_p123(vector1, &v92, vector2);
             xport_draft_host_sub_8006C4EC_p123(vector0, vector1, &v93);
-            collision.words[0] = (r_u32(((uint32)((a1 + 4)))) + vector0[0]);
-            collision.words[1] = (r_u32(((uint32)((a1 + 8)))) - ((uint32)(sint32)(sint16)r_u16(0x800EC4BA) << 12));
+            collision.pos[0][0] = (r_u32(((uint32)((a1 + 4)))) + vector0[0]);
+            collision.pos[0][1] = (r_u32(((uint32)((a1 + 8)))) - ((uint32)(sint32)(sint16)r_u16(0x800EC4BA) << 12));
             v46 = r_u32(((uint32)((a1 + 12))));
-            collision.words[3] = collision.words[0];
-            collision.words[2] = (v46 + vector0[2]);
+            collision.pos[1][0] = collision.pos[0][0];
+            collision.pos[0][2] = (v46 + vector0[2]);
             v47 = r_u32(((uint32)((a1 + 8))));
-            collision.words[5] = (v46 + vector0[2]);
-            collision.words[4] = (v47 + v8);
-            InitializeCollisionRay((uint8 *)collision.words);
-            QueryCollisionRay((uint8 *)collision.words, 1);
-            if (!collision.words[26])
+            collision.pos[1][2] = (v46 + vector0[2]);
+            collision.pos[1][1] = (v47 + v8);
+            InitializeCollisionRay(collision);
+            QueryCollisionRay(collision, 1);
+            if (!collision.hit.GetObject())
             {
                 v94 = 1;
                 xport_draft_host_sub_8006C1E8_p12(vector0, &v94);
-                collision.words[0] = (r_u32(((uint32)((a1 + 4)))) + vector0[0]);
-                collision.words[1] = (r_u32(((uint32)((a1 + 8)))) - ((uint32)(sint32)(sint16)r_u16(0x800EC4BA) << 12));
+                collision.pos[0][0] = (r_u32(((uint32)((a1 + 4)))) + vector0[0]);
+                collision.pos[0][1] = (r_u32(((uint32)((a1 + 8)))) - ((uint32)(sint32)(sint16)r_u16(0x800EC4BA) << 12));
                 v48 = r_u32(((uint32)((a1 + 12))));
-                collision.words[3] = collision.words[0];
-                collision.words[2] = (v48 + vector0[2]);
+                collision.pos[1][0] = collision.pos[0][0];
+                collision.pos[0][2] = (v48 + vector0[2]);
                 v49 = r_u32(((uint32)((a1 + 8))));
-                collision.words[5] = (v48 + vector0[2]);
-                collision.words[4] = (v49 + v8);
-                InitializeCollisionRay((uint8 *)collision.words);
-                QueryCollisionRay((uint8 *)collision.words, 1);
-                if (!collision.words[26])
+                collision.pos[1][2] = (v48 + vector0[2]);
+                collision.pos[1][1] = (v49 + v8);
+                InitializeCollisionRay(collision);
+                QueryCollisionRay(collision, 1);
+                if (!collision.hit.GetObject())
                     goto LABEL_61;
             }
-            if (((r_u16(((uint32)((collision.words[32] + 18)))) & 4) != 0))
+            if (((collision.hit.GetPolygon()->surface & 4) != 0))
             {
-                if (((r_u16(collision.words[26]) & 0x100) != 0))
-                    w_u32(((uint32)((a1 + 428))), collision.words[26]);
+                if (((collision.hit.GetObject()->flags & 0x100) != 0))
+                    player.ground.SetObject(collision.hit.GetObject());
                 else
-                    w_u32(((uint32)((a1 + 428))), 0);
+                    player.ground.Reset();
                 v50 = 1;
                 w_u16(((uint32)((a1 + 216))), (r_u16(((uint32)((a1 + 216)))) | (0x40)));
-                w_u32(((uint32)((a1 + 544))), collision.words[28]);
+                w_u32(((uint32)((a1 + 544))), collision.hit_pos[1]);
                 while (1)
                 {
-                    collision.words[0] = r_u32(((uint32)((a1 + 4))));
-                    collision.words[1] = (r_u32(((uint32)((a1 + 544)))) + (v50 << 16));
-                    collision.words[2] = r_u32(((uint32)((a1 + 12))));
+                    collision.pos[0][0] = r_u32(((uint32)((a1 + 4))));
+                    collision.pos[0][1] = (r_u32(((uint32)((a1 + 544)))) + (v50 << 16));
+                    collision.pos[0][2] = r_u32(((uint32)((a1 + 12))));
                     v51 = r_u32(((uint32)((a1 + 4))));
-                    collision.words[4] = collision.words[1];
-                    collision.words[3] = (v51 + vector0[0]);
-                    collision.words[5] = (r_u32(((uint32)((a1 + 12)))) + vector0[2]);
-                    InitializeCollisionRay((uint8 *)collision.words);
-                    QueryCollisionRay((uint8 *)collision.words, 1);
+                    collision.pos[1][1] = collision.pos[0][1];
+                    collision.pos[1][0] = (v51 + vector0[0]);
+                    collision.pos[1][2] = (r_u32(((uint32)((a1 + 12)))) + vector0[2]);
+                    InitializeCollisionRay(collision);
+                    QueryCollisionRay(collision, 1);
                     ++v50;
-                    if (collision.words[26])
+                    if (collision.hit.GetObject())
                         break;
                     if ((v50 >= 7))
                     {
-                        v52 = (a1 + 104);
                         goto LABEL_63;
                     }
                 }
 
                 w_u16(((uint32)((a1 + 216))), (r_u16(((uint32)((a1 + 216)))) | (0x80)));
-                w_u32(((uint32)((a1 + 540))), collision.words[27]);
-                w_u32(((uint32)((a1 + 548))), collision.words[29]);
-                w_u32(((uint32)((a1 + 552))), collision.halves[60]);
-                w_u32(((uint32)((a1 + 556))), collision.halves[61]);
-                w_u32(((uint32)((a1 + 560))), collision.halves[62]);
+                w_u32(((uint32)((a1 + 540))), collision.hit_pos[0]);
+                w_u32(((uint32)((a1 + 548))), collision.hit_pos[2]);
+                w_u32(((uint32)((a1 + 552))), collision.n.vx);
+                w_u32(((uint32)((a1 + 556))), collision.n.vy);
+                w_u32(((uint32)((a1 + 560))), collision.n.vz);
             }
             else
             {
             LABEL_61:
                 v53 = r_u32(((uint32)((a1 + 8))));
 
-                w_u32(((uint32)((a1 + 108))), v8);
+                player.motion.velocity[1] = v8;
                 w_u32(((uint32)((a1 + 8))), (v53 + v8));
             }
         }
     }
-    v52 = (a1 + 104);
 LABEL_63:
-    xport_draft_host_sub_8006C3AC_p13(vector0, v52, v57);
+    SubtractVectors(vector0, player.motion.velocity, (const uint32 *)v57);
 
     v54 = vector0[1];
     v55 = vector0[2];
     w_u32(((uint32)((a1 + 152))), vector0[0]);
     w_u32(((uint32)((a1 + 156))), v54);
     w_u32(((uint32)((a1 + 160))), v55);
-    sub_8006C730((a1 + 16), (a1 + 132));
+    AddAngleVector((uint16 *)psx_addr((a1 + 16), 6), player.motion.angular_velocity);
     sub_8006C624((a1 + 16));
-    sub_8006C730((a1 + 132), (a1 + 138));
-    sub_8006C8E8((a1 + 132), (a1 + 144));
-    return sub_8006C64C((a1 + 132));
+    AddAngleVector(player.motion.angular_velocity, player.motion.angular_acceleration);
+    DampAngles(player.motion.angular_velocity, player.motion.angular_drag);
+    return SnapSmallAngles(player.motion.angular_velocity);
 }
 
-extern "C" uint32 sub_8003ACB8(uint32 object)
-{
-    FUNCTION_MARKER(0x8003ACB8, "SLUS_003.73");
-    return ResolvePlayerCollisionMotion(object);
-}
+

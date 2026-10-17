@@ -1,9 +1,11 @@
+#include "resource_io.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 }
 #include "cd_voice_event.h"
+#include "model_resources.h"
 #include "audio_session.h"
 #include "psx_spu.h"
 #include "game_data_io.h"
@@ -33,11 +35,10 @@ uint32 UpdateCdVoiceBalance(const uint32 *position)
 uint32 PlayCdVoiceEvent(uint32 kind, uint32 variant, const uint32 *position, uint32 mode)
 {
     FUNCTION_MARKER(0x8002FC64, "SLUS_003.73");
-    uint32 result = r_u32(0x800FF700);
+    uint32 result = GetResourceReadPhase();
     if (result)
         return result;
-    uint32 scene = r_u32(0x800FF79C);
-    result = r_u8(0x800EADC5 + 16 * scene);
+    result = GetModelBankLoadPending();
     if (result)
         return result;
     result = r_u32(0x800FF250);
@@ -50,7 +51,6 @@ uint32 PlayCdVoiceEvent(uint32 kind, uint32 variant, const uint32 *position, uin
     if (result)
         return result;
     // The original selected-voice helper does not read the forwarded mode
-    (void)mode;
     SelectCdVoice(kind, variant);
     UpdateCdVoiceBalance(position);
     result = r_u32(0x800FF64C);
@@ -60,11 +60,7 @@ uint32 PlayCdVoiceEvent(uint32 kind, uint32 variant, const uint32 *position, uin
     return result;
 }
 
-extern "C" uint32 sub_8002FB34(uint32 position)
-{
-    FUNCTION_MARKER(0x8002FB34, "SLUS_003.73");
-    return UpdateCdVoiceBalance((const uint32 *)psx_addr(position, 12));
-}
+
 
 extern "C" uint32 sub_8002FC64(uint32 kind, uint32 variant, uint32 position, uint32 mode)
 {
@@ -81,11 +77,10 @@ uint32 SelectCdVoice(uint32 kind, uint32 variant)
     uint32 entry = 0x800A5FD8 + (kind << 6) + (variant << 2);
     if (r_u32(entry) == 0xFFFFFFFF)
         return 0xFFFFFFFF;
-    result = r_u32(0x800FF700);
+    result = GetResourceReadPhase();
     if (result)
         return result;
-    uint32 scene = r_u32(0x800FF79C);
-    result = r_u8(0x800EADC5 + (scene << 4));
+    result = GetModelBankLoadPending();
     if (result)
         return result;
     result = r_u32(0x800FF250);
@@ -134,11 +129,7 @@ uint32 SelectCdVoice(uint32 kind, uint32 variant)
     return 1;
 }
 
-extern "C" uint32 sub_8002FD2C(uint32 kind, uint32 variant)
-{
-    FUNCTION_MARKER(0x8002FD2C, "SLUS_003.73");
-    return SelectCdVoice(kind, variant);
-}
+
 
 uint32 PrepareCdVoice(void)
 {
@@ -150,30 +141,17 @@ uint32 PrepareCdVoice(void)
     return 1;
 }
 
-extern "C" uint32 sub_8002FAD0(void)
-{
-    FUNCTION_MARKER(0x8002FAD0, "SLUS_003.73");
-    return PrepareCdVoice();
-}
+
 
 uint32 LocateXaVoiceFile()
 {
     FUNCTION_MARKER(0x8002FBB4, "SLUS_003.73");
     CdlFILE file;
-    // TODO Original consumes the position even if file lookup fails
-#if defined(LOCKSTEP_DEBUG)
-    CdSearchFile(&file, (const char *)psx_addr(0x800A1998, 1));
-#else
     if (!FindDataCdFile(&file, (const char *)psx_addr(0x800A1998, 1)))
         abort();
-#endif
     uint32 sector = (uint32)CdPosToInt(&file.pos);
     w_u32(0x800FF2AC, sector);
     return sector;
 }
 
-extern "C" uint32 sub_8002FBB4(void)
-{
-    FUNCTION_MARKER(0x8002FBB4, "SLUS_003.73");
-    return LocateXaVoiceFile();
-}
+

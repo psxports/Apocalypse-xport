@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "model_resources.h"
 extern "C" {
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
@@ -25,10 +27,13 @@ static uint32 DivideOscillatingScalar(uint32 numerator, uint32 denominator)
 
 OscillatingProjectile::OscillatingProjectile(const uint32 *position, const sint16 *angles, uint32 damage, uint32 lifetime, uint32 speed, uint32 amplitude, uint32 red1, uint32 green1, uint32 blue1, uint32 red2, uint32 green2, uint32 blue2) : EffectController()
 {
+    CollisionRay &shared_ray = GetSharedCollisionRay();
     uint32 object = NativeObjectGuestAddress(this);
     uint32 guest_position = GuestMemoryAddress(position);
     const uint32 *native_position = guest_position ? 0 : position;
-    uint32 child, x, y, z, green, red, blue, green_tail, red_tail, blue_tail, duration, velocity, coordinate, hit, candidate, distance;
+    uint32 child, x, y, z, green, red, blue, green_tail, red_tail, blue_tail, duration, velocity, coordinate, distance;
+    ModelInstance *hit;
+    ModelInstance *candidate;
     FUNCTION_MARKER(0x8001C158, "SLUS_003.73");
     red1 &= 255;
     green1 &= 255;
@@ -81,34 +86,33 @@ OscillatingProjectile::OscillatingProjectile(const uint32 *position, const sint1
     RingEffect::Attach(r_u32(object + 76)).SetPosition((const uint32 *)psx_addr(object + 24, 12));
     w_u8(r_u32(object + 76) + 66, 1);
     w_u16(object + 10, r_u16(object + 80) + 26);
-    w_u32(0x800ED638, r_u32(object + 24));
-    w_u32(0x800ED63C, r_u32(object + 28));
-    w_u32(0x800ED640, r_u32(object + 32));
+    shared_ray.pos[0][0] = (r_u32(object + 24));
+    shared_ray.pos[0][1] = (r_u32(object + 28));
+    shared_ray.pos[0][2] = (r_u32(object + 32));
     duration = r_u16(object + 10);
     velocity = r_u32(object + 36);
     coordinate = r_u32(object + 24);
-    w_u32(0x800ED644, coordinate + duration * velocity);
+    shared_ray.pos[1][0] = (coordinate + duration * velocity);
     duration = r_u16(object + 10);
     velocity = r_u32(object + 40);
     coordinate = r_u32(object + 28);
-    w_u32(0x800ED648, coordinate + duration * velocity);
+    shared_ray.pos[1][1] = (coordinate + duration * velocity);
     duration = r_u16(object + 10);
     velocity = r_u32(object + 44);
     coordinate = r_u32(object + 32);
-    w_u32(0x800ED64C, coordinate + duration * velocity);
-    sub_8007BB24(0x800ED638);
+    shared_ray.pos[1][2] = (coordinate + duration * velocity);
+    InitializeCollisionRay(shared_ray);
     w_u32(0x800FF974, 1);
-    sub_8007DD04(0x800ED638, 0);
-    hit = r_u32(0x800ED6A0);
+    QueryCollisionRay(shared_ray, 0);
+    hit = shared_ray.hit.GetObject();
     w_u32(0x800FF974, 0);
     if (hit)
     {
-        candidate = r_u32(0x800FF794);
+        candidate = GetModelSceneObjects();
         while (candidate && candidate != hit)
-            candidate = r_u32(candidate + 28);
-        w_u32(object + 96, r_u32(0x800ED6A0));
-        w_u32(object + 100, r_u32(0x800ED6B8));
-        distance = r_u32(0x800ED678);
+            candidate = candidate->next;
+        impact = shared_ray.hit;
+        distance = shared_ray.distance;
         w_u16(object + 10, DivideOscillatingScalar(distance, speed));
     }
     if (r_u16(object + 10) >= 151)
@@ -142,8 +146,9 @@ uint32 OscillatingProjectile::Update()
     uint32 object = NativeObjectGuestAddress(this);
     uint32 position = object + 24, velocity = object + 36;
     uint32 old_position[3], hit_record[4], hit_vector[4];
-    uint32 child, base, phase, increment, hit, trigger, result, damage;
-    uint32 red1, green1, blue1, red2, green2, blue2, material, head;
+    uint32 child, base, phase, increment, hit, result, damage;
+    ModelInstance *trigger;
+    uint32 red1, green1, blue1, red2, green2, blue2, head;
     sint32 amplitude, oscillation, scale, threshold;
     sint16 tick;
     FUNCTION_MARKER(0x8001C598, "SLUS_003.73");
@@ -160,21 +165,18 @@ uint32 OscillatingProjectile::Update()
     phase += increment;
     w_u32(object + 92, phase);
     amplitude = (sint32)(6 * base) / 16;
-    oscillation = (sint32)((uint32)amplitude * (uint32)(sint32)(sint16)r_u16(0x800F863C + (phase & 4095) * 4)) / 4096;
+    oscillation = (sint32)((uint32)amplitude * (uint32)rsin(phase & 4095)) / 4096;
     scale = (sint32)(base + (uint32)oscillation);
     RingEffect::Attach(r_u32(object + 76)).SetOddRadii((uint32)scale);
     RingEffect::Attach(r_u32(object + 76)).SetEvenRadii((uint32)scale);
     RingEffect::Attach(r_u32(object + 76)).SetRowExtent(0, (uint32)((sint32)(42 * (uint32)scale) / 16));
-    head = r_u32(0x800FF5A0);
+    head = visual_lists.players;
     hit = IntersectObjectSpheres(old_position, (const uint32 *)psx_addr(position, 12), hit_record, head, 0);
     if (hit)
     {
         NormalizeFixedVector(hit_vector, (const uint32 *)psx_addr(velocity, 12));
-        uint32 table = r_u32(hit + 68);
         damage = r_u32(object + 72);
-        sint32 adjustment = (sint16)r_u16(table + 48);
-        uint32 target = r_u32(table + 52);
-        apocalypse_object_virtual52_native(target, hit + (uint32)adjustment, damage, (const sint32 *)hit_vector, 29);
+        ApplyObjectDamage(hit, damage, (const sint32 *)hit_vector, 29);
         child = AllocateEffectStorage(124);
         if (child)
         {
@@ -209,12 +211,11 @@ uint32 OscillatingProjectile::Update()
         }
         Finish();
         PlayPositionedSound(24, (const uint32 *)psx_addr(position, 12), 0);
-        trigger = r_u32(object + 96);
-        if (trigger && !(trigger & 3))
+        trigger = impact.GetObject();
+        if (trigger)
         {
-            material = r_u32(object + 100);
             damage = r_u32(object + 72);
-            DamageLevelObject(trigger, material, (sint32)damage);
+            DamageLevelObject(trigger, impact.GetPolygon(), (sint32)damage);
         }
     }
     result = r_u32(r_u32(object + 76) + 88) & 0xFFFFFF;
@@ -228,13 +229,7 @@ OscillatingProjectile &OscillatingProjectile::Attach(uint32 object)
     return *static_cast<OscillatingProjectile *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_8001C158(uint32 object, uint32 position, uint32 angles, uint32 damage, uint32 lifetime, uint32 speed, uint32 amplitude, uint32 red1, uint32 green1, uint32 blue1, uint32 red2, uint32 green2, uint32 blue2)
-{
-    FUNCTION_MARKER(0x8001C158, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(OscillatingProjectile));
-    new (dram_addr) OscillatingProjectile((const uint32 *)psx_addr(position, 12), (const sint16 *)psx_addr(angles, 6), damage, lifetime, speed, amplitude, red1, green1, blue1, red2, green2, blue2);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_projectile_construct_1C158(uint32 object, const void *position, const void *angles, uint32 damage, uint32 lifetime, uint32 speed, uint32 amplitude, uint32 red1, uint32 green1, uint32 blue1, uint32 red2, uint32 green2, uint32 blue2)
 {

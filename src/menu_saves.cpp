@@ -1,4 +1,7 @@
+#include "level_catalogue.h"
+#include "game_string.h"
 #include "menu_saves.h"
+#include "menu_window.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -21,34 +24,36 @@ uint32 EnterSaveSelectionMenu(void)
 
 uint32 PopulateSaveSelectionMenu(uint32 menu)
 {
-    uint32 slot, record = 0x800A4B3C, cursor = 0x800A493C, entry, checksum, row, channel;
+    uint32 slot, record = 0x800A4B3C, cursor = 0x800A493C, checksum, channel;
+    MenuItem *row;
+    const LevelEntry *entry;
     FUNCTION_MARKER(0x8001779C, "SLUS_003.73");
     for (slot = 0; slot < 8; ++slot)
     {
         if (r_u32(cursor + 512))
         {
-            entry = FindLevelEntry(0x800A4B40 + slot * 136);
+            entry = FindLevelEntry((const char *)psx_addr(0x800A4B40 + slot * 136, 1));
             checksum = CalculatePlayerSaveChecksum((const uint8 *)psx_addr(record, 136));
             if (r_u32(cursor + 512) == checksum && entry)
-                sub_80015474(menu, r_u32(entry));
+                MenuWindow::Attach(menu).AddItem(entry->title);
             else
             {
                 sub_80015474(menu, r_u32(0x800A55CC));
-                row = menu + r_u8(menu + 10) * 28 - 4;
-                w_u8(row + 14, 255);
-                w_u8(row + 15, 0);
-                w_u8(row + 16, 0);
-                w_u8(row + 17, 255);
-                w_u8(row + 18, 0);
-                w_u8(row + 19, 0);
+                row = MenuWindow::Attach(menu).items + MenuWindow::Attach(menu).count - 1;
+                row->color[0][0] = 255;
+                row->color[0][1] = 0;
+                row->color[0][2] = 0;
+                row->color[1][0] = 255;
+                row->color[1][1] = 0;
+                row->color[1][2] = 0;
             }
         }
         else
         {
             sub_80015474(menu, r_u32(0x800A5660));
-            row = menu + r_u8(menu + 10) * 28 - 4;
+            row = MenuWindow::Attach(menu).items + MenuWindow::Attach(menu).count - 1;
             for (channel = 14; channel < 20; ++channel)
-                w_u8(row + channel, 255);
+                row->color[(channel - 14) / 3][(channel - 14) % 3] = 255;
         }
         record += 136;
         cursor += 136;
@@ -56,13 +61,5 @@ uint32 PopulateSaveSelectionMenu(uint32 menu)
     return 0;
 }
 
-extern "C" uint32 sub_80017760(void)
-{
-    FUNCTION_MARKER(0x80017760, "SLUS_003.73");
-    return EnterSaveSelectionMenu();
-}
-extern "C" uint32 sub_8001779C(uint32 menu)
-{
-    FUNCTION_MARKER(0x8001779C, "SLUS_003.73");
-    return PopulateSaveSelectionMenu(menu);
-}
+
+

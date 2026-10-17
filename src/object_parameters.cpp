@@ -1,3 +1,4 @@
+#include "visual_object.h"
 #include "game_sdk_bindings.h"
 extern "C"
 {
@@ -247,9 +248,9 @@ void DispatchBufferedObjectParameterWriter(uint32 target, uint32 buffer_owner, u
         third = ReadGuestScriptValueForOwner(buffer_owner, receiver, words, count, &cursor);
         if (command == 0x2134)
         {
-            w_u32(receiver + 104, (uint32)((sint32)(first << 16) >> 4));
-            w_u32(receiver + 108, (uint32)((sint32)(second << 16) >> 4));
-            w_u32(receiver + 112, (uint32)((sint32)(third << 16) >> 4));
+            VisualObject::Attach(receiver).motion.velocity[0] = (uint32)((sint32)(first << 16) >> 4);
+            VisualObject::Attach(receiver).motion.velocity[1] = (uint32)((sint32)(second << 16) >> 4);
+            VisualObject::Attach(receiver).motion.velocity[2] = (uint32)((sint32)(third << 16) >> 4);
         }
         else
         {
@@ -311,9 +312,9 @@ static bool WriteScriptedLevelObjectParameters(uint32 object, uint32 command, co
             third = ReadBufferedScriptValue(object, words, count, &cursor);
             if (command == 0x2134)
             {
-                w_u32(object + 104, (uint32)((sint32)(first << 16) >> 4));
-                w_u32(object + 108, (uint32)((sint32)(second << 16) >> 4));
-                w_u32(object + 112, (uint32)((sint32)(third << 16) >> 4));
+                VisualObject::Attach(object).motion.velocity[0] = (uint32)((sint32)(first << 16) >> 4);
+                VisualObject::Attach(object).motion.velocity[1] = (uint32)((sint32)(second << 16) >> 4);
+                VisualObject::Attach(object).motion.velocity[2] = (uint32)((sint32)(third << 16) >> 4);
             }
             else
             {

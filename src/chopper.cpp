@@ -1,3 +1,9 @@
+#include "projectile_weaving.h"
+#include "visual_object.h"
+#include "record_factory.h"
+#include "angle_math.h"
+#include "model_animation.h"
+#include "game_random.h"
 #include "game_sdk_bindings.h"
 #include "player.h"
 #include "game_panel.h"
@@ -6,6 +12,7 @@ extern "C" {
 #include "draft_first_adapters.h"
 }
 #include "chopper.h"
+#include "projectile_base.h"
 #include "tank.h"
 #include "object_parameters.h"
 #include "record_data.h"
@@ -35,7 +42,7 @@ Chopper::Chopper(const uint8 *record_data, uint32 index) : Enemy()
     cursor = sub_80062B50(object, cursor);
     w_u32(object + 400, cursor);
     w_u8(object + 380, 1);
-    w_u16(object + 214, index);
+    this->record_idx = index;
     Init();
 }
 
@@ -46,13 +53,13 @@ uint32 Chopper::Init()
     FUNCTION_MARKER(0x80053BA8u, "SLUS_003.73");
     w_u32(0x800FF308u, r_u32(0x800FF308u) + 1u);
     sub_800626C8(object, 0x800FF55Cu);
-    sub_80062A38(object, 0x800FF4E8u);
-    w_u16(object + 58u, 202u);
-    w_u8(object + 129u, 3u);
-    w_u8(object + 130u, 3u);
-    w_u8(object + 131u, 3u);
+    AddToList(visual_lists.actors);
+    this->kind = 202u;
+    motion.drag[0] = 3u;
+    motion.drag[1] = 3u;
+    motion.drag[2] = 3u;
     sub_8004BD04(object, 4u, 8u);
-    value = r_u32(0x800FF904u);
+    value = visual_lists.cameras;
     value = sub_8006696C(object + 4u, value + 4u);
     w_u32(object + 540u, value);
     w_u16(object + 472u, 2u);
@@ -92,7 +99,7 @@ uint32 Chopper::Init()
     sub_8004BDCC(object, 3u, 2u, 60u);
     value = sub_80069EF4(84u, object + 4u, 0u);
     w_u32(object + 536u, value);
-    value = sub_80066570(8u) + 1u;
+    value = RandomRange(8u) + 1u;
     w_u16(object + 534u, value);
     return value;
 }
@@ -103,7 +110,7 @@ uint32 Chopper::Destroy(uint32 reason)
     uint32 child, table, target, receiver, value;
     FUNCTION_MARKER(0x80053E6C, "SLUS_003.73");
     w_u32(object + 68, 0x800A2A10);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     child = r_u32(object + 528);
     if (child)
     {
@@ -157,9 +164,9 @@ void Chopper::UpdateRoll(uint32 difference)
     if ((sint16)difference >= 2049)
         difference -= 4096u;
     if ((sint16)difference)
-        w_u16(object + 142u, (uint32)((sint32)(sint16)difference >> 3));
+        motion.angular_acceleration[2] = (uint32)((sint32)(sint16)difference >> 3);
     else
-        w_u16(object + 136u, 0u);
+        motion.angular_velocity[2] = 0u;
 }
 
 uint32 Chopper::SquaredDistance(const uint32 vector[3])
@@ -189,6 +196,8 @@ void Chopper::WeaponAction(uint32 target, uint32 receiver, uint32 position, uint
 
 uint32 Chopper::Update()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z, value, flags, target, packed, tail, scale, pointer, table, adjustment, slot, distance;
     uint32 vector[3];
@@ -198,23 +207,23 @@ uint32 Chopper::Update()
     x = r_u32(0x800A71CCu);
     y = r_u32(0x800A71D0u);
     z = r_u32(0x800A71D4u);
-    w_u32(object + 116u, x);
-    w_u32(object + 120u, y);
-    w_u32(object + 124u, z);
-    flags = r_u16(object + 76u);
+    motion.acceleration[0] = x;
+    motion.acceleration[1] = y;
+    motion.acceleration[2] = z;
+    flags = this->activation_flags;
     w_u16(object + 388u, flags);
     if (flags & 1u)
     {
         value = r_u8(object + 384u);
-        w_u16(object + 76u, flags & 0xFFFEu);
+        this->activation_flags = flags & 0xFFFEu;
         w_u8(object + 384u, value + 1u);
     }
     if (!r_u8(object + 381u))
     {
-        sub_8007CAC8(object, 0x800A6CF4u);
-        value = r_u16(object);
+        InitializeModelAnimation(ChopperHierarchy);
+        value = this->model.flags;
         w_u8(object + 381u, 1u);
-        w_u16(object, value | 4u);
+        this->model.flags = value | 4u;
         SetAnimationRange(0u, 0u, 0xFFFFFFFFu);
     }
     if (r_u8(object + 380u))
@@ -275,10 +284,22 @@ TrackTarget:
         scale = (uint32)-4;
     angles[0] = 0;
     packed = apocalypse_angle_pair_word(object + 16u);
-    tail = r_u16(object + 20u);
+    tail = this->model.angles[2];
     value = (uint16)angles[0] | ((uint32)(uint16)angles[1] << 16);
-    sub_80066CF0(packed, tail, object + 132u, object + 138u, value, (uint16)angles[2], scale);
-    w_u16(object + 16u, 0u);
+    motion_cur_word = packed;
+    motion_cur_tail = tail;
+    motion_target_word = value;
+    motion_target_tail = (uint16)angles[2];
+    motion_cur.vx = (sint16)motion_cur_word;
+    motion_cur.vy = (sint16)(motion_cur_word >> 16);
+    motion_cur.vz = (sint16)motion_cur_tail;
+    motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+    motion_target.vx = (sint16)motion_target_word;
+    motion_target.vy = (sint16)(motion_target_word >> 16);
+    motion_target.vz = (sint16)motion_target_tail;
+    motion_target.pad = (sint16)(motion_target_tail >> 16);
+    UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, scale);
+    this->model.angles[0] = 0u;
 MoveTarget:
     if (!(r_u32(object + 396u) & 1u))
         goto LevelRoll;
@@ -291,10 +312,10 @@ MoveTarget:
     }
     xport_draft_host_sub_80066B8C_p1(angles, object + 4u, object + 484u);
     value = r_u16(object + 436u);
-    xport_draft_host_sub_800667CC_p3(object + 116u, value, angles);
+    BuildDirectionVector(motion.acceleration, value, (const uint16 *)angles);
     flags = r_u32(object + 396u);
     if (flags & 32u)
-        value = ((uint16)angles[1] - r_u16(object + 18u)) & 4095u;
+        value = ((uint16)angles[1] - this->model.angles[1]) & 4095u;
     else
         value = 0u;
     if ((sint16)value >= 2049)
@@ -305,46 +326,43 @@ MoveTarget:
     else if (difference < -1024)
         difference = -1024;
     value = (uint32)((sint32)(0u - (uint32)difference) >> 1);
-    tail = r_u16(object + 20u);
+    tail = this->model.angles[2];
     value = (value & 4095u) - tail;
     UpdateRoll(value);
     goto UpdateModel;
 LevelRoll:
-    value = 0u - r_u16(object + 20u);
+    value = 0u - this->model.angles[2];
     UpdateRoll(value);
 UpdateModel:
     if (r_u8(object + 382u))
-        sub_8006C0B8(object + 116u, 0x800A6844u);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844u, 12));
     sub_8004B9A4(object);
-    pointer = r_u32(object + 360u);
-    value = r_u16(pointer + 14u);
-    w_u16(pointer + 14u, (value + 512u) & 4095u);
-    pointer = r_u32(object + 360u);
-    value = r_u16(pointer + 26u);
-    w_u16(pointer + 26u, (value + 512u) & 4095u);
-    pointer = r_u32(object + 360u);
-    value = r_u16(pointer + 38u);
-    w_u16(pointer + 38u, (value + 512u) & 4095u);
+    value = GetModelJointAngles(1).rotation[1];
+    GetModelJointAngles(1).rotation[1] = (uint16)((value + 512) & 4095);
+    value = GetModelJointAngles(2).rotation[1];
+    GetModelJointAngles(2).rotation[1] = (uint16)((value + 512) & 4095);
+    value = GetModelJointAngles(3).rotation[1];
+    GetModelJointAngles(3).rotation[1] = (uint16)((value + 512) & 4095);
     sub_8007FDF0(object);
-    sub_8007D148(object);
+    BuildModelPose(*this);
     if (sub_8004BDFC(object, 0u, 0u) & 65535u)
         SetFireDuration(1u);
     if (sub_8004BDFC(object, 1u, 0u) & 65535u)
     {
         value = sub_8004BDFC(object, 1u, 3u) & 65535u;
-        if (!sub_80066570(value))
+        if (!RandomRange(value))
             FireProjectile();
     }
     if (sub_8004BDFC(object, 2u, 0u) & 65535u)
     {
         value = sub_8004BDFC(object, 2u, 2u) & 65535u;
-        if (!sub_80066570(value))
+        if (!RandomRange(value))
             SpawnDebris();
     }
     if (sub_8004BDFC(object, 3u, 0u) & 65535u)
     {
         value = sub_8004BDFC(object, 3u, 2u) & 65535u;
-        if (!sub_80066570(value))
+        if (!RandomRange(value))
             SpawnEnemy(0xFFFFFFFFu);
     }
     value = r_u32(object + 524u);
@@ -363,10 +381,10 @@ UpdateModel:
     {
         value = r_u16(object + 532u);
         tail = r_u16(object + 532u);
-        x = (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (value & 4095u));
-        y = r_u32(object + 8u);
+        x = (uint32)rsin(value & 4095u);
+        y = this->model.pos[1];
         w_u16(object + 532u, (tail + 64u) & 4095u);
-        w_u32(object + 8u, y + (x << 4));
+        this->model.pos[1] = y + (x << 4);
     }
     if (r_u32(object + 536u))
     {
@@ -375,7 +393,7 @@ UpdateModel:
             w_u16(object + 534u, value - 1u);
         else
         {
-            pointer = r_u32(0x800FF904u);
+            pointer = visual_lists.cameras;
             distance = sub_8006696C(object + 4u, pointer + 4u);
             pointer = r_u32(object + 536u);
             value = r_u32(object + 540u);
@@ -410,12 +428,12 @@ uint32 Chopper::Damage(uint32 damage, const sint32 *, uint32)
         SetColor(3, 255, 255, 255);
     else
     {
-        hero = r_u32(0x800FF5A0);
+        hero = visual_lists.players;
         if (hero)
             TryPlayPlayerKillQuote((const uint32 *)psx_addr(hero + 4, 12));
-        flags = r_u16(object + 78);
+        flags = this->lifecycle_flags;
         state = r_u16(object + 472);
-        w_u16(object + 78, flags & 0xFFEF);
+        this->lifecycle_flags = flags & 0xFFEF;
         if (state)
         {
             w_u16(object + 472, 2);
@@ -441,9 +459,9 @@ void Chopper::SpawnRandomEffect(uint32 kind, uint32 debris)
 {
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 position[3], x, y, z, shift = 12u;
-    x = sub_80066570(256u);
-    y = sub_80066570(256u);
-    z = sub_80066570(256u);
+    x = RandomRange(256u);
+    y = RandomRange(256u);
+    z = RandomRange(256u);
     position[0] = x - 128u;
     position[1] = y - 128u;
     position[2] = z - 128u;
@@ -459,7 +477,7 @@ void Chopper::SetDestinationRelative(uint32 field)
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 position[3], hero, offset;
     position[0] = (uint32)(sint32)(sint16)r_u16(object + field) << 16;
-    hero = r_u32(0x800FF5A0u);
+    hero = visual_lists.players;
     if (hero)
     {
         offset = (uint32)(sint32)(sint16)r_u16(object + 468u) << 12;
@@ -480,7 +498,7 @@ void Chopper::SetDestinationRelative(uint32 field)
 void Chopper::TrackHero()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 hero = r_u32(0x800FF5A0u), y, z, current;
+    uint32 hero = visual_lists.players, y, z, current;
     if (!hero)
         return;
     y = r_u32(hero + 8u);
@@ -504,9 +522,9 @@ void Chopper::UpdateState()
         return;
     if (state == 1u && (r_u16(object + 388u) & 1u))
     {
-        position[0] = r_u32(object + 4u);
-        position[1] = r_u32(object + 8u);
-        position[2] = r_u32(object + 12u);
+        position[0] = this->model.pos[0];
+        position[1] = this->model.pos[1];
+        position[2] = this->model.pos[2];
         position[1] -= 0x400000u;
         SetDestination(position);
         w_u16(object + 474u, 6u);
@@ -520,17 +538,17 @@ void Chopper::UpdateState()
             if (state == 0u)
             {
                 flags = r_u32(object + 396u);
-                hero = r_u32(0x800FF5A0u);
+                hero = visual_lists.players;
             }
             else
             {
-                hero = r_u32(0x800FF5A0u);
+                hero = visual_lists.players;
                 flags = r_u32(object + 396u);
                 w_u16(object + 462u, 0u);
             }
             w_u32(object + 396u, flags | 128u);
             SetTargetObject(hero);
-            record = sub_80066088(r_u16(object + 214u));
+            record = sub_80066088(this->record_idx);
             value = r_u16(record + 2u);
             w_u16(object + 460u, value);
             SetDestinationRecord(value);
@@ -575,12 +593,12 @@ void Chopper::UpdateState()
             {
                 if (!(r_u32(object + 396u) & 1u))
                 {
-                    position[0] = r_u32(object + 4u);
-                    position[1] = r_u32(object + 8u);
-                    position[2] = r_u32(object + 12u);
+                    position[0] = this->model.pos[0];
+                    position[1] = this->model.pos[1];
+                    position[2] = this->model.pos[2];
                     value = r_u16(object + 442u);
                     x = (uint32)(sint32)(sint16)r_u16(object + 464u) << 16;
-                    y = sub_80066570(value);
+                    y = RandomRange(value);
                     value = r_u16(object + 442u);
                     position[0] = x - (((value >> 1) - y) << 12);
                     position[2] -= 0x400000u;
@@ -591,7 +609,7 @@ void Chopper::UpdateState()
                 if (value >= r_u16(object + 440u))
                     return;
                 FireProjectile();
-                sub_80064874((uint32)(sint32)(sint16)r_u16(object + 460u));
+                ::SpawnRecord((uint32)(sint32)(sint16)r_u16(object + 460u));
                 record = sub_80066088((uint32)(sint32)(sint16)r_u16(object + 460u));
                 if (!r_u16(record))
                 {
@@ -608,8 +626,8 @@ void Chopper::UpdateState()
             else if (step == 3u)
             {
                 ClearTarget();
-                SetTargetObject(r_u32(0x800FF5A0u));
-                value = r_u16(object + 6u);
+                SetTargetObject(visual_lists.players);
+                value = (uint16)(this->model.pos[0] >> 16);
                 w_u16(object + 460u, value);
                 sub_8004BDCC(object, 0u, 0u, 1u);
                 sub_8004BDCC(object, 1u, 0u, 1u);
@@ -619,11 +637,11 @@ void Chopper::UpdateState()
             }
             else if (step == 4u && !(r_u32(object + 396u) & 1u))
             {
-                position[1] = r_u32(object + 8u);
+                position[1] = this->model.pos[1];
                 x = (uint32)(sint32)(sint16)r_u16(object + 460u) << 16;
-                value = sub_80066570(4096u);
+                value = RandomRange(4096u);
                 position[0] = x + ((value - 2048u) << 12);
-                position[2] = r_u32(object + 12u);
+                position[2] = this->model.pos[2];
                 SetDestination(position);
             }
             return;
@@ -636,7 +654,7 @@ void Chopper::UpdateState()
                     if ((sint32)r_u32(0x800FF4DCu) < 4)
                     {
                         value = sub_8004BDFC(object, 3u, 2u) & 65535u;
-                        if (!sub_80066570(value))
+                        if (!RandomRange(value))
                         {
                             value = SpawnEnemy(0xFFFFFFFFu);
                             if (value)
@@ -655,18 +673,18 @@ void Chopper::UpdateState()
                 value = r_u16(record + 4u);
                 w_u16(object + 464u, value);
                 xport_draft_host_sub_8006613C_p1(third, (uint32)(sint32)(sint16)value);
-                if (!sub_80066570(3u))
+                if (!RandomRange(3u))
                 {
-                    value = sub_80066570(4096u);
+                    value = RandomRange(4096u);
                     w_u16(object + 466u, value + 2048u);
                 }
-                hero = r_u32(0x800FF5A0u);
+                hero = visual_lists.players;
                 if (hero)
                 {
                     distances[0] = apocalypse_position_distance_native(position, psx_addr(hero + 4u, 12u));
-                    hero = r_u32(0x800FF5A0u);
+                    hero = visual_lists.players;
                     distances[1] = apocalypse_position_distance_native(second, psx_addr(hero + 4u, 12u));
-                    hero = r_u32(0x800FF5A0u);
+                    hero = visual_lists.players;
                     distances[2] = apocalypse_position_distance_native(third, psx_addr(hero + 4u, 12u));
                     minimum = 0xFFFFFFu;
                     best = 0xFFFFFFFFu;
@@ -693,7 +711,7 @@ void Chopper::UpdateState()
                         return;
                     }
                 }
-                value = sub_80066570(16u);
+                value = RandomRange(16u);
                 w_u16(object + 462u, value + 16u);
                 w_u16(object + 474u, 3u);
                 return;
@@ -715,7 +733,7 @@ void Chopper::UpdateState()
             case 5u:
                 sub_8004BDCC(object, 1u, 0u, 0u);
                 sub_8004BDCC(object, 2u, 0u, 0u);
-                sub_80064874((uint32)(sint32)(sint16)r_u16(object + 470u));
+                ::SpawnRecord((uint32)(sint32)(sint16)r_u16(object + 470u));
                 ClearTarget();
                 value = r_u32(object + 396u);
                 index = r_u16(object + 468u);
@@ -738,7 +756,7 @@ void Chopper::UpdateState()
     {
         if (step == 0u)
         {
-            record = sub_80066088(r_u16(object + 214u));
+            record = sub_80066088(this->record_idx);
             xport_draft_host_sub_8006613C_p1(position, r_u16(record + 2u));
             xport_draft_host_sub_8006613C_p1(second, r_u16(record + 4u));
             w_u16(object + 468u, 640u);
@@ -758,9 +776,9 @@ void Chopper::UpdateState()
                 w_u16(object + 462u, z >> 16);
                 w_u16(object + 464u, x >> 16);
             }
-            position[0] = r_u32(object + 4u);
-            position[1] = r_u32(object + 8u) - 7372800u;
-            position[2] = r_u32(object + 12u);
+            position[0] = this->model.pos[0];
+            position[1] = this->model.pos[1] - 7372800u;
+            position[2] = this->model.pos[2];
             SetDestination(position);
             value = r_u16(object + 474u);
             w_u16(object + 474u, value + 1u);
@@ -796,15 +814,15 @@ void Chopper::UpdateState()
     {
         if (step == 0u)
         {
-            w_u32(object + 112u, 0u);
-            w_u32(object + 108u, 0u);
-            w_u32(object + 104u, 0u);
-            w_u32(object + 124u, 0u);
-            w_u32(object + 120u, 0u);
-            w_u16(object + 132u, 64u);
-            w_u32(object + 116u, 0u);
-            w_u16(object + 134u, 0u);
-            w_u16(object + 136u, 0u);
+            motion.velocity[2] = 0u;
+            motion.velocity[1] = 0u;
+            motion.velocity[0] = 0u;
+            motion.acceleration[2] = 0u;
+            motion.acceleration[1] = 0u;
+            motion.angular_velocity[0] = 64u;
+            motion.acceleration[0] = 0u;
+            motion.angular_velocity[1] = 0u;
+            motion.angular_velocity[2] = 0u;
             flags = r_u32(object + 396u);
             w_u32(object + 396u, flags & 0xFFFFFFE2u);
             ground = sub_80067A18(object + 4u, 0u, 4096u);
@@ -820,10 +838,10 @@ void Chopper::UpdateState()
         else if (step == 1u)
         {
             ground = (uint32)(sint32)(sint16)r_u16(object + 460u) << 13;
-            y = r_u32(object + 8u);
+            y = this->model.pos[1];
             if ((sint32)ground < (sint32)y)
             {
-                w_u32(object + 8u, ground);
+                this->model.pos[1] = ground;
                 w_u8(object + 382u, 0u);
                 w_u16(object + 474u, 2u);
             }
@@ -841,13 +859,13 @@ void Chopper::UpdateState()
     }
     if (step)
         return;
-    w_u32(object + 112u, 0u);
-    w_u32(object + 108u, 0u);
-    w_u32(object + 104u, 0u);
-    w_u32(object + 124u, 0u);
-    w_u32(object + 120u, 0u);
+    motion.velocity[2] = 0u;
+    motion.velocity[1] = 0u;
+    motion.velocity[0] = 0u;
+    motion.acceleration[2] = 0u;
+    motion.acceleration[1] = 0u;
     flags = r_u32(object + 396u);
-    w_u32(object + 116u, 0u);
+    motion.acceleration[0] = 0u;
     w_u32(object + 396u, flags & 0xFFFFFFE2u);
     for (index = 0u; index < 3u; ++index)
         SpawnRandomEffect(1u, 1u);
@@ -883,7 +901,7 @@ uint32 Chopper::ExecuteCommand(uint32 command)
             cursor += 12u;
             ShiftVectorLeft(position, &shift);
             if (command == 0x4222u)
-                AddVectors(position, (const uint32 *)psx_addr(object + 4, 12));
+                AddVectors(position, (const uint32 *)this->model.pos);
             w_u32(object + 400u, cursor);
             SetDestination(position);
             return 1u;
@@ -933,7 +951,7 @@ uint32 Chopper::ExecuteCommand(uint32 command)
             if (!value)
                 ClearTarget();
             else if (command == 0x4406u)
-                SetTargetObject(r_u32(0x800FF5A0u));
+                SetTargetObject(visual_lists.players);
             else
             {
                 value = ResolveCommandValue(value);
@@ -990,13 +1008,13 @@ uint32 Chopper::Hover()
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 flags;
     FUNCTION_MARKER(0x80055A88u, "SLUS_003.73");
-    w_u32(object + 112u, 0u);
-    w_u32(object + 108u, 0u);
-    w_u32(object + 104u, 0u);
-    w_u32(object + 124u, 0u);
-    w_u32(object + 120u, 0u);
+    motion.velocity[2] = 0u;
+    motion.velocity[1] = 0u;
+    motion.velocity[0] = 0u;
+    motion.acceleration[2] = 0u;
+    motion.acceleration[1] = 0u;
     flags = r_u32(object + 396u);
-    w_u32(object + 116u, 0u);
+    motion.acceleration[0] = 0u;
     flags = (flags & 0xFFFFFFDFu) | 64u;
     w_u32(object + 396u, flags);
     return flags;
@@ -1004,17 +1022,30 @@ uint32 Chopper::Hover()
 
 uint32 Chopper::Aim()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     const uint32 object = NativeObjectGuestAddress(this);
     sint16 desired[3];
     uint32 packed, tail, speed, target;
     FUNCTION_MARKER(0x80055AC0u, "SLUS_003.73");
     xport_draft_host_sub_80066B8C_p1(desired, object + 4u, object + 496u);
     packed = apocalypse_angle_pair_word(object + 16u);
-    tail = r_u16(object + 20u);
+    tail = this->model.angles[2];
     speed = r_u16(object + 438u);
     target = (uint16)desired[0] | ((uint32)(uint16)desired[1] << 16);
-    return sub_80066CF0(packed, tail, object + 132u, object + 138u,
-        target, (uint16)desired[2], speed);
+    motion_cur_word = packed;
+    motion_cur_tail = tail;
+    motion_target_word = target;
+    motion_target_tail = (uint16)desired[2];
+    motion_cur.vx = (sint16)motion_cur_word;
+    motion_cur.vy = (sint16)(motion_cur_word >> 16);
+    motion_cur.vz = (sint16)motion_cur_tail;
+    motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+    motion_target.vx = (sint16)motion_target_word;
+    motion_target.vy = (sint16)(motion_target_word >> 16);
+    motion_target.vz = (sint16)motion_target_tail;
+    motion_target.pad = (sint16)(motion_target_tail >> 16);
+    return UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, speed);
 }
 
 uint32 Chopper::SetTargetRecord(uint32 index)
@@ -1071,19 +1102,22 @@ uint32 Chopper::FireProjectile()
     uint32 position[3], child, value;
     uint16 angles[3];
     FUNCTION_MARKER(0x80055C14u, "SLUS_003.73");
-    position[0] = r_u32(object + 4u);
-    position[1] = r_u32(object + 8u);
-    position[2] = r_u32(object + 12u);
-    angles[0] = (uint16)r_u16(object + 16u);
-    angles[1] = (uint16)r_u16(object + 18u);
+    position[0] = this->model.pos[0];
+    position[1] = this->model.pos[1];
+    position[2] = this->model.pos[2];
+    angles[0] = (uint16)this->model.angles[0];
+    angles[1] = (uint16)this->model.angles[1];
     angles[2] = 0u;
     child = sub_800625AC(440u);
     if (child)
-        child = apocalypse_chopper_projectile_native(child, position, angles, 0u, 6u, 128u, 0x800FF5A0u, 0x800A71CCu);
+    {
+        void *storage = AllocateNativeObjectStorage(child, sizeof(WeavingProjectile));
+        new (storage) WeavingProjectile(position, (const sint16 *)angles, 0, 6, 128, &visual_lists.players, (const uint32 *)psx_addr(0x800A71CC, 12));
+    }
     value = sub_8004BDFC(object, 1u, 1u);
     value = sub_8004B914(object, value & 65535u);
-    w_u16(child + 308u, value);
-    w_u16(child + 310u, 256u);
+    ProjectileBase::Attach(child).SetDamage(value);
+    ProjectileBase::Attach(child).SetBlastRadius(256);
     return 256u;
 }
 

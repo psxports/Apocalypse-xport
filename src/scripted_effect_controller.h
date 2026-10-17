@@ -12,7 +12,6 @@ public:
     static ScriptedEffectController &Attach(uint32 object);
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Update();
-    virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 kind);
     virtual uint32 ExecuteCommand(uint32 command);
     virtual void SetParameters(uint32 command);
 };

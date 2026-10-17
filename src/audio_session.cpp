@@ -1,3 +1,4 @@
+#include "visual_object.h"
 #include "game_sdk_bindings.h"
 extern "C"
 {
@@ -27,12 +28,12 @@ uint32 InitializeAudioOutput()
     return sub_8008F05C(0, 127, 127);
 }
 
-uint32 InitializeAudioSession(uint32 resource)
+uint32 InitializeAudioSession(const char *resource)
 {
     uint32 bank;
     FUNCTION_MARKER(0x8006994C, "SLUS_003.73");
     SetSoundReverbMode(0);
-    bank = LoadSoundBank((const char *)psx_addr(resource, 1), 0x800FF6D0);
+    bank = LoadSoundBank(resource, 0x800FF6D0);
     w_u32(0x800FF69C, bank);
     sub_8008F16C(0x80100688, 1, 1);
     // Preserve original SDK callback identities in the guest callback table
@@ -92,21 +93,9 @@ uint32 ReleaseAudioSession()
     return result;
 }
 
-extern "C" uint32 sub_800698FC(void)
-{
-    FUNCTION_MARKER(0x800698FC, "SLUS_003.73");
-    return InitializeAudioOutput();
-}
-extern "C" uint32 sub_8006994C(uint32 resource)
-{
-    FUNCTION_MARKER(0x8006994C, "SLUS_003.73");
-    return InitializeAudioSession(resource);
-}
-extern "C" uint32 sub_80069A94(void)
-{
-    FUNCTION_MARKER(0x80069A94, "SLUS_003.73");
-    return ReleaseAudioSession();
-}
+
+
+
 
 uint32 ReleaseSoundBank(sint16 bank, uint32 header)
 {
@@ -182,16 +171,8 @@ uint32 LoadSoundBank(const char *name, uint32 header_output)
     return (uint32)(sint32)bank;
 }
 
-extern "C" uint32 sub_80069CF8(uint32 bank, uint32 header)
-{
-    FUNCTION_MARKER(0x80069CF8, "SLUS_003.73");
-    return ReleaseSoundBank((sint16)bank, header);
-}
-extern "C" uint32 sub_80069D2C(uint32 name, uint32 header_output)
-{
-    FUNCTION_MARKER(0x80069D2C, "SLUS_003.73");
-    return LoadSoundBank((const char *)psx_addr(name, 1), header_output);
-}
+
+
 extern "C" uint32 apocalypse_load_sound_bank(const char *name, uint32 header_output) { return LoadSoundBank(name, header_output); }
 extern "C" uint32 xport_draft_host_sub_80069D2C_p1(void *name, uint32 header_output)
 {
@@ -199,7 +180,7 @@ extern "C" uint32 xport_draft_host_sub_80069D2C_p1(void *name, uint32 header_out
     return LoadSoundBank((const char *)name, header_output);
 }
 
-uint32 LoadLevelSoundBank(uint32 basename)
+uint32 LoadLevelSoundBank(const char *basename)
 {
     char filename[24];
     uint32 index = 0, character, bank;
@@ -207,7 +188,7 @@ uint32 LoadLevelSoundBank(uint32 basename)
     // TODO Original basename must fit the local filename buffer
     for (;;)
     {
-        character = r_u8(basename);
+        character = (uint8)*basename;
         ++basename;
         if (!character)
             break;
@@ -237,14 +218,14 @@ void ReleaseLevelSoundBank()
     }
 }
 
-uint32 LoadAudioSequence(uint32 basename)
+uint32 LoadAudioSequence(const char *basename)
 {
     char filename[24];
     uint32 index = 0, character, bank, file_size, sequence, result, tempo;
     FUNCTION_MARKER(0x80069BC4, "SLUS_003.73");
     for (;;)
     {
-        character = r_u8(basename);
+        character = (uint8)*basename;
         if (!character)
             break;
         // TODO Original filenames must fit the addressed local buffer
@@ -285,21 +266,9 @@ uint32 LoadAudioSequence(uint32 basename)
     return result;
 }
 
-extern "C" uint32 sub_80069B0C(uint32 basename)
-{
-    FUNCTION_MARKER(0x80069B0C, "SLUS_003.73");
-    return LoadLevelSoundBank(basename);
-}
-extern "C" void sub_80069B8C(void)
-{
-    FUNCTION_MARKER(0x80069B8C, "SLUS_003.73");
-    ReleaseLevelSoundBank();
-}
-extern "C" uint32 sub_80069BC4(uint32 basename)
-{
-    FUNCTION_MARKER(0x80069BC4, "SLUS_003.73");
-    return LoadAudioSequence(basename);
-}
+
+
+
 
 uint32 PlaySoundEffect(sint32 sound_id, sint16 volume, uint32 pitch_variation)
 {
@@ -360,11 +329,7 @@ uint32 PlayPositionedSound(sint32 sound_id, const uint32 *source, uint32 pitch_v
     return PlaySoundVoices(program, (uint8)note, left, right, pitch_variation);
 }
 
-extern "C" uint32 sub_80069E68(uint32 sound_id, uint32 left, uint32 right, uint32 pitch_variation)
-{
-    FUNCTION_MARKER(0x80069E68, "SLUS_003.73");
-    return PlayScaledSound((sint32)sound_id, (sint16)left, (sint16)right, pitch_variation);
-}
+
 extern "C" uint32 sub_80069EF4(uint32 sound_id, uint32 source, uint32 pitch_variation)
 {
     FUNCTION_MARKER(0x80069EF4, "SLUS_003.73");
@@ -392,7 +357,7 @@ uint32 CalculateSoundBalance(const uint32 *origin, sint32 minimum, sint32 maximu
     uint32 mapped, origin_z, origin_x, product, low, high;
     sint32 distance;
     FUNCTION_MARKER(0x80067E9C, "SLUS_003.73");
-    listener = r_u32(0x800FF904);
+    listener = visual_lists.cameras;
     if (!listener)
         return 0;
     position[0] = r_u32(listener + 4);
@@ -405,7 +370,7 @@ uint32 CalculateSoundBalance(const uint32 *origin, sint32 minimum, sint32 maximu
         return 0;
     delta = (uint32)maximum - (uint32)distance;
     numerator = (delta << 12) - delta;
-    listener = r_u32(0x800FF904);
+    listener = visual_lists.cameras;
     delta = (uint32)(sint32)(sint16)r_u16(listener + 16);
     if (!maximum)
         weight = (sint32)numerator < 0 ? 1 : 0xFFFFFFFF;
@@ -421,7 +386,7 @@ uint32 CalculateSoundBalance(const uint32 *origin, sint32 minimum, sint32 maximu
     origin_z = ReadSoundPositionWord(origin, mapped, 2);
     origin_x = ReadSoundPositionWord(origin, mapped, 0);
     angle = (uint32)ratan2((sint32)(origin_z - position[2]), (sint32)(origin_x - position[0]));
-    listener = r_u32(0x800FF904);
+    listener = visual_lists.cameras;
     delta = r_u16(listener + 494);
     angle = (1024 - angle - (delta - 2048)) & 4095;
     if (angle - 1025 < 2047)
@@ -429,7 +394,7 @@ uint32 CalculateSoundBalance(const uint32 *origin, sint32 minimum, sint32 maximu
         flag = 0x80000000;
         weight -= (uint32)((sint32)weight >> 4);
     }
-    product = weight * (uint32)(sint32)(sint16)r_u16(0x800F863C + angle * 4);
+    product = weight * (uint32)rsin(angle);
     product = (uint32)((sint32)product >> 12);
     if (angle < 2048)
     {
@@ -445,11 +410,7 @@ uint32 CalculateSoundBalance(const uint32 *origin, sint32 minimum, sint32 maximu
 }
 
 extern "C" uint32 apocalypse_sound_balance_native(const uint32 origin[3], uint32 minimum, uint32 maximum) { return CalculateSoundBalance(origin, (sint32)minimum, (sint32)maximum); }
-extern "C" uint32 sub_80067E9C(uint32 origin, uint32 minimum, uint32 maximum)
-{
-    FUNCTION_MARKER(0x80067E9C, "SLUS_003.73");
-    return CalculateSoundBalance((const uint32 *)psx_addr(origin, 12), (sint32)minimum, (sint32)maximum);
-}
+
 
 uint32 SetSoundReverbMode(uint8 mode)
 {
@@ -479,21 +440,9 @@ uint32 DisableSoundReverb()
     return SetSoundReverbMode(0);
 }
 
-extern "C" uint32 sub_8006A334(uint32 mode)
-{
-    FUNCTION_MARKER(0x8006A334, "SLUS_003.73");
-    return SetSoundReverbMode((uint8)mode);
-}
-extern "C" uint32 sub_8006A384(void)
-{
-    FUNCTION_MARKER(0x8006A384, "SLUS_003.73");
-    return EnableSoundReverb();
-}
-extern "C" uint32 sub_8006A3A4(void)
-{
-    FUNCTION_MARKER(0x8006A3A4, "SLUS_003.73");
-    return DisableSoundReverb();
-}
+
+
+
 
 uint32 MarkMusicRestorePending()
 {
@@ -523,11 +472,7 @@ uint32 StopMusicPlayback()
     return 1;
 }
 
-extern "C" uint32 sub_8006A3F0(void)
-{
-    FUNCTION_MARKER(0x8006A3F0, "SLUS_003.73");
-    return StopMusicPlayback();
-}
+
 
 uint32 RestoreMusicPlayback()
 {
@@ -557,21 +502,9 @@ uint32 SetSoundReverbDepth(uint8 left, uint8 right)
     return sub_800900AC(left, right);
 }
 
-extern "C" uint32 sub_8006A0EC(void)
-{
-    FUNCTION_MARKER(0x8006A0EC, "SLUS_003.73");
-    return MarkMusicRestorePending();
-}
-extern "C" uint32 sub_8006A0FC(void)
-{
-    FUNCTION_MARKER(0x8006A0FC, "SLUS_003.73");
-    return ResetMusicPlaybackState();
-}
-extern "C" uint32 sub_8006A428(void)
-{
-    FUNCTION_MARKER(0x8006A428, "SLUS_003.73");
-    return RestoreMusicPlayback();
-}
+
+
+
 extern "C" uint32 sub_8006A4A0(uint32 left, uint32 right)
 {
     FUNCTION_MARKER(0x8006A4A0, "SLUS_003.73");
@@ -654,16 +587,8 @@ uint32 ResumeAudioPlayback()
     return sub_80097F34(12, 0);
 }
 
-extern "C" uint32 sub_8006A114(void)
-{
-    FUNCTION_MARKER(0x8006A114, "SLUS_003.73");
-    return SuspendAudioPlayback();
-}
-extern "C" uint32 sub_8006A1DC(void)
-{
-    FUNCTION_MARKER(0x8006A1DC, "SLUS_003.73");
-    return ResumeAudioPlayback();
-}
+
+
 
 uint32 FlushPendingPositionedSound(void)
 {
@@ -675,14 +600,10 @@ uint32 FlushPendingPositionedSound(void)
     return result;
 }
 
-extern "C" uint32 sub_80022860(void)
-{
-    FUNCTION_MARKER(0x80022860, "SLUS_003.73");
-    return FlushPendingPositionedSound();
-}
 
 
-uint32 SwitchMenuAudioSequence(uint32 basename)
+
+uint32 SwitchMenuAudioSequence(const char *basename)
 {
     FUNCTION_MARKER(0x80015F48, "SLUS_003.73");
     StopMusicPlayback();
@@ -690,8 +611,4 @@ uint32 SwitchMenuAudioSequence(uint32 basename)
     return LoadAudioSequence(basename);
 }
 
-extern "C" uint32 sub_80015F48(uint32 basename)
-{
-    FUNCTION_MARKER(0x80015F48, "SLUS_003.73");
-    return SwitchMenuAudioSequence(basename);
-}
+

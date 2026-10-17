@@ -9,5 +9,6 @@ extern "C"
 uint32 SetRandomSeed(uint32 seed);
 uint32 SetAuxiliaryRandomSeed(uint32 seed);
 uint32 RandomRange(uint32 range);
+void ResetRandomGenerators(void);
 
 #endif

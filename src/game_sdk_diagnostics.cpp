@@ -15,7 +15,6 @@ extern "C" sint32 GameDiagnostic(const char *format, ...)
     va_end(arguments);
     return result;
 #else
-    (void)format;
     return 0;
 #endif
 }

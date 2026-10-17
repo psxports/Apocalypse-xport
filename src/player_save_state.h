@@ -6,7 +6,6 @@ extern "C"
 #include "psx.h"
 }
 
-uint32 FindLevelEntry(uint32 name);
 uint32 CaptureCurrentPlayerSave();
 uint32 CalculatePlayerSaveChecksum(const uint8 *record);
 uint32 RestorePlayerInventory(uint8 *record);

@@ -11,8 +11,8 @@ public:
     virtual ~Pickup() {}
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Finish();
-    virtual uint32 ReleaseEffects();
-    virtual uint32 AdvanceEffects();
+    virtual uint32 ReleaseResources();
+    virtual uint32 Update();
     uint32 CreateChildEffect();
     uint32 UpdateMotion();
     void UpdateLifetime();

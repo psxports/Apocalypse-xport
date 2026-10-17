@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "object_damage.h"
 extern "C" {
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
@@ -159,7 +161,7 @@ uint32 WavingBeam::Destroy(uint32 reason)
 uint32 WavingBeam::Update()
 {
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 lifetime, buffer, player, x, z, distance, value, tick, index, offset, product, result, material, target, table, receiver;
+    uint32 lifetime, buffer, player, x, z, distance, value, tick, index, offset, product, result, material, receiver;
     uint32 origin[4], endpoint[4], direction[4], hit[4];
     sint32 wave;
     FUNCTION_MARKER(0x8001116C, "SLUS_003.73");
@@ -167,7 +169,7 @@ uint32 WavingBeam::Update()
     if (lifetime == 65535)
     {
         buffer = r_u32(object + 104);
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         x = (uint32)((sint32)(r_u32(buffer) - r_u32(player + 4)) >> 12);
         if ((sint32)x < 0)
             x = 0 - x;
@@ -193,7 +195,7 @@ uint32 WavingBeam::Update()
     if (r_u32(material + 20) != 0x68B7B136)
     {
         tick = r_u32(0x800FF2F0);
-        wave = (sint16)r_u16(0x800F863C + ((tick << 6) & 0x3FC0));
+        wave = rsin(((tick << 6) & 0x3FC0) >> 2);
         w_u32(object + 84, (uint32)(wave / 128));
     }
     value = r_u8(object + 348);
@@ -204,7 +206,7 @@ uint32 WavingBeam::Update()
     {
         value = r_u32(object + 268 + index * 4) * tick;
         value += r_u32(object + 228 + index * 4);
-        wave = (sint16)r_u16(0x800F863C + (value & 4095) * 4);
+        wave = rsin(value & 4095);
         product = r_u32(object + 308 + index * 4) * (uint32)wave;
         buffer = r_u32(object + 104) + offset;
         value = r_u32(object + 188 + index * 4);
@@ -255,27 +257,23 @@ uint32 WavingBeam::Update()
     endpoint[2] = r_u32(buffer + 332);
     SubtractVectors(direction, endpoint, origin);
     NormalizeFixedVector(direction, direction);
-    result = IntersectObjectSpheres(origin, endpoint, hit, r_u32(0x800FF5A0), 0);
+    result = IntersectObjectSpheres(origin, endpoint, hit, visual_lists.players, 0);
     if (result)
     {
-        table = r_u32(result + 68);
         value = r_u16(object + 350);
-        receiver = result + (uint32)(sint32)(sint16)r_u16(table + 48);
-        target = r_u32(table + 52);
-        apocalypse_object_virtual52_native(target, receiver, value, (const sint32 *)direction, 31);
+        receiver = result;
+        ApplyObjectDamage(receiver, value, (const sint32 *)direction, 31);
         w_u16(object + 352, 15);
     }
     result = r_u8(object + 349);
     if (result)
     {
-        result = IntersectObjectSpheres(origin, endpoint, hit, r_u32(0x800FF4E8), 0);
+        result = IntersectObjectSpheres(origin, endpoint, hit, visual_lists.actors, 0);
         if (result)
         {
-            table = r_u32(result + 68);
             value = r_u16(object + 350);
-            receiver = result + (uint32)(sint32)(sint16)r_u16(table + 48);
-            target = r_u32(table + 52);
-            apocalypse_object_virtual52_native(target, receiver, value, (const sint32 *)direction, 31);
+            receiver = result;
+            ApplyObjectDamage(receiver, value, (const sint32 *)direction, 31);
             result = 15;
             w_u16(object + 352, result);
         }

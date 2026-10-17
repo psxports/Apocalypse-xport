@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "object_damage.h"
 #include "effect_lifecycle.h"
 extern "C"
 {
@@ -10,7 +12,8 @@ extern "C"
 
 uint32 SetRecordGroupEnabled(uint32 group, uint32 enabled)
 {
-    uint32 cursor, count, index, record, kind, payload, object, flags, identifier, table;
+    uint32 cursor, count, index, record, kind, payload, flags, identifier, table;
+    ModelInstance *object;
     FUNCTION_MARKER(0x80064B24, "SLUS_003.73");
     cursor = GetRecordPayload(group);
     count = r_u16(cursor);
@@ -30,38 +33,37 @@ uint32 SetRecordGroupEnabled(uint32 group, uint32 enabled)
             object = FindModelObject(r_u32(payload));
             if (object)
             {
-                flags = r_u16(object);
-                w_u16(object, enabled ? flags & 65534 : flags | 1);
+                flags = object->flags;
+                object->flags = enabled ? flags & 65534 : flags | 1;
             }
         }
     }
     return 0;
 }
 
-void SuspendObjectsByRecord(uint32 list, uint32 record)
+void SuspendObjectsByRecord(ModelInstance *&head, uint32 record)
 {
-    uint32 object;
     FUNCTION_MARKER(0x80064F08, "SLUS_003.73");
-    object = r_u32(list);
-    while (object)
+    ModelInstance *instance = head;
+    while (instance)
     {
-        if (r_u16(object + 214) == record)
-            sub_80062B7C(object, list);
-        object = r_u32(object + 28);
+        VisualObject &object = *static_cast<VisualObject *>(instance->owner);
+        if (object.record_idx == record)
+            object.MoveToTemporaryList(head);
+        instance = instance->next;
     }
-    // TODO Original V0 on an empty list is unspecified; current group callers discard it
 }
 
-void ResumeObjectsByRecord(uint32 object, uint32 record)
+void ResumeObjectsByRecord(ModelInstance *instance, uint32 record)
 {
     FUNCTION_MARKER(0x80064F70, "SLUS_003.73");
-    while (object)
+    while (instance)
     {
-        if (r_u16(object + 214) == record)
-            sub_80062BF0(object);
-        object = r_u32(object + 28);
+        VisualObject &object = *static_cast<VisualObject *>(instance->owner);
+        if (object.record_idx == record)
+            object.RestoreList();
+        instance = instance->next;
     }
-    // TODO Original V0 on an empty list is unspecified; current group callers discard it
 }
 
 uint32 SetObjectRecordGroupMode(uint32 group, uint32 mode)
@@ -77,13 +79,13 @@ uint32 SetObjectRecordGroupMode(uint32 group, uint32 mode)
         {
             if (mode == 5)
             {
-                SuspendObjectsByRecord(0x800FF4E8, record);
-                SuspendObjectsByRecord(0x800FF5DC, record);
+                SuspendObjectsByRecord(visual_lists.actors, record);
+                SuspendObjectsByRecord(visual_lists.solids, record);
             }
             else
             {
-                ResumeObjectsByRecord(r_u32(0x800FF4E8), record);
-                ResumeObjectsByRecord(r_u32(0x800FF5DC), record);
+                ResumeObjectsByRecord(visual_lists.actors, record);
+                ResumeObjectsByRecord(visual_lists.solids, record);
             }
         }
         cursor += 2;
@@ -91,61 +93,36 @@ uint32 SetObjectRecordGroupMode(uint32 group, uint32 mode)
     return 0;
 }
 
-extern "C" uint32 sub_80064B24(uint32 group, uint32 enabled)
-{
-    FUNCTION_MARKER(0x80064B24, "SLUS_003.73");
-    return SetRecordGroupEnabled(group, enabled);
-}
-extern "C" void sub_80064F08(uint32 list, uint32 record)
-{
-    FUNCTION_MARKER(0x80064F08, "SLUS_003.73");
-    SuspendObjectsByRecord(list, record);
-}
-extern "C" void sub_80064F70(uint32 object, uint32 record)
-{
-    FUNCTION_MARKER(0x80064F70, "SLUS_003.73");
-    ResumeObjectsByRecord(object, record);
-}
-extern "C" uint32 sub_80064FC8(uint32 group, uint32 mode)
-{
-    FUNCTION_MARKER(0x80064FC8, "SLUS_003.73");
-    return SetObjectRecordGroupMode(group, mode);
-}
 
-void ApplyObjectListRecordAction(uint32 identifier, uint32 object, uint32 mode)
+
+
+
+
+void ApplyObjectListRecordAction(uint32 identifier, ModelInstance *instance, uint32 mode)
 {
-    uint32 table, target, receiver, damage;
-    sint32 adjustment;
     FUNCTION_MARKER(0x80064A68, "SLUS_003.73");
-    while (object)
+    while (instance)
     {
-        if (r_u16(object + 214) == identifier)
+        VisualObject &object = *static_cast<VisualObject *>(instance->owner);
+        const uint32 address = NativeObjectGuestAddress(&object);
+        if (object.record_idx == identifier)
         {
             if (!mode)
-            {
-                table = r_u32(object + 68);
-                adjustment = (sint16)r_u16(table + 16);
-                target = r_u32(table + 20);
-                receiver = object + (uint32)adjustment;
-                apocalypse_object_virtual20(target, receiver);
-            }
+                object.Finish();
             else if (mode == 1)
             {
-                table = r_u32(object + 68);
-                damage = (uint32)(sint32)(sint16)r_u16(object + 218);
-                adjustment = (sint16)r_u16(table + 48);
-                target = r_u32(table + 52);
-                receiver = object + (uint32)adjustment;
-                apocalypse_object_virtual52(target, receiver, damage, 0x800A71CC, 0);
+                uint32 damage = (uint32)(sint32)(sint16)r_u16(address + 218);
+                object.Damage(damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
             }
         }
-        object = r_u32(object + 28);
+        instance = instance->next;
     }
 }
 
 uint32 ApplyRecordGroupAction(uint32 group, uint32 mode)
 {
-    uint32 list, count, index, identifier, table, descriptor, pointer, object, head, flags;
+    uint32 list, count, index, identifier, table, descriptor, pointer, object, flags;
+    ModelInstance *head;
     sint32 type;
     FUNCTION_MARKER(0x80064C1C, "SLUS_003.73");
     list = GetRecordPayload(group);
@@ -160,9 +137,9 @@ uint32 ApplyRecordGroupAction(uint32 group, uint32 mode)
         list += 2;
         if (type == 1)
         {
-            head = r_u32(0x800FF4E8);
+            head = visual_lists.actors;
             ApplyObjectListRecordAction(identifier, head, mode);
-            head = r_u32(0x800FF5DC);
+            head = visual_lists.solids;
             ApplyObjectListRecordAction(identifier, head, mode);
         }
         else if (type == 2 || type == 9)
@@ -171,15 +148,15 @@ uint32 ApplyRecordGroupAction(uint32 group, uint32 mode)
             pointer += ((uint32)(sint32)(sint16)r_u16(pointer) << 1) + 2;
             if (pointer & 2)
                 pointer += 2;
-            object = FindModelObject(r_u32(pointer));
-            if (object)
+            ModelInstance *scene_object = FindModelObject(r_u32(pointer));
+            if (scene_object)
             {
                 if (mode == 1)
-                    sub_8001E740(object, 0, 65535);
+                    DamageLevelObject(scene_object, 0, 65535);
                 else
                 {
-                    flags = r_u16(object);
-                    w_u16(object, flags | 1);
+                    flags = scene_object->flags;
+                    scene_object->flags = flags | 1;
                 }
             }
         }
@@ -197,13 +174,5 @@ uint32 ApplyRecordGroupAction(uint32 group, uint32 mode)
     return 0;
 }
 
-extern "C" void sub_80064A68(uint32 identifier, uint32 object, uint32 mode)
-{
-    FUNCTION_MARKER(0x80064A68, "SLUS_003.73");
-    ApplyObjectListRecordAction(identifier, object, mode);
-}
-extern "C" uint32 sub_80064C1C(uint32 group, uint32 mode)
-{
-    FUNCTION_MARKER(0x80064C1C, "SLUS_003.73");
-    return ApplyRecordGroupAction(group, mode);
-}
+
+

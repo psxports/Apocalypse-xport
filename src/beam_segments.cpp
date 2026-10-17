@@ -79,13 +79,7 @@ uint32 BeamSegments::SetSize(uint32 size)
     return result;
 }
 
-extern "C" uint32 sub_800260FC(uint32 object, uint32 count, uint32 mode)
-{
-    FUNCTION_MARKER(0x800260FC, "SLUS_003.73");
-    void *storage = AllocateNativeObjectStorage(object, sizeof(BeamSegments));
-    new (storage) BeamSegments(count, mode);
-    return object;
-}
+
 
 extern "C" uint32 sub_8002616C(uint32 object, uint32 reason)
 {
@@ -93,17 +87,9 @@ extern "C" uint32 sub_8002616C(uint32 object, uint32 reason)
     return BeamSegments::Attach(object).BeamSegments::Destroy(reason);
 }
 
-extern "C" uint32 sub_800261CC(uint32 object, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x800261CC, "SLUS_003.73");
-    return BeamSegments::Attach(object).SetColors(red, green, blue);
-}
 
-extern "C" uint32 sub_8002622C(uint32 object, uint32 size)
-{
-    FUNCTION_MARKER(0x8002622C, "SLUS_003.73");
-    return BeamSegments::Attach(object).SetSize(size);
-}
+
+
 
 BeamSegments &BeamSegments::Attach(uint32 object)
 {
@@ -178,6 +164,7 @@ uint32 CalculateBeamNormal(uint32 vertices, uint32 guest_x, sint32 *native_x, ui
 
 uint32 BeamSegments::Render()
 {
+    const ModelProjectionConfig &proj_cfg = GetModelProjectionConfig();
     uint32 a1 = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80026488, "SLUS_003.73");
     uint32 v2;
@@ -243,9 +230,9 @@ uint32 BeamSegments::Render()
         do
         {
             v6 = (sint32)ProjectWorldPoint((const uint32 *)psx_addr((uint32)v3, 12), (uint32 *)psx_addr((uint32)v2, 4));
-            v7 = (v6 < (sint32)r_u32(0x800FFAE8));
+            v7 = (v6 < (sint32)proj_cfg.near_depth);
             w_u32(((uint32)((v5 - 4))), v6);
-            if ((v7 || ((sint32)r_u32(0x800FFAD8) < v6)))
+            if ((v7 || ((sint32)proj_cfg.max_distance < v6)))
             {
                 w_u32(((uint32)((v5 + 8))), 1);
             }
@@ -443,8 +430,4 @@ extern "C" uint32 apocalypse_segment_normal(uint32 vertices, sint32 *x, sint32 *
     return CalculateBeamNormal(vertices, 0, x, 0, y, minimum_length);
 }
 
-extern "C" uint32 sub_80026370(uint32 vertices, uint32 x, uint32 y, uint32 minimum_length)
-{
-    FUNCTION_MARKER(0x80026370, "SLUS_003.73");
-    return CalculateBeamNormal(vertices, x, 0, y, 0, minimum_length);
-}
+

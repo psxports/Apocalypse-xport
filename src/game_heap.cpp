@@ -18,11 +18,7 @@ void StopWithHeapErrorColor(uint32 red, uint32 green, uint32 blue)
     }
 }
 
-extern "C" void sub_8006B484(uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x8006B484, "SLUS_003.73");
-    StopWithHeapErrorColor(red, green, blue);
-}
+
 
 uint32 CoalesceHeapBlock(uint32 block, uint32 heap)
 {
@@ -343,6 +339,7 @@ uint32 ReleaseHeapBlock(uint32 allocation)
 {
     uint32 block, header, kind, temporary, result, counter_address, available, size, limit;
     FUNCTION_MARKER(0x8006BC20, "SLUS_003.73");
+    ReleaseNativeObjectStorage(allocation);
     block = allocation - 8;
     header = r_u32(block + 4);
     kind = (uint32)((sint32)(header << 28) >> 28);
@@ -403,16 +400,8 @@ extern "C" uint32 sub_8006B5FC(void)
     FUNCTION_MARKER(0x8006B5FC, "SLUS_003.73");
     return InitializeGameHeaps();
 }
-extern "C" void sub_8006B70C(uint32 begin, uint32 end)
-{
-    FUNCTION_MARKER(0x8006B70C, "SLUS_003.73");
-    SetTemporaryHeapBounds(begin, end);
-}
-extern "C" uint32 sub_8006B71C(uint32 bytes)
-{
-    FUNCTION_MARKER(0x8006B71C, "SLUS_003.73");
-    return FindTemporaryHeapSpace((uint32 *)psx_addr(bytes, 4));
-}
+
+
 extern "C" uint32 apocalypse_heap_available(uint32 *bytes) { return FindTemporaryHeapSpace(bytes); }
 
 extern "C" uint32 sub_8006B864(uint32 requested, sint32 heap, sint32 fatal)
@@ -525,16 +514,8 @@ uint32 ResolveHeapReference(uint32 *reference)
     return 0;
 }
 
-extern "C" uint32 sub_8006BD14(uint32 allocation, uint32 size)
-{
-    FUNCTION_MARKER(0x8006BD14, "SLUS_003.73");
-    return ResizeHeapBlock(allocation, size);
-}
-extern "C" uint32 sub_8006BEBC(uint32 reference)
-{
-    FUNCTION_MARKER(0x8006BEBC, "SLUS_003.73");
-    return ResolveHeapReference((uint32 *)psx_addr(reference, 8));
-}
+
+
 
 uint32 AllocateZeroedHeapBlock(uint32 requested)
 {

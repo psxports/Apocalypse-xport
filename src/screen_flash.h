@@ -6,6 +6,7 @@ extern "C"
 #include "psx.h"
 }
 
+void InitializeScreenFlash();
 void ResetScreenFlash();
 uint32 IsScreenFadeComplete();
 uint32 SetScreenFlash(uint32 red, uint32 green, uint32 blue, uint32 duration, uint32 priority, uint32 mode);

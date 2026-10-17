@@ -1,3 +1,12 @@
+#include "visual_object.h"
+#include "enemy_list.h"
+#include "record_factory.h"
+#include "cheat_input.h"
+#include "vector_arithmetic.h"
+#include "angle_math.h"
+#include "object_damage.h"
+#include "model_animation.h"
+#include "game_random.h"
 #include "game_sdk_bindings.h"
 #include "object_force.h"
 #include "level_session.h"
@@ -29,14 +38,14 @@ War::War(const uint8 *record_data, uint32 index) : Enemy()
     }
     w_u32(object + 68, 0x800A1EB4);
     cursor = sub_80062B0C(object, data);
-    w_u16(object + 16, r_u16(cursor));
-    w_u16(object + 18, r_u16(cursor + 2));
+    this->model.angles[0] = r_u16(cursor);
+    this->model.angles[1] = r_u16(cursor + 2);
     roll = r_u16(cursor + 4);
     w_u32(object + 400, cursor + 6);
     w_u8(object + 380, 1);
-    w_u16(object + 214, index);
+    this->record_idx = index;
     w_u16(object + 212, 0);
-    w_u16(object + 20, roll);
+    this->model.angles[2] = roll;
     Configure();
     cursor = r_u32(object + 400);
     sub_8004BE90(object, cursor);
@@ -48,10 +57,10 @@ uint32 War::Configure()
     uint32 flags;
     FUNCTION_MARKER(0x8003D4B8, "SLUS_003.73");
     sub_800626C8(object, 0x800FF48C);
-    w_u8(object + 129, 31);
-    w_u8(object + 130, 3);
-    w_u8(object + 131, 31);
-    sub_80062A38(object, 0x800FF4E8);
+    motion.drag[0] = 31;
+    motion.drag[1] = 3;
+    motion.drag[2] = 31;
+    AddToList(visual_lists.actors);
     StartAnimation(0, 1);
     sub_8004BD04(object, 3, 8);
     sub_8004BDCC(object, 0, 0, 0);
@@ -65,12 +74,12 @@ uint32 War::Configure()
     sub_8004BDCC(object, 2, 5, 600);
     sub_8004BDCC(object, 2, 6, 256);
     sub_8004BDCC(object, 2, 7, 128);
-    flags = r_u16(object + 78);
+    flags = this->lifecycle_flags;
     w_u16(object + 468, 450);
     w_u16(object + 436, 12);
     w_u16(object + 438, 32);
     w_u32(object + 208, 128);
-    w_u16(object + 58, 221);
+    this->kind = 221;
     w_u16(object + 456, 216);
     w_u16(object + 218, 800);
     w_u32(object + 536, 0);
@@ -79,7 +88,7 @@ uint32 War::Configure()
     w_u8(object + 381, 0);
     w_u8(object + 564, 1);
     w_u32(0x800FF4EC, object);
-    w_u16(object + 78, flags & 65533);
+    this->lifecycle_flags = flags & 65533;
     return 1;
 }
 
@@ -102,7 +111,7 @@ uint32 War::Destroy(uint32 reason)
     uint32 child, index;
     FUNCTION_MARKER(0x8003D66C, "SLUS_003.73");
     w_u32(object + 68, 0x800A1EB4);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     child = r_u32(object + 536);
     ReleaseWarOwnedWeapon(child);
     child = r_u32(object + 540);
@@ -126,11 +135,25 @@ static uint32 DivideWarMovement(uint32 numerator, uint32 denominator)
     return (uint32)((sint32)numerator / (sint32)denominator);
 }
 
-static void InterpolateWarAngles(uint32 current, const uint16 *desired, uint32 delta, uint32 acceleration, uint32 scale)
+static void InterpolateWarAngles(uint32 current, const uint16 *desired, uint16 *delta, uint16 *acceleration, uint32 scale)
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     uint32 packed = r_u32(current);
     uint32 tail = r_u16(current + 4);
-    sub_80066CF0(packed, tail, delta, acceleration, desired[0] | ((uint32)desired[1] << 16), desired[2], scale);
+    motion_cur_word = packed;
+    motion_cur_tail = tail;
+    motion_target_word = desired[0] | ((uint32)desired[1] << 16);
+    motion_target_tail = desired[2];
+    motion_cur.vx = (sint16)motion_cur_word;
+    motion_cur.vy = (sint16)(motion_cur_word >> 16);
+    motion_cur.vz = (sint16)motion_cur_tail;
+    motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+    motion_target.vx = (sint16)motion_target_word;
+    motion_target.vy = (sint16)(motion_target_word >> 16);
+    motion_target.vz = (sint16)motion_target_tail;
+    motion_target.pad = (sint16)(motion_target_tail >> 16);
+    UpdateAngleAcceleration(motion_cur, delta, acceleration, motion_target, scale);
 }
 
 static uint32 FireWarWeapon(uint32 weapon, const uint32 *position, const uint16 *angles)
@@ -154,8 +177,10 @@ static uint32 ReleaseWarUpdateWeapon(uint32 weapon)
 
 uint32 War::Update()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 x, y, z, flags, value, second, third, target, table, receiver, scale, speed, distance, timer, weapon, result, packed, tail;
+    uint32 x, y, z, flags, value, second, third, target, receiver, scale, speed, distance, timer, weapon, result, packed, tail;
     uint32 position[4], muzzle[4];
     uint16 desired[4], bone_angles[4], weapon_angles[4];
     sint32 signed_value, absolute, high;
@@ -163,29 +188,29 @@ uint32 War::Update()
     x = r_u32(0x800A71CC);
     y = r_u32(0x800A71D0);
     z = r_u32(0x800A71D4);
-    w_u32(object + 116, x);
-    w_u32(object + 120, y);
-    w_u32(object + 124, z);
+    motion.acceleration[0] = x;
+    motion.acceleration[1] = y;
+    motion.acceleration[2] = z;
     if (!r_u8(object + 381))
     {
-        sub_8007CA50(object, 0x800A6868);
-        sub_8007CAC8(object, 0x800A68E4);
-        value = r_u16(object);
+        SetModelBoneTable(this->model.bank, WarAttachments);
+        InitializeModelAnimation(WarHierarchy);
+        value = this->model.flags;
         w_u8(object + 381, 1);
-        w_u16(object, value | 4);
+        this->model.flags = value | 4;
     }
-    flags = r_u16(object + 76);
+    flags = this->activation_flags;
     w_u16(object + 388, flags);
     if (flags & 1)
     {
         value = r_u8(object + 384);
-        w_u16(object + 76, flags & 0xFFFE);
+        this->activation_flags = flags & 0xFFFE;
         w_u8(object + 384, value + 1);
     }
-    flags = r_u16(object + 76);
+    flags = this->activation_flags;
     if (flags & 4)
     {
-        w_u16(object + 76, flags & 0xFFFB);
+        this->activation_flags = flags & 0xFFFB;
         distance = sub_80066918(object + 4, 0x800A724C);
         if (r_u16(object + 472) == 5 && (sint32)distance < 4096)
         {
@@ -196,10 +221,8 @@ uint32 War::Update()
             third = (uint32)((sint32)value >> 12);
             if (!second)
                 third += (uint32)((sint32)value >> 13);
-            table = r_u32(object + 68);
-            receiver = object + (uint32)(sint32)(sint16)r_u16(table + 48);
-            target = r_u32(table + 52);
-            apocalypse_object_virtual52(target, receiver, third, 0x800A71CC, 0);
+            receiver = object;
+            ApplyObjectDamage(receiver, third, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
             if ((sint16)r_u16(object + 218) > 0)
             {
                 w_u16(object + 472, 64);
@@ -207,9 +230,9 @@ uint32 War::Update()
             }
         }
     }
-    if (r_u32(object + 220) < 256 && !(r_u16(object) & 1))
+    if (r_u32(object + 220) < 256 && !(this->model.flags & 1))
     {
-        value = r_u32(0x800FF5A0);
+        value = visual_lists.players;
         if (value)
             ApplyObjectContactImpulse(value, object);
     }
@@ -227,10 +250,10 @@ uint32 War::Update()
         UpdateState();
     }
     if (r_u8(object + 382))
-        sub_8006C0B8(object + 116, 0x800A6844);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844, 12));
     sub_8004B9A4(object);
-    x = r_u32(object + 4);
-    z = r_u32(object + 12);
+    x = this->model.pos[0];
+    z = this->model.pos[2];
     flags = r_u32(object + 396);
     w_u32(object + 184, x);
     w_u32(object + 192, z);
@@ -245,57 +268,57 @@ uint32 War::Update()
         w_u32(object + 528, z);
         xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 520);
         desired[0] = 0;
-        InterpolateWarAngles(object + 16, desired, object + 132, object + 138, 32);
+        InterpolateWarAngles(object + 16, (const uint16 *)desired, motion.angular_velocity, motion.angular_acceleration, 32);
         goto MovementAnimation;
     }
     if (flags & 32)
     {
         xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 520);
         desired[0] = 0;
-        InterpolateWarAngles(object + 16, desired, object + 132, object + 138, 32);
+        InterpolateWarAngles(object + 16, (const uint16 *)desired, motion.angular_velocity, motion.angular_acceleration, 32);
         goto MovementAnimation;
     }
     if (!(flags & 1))
         goto Footsteps;
     if (flags & 4)
     {
-        if ((sint8)r_u8(object + 24) < 3)
+        if ((sint8)this->model.frame < 3)
         {
             w_u32(object + 304, 65536);
             w_u8(object + 382, 0);
-            w_u32(object + 112, 0);
-            w_u32(object + 108, 0);
-            w_u32(object + 104, 0);
-            w_u32(object + 124, 0);
-            w_u32(object + 120, 0);
-            w_u32(object + 116, 0);
+            motion.velocity[2] = 0;
+            motion.velocity[1] = 0;
+            motion.velocity[0] = 0;
+            motion.acceleration[2] = 0;
+            motion.acceleration[1] = 0;
+            motion.acceleration[0] = 0;
         }
         else if (r_u16(object + 532))
             w_u8(object + 382, 1);
-        if ((sint8)r_u8(object + 24) >= 3 && !(r_u32(object + 396) & 8))
+        if ((sint8)this->model.frame >= 3 && !(r_u32(object + 396) & 8))
         {
             x = r_u32(object + 484);
-            value = r_u32(object + 4);
+            value = this->model.pos[0];
             x -= value;
             timer = r_u16(object + 532);
             x = DivideWarMovement(x, timer);
             z = r_u32(object + 492);
-            value = r_u32(object + 12);
+            value = this->model.pos[2];
             z -= value;
             timer = r_u16(object + 532);
             z = DivideWarMovement(z, timer);
             y = r_u32(object + 488);
-            value = r_u32(object + 8);
+            value = this->model.pos[1];
             y -= value;
             timer = r_u16(object + 532);
             y = DivideWarMovement(y, timer);
             flags = r_u32(object + 396);
             w_u32(object + 396, flags | 8);
-            w_u32(object + 104, x);
-            w_u32(object + 112, z);
-            w_u32(object + 108, y - (timer << 14));
+            motion.velocity[0] = x;
+            motion.velocity[2] = z;
+            motion.velocity[1] = y - (timer << 14);
         }
-        else if ((sint8)r_u8(object + 24) >= 22 && r_u16(object + 532))
+        else if ((sint8)this->model.frame >= 22 && r_u16(object + 532))
             w_u32(object + 304, 0);
         timer = r_u16(object + 532);
         if (timer)
@@ -306,15 +329,15 @@ uint32 War::Update()
                 x = r_u32(object + 484);
                 y = r_u32(object + 488);
                 z = r_u32(object + 492);
-                w_u32(object + 4, x);
-                w_u32(object + 8, y);
-                w_u32(object + 12, z);
-                w_u32(object + 112, 0);
-                w_u32(object + 108, 0);
-                w_u32(object + 104, 0);
-                w_u32(object + 124, 0);
-                w_u32(object + 120, 0);
-                w_u32(object + 116, 0);
+                this->model.pos[0] = x;
+                this->model.pos[1] = y;
+                this->model.pos[2] = z;
+                motion.velocity[2] = 0;
+                motion.velocity[1] = 0;
+                motion.velocity[0] = 0;
+                motion.acceleration[2] = 0;
+                motion.acceleration[1] = 0;
+                motion.acceleration[0] = 0;
                 w_u32(object + 304, 65536);
                 w_u8(object + 382, 0);
             }
@@ -326,12 +349,24 @@ uint32 War::Update()
     xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 484);
     value = desired[0];
     desired[0] = 0;
-    packed = r_u32(object + 16);
-    tail = r_u16(object + 20);
+    packed = ((uint32)this->model.angles[0] | ((uint32)this->model.angles[1] << 16));
+    tail = this->model.angles[2];
     scale = r_u16(object + 438);
-    sub_80066CF0(packed, tail, object + 132, object + 138, desired[0] | ((uint32)desired[1] << 16), desired[2], scale);
+    motion_cur_word = packed;
+    motion_cur_tail = tail;
+    motion_target_word = desired[0] | ((uint32)desired[1] << 16);
+    motion_target_tail = desired[2];
+    motion_cur.vx = (sint16)motion_cur_word;
+    motion_cur.vy = (sint16)(motion_cur_word >> 16);
+    motion_cur.vz = (sint16)motion_cur_tail;
+    motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+    motion_target.vx = (sint16)motion_target_word;
+    motion_target.vy = (sint16)(motion_target_word >> 16);
+    motion_target.vz = (sint16)motion_target_tail;
+    motion_target.pad = (sint16)(motion_target_tail >> 16);
+    UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, scale);
     desired[0] = (uint16)value;
-    signed_value = (sint16)r_u16(object + 134);
+    signed_value = (sint16)motion.angular_velocity[1];
     absolute = signed_value < 0 ? -signed_value : signed_value;
     if (absolute >= 65)
         absolute = 64;
@@ -340,10 +375,10 @@ uint32 War::Update()
     if ((sint32)value < 0)
         value += 63;
     speed = (uint32)((sint32)value >> 6);
-    value = r_u8(object + 26);
+    value = this->model.animation;
     if (value < 2)
     {
-        second = (uint32)(sint32)(sint8)r_u8(object + 24) << 12;
+        second = (uint32)(sint32)(sint8)this->model.frame << 12;
         if (!value)
         {
             high = (sint32)(((sint64)(sint32)second * (sint32)0x82082083) >> 32);
@@ -355,35 +390,35 @@ uint32 War::Update()
             third = (uint32)(high >> 3);
         }
         third -= (uint32)((sint32)second >> 31);
-        signed_value = (sint16)r_u16(0x800F863C + (third & 4095) * 4);
+        signed_value = rsin(third & 4095);
         absolute = signed_value < 0 ? -signed_value : signed_value;
         speed = (scale >> 2) + (uint32)((sint32)(speed * (uint32)absolute) >> 12);
     }
-    xport_draft_host_sub_800667CC_p3(object + 104, speed, desired);
-    position[0] = r_u32(object + 4);
+    BuildDirectionVector(motion.velocity, speed, (const uint16 *)desired);
+    position[0] = this->model.pos[0];
     position[1] = r_u32(object + 488);
-    position[2] = r_u32(object + 12);
+    position[2] = this->model.pos[2];
     distance = xport_draft_host_sub_8006689C_p12(position, psx_addr(object + 484, 12));
     scale = r_u16(object + 436);
     if (distance < scale * 2)
         w_u32(object + 396, r_u32(object + 396) & ~1);
 MovementAnimation:
-    if ((r_u32(object + 396) & 1) && r_u8(object + 26) >= 2)
+    if ((r_u32(object + 396) & 1) && this->model.animation >= 2)
         StartAnimation(0, 1);
 Footsteps:
-    if (r_u8(object + 26) == 1)
+    if (this->model.animation == 1)
     {
         value = sub_8006325C(object, 1, 7);
         if (sub_80062D24(object, value, 1))
         {
             sub_80069DF0(128, 8192, 0);
-            sub_800774EC(r_u32(0x800FF904), object + 4, 2);
+            sub_800774EC(visual_lists.cameras, object + 4, 2);
         }
         value = sub_8006325C(object, 1, 25);
         if (sub_80062D24(object, value, 2))
         {
             sub_80069DF0(129, 8192, 0);
-            sub_800774EC(r_u32(0x800FF904), object + 4, 2);
+            sub_800774EC(visual_lists.cameras, object + 4, 2);
         }
     }
     bone_angles[0] = 0;
@@ -392,36 +427,34 @@ Footsteps:
     flags = r_u32(object + 396);
     if (flags & 16)
     {
-        if (r_u32(0x800FF5A0))
+        if (visual_lists.players)
         {
             xport_draft_host_sub_8007CC10_p1(position, object, 2);
-            target = r_u32(0x800FF5A0) + 184;
+            target = visual_lists.players + 184;
             xport_draft_host_sub_80066B8C_p12(bone_angles, position, target);
-            bone_angles[1] = (uint16)((bone_angles[1] - r_u16(object + 18)) & 4095);
+            bone_angles[1] = (uint16)((bone_angles[1] - this->model.angles[1]) & 4095);
         }
     }
     else if (flags & 32)
     {
         xport_draft_host_sub_8007CC10_p1(position, object, 2);
         xport_draft_host_sub_80066B8C_p12(bone_angles, position, object + 520);
-        bone_angles[1] = (uint16)((bone_angles[1] - r_u16(object + 18)) & 4095);
+        bone_angles[1] = (uint16)((bone_angles[1] - this->model.angles[1]) & 4095);
     }
-    InterpolateWarAngles(object + 496, bone_angles, object + 502, object + 508, 8);
+    InterpolateWarAngles(object + 496, bone_angles, (uint16 *)psx_addr(object + 502, 4), (uint16 *)psx_addr(object + 508, 4), 8);
     sub_8006C730(object + 496, object + 502);
     sub_8006C624(object + 496);
     sub_8006C730(object + 502, object + 508);
-    sub_8006C8E8(object + 502, object + 144);
+    DampAngles((uint16 *)psx_addr(object + 502, 6), motion.angular_drag);
     sub_8006C64C(object + 502);
-    target = r_u32(object + 360);
     value = r_u16(object + 496);
-    w_u16(target + 36, value);
-    target = r_u32(object + 360);
+    GetModelJointAngles(3).rotation[0] = (uint16)value;
     value = r_u16(object + 498);
-    w_u16(target + 38, value);
-    sub_8007CECC(object);
+    GetModelJointAngles(3).rotation[1] = (uint16)value;
+    UpdateModelAnimationData(object);
     sub_8007FDF0(object);
-    sub_8007D148(object);
-    if (r_u8(object + 26) == 4 && r_u16(object + 472) == 16)
+    BuildModelPose(*this);
+    if (this->model.animation == 4 && r_u16(object + 472) == 16)
     {
         xport_draft_host_sub_8007CC10_p1(position, object, 0);
         xport_draft_host_sub_8007CC10_p1(muzzle, object, 1);
@@ -432,7 +465,7 @@ Footsteps:
             weapon = sub_8002FED8(104);
             if (weapon)
             {
-                value = (uint32)(sint32)(sint16)r_u16(object + 36);
+                value = (uint32)(sint32)(sint16)this->model.scale[0];
                 value *= 75;
                 weapon = sub_80027720(weapon, 0x800FF5A0, (uint32)((sint32)value >> 9), 1, 128, 127);
             }
@@ -483,7 +516,7 @@ Footsteps:
                 return result;
         }
         xport_draft_host_sub_8007CC10_p1(position, object, 3);
-        value = r_u16(object + 18);
+        value = this->model.angles[1];
         second = r_u16(object + 498);
         bone_angles[1] = (uint16)((value + second) & 4095);
         return FireWarWeapon(r_u32(object + 536), position, bone_angles);
@@ -542,18 +575,18 @@ uint32 War::Resize(uint32 increment)
     uint32 object = NativeObjectGuestAddress(this);
     uint32 flags, scale, height, displacement, y;
     FUNCTION_MARKER(0x8003E418, "SLUS_003.73");
-    flags = r_u16(object);
-    scale = (uint32)(sint32)(sint16)r_u16(object + 36) + increment;
-    w_u16(object, flags | 512);
+    flags = this->model.flags;
+    scale = (uint32)(sint32)(sint16)this->model.scale[0] + increment;
+    this->model.flags = flags | 512;
     height = (uint32)((sint32)(scale * 216) >> 12);
-    w_u16(object + 40, scale);
-    w_u16(object + 38, scale);
-    w_u16(object + 36, scale);
+    this->model.scale[2] = scale;
+    this->model.scale[1] = scale;
+    this->model.scale[0] = scale;
     displacement = (uint32)(sint32)(sint16)r_u16(object + 456);
     w_u16(object + 456, height);
     displacement = ((uint32)(sint32)(sint16)height - displacement) << 12;
-    y = r_u32(object + 8);
-    w_u32(object + 8, y - displacement);
+    y = this->model.pos[1];
+    this->model.pos[1] = y - displacement;
     return displacement;
 }
 
@@ -585,9 +618,9 @@ void War::RestoreState()
 void War::ClearVelocity()
 {
     uint32 object = NativeObjectGuestAddress(this);
-    w_u32(object + 112, 0);
-    w_u32(object + 108, 0);
-    w_u32(object + 104, 0);
+    motion.velocity[2] = 0;
+    motion.velocity[1] = 0;
+    motion.velocity[0] = 0;
 }
 
 void War::SelectPoint(uint32 table, uint32 minimum, uint32 attempts, uint32 point[3])
@@ -597,7 +630,7 @@ void War::SelectPoint(uint32 table, uint32 minimum, uint32 attempts, uint32 poin
     do
     {
         ++attempt;
-        index = sub_80066570(4);
+        index = RandomRange(4);
         index = r_u16(table + index * 2);
         xport_draft_host_sub_8006613C_p1(point, index);
         distance = xport_draft_host_sub_8006696C_p2(object + 4, point);
@@ -628,10 +661,10 @@ void War::ActivateGroup(uint32 maximum)
     for (index = 0; index < count; ++index)
     {
         cursor = r_u8(object + 566);
-        list = r_u32(0x800FF5DC);
+        list = visual_lists.solids;
         w_u8(object + 566, cursor + 1);
         entry = r_u16(0x800FFDF0 + cursor * 2);
-        sub_80064E10(list, entry);
+        ::ActivateObjectsByIndex(list, entry);
     }
 }
 
@@ -699,18 +732,18 @@ void War::UpdateState()
             phase = r_u16(object + 474);
             if (phase)
                 return;
-            flags = r_u16(object);
-            w_u16(object, flags | 1);
+            flags = this->model.flags;
+            this->model.flags = flags | 1;
             value = sub_80067A18(object + 4, 0, 4096);
             if (value == (uint32)-1)
                 return;
-            second = r_u32(object + 8);
+            second = this->model.pos[1];
             height = (sint16)r_u16(object + 456);
             if (((sint32)(value - second) >> 12) < height * 2)
             {
                 second = value - ((uint32)height << 12);
                 w_u32(object + 188, second);
-                w_u32(object + 8, second);
+                this->model.pos[1] = second;
                 w_u16(object + 202, (uint32)((sint32)(value - second) >> 12));
                 w_u16(object + 472, 1);
                 w_u8(object + 382, 0);
@@ -739,22 +772,22 @@ void War::UpdateState()
             if (!phase)
             {
                 w_u16(object + 212, 128);
-                flags = r_u16(object);
+                flags = this->model.flags;
                 w_u16(object + 436, 20);
-                camera = r_u32(0x800FF904);
-                w_u16(object, flags & 0xFFFE);
+                camera = visual_lists.cameras;
+                this->model.flags = flags & 0xFFFE;
                 w_u32(camera + 564, 18);
                 w_u16(object + 218, 1800);
-                sub_8006D390(object, 64, 32, 2048);
+                ::TrackObjectHealth(object, 64, 32, 2048);
                 AdvancePhase();
             }
             else if (phase == 1)
                 SelectPoint(0x800FF498, 201, 17, point);
             else if (phase == 2 && !(r_u32(object + 396) & 1))
             {
-                player = r_u32(0x800FF4E8);
+                player = visual_lists.actors;
                 value = r_u16(0x800FF4AC);
-                sub_80064E10(player, value);
+                ::ActivateObjectsByIndex(player, value);
                 state = r_u16(object + 472);
                 w_u16(object + 436, 14);
                 w_u16(object + 474, 0);
@@ -789,7 +822,7 @@ void War::UpdateState()
                     phase = r_u16(object + 474);
                     w_u16(object + 474, phase - 1);
                 }
-                else if (r_u32(object + 220) < 512 && !sub_80066570(2))
+                else if (r_u32(object + 220) < 512 && !RandomRange(2))
                 {
                     state = r_u16(object + 472);
                     w_u16(object + 442, 1);
@@ -821,8 +854,8 @@ void War::UpdateState()
                     }
                     return;
                 case 2:
-                    camera = r_u32(0x800FF904);
-                    player = r_u32(0x800FF5A0);
+                    camera = visual_lists.cameras;
+                    player = visual_lists.players;
                     w_u32(camera + 564, 3);
                     w_u32(camera + 304, 1);
                     w_u32(camera + 296, player);
@@ -850,14 +883,14 @@ void War::UpdateState()
                     AdvancePhase();
                     return;
                 case 6:
-                    if ((sint8)r_u8(object + 24) >= 25)
+                    if ((sint8)this->model.frame >= 25)
                     {
                         sub_80069EF4(131, object + 4, 0);
                         for (index = 0; index < 2; ++index)
                         {
                             value = r_u16(0x800FF4A4 + index * 2);
-                            player = r_u32(0x800FF5DC);
-                            sub_80064E10(player, value);
+                            player = visual_lists.solids;
+                            ::ActivateObjectsByIndex(player, value);
                         }
                         AdvancePhase();
                     }
@@ -865,7 +898,7 @@ void War::UpdateState()
                 case 7:
                     if (r_u8(object + 303))
                     {
-                        value = (uint32)(sint32)(sint8)r_u8(object + 24);
+                        value = (uint32)(sint32)(sint8)this->model.frame;
                         SetAnimationRange(7, value, 0);
                         AdvancePhase();
                     }
@@ -873,10 +906,10 @@ void War::UpdateState()
                 case 8:
                     if (r_u8(object + 303))
                     {
-                        if (r_u32(0x800FF344))
+                        if (GetCheatOptions().war_record_spawn)
                         {
                             value = r_u16(0x800FF4AA);
-                            sub_80064874(value);
+                            ::SpawnRecord(value);
                             w_u32(object + 176, 0x06403030);
                             w_u16(object + 180, 8192);
                             w_u16(object + 182, 10);
@@ -906,16 +939,16 @@ void War::UpdateState()
                 default: return;
             }
         case 5:
-            player = r_u32(0x800FF5A0);
-            value = r_u32(object + 12);
+            player = visual_lists.players;
+            value = this->model.pos[2];
             second = r_u32(player + 12);
             if ((sint32)value < (sint32)second)
             {
-                w_u32(object + 112, 0);
-                w_u32(object + 108, 0);
+                motion.velocity[2] = 0;
+                motion.velocity[1] = 0;
                 w_u16(object + 472, 48);
                 flags = r_u32(object + 396);
-                w_u32(object + 104, 0);
+                motion.velocity[0] = 0;
                 w_u16(object + 474, 0);
                 w_u32(object + 396, flags & ~1);
                 return;
@@ -926,11 +959,11 @@ void War::UpdateState()
                 if (!(flags & 64))
                 {
                     w_u32(object + 396, flags | 64);
-                    w_u32(object + 112, 0);
-                    w_u32(object + 108, 0);
+                    motion.velocity[2] = 0;
+                    motion.velocity[1] = 0;
                     flags = r_u32(object + 396);
                     state = r_u16(object + 472);
-                    w_u32(object + 104, 0);
+                    motion.velocity[0] = 0;
                     w_u16(object + 474, 0);
                     w_u32(object + 396, flags & ~1);
                     w_u16(object + 472, state + 1);
@@ -939,7 +972,7 @@ void War::UpdateState()
             }
             index = r_u8(object + 567);
             value = r_u32(0x800A69D8 + index * 4);
-            second = r_u32(object + 12);
+            second = this->model.pos[2];
             if ((sint32)second < (sint32)(value << 12))
             {
                 cursor = r_u8(object + 566);
@@ -949,13 +982,13 @@ void War::UpdateState()
                 for (index = 0; index < count; ++index)
                 {
                     cursor = r_u8(object + 566);
-                    player = r_u32(0x800FF5DC);
+                    player = visual_lists.solids;
                     w_u8(object + 566, cursor + 1);
                     value = r_u16(0x800FFDF0 + cursor * 2);
-                    sub_80064E10(player, value);
+                    ::ActivateObjectsByIndex(player, value);
                 }
             }
-            if (r_u8(object + 26) != 1)
+            if (this->model.animation != 1)
                 StartAnimation(1, 1);
             phase = r_u16(object + 474);
             if (phase == 1)
@@ -966,8 +999,8 @@ void War::UpdateState()
             }
             else if (!phase)
             {
-                player = r_u32(0x800FF5A0);
-                value = r_u32(object + 12);
+                player = visual_lists.players;
+                value = this->model.pos[2];
                 second = r_u32(player + 12);
                 distance = (sint32)(value - second);
                 if (distance <= 10649599)
@@ -1005,18 +1038,18 @@ void War::UpdateState()
             phase = r_u16(object + 474);
             if (!phase)
             {
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 w_u32(player + 452, 240);
                 SetAnimationRange(7, 0, (uint32)-1);
                 AdvancePhase();
             }
             else if (phase == 1)
             {
-                if ((sint8)r_u8(object + 24) >= 24)
+                if ((sint8)this->model.frame >= 24)
                 {
-                    player = r_u32(0x800FF4E8);
+                    player = visual_lists.actors;
                     value = r_u16(0x800FF4A8);
-                    sub_80064E10(player, value);
+                    ::ActivateObjectsByIndex(player, value);
                     phase = r_u16(object + 474);
                     w_u16(object + 460, 0);
                     w_u16(object + 474, phase + 1);
@@ -1030,15 +1063,15 @@ void War::UpdateState()
                     w_u16(object + 460, (uint32)timer + 1);
                 else
                 {
-                    value = (uint32)(sint32)(sint8)r_u8(object + 24);
+                    value = (uint32)(sint32)(sint8)this->model.frame;
                     SetAnimationRange(7, value, 0);
                     AdvancePhase();
                 }
             }
             else if (phase == 3 && r_u8(object + 303))
             {
-                flags = r_u16(object);
-                w_u16(object, flags | 8);
+                flags = this->model.flags;
+                this->model.flags = flags | 8;
                 SetDestination((const uint32 *)psx_addr(object + 484, 12));
                 state = r_u16(object + 472);
                 w_u16(object + 474, 0);
@@ -1051,16 +1084,16 @@ void War::UpdateState()
             {
                 if (r_u32(object + 396) & 64)
                     ActivateGroup(4);
-                sub_8005F62C(r_u32(0x800FF5A0), 900);
+                sub_8005F62C(visual_lists.players, 900);
                 sub_8002FC64(18, 4, object + 4, 0);
                 w_u32(object + 304, 32768);
-                sub_8006D3B4();
+                ::ClearTrackedObjectHealth();
                 flags = r_u32(object + 396);
                 w_u32(object + 396, flags & ~1);
                 ClearVelocity();
                 ClearFacing();
                 SetAnimationRange(8, 0, (uint32)-1);
-                camera = r_u32(0x800FF904);
+                camera = visual_lists.cameras;
                 w_u32(camera + 340, 1);
                 w_u32(camera + 336, object);
                 w_u32(camera + 304, 1);
@@ -1072,25 +1105,25 @@ void War::UpdateState()
             }
             else if (phase == 1)
             {
-                if (!sub_80066570(3))
+                if (!RandomRange(3))
                 {
-                    point[0] = r_u32(object + 4);
-                    point[1] = r_u32(object + 8);
-                    point[2] = r_u32(object + 12);
+                    point[0] = this->model.pos[0];
+                    point[1] = this->model.pos[1];
+                    point[2] = this->model.pos[2];
                     point[1] += 1638400;
                     point[2] -= 1048576;
-                    value = sub_80066570(512);
+                    value = RandomRange(512);
                     point[0] += (value - 256) << 12;
-                    value = sub_80066570(512);
+                    value = RandomRange(512);
                     point[1] += (value - 256) << 12;
-                    value = sub_80066570(512);
+                    value = RandomRange(512);
                     point[2] += (value - 256) << 12;
                     SpawnFireCycle(point, 60, 1, 2);
-                    value = sub_80066570(2);
+                    value = RandomRange(2);
                     sub_80069EF4(value + 1, object + 4, 2);
                 }
-                if ((sint8)r_u8(object + 24) >= 12)
-                    w_u8(object + 24, 13);
+                if ((sint8)this->model.frame >= 12)
+                    this->model.frame = 13;
                 timer = (sint16)r_u16(object + 460);
                 w_u16(object + 460, (uint32)timer + 1);
                 if (timer == 42) CreateDeathWeapon(544);
@@ -1100,7 +1133,7 @@ void War::UpdateState()
                 else if (timer == 89) CreateDeathWeapon(560);
                 else if (timer == 90)
                 {
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     SetWarCamera(camera, 2252, (uint32)-552, 60, 522, 268, 40, 0, 0);
                 }
                 else if (timer >= 141)
@@ -1110,7 +1143,7 @@ void War::UpdateState()
             else if (phase == 2)
             {
                 FireDeathWeapons();
-                if ((sint8)r_u8(object + 24) >= 28)
+                if ((sint8)this->model.frame >= 28)
                 {
                     for (index = 0; index < 5; ++index)
                     {
@@ -1125,9 +1158,9 @@ void War::UpdateState()
                         }
                     }
                 }
-                if ((sint8)r_u8(object + 24) >= 33)
+                if ((sint8)this->model.frame >= 33)
                 {
-                    sub_800774EC(r_u32(0x800FF904), object + 4, 0);
+                    sub_800774EC(visual_lists.cameras, object + 4, 0);
                     sub_80069EF4(130, object + 4, 0);
                     phase = r_u16(object + 474);
                     w_u16(object + 460, 0);
@@ -1149,7 +1182,7 @@ void War::UpdateState()
             if (!phase)
             {
                 flags = r_u32(object + 396);
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 w_u32(object + 396, flags & ~1);
                 ClearVelocity();
                 TrackTarget(player);
@@ -1180,7 +1213,7 @@ void War::UpdateState()
             if (!phase)
             {
                 flags = r_u32(object + 396);
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 w_u32(object + 396, flags & ~1);
                 ClearVelocity();
                 TrackTarget(player);
@@ -1196,7 +1229,7 @@ void War::UpdateState()
             }
             else if (phase == 2)
             {
-                if (r_u32(0x800FF5A0))
+                if (visual_lists.players)
                 {
                     timer = (sint16)r_u16(object + 460);
                     if (timer)
@@ -1218,12 +1251,12 @@ void War::UpdateState()
             phase = r_u16(object + 474);
             if (!phase)
             {
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 w_u32(player + 452, 900);
                 SetAnimationRange(7, 0, (uint32)-1);
                 if (r_u32(object + 396) & 64)
                     ActivateGroup(4);
-                camera = r_u32(0x800FF904);
+                camera = visual_lists.cameras;
                 w_u32(camera + 340, 1);
                 w_u32(camera + 336, object);
                 w_u32(camera + 304, 1);
@@ -1231,22 +1264,20 @@ void War::UpdateState()
                 SetWarCamera(camera, 832, (uint32)-568, 208, (uint32)-624, (uint32)-1104, 16, 1736, 1);
                 AdvancePhase();
             }
-            else if (phase == 1 && (sint8)r_u8(object + 24) >= 25)
+            else if (phase == 1 && (sint8)this->model.frame >= 25)
             {
                 sub_80069EF4(131, object + 4, 0);
                 xport_draft_host_sub_8007CC10_p1(point, object, 5);
                 target = sub_80032DC0(84);
                 if (target)
                     apocalypse_war_impact_native(target, point);
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 height = (sint16)r_u16(player + 218);
-                table = r_u32(player + 68);
                 w_u32(player + 452, 0);
                 w_u32(player + 448, 0);
-                receiver = player + (uint32)(sint32)(sint16)r_u16(table + 48);
-                target = r_u32(table + 52);
-                apocalypse_object_virtual52(target, receiver, (uint32)height << 2, 0x800A71CC, 0);
-                player = r_u32(0x800FF5A0);
+                receiver = player;
+                ApplyObjectDamage(receiver, (uint32)height << 2, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+                player = visual_lists.players;
                 w_u32(player + 452, 900);
                 AdvancePhase();
             }
@@ -1256,23 +1287,23 @@ void War::UpdateState()
             if (!phase)
             {
                 flags = r_u32(object + 396);
-                w_u32(object + 112, 0);
+                motion.velocity[2] = 0;
                 w_u32(object + 396, flags & ~1);
                 SetAnimationRange(9, 0, (uint32)-1);
                 w_u16(object + 474, 3);
             }
             else if (phase == 2 && r_u8(object + 303))
             {
-                value = r_u16(object + 78);
-                w_u16(object + 78, value | 16);
+                value = this->lifecycle_flags;
+                this->lifecycle_flags = value | 16;
                 StartAnimation(1, 1);
                 w_u16(object + 472, 5);
                 w_u16(object + 474, 1);
             }
-            else if (phase == 3 && (sint8)r_u8(object + 24) >= 20)
+            else if (phase == 3 && (sint8)this->model.frame >= 20)
             {
-                value = r_u16(object + 78);
-                w_u16(object + 78, value & 0xFFEF);
+                value = this->lifecycle_flags;
+                this->lifecycle_flags = value & 0xFFEF;
                 ClearVelocity();
                 sub_80069DF0(130, 8192, 0);
                 phase = r_u16(object + 474);
@@ -1289,7 +1320,7 @@ void War::UpdateState()
                 {
                     do
                     {
-                        index = sub_80066570(6);
+                        index = RandomRange(6);
                         value = r_u8(object + 565);
                     } while ((index & 255) == value);
                     value = r_u8(0x800FF484 + (index & 255));
@@ -1304,11 +1335,7 @@ void War::UpdateState()
     }
 }
 
-extern "C" void sub_8003E478(uint32 object)
-{
-    FUNCTION_MARKER(0x8003E478, "SLUS_003.73");
-    War::Attach(object).UpdateState();
-}
+
 
 uint32 War::ReadParameters(uint32 command)
 {
@@ -1439,7 +1466,7 @@ uint32 War::SetDestination(const uint32 *position)
     if (floor != (uint32)-1)
         y = floor - ((uint32)(sint32)(sint16)r_u16(object + 456) << 12);
     else
-        y = r_u32(object + 8);
+        y = this->model.pos[1];
     w_u32(object + 488, y);
     flags = (r_u32(object + 396) | 1) & 0xFFFFFFF3;
     w_u32(object + 396, flags);
@@ -1462,20 +1489,20 @@ uint32 War::TrackTarget(uint32 target)
     return result;
 }
 
-uint32 War::ClearFacing()
+uint16 *War::ClearFacing()
 {
     uint32 object = NativeObjectGuestAddress(this);
     uint32 flags;
     FUNCTION_MARKER(0x80040058, "SLUS_003.73");
     flags = r_u32(object + 396);
     w_u32(object + 396, flags & 0xFFFFFFCF);
-    w_u16(object + 136, 0);
-    w_u16(object + 134, 0);
-    w_u16(object + 132, 0);
-    w_u16(object + 142, 0);
-    w_u16(object + 140, 0);
-    w_u16(object + 138, 0);
-    return object + 138;
+    motion.angular_velocity[2] = 0;
+    motion.angular_velocity[1] = 0;
+    motion.angular_velocity[0] = 0;
+    motion.angular_acceleration[2] = 0;
+    motion.angular_acceleration[1] = 0;
+    motion.angular_acceleration[0] = 0;
+    return motion.angular_acceleration;
 }
 
 uint32 War::SpawnProjectileWave(uint32 count)
@@ -1485,14 +1512,14 @@ uint32 War::SpawnProjectileWave(uint32 count)
     uint32 origin[4], target[3], offset[3];
     sint16 angles[4], direction[4];
     FUNCTION_MARKER(0x80040094, "SLUS_003.73");
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (!player)
         return player;
     xport_draft_host_sub_8007CC10_p1(origin, object, 4);
     xport_draft_host_sub_8001D320_p1(origin, 64, 64, 64, 160, 5, 0, 100);
     for (index = 0; (sint32)index < (sint32)count; ++index)
     {
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         angles[0] = -1024;
         angles[1] = 0;
         angles[2] = 0;
@@ -1502,7 +1529,7 @@ uint32 War::SpawnProjectileWave(uint32 count)
         target[1] += 262144;
         if (count == 2)
         {
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             xport_draft_host_sub_80066B8C_p1(direction, object + 4, player + 4);
             direction[0] = 0;
             direction[1] = (sint16)(((uint32)(uint16)direction[1] + turn) & 4095);
@@ -1517,11 +1544,14 @@ uint32 War::SpawnProjectileWave(uint32 count)
         if (projectile)
         {
             damage = sub_8004B914(object, 10);
-            projectile = apocalypse_projectile_2CE94_native(projectile, origin, 0, angles, 1024, damage, 0x800FF5A0);
+            {
+                void *storage = AllocateNativeObjectStorage(projectile, sizeof(TrackingProjectile));
+                new (storage) TrackingProjectile(origin, angles, 1024, damage, &visual_lists.players);
+            }
             if (projectile)
             {
                 SetProjectileTrailColor(projectile, 8, 0, 64, 128);
-                w_u8(projectile + 393, 80);
+                TrackingProjectile::Attach(projectile).SetSpeed(80);
             }
         }
         turn += 2048;
@@ -1529,19 +1559,9 @@ uint32 War::SpawnProjectileWave(uint32 count)
     return (uint32)-1024;
 }
 
-extern "C" uint32 sub_8003D41C(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x8003D41C, "SLUS_003.73");
-    void *native_instance_storage = AllocateNativeObjectStorage(object, sizeof(War));
-    new (native_instance_storage) War((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
 
-extern "C" uint32 sub_8003D4B8(uint32 object)
-{
-    FUNCTION_MARKER(0x8003D4B8, "SLUS_003.73");
-    return War::Attach(object).Configure();
-}
+
+
 
 extern "C" uint32 sub_8003D66C(uint32 object, uint32 reason)
 {
@@ -1567,35 +1587,15 @@ extern "C" uint32 sub_8003FF2C(uint32 object, uint32 command)
     return War::Attach(object).War::ExecuteCommand(command);
 }
 
-extern "C" uint32 sub_8003E418(uint32 object, uint32 increment)
-{
-    FUNCTION_MARKER(0x8003E418, "SLUS_003.73");
-    return War::Attach(object).Resize(increment);
-}
 
-extern "C" uint32 sub_8003FF4C(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x8003FF4C, "SLUS_003.73");
-    return War::Attach(object).SetDestination((const uint32 *)psx_addr(position, 12));
-}
 
-extern "C" uint32 sub_8003FFD8(uint32 object, uint32 target)
-{
-    FUNCTION_MARKER(0x8003FFD8, "SLUS_003.73");
-    return War::Attach(object).TrackTarget(target);
-}
 
-extern "C" uint32 sub_80040058(uint32 object)
-{
-    FUNCTION_MARKER(0x80040058, "SLUS_003.73");
-    return War::Attach(object).ClearFacing();
-}
 
-extern "C" uint32 sub_80040094(uint32 object, uint32 count)
-{
-    FUNCTION_MARKER(0x80040094, "SLUS_003.73");
-    return War::Attach(object).SpawnProjectileWave(count);
-}
+
+
+
+
+
 
 
 

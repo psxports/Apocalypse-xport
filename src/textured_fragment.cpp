@@ -1,3 +1,4 @@
+#include "object_fragments.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -83,7 +84,7 @@ uint32 TexturedTriangle::TransformVertices()
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 matrix[8], vertex, axis, input, output;
     FUNCTION_MARKER(0x800344BC, "SLUS_003.73");
-    BuildModelRotationMatrix((const uint32 *)psx_addr(object + 152, 8), (uint16 *)matrix);
+    BuildModelRotationMatrix((const uint16 *)psx_addr(object + 152, 6), (uint16 *)matrix);
     SetRotMatrix((MATRIX *)matrix);
     LoadFixedGteTranslation((const uint32 *)psx_addr(object + 24, 12));
     // Original fourth input is the normal, not another triangle corner
@@ -197,7 +198,7 @@ uint32 TexturedFragment::Destroy(uint32 reason)
 uint32 TexturedFragment::InitializeVelocity(const uint32 *position)
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 difference[3], scaled[3], velocity[3], distance, factor, normal, axis, value, result, child;
+    uint32 difference[3], scaled[3], velocity[3], distance, factor, axis, value, result, child;
     uint32 shift = 1;
     FUNCTION_MARKER(0x80021154, "SLUS_003.73");
     SetPosition(position);
@@ -214,10 +215,10 @@ uint32 TexturedFragment::InitializeVelocity(const uint32 *position)
     else
         Finish();
     factor = RandomRange(45);
-    normal = r_u32(0x800FF210);
+    const sint16 *normal = (const sint16 *)&GetFragmentNormal();
     for (axis = 0; axis < 3; ++axis)
     {
-        value = (uint32)(sint32)(sint16)r_u16(normal + axis * 2);
+        value = (uint32)(sint32)normal[axis];
         value = r_u32(object + 36 + axis * 4) + factor * value;
         w_u32(object + 36 + axis * 4, value);
     }
@@ -263,17 +264,9 @@ extern "C" uint32 xport_draft_host_sub_80020FB4_p2345(uint32 object, void *verte
     return object;
 }
 
-extern "C" uint32 sub_80020FB4(uint32 object, uint32 vertex0, uint32 vertex1, uint32 vertex2, uint32 position)
-{
-    FUNCTION_MARKER(0x80020FB4, "SLUS_003.73");
-    return xport_draft_host_sub_80020FB4_p2345(object, psx_addr(vertex0, 6), psx_addr(vertex1, 6), psx_addr(vertex2, 6), psx_addr(position, 12));
-}
 
-extern "C" uint32 sub_80021154(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x80021154, "SLUS_003.73");
-    return TexturedFragment::Attach(object).InitializeVelocity((const uint32 *)psx_addr(position, 12));
-}
+
+
 
 extern "C" uint32 sub_800210D8(uint32 object, uint32 reason)
 {
@@ -287,31 +280,13 @@ extern "C" void sub_800212C8(uint32 object)
     TexturedFragment::Attach(object).TexturedFragment::Update();
 }
 
-extern "C" uint32 sub_800344BC(uint32 object)
-{
-    FUNCTION_MARKER(0x800344BC, "SLUS_003.73");
-    return TexturedTriangle::Attach(object).TransformVertices();
-}
 
-extern "C" uint32 sub_80034314(uint32 object, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x80034314, "SLUS_003.73");
-    return TexturedTriangle::Attach(object).SetColors(red, green, blue);
-}
 
-extern "C" uint32 sub_8003445C(uint32 object, uint32 clut, uint32 tpage, uint32 u0, uint32 v0, uint32 u1, uint32 v1, uint32 u2, uint32 v2)
-{
-    FUNCTION_MARKER(0x8003445C, "SLUS_003.73");
-    return TexturedTriangle::Attach(object).SetTextureCoordinates(clut, tpage, u0, v0, u1, v1, u2, v2);
-}
 
-extern "C" uint32 sub_800340A4(uint32 object, uint32 vertex0, uint32 vertex1, uint32 vertex2)
-{
-    FUNCTION_MARKER(0x800340A4, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(TexturedTriangle));
-    new (dram_addr) TexturedTriangle((const sint16 *)psx_addr(vertex0, 6), (const sint16 *)psx_addr(vertex1, 6), (const sint16 *)psx_addr(vertex2, 6));
-    return object;
-}
+
+
+
+
 
 extern "C" uint32 sub_800342B0(uint32 object, uint32 reason)
 {

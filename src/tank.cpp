@@ -1,3 +1,9 @@
+#include "projectile_weaving.h"
+#include "model_resources.h"
+#include "visual_object.h"
+#include "angle_math.h"
+#include "model_animation.h"
+#include "game_random.h"
 #include "game_sdk_bindings.h"
 #include "player.h"
 #include "game_panel.h"
@@ -7,6 +13,7 @@ extern "C" {
 #include "draft_first_adapters.h"
 }
 #include "tank.h"
+#include "projectile_base.h"
 #include "object_parameters.h"
 #include "record_data.h"
 #include "vector_arithmetic.h"
@@ -46,7 +53,7 @@ Tank::Tank(const uint8 *record_data, uint32 index) : Enemy()
     cursor = sub_80062B50(object, cursor);
     w_u32(object + 400, cursor);
     w_u8(object + 380, 1);
-    w_u16(object + 214, index);
+    this->record_idx = index;
     Init();
     cursor = r_u32(object + 400);
     sub_8004BE90(object, cursor);
@@ -62,15 +69,15 @@ Tank::Tank(const uint32 *position_vector, uint32 script) : Enemy()
     x = position ? r_u32(position) : position_vector[0];
     y = position ? r_u32(position + 4u) : position_vector[1];
     z = position ? r_u32(position + 8u) : position_vector[2];
-    w_u32(object + 240u, x);
-    w_u32(object + 244u, y);
-    w_u32(object + 248u, z);
-    x = r_u32(object + 240u);
-    y = r_u32(object + 244u);
-    z = r_u32(object + 248u);
-    w_u32(object + 4u, x);
-    w_u32(object + 8u, y);
-    w_u32(object + 12u, z);
+    pos_history.saved[0] = x;
+    pos_history.saved[1] = y;
+    pos_history.saved[2] = z;
+    x = pos_history.saved[0];
+    y = pos_history.saved[1];
+    z = pos_history.saved[2];
+    this->model.pos[0] = x;
+    this->model.pos[1] = y;
+    this->model.pos[2] = z;
     w_u32(object + 400u, script);
     w_u8(object + 380u, 1u);
     Init();
@@ -84,13 +91,13 @@ uint32 Tank::Init()
     uint32 flags, child, value, bank;
     FUNCTION_MARKER(0x80056038u, "SLUS_003.73");
     w_u32(0x800FF308u, r_u32(0x800FF308u) + 1u);
-    sub_80062A38(object, 0x800FF5DCu);
-    w_u16(object + 58u, 205u);
-    flags = r_u16(object);
-    w_u8(object + 129u, 3u);
-    w_u16(object, flags | 16u);
-    w_u8(object + 130u, 3u);
-    w_u8(object + 131u, 3u);
+    AddToList(visual_lists.solids);
+    this->kind = 205u;
+    flags = this->model.flags;
+    motion.drag[0] = 3u;
+    this->model.flags = flags | 16u;
+    motion.drag[1] = 3u;
+    motion.drag[2] = 3u;
     sub_8004BD04(object, 3u, 9u);
     w_u8(object + 382u, 0u);
     w_u16(object + 472u, 0u);
@@ -125,7 +132,7 @@ uint32 Tank::Init()
     bank = r_u8(0x800FF644u);
     child = r_u32(object + 572u);
     w_u32(child + 40u, value & 65535u);
-    value = sub_8006E080(0xA48DD5ECu, bank);
+    value = ::FindModelResourceIndex(0xA48DD5ECu, bank);
     w_u8(object + 560u, value);
     w_u8(object + 561u, 10u);
     return 10u;
@@ -137,7 +144,7 @@ uint32 Tank::Destroy(uint32 reason)
     uint32 flags, child, table, receiver, target, sound;
     FUNCTION_MARKER(0x800562C4, "SLUS_003.73");
     w_u32(object + 68, 0x800A29B8);
-    RemoveFromList((uint32 *)psx_addr(0x800FF5DC, 4));
+    RemoveFromList(visual_lists.solids);
     Enemy::FreeBehaviorTable();
     if (r_u32(object + 396) & 32)
     {
@@ -165,8 +172,10 @@ uint32 Tank::Destroy(uint32 reason)
 
 uint32 Tank::Update()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 position[3], flags, value, count, mode, target, node, packed, tail, sound;
+    uint32 position[3], flags, value, count, mode, target, packed, tail, sound;
     uint16 desired[3];
     sint32 wanted_yaw, current_yaw;
     uint32 move;
@@ -174,22 +183,22 @@ uint32 Tank::Update()
     position[0] = r_u32(0x800A71CCu);
     position[1] = r_u32(0x800A71D0u);
     position[2] = r_u32(0x800A71D4u);
-    w_u32(object + 116u, position[0]);
-    w_u32(object + 120u, position[1]);
-    w_u32(object + 124u, position[2]);
-    flags = r_u16(object + 76u);
+    motion.acceleration[0] = position[0];
+    motion.acceleration[1] = position[1];
+    motion.acceleration[2] = position[2];
+    flags = this->activation_flags;
     w_u16(object + 388u, flags);
     if (flags & 1u)
     {
         value = r_u8(object + 384u);
-        w_u16(object + 76u, flags & 0xFFFEu);
+        this->activation_flags = flags & 0xFFFEu;
         w_u8(object + 384u, value + 1u);
     }
     if (!r_u8(object + 381u))
     {
-        flags = r_u16(object);
+        flags = this->model.flags;
         w_u8(object + 381u, 1u);
-        w_u16(object, flags | 4u);
+        this->model.flags = flags | 4u;
         SetAnimationRange(0u, 0u, 0xFFFFFFFFu);
     }
     if (r_u8(object + 380u))
@@ -202,7 +211,7 @@ uint32 Tank::Update()
     }
     else
         UpdateState();
-    if (!(r_u16(object) & 4u))
+    if (!(this->model.flags & 4u))
         return 0u;
     flags = r_u32(object + 396u);
     if (flags & 16u)
@@ -248,25 +257,36 @@ uint32 Tank::Update()
             xport_draft_host_sub_80066B8C_p1(desired, object + 4u, object + 484u);
             desired[0] = 0u;
             packed = apocalypse_angle_pair_word(object + 16u);
-            tail = r_u16(object + 20u);
+            tail = this->model.angles[2];
             /* Original desired roll is unused by the full 66CF0 helper */
-            sub_80066CF0(packed, tail, object + 132u, object + 138u,
-                (uint32)desired[1] << 16, 0u, 16u);
-            w_u16(object + 16u, 0u);
+            motion_cur_word = packed;
+            motion_cur_tail = tail;
+            motion_target_word = (uint32)desired[1] << 16;
+            motion_target_tail = 0u;
+            motion_cur.vx = (sint16)motion_cur_word;
+            motion_cur.vy = (sint16)(motion_cur_word >> 16);
+            motion_cur.vz = (sint16)motion_cur_tail;
+            motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+            motion_target.vx = (sint16)motion_target_word;
+            motion_target.vy = (sint16)(motion_target_word >> 16);
+            motion_target.vz = (sint16)motion_target_tail;
+            motion_target.pad = (sint16)(motion_target_tail >> 16);
+            UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, 16u);
+            this->model.angles[0] = 0u;
             wanted_yaw = (sint16)desired[1];
-            current_yaw = (sint16)r_u16(object + 18u);
+            current_yaw = (sint16)this->model.angles[1];
             move = wanted_yaw == current_yaw;
             if (wanted_yaw < current_yaw)
                 move = (uint32)(current_yaw - wanted_yaw) - 64u >= 0xF81u;
             else if (wanted_yaw > current_yaw)
                 move = (uint32)(wanted_yaw - current_yaw) - 64u >= 0xF81u;
             if (move)
-                xport_draft_host_sub_800667CC_p3(object + 104u, r_u16(object + 436u), desired);
+                BuildDirectionVector(motion.velocity, r_u16(object + 436u), (const uint16 *)desired);
             else
             {
-                w_u32(object + 112u, 0u);
-                w_u32(object + 108u, 0u);
-                w_u32(object + 104u, 0u);
+                motion.velocity[2] = 0u;
+                motion.velocity[1] = 0u;
+                motion.velocity[0] = 0u;
             }
         }
     }
@@ -275,35 +295,31 @@ uint32 Tank::Update()
         sound = r_u32(object + 564u);
         if (sound)
         {
-            sub_8006A294(sound);
+            ::StopSoundVoices(sound);
             w_u32(object + 564u, 0u);
         }
     }
     if (r_u8(object + 382u))
-        sub_8006C0B8(object + 116u, 0x800A6844u);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844u, 12));
     sub_8004B9A4(object);
     sub_8006C730(object + 524u, object + 530u);
     sub_8006C624(object + 524u);
     sub_8006C730(object + 530u, object + 536u);
-    sub_8006C8E8(object + 530u, object + 144u);
+    DampAngles((uint16 *)psx_addr(object + 530u, 6), motion.angular_drag);
     sub_8006C64C(object + 530u);
-    node = r_u32(object + 360u);
-    w_u16(node + 14u, r_u16(object + 526u));
-    node = r_u32(object + 360u);
-    w_u16(node + 24u, r_u16(object + 524u));
-    node = r_u32(object + 360u);
-    value = r_u16(node + 24u);
+    GetModelJointAngles(1).rotation[1] = (uint16)(r_u16(object + 526u));
+    GetModelJointAngles(2).rotation[0] = (uint16)(r_u16(object + 524u));
+    value = GetModelJointAngles(2).rotation[0];
     if (value - 129u < 0x77Fu)
-        w_u16(node + 24u, 128u);
+        GetModelJointAngles(2).rotation[0] = (uint16)(128u);
     sub_8006C730(object + 542u, object + 548u);
     sub_8006C624(object + 542u);
     sub_8006C730(object + 548u, object + 554u);
-    sub_8006C8E8(object + 548u, object + 144u);
+    DampAngles((uint16 *)psx_addr(object + 548u, 6), motion.angular_drag);
     sub_8006C64C(object + 548u);
-    node = r_u32(object + 360u);
-    w_u16(node + 38u, r_u16(object + 544u));
+    GetModelJointAngles(3).rotation[1] = (uint16)(r_u16(object + 544u));
     sub_8007FDF0(object);
-    sub_8007D148(object);
+    BuildModelPose(*this);
     if (sub_8004BDFC(object, 0u, 0u) & 0xFFFFu)
     {
         w_u8(object + 496u, r_u8(object + 496u) | 1u);
@@ -340,12 +356,11 @@ uint32 Tank::Update()
 uint32 Tank::FireProjectile()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 node, yaw, pitch, position[3], child, value;
+    uint32 yaw, pitch, position[3], child, value;
     uint16 angles[3];
     FUNCTION_MARKER(0x80056980u, "SLUS_003.73");
-    node = r_u32(object + 360u);
-    yaw = r_u16(object + 18u);
-    yaw = (yaw + r_u16(node + 14u)) & 0xFFFu;
+    yaw = this->model.angles[1];
+    yaw = (yaw + GetModelJointAngles(1).rotation[1]) & 0xFFFu;
     pitch = r_u16(object + 524u);
     angles[0] = (uint16)pitch;
     angles[1] = (uint16)yaw;
@@ -353,27 +368,29 @@ uint32 Tank::FireProjectile()
     xport_draft_host_sub_8007CC10_p1(position, object, 2u);
     child = sub_800625AC(440u);
     if (child)
-        child = apocalypse_chopper_projectile_native(child, position, angles, 0u, 4u, 128u, 0x800FF5A0u, 0x800A71CCu);
+    {
+        void *storage = AllocateNativeObjectStorage(child, sizeof(WeavingProjectile));
+        new (storage) WeavingProjectile(position, (const sint16 *)angles, 0, 4, 128, &visual_lists.players, (const uint32 *)psx_addr(0x800A71CC, 12));
+    }
     value = sub_8004BDFC(object, 0u, 1u);
     value = sub_8004B914(object, value & 65535u);
-    w_u16(child + 308u, value);
-    w_u16(child + 310u, 512u);
+    ProjectileBase::Attach(child).SetDamage(value);
+    ProjectileBase::Attach(child).SetBlastRadius(512);
     return 512u;
 }
 
 void Tank::FireBeam(uint32 fire)
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 weapon, node, yaw, joint_yaw, pitch, table, receiver, target;
+    uint32 weapon, yaw, joint_yaw, pitch, table, receiver, target;
     uint32 position[3];
     uint16 angles[3];
     FUNCTION_MARKER(0x80056A6Cu, "SLUS_003.73");
     weapon = r_u32(object + 572u);
     if (!weapon)
         return;
-    node = r_u32(object + 360u);
-    yaw = r_u16(object + 18u);
-    joint_yaw = r_u16(node + 38u);
+    yaw = this->model.angles[1];
+    joint_yaw = GetModelJointAngles(3).rotation[1];
     pitch = r_u16(object + 542u);
     angles[0] = (uint16)pitch;
     angles[2] = 0u;
@@ -411,7 +428,7 @@ uint32 Tank::FireDebris()
         value318 = sub_8004BDFC(object, 2u, 7u) & 65535u;
         child = sub_8005B5D8(child, object + 4u, first, second, value312, value314, value316, value318);
     }
-    w_u32(child + 108u, 0xFFF80000u);
+    VisualObject::Attach(child).motion.velocity[1] = 0xFFF80000u;
     return 0xFFF80000u;
 }
 
@@ -431,12 +448,12 @@ uint32 Tank::Damage(uint32 damage, const sint32 *, uint32)
         SetColor(3, 255, 255, 255);
     else
     {
-        hero = r_u32(0x800FF5A0);
+        hero = visual_lists.players;
         if (hero)
             TryPlayPlayerKillQuote((const uint32 *)psx_addr(hero + 4, 12));
-        flags = r_u16(object + 78);
+        flags = this->lifecycle_flags;
         state = r_u32(object + 396);
-        w_u16(object + 78, flags & 0xFFEF);
+        this->lifecycle_flags = flags & 0xFFEF;
         if (state & 32)
         {
             ClearTrackedObjectHealth();
@@ -453,20 +470,20 @@ uint32 Tank::Damage(uint32 damage, const sint32 *, uint32)
 void Tank::ClearVelocity()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    w_u32(object + 112u, 0u);
-    w_u32(object + 108u, 0u);
-    w_u32(object + 104u, 0u);
+    motion.velocity[2] = 0u;
+    motion.velocity[1] = 0u;
+    motion.velocity[0] = 0u;
 }
 
 void Tank::ClearAngularVelocity()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    w_u16(object + 136u, 0u);
-    w_u16(object + 134u, 0u);
-    w_u16(object + 132u, 0u);
-    w_u16(object + 142u, 0u);
-    w_u16(object + 140u, 0u);
-    w_u16(object + 138u, 0u);
+    motion.angular_velocity[2] = 0u;
+    motion.angular_velocity[1] = 0u;
+    motion.angular_velocity[0] = 0u;
+    motion.angular_acceleration[2] = 0u;
+    motion.angular_acceleration[1] = 0u;
+    motion.angular_acceleration[0] = 0u;
 }
 
 void Tank::FinishFromTable()
@@ -500,7 +517,7 @@ void Tank::UpdateState()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 state, step, hero, flags, value, ground, height, x, z, sound;
-    uint32 child, table, target, receiver, position[3], acceleration[3], scale;
+    uint32 child, position[3], acceleration[3], scale;
     uint16 angles[3];
     FUNCTION_MARKER(0x80056D1Cu, "SLUS_003.73");
     /* The selected parent 563B4 discards this register-carried return */
@@ -513,15 +530,15 @@ void Tank::UpdateState()
     case 0u:
         if (step == 0u)
         {
-            hero = r_u32(0x800FF5A0u);
+            hero = visual_lists.players;
             if (hero)
             {
                 z = r_u32(hero + 12u);
-                value = r_u32(object + 12u);
+                value = this->model.pos[2];
                 x = r_u32(hero + 4u);
-                height = r_u32(object + 4u);
+                height = this->model.pos[0];
                 value = (uint32)ratan2((sint32)(z - value), (sint32)(x - height));
-                w_u16(object + 18u, 3072u - value);
+                this->model.angles[1] = 3072u - value;
             }
             ground = sub_80067A18(object + 4u, 0u, 4096u);
             if (ground == 0xFFFFFFFFu)
@@ -529,11 +546,11 @@ void Tank::UpdateState()
                 FinishFromTable();
                 return;
             }
-            value = r_u32(object + 8u);
+            value = this->model.pos[1];
             height = (uint32)(sint32)(sint16)r_u16(object + 456u);
             if ((sint32)(ground - value) >> 12 < (sint32)(height << 1))
             {
-                w_u32(object + 8u, ground - (height << 12));
+                this->model.pos[1] = ground - (height << 12);
                 w_u16(object + 472u, 1u);
                 w_u8(object + 382u, 0u);
                 ClearVelocity();
@@ -541,10 +558,10 @@ void Tank::UpdateState()
             else
             {
                 w_u16(object + 460u, (uint32)((sint32)ground >> 13));
-                flags = r_u16(object + 78u);
+                flags = this->lifecycle_flags;
                 w_u16(object + 474u, 1u);
                 w_u8(object + 382u, 1u);
-                w_u16(object + 78u, flags & 0xFFEFu);
+                this->lifecycle_flags = flags & 0xFFEFu;
             }
         }
         else if (step == 1u)
@@ -554,7 +571,7 @@ void Tank::UpdateState()
             {
                 if (!(r_u16(object + 216u) & 2u))
                     return;
-                sub_800774EC(r_u32(0x800FF904u), object + 4u, 2u);
+                sub_800774EC(visual_lists.cameras, object + 4u, 2u);
                 sub_80069EF4(1u, object + 4u, 0u);
                 w_u8(object + 382u, 0u);
                 w_u16(object + 474u, 2u);
@@ -563,23 +580,23 @@ void Tank::UpdateState()
             {
                 ground = (uint32)(sint32)(sint16)r_u16(object + 460u) << 13;
                 height = (uint32)(sint32)(sint16)r_u16(object + 456u) << 12;
-                value = r_u32(object + 8u);
+                value = this->model.pos[1];
                 if ((sint32)ground >= (sint32)(value + height))
                     return;
-                sub_800774EC(r_u32(0x800FF904u), object + 4u, 2u);
+                sub_800774EC(visual_lists.cameras, object + 4u, 2u);
                 sub_80069EF4(1u, object + 4u, 0u);
                 height = (uint32)(sint32)(sint16)r_u16(object + 456u) << 12;
                 w_u8(object + 382u, 0u);
-                w_u32(object + 8u, ground - height);
+                this->model.pos[1] = ground - height;
                 ClearVelocity();
                 w_u16(object + 474u, 2u);
             }
         }
         else if (step == 2u && r_u8(object + 303u))
         {
-            flags = r_u16(object + 78u);
+            flags = this->lifecycle_flags;
             SetState(1u);
-            w_u16(object + 78u, flags | 16u);
+            this->lifecycle_flags = flags | 16u;
         }
         return;
     case 1u:
@@ -588,7 +605,7 @@ void Tank::UpdateState()
             w_u8(object + 382u, 0u);
             ClearVelocity();
             ClearAngularVelocity();
-            value = sub_80066570(4u);
+            value = RandomRange(4u);
             SetState(value + 2u);
         }
         return;
@@ -599,10 +616,10 @@ void Tank::UpdateState()
         value = r_u32(object + 220u);
         if (value - 1025u < 2047u)
         {
-            if (r_u32(0x800FF5A0u))
+            if (visual_lists.players)
             {
                 sub_8004BDCC(object, 0u, 0u, 1u);
-                hero = r_u32(0x800FF5A0u);
+                hero = visual_lists.players;
                 SetTargetObject(hero);
             }
         }
@@ -610,10 +627,10 @@ void Tank::UpdateState()
             sub_8004BDCC(object, 0u, 0u, 0u);
         if (r_u32(object + 220u) < 2048u)
         {
-            if (r_u32(0x800FF5A0u))
+            if (visual_lists.players)
             {
                 sub_8004BDCC(object, 1u, 0u, 1u);
-                hero = r_u32(0x800FF5A0u);
+                hero = visual_lists.players;
                 SetTargetObject(hero);
             }
         }
@@ -628,7 +645,7 @@ void Tank::UpdateState()
             if (state == 3u)
             {
                 height = r_u16(object + 392u);
-                hero = r_u32(0x800FF5A0u);
+                hero = visual_lists.players;
                 value = sub_8004BA64(object, object + 484u, hero + 4u,
                     128u, 192u, height, 1024u, 1u, 1u);
             }
@@ -650,7 +667,7 @@ void Tank::UpdateState()
         {
             if (!(r_u32(object + 396u) & 1u))
                 SetState(step);
-            else if (state == 3u && r_u32(0x800FF5A0u) && r_u32(object + 220u) < 1024u)
+            else if (state == 3u && visual_lists.players && r_u32(object + 220u) < 1024u)
                 SetState(2u);
         }
         return;
@@ -665,14 +682,14 @@ void Tank::UpdateState()
         if (step)
             return;
         flags = r_u32(object + 396u);
-        hero = r_u32(0x800FF5A0u);
+        hero = visual_lists.players;
         w_u32(object + 396u, flags & 0xFFFFFFFEu);
         ClearAngularVelocity();
         SetTargetObject(hero);
-        w_u32(object + 112u, 0u);
-        w_u32(object + 108u, 0u);
+        motion.velocity[2] = 0u;
+        motion.velocity[1] = 0u;
         value = r_u32(object + 220u);
-        w_u32(object + 104u, 0u);
+        motion.velocity[0] = 0u;
         if (value < 2049u)
         {
             sub_8004BDCC(object, 1u, 0u, 1u);
@@ -689,13 +706,13 @@ void Tank::UpdateState()
         {
             w_u16(object + 460u, 96u);
             ClearVelocity();
-            w_u16(object + 136u, 0u);
-            w_u16(object + 134u, 0u);
-            w_u16(object + 132u, 0u);
-            w_u16(object + 142u, 0u);
-            w_u16(object + 140u, 0u);
+            motion.angular_velocity[2] = 0u;
+            motion.angular_velocity[1] = 0u;
+            motion.angular_velocity[0] = 0u;
+            motion.angular_acceleration[2] = 0u;
+            motion.angular_acceleration[1] = 0u;
             flags = r_u32(object + 396u);
-            w_u16(object + 138u, 0u);
+            motion.angular_acceleration[0] = 0u;
             w_u32(object + 396u, flags & 0xFFFFFFFEu);
             sub_8004BDCC(object, 0u, 0u, 0u);
             sub_8004BDCC(object, 1u, 0u, 0u);
@@ -705,18 +722,18 @@ void Tank::UpdateState()
         }
         else if (step == 1u)
         {
-            if (!sub_80066570(4u) && !r_u32(0x800FF738u))
+            if (!RandomRange(4u) && !r_u32(0x800FF738u))
             {
-                scale = (sint16)r_u16(object + 36u) == 2048 ? 370u : 768u;
-                value = sub_80066570(1024u);
+                scale = (sint16)this->model.scale[0] == 2048 ? 370u : 768u;
+                value = RandomRange(1024u);
                 angles[0] = (uint16)(0u - value);
-                angles[1] = (uint16)sub_80066570(4096u);
+                angles[1] = (uint16)RandomRange(4096u);
                 angles[2] = 0u;
                 xport_draft_host_sub_800667CC_p13(position, scale, angles);
                 xport_draft_host_sub_8006C0B8_p1(position, object + 4u);
-                value = sub_80066570(60u);
+                value = RandomRange(60u);
                 SpawnFireCycle(position, value + 60u, 0u, 2u);
-                sound = sub_80066570(2u);
+                sound = RandomRange(2u);
                 sub_80069EF4(sound + 1u, object + 4u, 0u);
             }
             value = (uint32)(sint32)(sint16)r_u16(object + 460u) - 1u;
@@ -756,18 +773,10 @@ void Tank::UpdateState()
             }
             if (r_u32(object + 480u))
             {
-                flags = r_u16(object + 78u);
-                table = r_u32(object + 68u);
+                flags = this->lifecycle_flags;
                 w_u16(object + 212u, 0u);
-                w_u16(object + 78u, flags & 0xFFEFu);
-                receiver = object + (uint32)(sint32)(sint16)r_u16(table + 56u);
-                target = r_u32(table + 60u);
-                if (target != 0x80063994u)
-                {
-                    /* TODO Audit additional virtual slot60 methods */
-                    GameDiagnostic("Unsupported enemy205 slot60 %08X receiver %08X\n", target, receiver);
-                    abort();
-                }
+                this->lifecycle_flags = flags & 0xFFEFu;
+                ReleaseResources();
                 sub_8004B948(object);
                 step = r_u16(object + 474u);
                 value = r_u32(0x800FF62Cu);
@@ -775,12 +784,12 @@ void Tank::UpdateState()
                 sub_800626C8(object, value);
                 value = r_u32(object + 480u);
                 height = r_u8(0x800FF644u);
-                value = sub_8006E080(value, height);
-                flags = r_u16(object);
-                w_u16(object + 22u, value);
-                w_u8(object + 26u, 0u);
-                w_u8(object + 24u, 0u);
-                w_u16(object, flags & 0xFFF9u);
+                value = ::FindModelResourceIndex(value, height);
+                flags = this->model.flags;
+                this->model.model_idx = value;
+                this->model.animation = 0u;
+                this->model.frame = 0u;
+                this->model.flags = flags & 0xFFF9u;
             }
             else
                 FragmentAndFinish();
@@ -801,15 +810,15 @@ uint32 Tank::SetMode(uint32 mode)
     sub_800626C8(object, 0x800FF564u);
     w_u16(object + 456u, 0u);
     w_u16(object + 218u, mode == 0u ? 320u : (mode == 1u ? 400u : 1000u));
-    sub_8007CA50(object, 0x800A6D5Cu);
-    sub_8007CAC8(object, 0x800A6D28u);
+    SetModelBoneTable(this->model.bank, TankAttachments);
+    InitializeModelAnimation(TankHierarchy);
     if (mode == 0u)
     {
-        flags = r_u16(object);
-        w_u16(object + 36u, 2048u);
-        w_u16(object, flags | 0x200u);
-        w_u16(object + 38u, 2048u);
-        w_u16(object + 40u, 2048u);
+        flags = this->model.flags;
+        this->model.scale[0] = 2048u;
+        this->model.flags = flags | 0x200u;
+        this->model.scale[1] = 2048u;
+        this->model.scale[2] = 2048u;
         w_u16(object + 436u, 32u);
         result = 64u;
     }
@@ -822,7 +831,7 @@ uint32 Tank::SetMode(uint32 mode)
     w_u16(object + 440u, result);
     if (mode == 16u)
     {
-        sub_8006D390(object, 64u, 32u, 2048u);
+        ::TrackObjectHealth(object, 64u, 32u, 2048u);
         flags = r_u32(object + 396u);
         w_u32(0x800FF4ECu, object);
         result = flags | 32u;
@@ -850,7 +859,7 @@ uint32 Tank::ExecuteCommand(uint32 command)
             value = r_u16(cursor);
             w_u32(object + 400u, cursor + 2u);
             if (value)
-                SetTargetObject(r_u32(0x800FF5A0u));
+                SetTargetObject(visual_lists.players);
             else
                 ClearTarget();
             return 1u;
@@ -881,7 +890,7 @@ uint32 Tank::ExecuteCommand(uint32 command)
             shift = 12u;
             ShiftVectorLeft(position, &shift);
             if (command == 0x4222u)
-                AddVectors(position, (const uint32 *)psx_addr(object + 4, 12));
+                AddVectors(position, (const uint32 *)this->model.pos);
             w_u32(object + 400u, cursor + 12u);
             SetDestination(position);
             return 1u;
@@ -952,7 +961,7 @@ uint32 Tank::Aim(uint32 enabled)
         if (enabled & (1u << axis))
         {
             xport_draft_host_sub_80066B8C_p12(desired, origin, object + 500u);
-            desired[1] = (sint16)(((uint16)desired[1] - r_u16(object + 18u)) & 0xFFFu);
+            desired[1] = (sint16)(((uint16)desired[1] - this->model.angles[1]) & 0xFFFu);
         }
         node = object + (axis ? 542u : 524u);
         packed = apocalypse_angle_pair_word(node);
@@ -1004,43 +1013,44 @@ uint32 Tank::ClearTarget()
 
 uint32 Tank::FragmentAndFinish()
 {
+    uint32 trig_angle;
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 angle, index, target, random, table, divisor, child, kind, height, name;
     uint32 position[3], velocity[3], receiver;
     FUNCTION_MARKER(0x80057D98u, "SLUS_003.73");
-    angle = sub_80066570(1024u);
+    angle = RandomRange(1024u);
     for (index = 0u; index < 12u; ++index)
     {
-        target = r_u32(0x800FF904u);
-        if (target && !sub_80066570(8u))
+        target = visual_lists.cameras;
+        if (target && !RandomRange(8u))
         {
-            target = r_u32(0x800FF904u);
+            target = visual_lists.cameras;
             position[0] = r_u32(target + 4u);
             position[1] = r_u32(target + 8u);
             position[2] = r_u32(target + 12u);
             position[1] += 0x80000u;
             divisor = xport_draft_host_sub_8006696C_p2(object + 4u, position) >> 7;
-            velocity[0] = TraceDivide(position[0] - r_u32(object + 4u), divisor);
-            velocity[2] = TraceDivide(position[2] - r_u32(object + 12u), divisor);
-            velocity[1] = TraceDivide(position[1] - r_u32(object + 8u), divisor) - (divisor << 13);
+            velocity[0] = TraceDivide(position[0] - this->model.pos[0], divisor);
+            velocity[2] = TraceDivide(position[2] - this->model.pos[2], divisor);
+            velocity[1] = TraceDivide(position[1] - this->model.pos[1], divisor) - (divisor << 13);
         }
         else
         {
-            random = sub_80066570(16u);
-            table = 0x800F863Cu + 4u * (angle & 0xFFFu);
-            velocity[0] = (uint32)(sint32)(sint16)r_u16(table) * (random + 24u);
-            random = sub_80066570(32u);
+            random = RandomRange(16u);
+            trig_angle = angle & 0xFFFu;
+            velocity[0] = (uint32)rsin(trig_angle) * (random + 24u);
+            random = RandomRange(32u);
             velocity[1] = (0u - 48u - random) << 12;
-            random = sub_80066570(16u);
-            velocity[2] = (uint32)(sint32)(sint16)r_u16(table + 2u) * (random + 24u);
+            random = RandomRange(16u);
+            velocity[2] = (uint32)rcos(trig_angle) * (random + 24u);
         }
         child = sub_800625AC(320u);
         if (child)
         {
-            random = sub_80066570(r_u8(object + 561u));
+            random = RandomRange(r_u8(object + 561u));
             kind = r_u8(object + 560u);
             height = (uint32)(sint32)(sint16)r_u16(object + 456u) << 12;
-            height += r_u32(object + 8u);
+            height += this->model.pos[1];
             name = r_u32(0x800FF62Cu);
             (void)apocalypse_debris_construct_5BBB0(child, object + 4u, velocity,
                 (kind + random) & 0xFFFFu, height, 5u, 36u, name);

@@ -1,9 +1,12 @@
+#include "visual_object.h"
+#include "object_damage.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 }
 #include "fire_cycle.h"
+#include "palette_resources.h"
 #include "effect_lifecycle.h"
 #include "game_random.h"
 #include "vector_distance.h"
@@ -87,10 +90,10 @@ uint32 FireCycle::SpawnSprite(uint32 index)
     w_u32(child + 104, scale);
     AnimatedSprite::Attach(child).AddFlags(8);
     value = RandomRange(4096);
-    clut = r_u16(0x800FF698);
+    clut = (uint16)GetLargePalettePos().y;
     w_u16(child + 96, value);
     w_u16(child + 10, 4096);
-    texture = r_u32(0x800FF694);
+    texture = GetLargePalettePos().x;
     clut = (clut << 6) | (((uint32)((sint32)texture >> 4)) & 63);
     value = r_u32(child + 76);
     w_u16(child + 110, clut);
@@ -109,7 +112,7 @@ uint32 FireCycle::Update()
     FUNCTION_MARKER(0x8001DE24, "SLUS_003.73");
     if (r_u8(object + 75))
     {
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         if (player)
         {
             player_y = r_u32(player + 8);
@@ -119,12 +122,10 @@ uint32 FireCycle::Update()
                 distance = MeasureHorizontalDistance((const uint32 *)psx_addr(object + 24, 12), (const uint32 *)psx_addr(player + 4, 12));
                 if (distance < 256)
                 {
-                    player = r_u32(0x800FF5A0);
-                    table = r_u32(player + 68);
-                    receiver = player + (uint32)(sint32)(sint16)r_u16(table + 48);
+                    player = visual_lists.players;
+                    receiver = player;
                     damage = r_u8(object + 74);
-                    target = r_u32(table + 52);
-                    apocalypse_object_virtual52(target, receiver, damage, 0x800A71CC, 0);
+                    ApplyObjectDamage(receiver, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
                 }
             }
         }
@@ -153,8 +154,8 @@ uint32 FireCycle::Update()
             child = r_u32(slot);
             value = r_u16(child + 10);
             w_u16(child + 10, value - (random + 32));
-            clut = r_u32(0x800FF698);
-            texture = r_u32(0x800FF694);
+            clut = GetLargePalettePos().y;
+            texture = GetLargePalettePos().x;
             child = r_u32(slot);
             base = (clut << 6) | ((uint32)((sint32)texture >> 4) & 63);
             clut = r_u16(child + 110);
@@ -233,13 +234,7 @@ FireCycle &FireCycle::Attach(uint32 object)
     return *static_cast<FireCycle *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_8001DB68(uint32 object, uint32 position, uint32 size, uint32 enabled, uint32 count)
-{
-    FUNCTION_MARKER(0x8001DB68, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(FireCycle));
-    new (dram_addr) FireCycle((const uint32 *)psx_addr(position, 12), size, enabled, count);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_fire_cycle_construct_native(uint32 object, const uint32 *position, uint32 size, uint32 enabled, uint32 count)
 {
@@ -248,11 +243,7 @@ extern "C" uint32 apocalypse_fire_cycle_construct_native(uint32 object, const ui
     return object;
 }
 
-extern "C" uint32 sub_8001DCA8(uint32 object, uint32 index)
-{
-    FUNCTION_MARKER(0x8001DCA8, "SLUS_003.73");
-    return FireCycle::Attach(object).SpawnSprite(index);
-}
+
 
 extern "C" uint32 sub_8001DBFC(uint32 object, uint32 reason)
 {
@@ -279,11 +270,7 @@ uint32 SpawnFireCycle(const uint32 *position, uint32 size, uint32 enabled, uint3
     return object;
 }
 
-extern "C" uint32 sub_8001E400(uint32 position, uint32 size, uint32 enabled, uint32 count)
-{
-    FUNCTION_MARKER(0x8001E400, "SLUS_003.73");
-    return SpawnFireCycle((const uint32 *)psx_addr(position, 12), size, enabled, count);
-}
+
 
 extern "C" uint32 apocalypse_fire_cycle_spawn_native(const uint32 position[3], uint32 size, uint32 enabled, uint32 count)
 {

@@ -6,7 +6,9 @@ extern "C"
 #include "psx.h"
 }
 
-class OrbitCamera
+#include "object.h"
+
+class OrbitCamera : public Object
 {
 public:
     OrbitCamera(const uint32 *position, uint32 radius, uint32 height);

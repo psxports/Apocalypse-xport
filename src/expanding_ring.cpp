@@ -71,8 +71,9 @@ uint32 ExpandingRing::Destroy(uint32 reason)
 
 uint32 ExpandingRing::Update()
 {
+    uint32 trig_angle;
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 radius, speed, maximum, fade, angle, step, table, product, count;
+    uint32 radius, speed, maximum, fade, angle, step, product, count;
     uint32 result, destination, index, offset, x, y, z;
     sint16 trigonometric_value;
     FUNCTION_MARKER(0x8001EE9C, "SLUS_003.73");
@@ -90,8 +91,8 @@ uint32 ExpandingRing::Update()
     radius = r_u32(object + 104);
     fade = Divide((sint32)((maximum - radius) << 8), (sint32)maximum);
     angle = r_u32(object + 112);
-    table = 0x800F863C + ((angle & 4095) << 2);
-    trigonometric_value = (sint16)r_u16(table + 2);
+    trig_angle = angle & 4095;
+    trigonometric_value = rcos(trig_angle);
     product = radius * (uint32)(sint32)trigonometric_value;
     count = r_u32(object + 76);
     step = Divide(4096, (sint32)count);
@@ -100,7 +101,7 @@ uint32 ExpandingRing::Update()
     result = (uint32)((sint32)product >> 12) << 12;
     x = r_u32(object + 24);
     w_u32(object + 84, x + result);
-    trigonometric_value = (sint16)r_u16(table);
+    trigonometric_value = rsin(trig_angle);
     radius = r_u32(object + 104);
     result = ProjectRadius(radius, trigonometric_value);
     z = r_u32(object + 32);
@@ -135,14 +136,14 @@ uint32 ExpandingRing::Update()
             }
             else
             {
-                table = 0x800F863C + ((angle & 4095) << 2);
-                trigonometric_value = (sint16)r_u16(table + 2);
+                trig_angle = angle & 4095;
+                trigonometric_value = rcos(trig_angle);
                 radius = r_u32(object + 104);
                 destination = r_u32(object + 80) + offset;
                 product = ProjectRadius(radius, trigonometric_value);
                 x = r_u32(object + 24);
                 w_u32(destination, x + product);
-                trigonometric_value = (sint16)r_u16(table);
+                trigonometric_value = rsin(trig_angle);
                 radius = r_u32(object + 104);
                 destination = r_u32(object + 80) + offset;
                 product = ProjectRadius(radius, trigonometric_value);
@@ -188,13 +189,7 @@ uint32 ExpandingRing::ReadPosition(uint32 guest, const sint32 *native, uint32 in
     return value;
 }
 
-extern "C" uint32 sub_8001ECFC(uint32 object, uint32 position, uint32 scale, uint32 red, uint32 green, uint32 blue, uint32 count, uint32 tail)
-{
-    FUNCTION_MARKER(0x8001ECFC, "SLUS_003.73");
-    void *storage = AllocateNativeObjectStorage(object, sizeof(ExpandingRing));
-    new (storage) ExpandingRing((const sint32 *)psx_addr(position, 12), scale, red, green, blue, count, tail);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_effect_1ECFC_native(uint32 object, const sint32 position[3], uint32 scale, uint32 red, uint32 green, uint32 blue, uint32 count, uint32 tail)
 {

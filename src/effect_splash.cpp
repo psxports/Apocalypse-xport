@@ -1,3 +1,4 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -20,10 +21,11 @@ static uint32 ReadSplashPosition(uint32 guest, const uint32 *native, uint32 axis
 Droplet::Droplet(const uint32 *position, uint32 angle, uint32 red, uint32 green, uint32 blue)
     : Sprite()
 {
+    uint32 trig_angle;
     uint32 object = NativeObjectGuestAddress(this);
     uint32 guest_position = GuestMemoryAddress(position);
     const uint32 *native_position = guest_position ? 0 : position;
-    uint32 x, y, z, random, table, coefficient, value, camera;
+    uint32 x, y, z, random, coefficient, value, camera;
     FUNCTION_MARKER(0x8001F0D8, "SLUS_003.73");
     w_u32(object + 68, 0x800A10DC);
     x = ReadSplashPosition(guest_position, native_position, 0);
@@ -43,20 +45,20 @@ Droplet::Droplet(const uint32 *position, uint32 angle, uint32 red, uint32 green,
     w_u16(object + 94, 700);
     AddFlags(8);
     random = RandomRange(50);
-    table = 0x800F863C + (angle & 4095) * 4;
-    coefficient = (uint32)(sint32)(sint16)r_u16(table);
+    trig_angle = angle & 4095;
+    coefficient = (uint32)rsin(trig_angle);
     w_u32(object + 36, coefficient * random);
     random = RandomRange(30);
     w_u32(object + 40, 0 - ((random + 20) << 12));
     random = RandomRange(50);
-    coefficient = (uint32)(sint32)(sint16)r_u16(table + 2);
+    coefficient = (uint32)rcos(trig_angle);
     value = coefficient * random;
     w_u32(object + 52, 24576);
     w_u8(object + 60, 3);
     w_u32(object + 44, value);
     w_u8(object + 61, 3);
     w_u8(object + 62, 3);
-    camera = r_u32(0x800FF904);
+    camera = visual_lists.cameras;
     value = (uint32)(sint32)(sint16)r_u16(camera + 18);
     value = (angle + 2048 - value) & 4095;
     w_u16(object + 98, value < 2048 ? 137 : (uint32)-137);
@@ -65,9 +67,10 @@ Droplet::Droplet(const uint32 *position, uint32 angle, uint32 red, uint32 green,
 
 uint32 CreateSplash(const uint32 *position)
 {
+    uint32 trig_angle;
     uint32 guest_position = GuestMemoryAddress(position);
     const uint32 *native_position = guest_position ? 0 : position;
-    uint32 point[3], effect, index, angle, table, first, second, x, z;
+    uint32 point[3], effect, index, angle, first, second, x, z;
     sint32 quotient;
     FUNCTION_MARKER(0x8001F52C, "SLUS_003.73");
     point[0] = ReadSplashPosition(guest_position, native_position, 0);
@@ -85,9 +88,9 @@ uint32 CreateSplash(const uint32 *position)
     for (index = 0; index < 30; ++index)
     {
         angle = RandomRange(4096);
-        table = 0x800F863C + (angle & 4095) * 4;
-        first = (uint32)(sint32)(sint16)r_u16(table) * 100;
-        second = (uint32)(sint32)(sint16)r_u16(table + 2) * 100;
+        trig_angle = angle & 4095;
+        first = (uint32)rsin(trig_angle) * 100;
+        second = (uint32)rcos(trig_angle) * 100;
         x = ReadSplashPosition(guest_position, native_position, 0);
         quotient = (sint32)first / 4096;
         point[0] = x + ((uint32)quotient << 12);
@@ -104,19 +107,9 @@ uint32 CreateSplash(const uint32 *position)
     return 0;
 }
 
-extern "C" uint32 sub_8001F0D8(uint32 object, uint32 position, uint32 angle, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x8001F0D8, "SLUS_003.73");
-    void *storage = AllocateNativeObjectStorage(object, sizeof(Droplet));
-    new (storage) Droplet((const uint32 *)psx_addr(position, 12), angle, red, green, blue);
-    return object;
-}
 
-extern "C" uint32 sub_8001F52C(uint32 position)
-{
-    FUNCTION_MARKER(0x8001F52C, "SLUS_003.73");
-    return CreateSplash((const uint32 *)psx_addr(position, 12));
-}
+
+
 
 extern "C" uint32 apocalypse_splash_native(const uint32 position[3])
 {

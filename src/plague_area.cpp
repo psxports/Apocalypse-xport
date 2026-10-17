@@ -1,3 +1,4 @@
+#include "visual_object.h"
 #include "plague_area.h"
 #include "native_object_storage.h"
 #include "effect_lifecycle.h"
@@ -36,7 +37,7 @@ void PlagueArea::Update()
     sint16 direction[3];
     FUNCTION_MARKER(0x80047844, "SLUS_003.73");
     age = r_u16(object + 8);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     w_u16(object + 8, age + 1);
     if (player)
     {
@@ -45,7 +46,7 @@ void PlagueArea::Update()
         radius = (uint32)((sint32)(radius << 7) >> 7);
         if (distance < radius)
         {
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             if (r_u16(player + 216) & 2)
                 ApplyObjectDamage(player, 1, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
         }

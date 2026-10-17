@@ -14,30 +14,45 @@ extern "C"
 #include "game_heap.h"
 #include <new>
 
+static uint32 menu_repeat;
+
+void ResetMenuRepeat()
+{
+    menu_repeat = 0;
+}
+
 MenuWindow::MenuWindow(uint32 x, uint32 y, uint32 mode, uint32 selected_scale, uint32 unselected_scale, uint32 spacing)
 {
     FUNCTION_MARKER(0x80015228, "SLUS_003.73");
     uint32 object = NativeObjectGuestAddress(this);
     w_u32(object, 0x800A05C4);
-    w_u32(object + 12, x);
-    w_u32(object + 16, y);
-    w_u8(object + 4, mode);
-    w_u32(object + 20, spacing);
+    this->pos[0] = x;
+    this->pos[1] = y;
+    this->alignment = mode;
+    this->spacing = spacing;
+    this->has_arrows = 0;
+    this->arrow_item = 0;
+    this->numbered = 0;
+    this->count = 0;
+    const MenuItem empty = {0};
+    for (uint32 index = 0; index < 15; ++index)
+        this->items[index] = empty;
     for (uint32 index = 0; index < 15; ++index)
     {
-        uint32 row = object + index * 28;
-        w_u16(row + 46, 0);
-        w_u16(row + 48, 0);
-        w_u8(row + 38, 200);
-        w_u8(row + 39, 200);
-        w_u8(row + 40, 200);
-        w_u8(row + 41, 128);
-        w_u8(row + 42, 128);
-        w_u8(row + 43, 128);
-        w_u8(row + 44, 128);
+        this->items[index].label = 0;
+        MenuItem *row = this->items + index;
+        row->pulse = 0;
+        row->glow = 0;
+        row->color[0][0] = 200;
+        row->color[0][1] = 200;
+        row->color[0][2] = 200;
+        row->color[1][0] = 128;
+        row->color[1][1] = 128;
+        row->color[1][2] = 128;
+        row->brightness = 128;
         // TODO Confirm the original units of these selection scale values
-        w_u16(row + 32, selected_scale);
-        w_u16(row + 34, unselected_scale);
+        row->selected_scale = selected_scale;
+        row->unselected_scale = unselected_scale;
     }
     ResetSelection();
 }
@@ -60,41 +75,39 @@ uint32 MenuWindow::Destroy(uint32 reason)
 uint32 MenuWindow::CenterVertical(void)
 {
     FUNCTION_MARKER(0x800152F8, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 rows = r_u8(object + 10);
+    uint32 rows = this->count;
     uint32 enabled = 0, height = 0;
     for (uint32 index = 0; index < rows; ++index)
     {
-        uint32 row = object + index * 28;
-        if (r_u8(row + 37))
+        MenuItem *row = this->items + index;
+        if (row->enabled)
         {
             ++enabled;
-            height += r_u8(row + 36);
+            height += row->height;
         }
     }
-    uint32 spacing = r_u32(object + 20);
+    uint32 spacing = this->spacing;
     uint32 span = (enabled - 1) * spacing + height;
     uint32 result = (uint32)((sint32)(240 - span) / 2);
-    w_u32(object + 16, result);
+    this->pos[1] = result;
     return result;
 }
 
 uint32 MenuWindow::ResetSelection(uint32 selected)
 {
     FUNCTION_MARKER(0x80015374, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    w_u8(object + 6, selected);
+    this->selected = selected;
     for (uint32 index = 0; index < 15; ++index)
     {
-        uint32 row = object + index * 28;
-        uint32 selection = r_u8(object + 6);
-        uint32 scale = r_u16(row + (index == selection ? 32 : 34));
-        w_u16(row + 30, scale);
-        scale = r_u16(row + 30);
-        w_u16(row + 46, 0);
-        w_u16(row + 48, 0);
-        w_u8(row + 44, 128);
-        w_u16(row + 28, scale);
+        MenuItem *row = this->items + index;
+        uint32 selection = this->selected;
+        uint32 scale = (index == selection ? row->selected_scale : row->unselected_scale);
+        row->target_scale = scale;
+        scale = row->target_scale;
+        row->pulse = 0;
+        row->glow = 0;
+        row->brightness = 128;
+        row->scale = scale;
     }
     return 0;
 }
@@ -143,83 +156,86 @@ static const char *MapMenuItemLabel(uint32 label)
     return label ? (const char *)psx_addr(label, 1) : 0;
 }
 
+const char *MenuWindow::GetItemLabel(uint32 idx) const
+{
+    if (idx >= 15)
+    {
+        GameDiagnostic("Menu item index out of bounds\n");
+        abort();
+    }
+    return this->items[idx].label;
+}
+
+const char *MenuWindow::GetSelectedLabel() const
+{
+    return GetItemLabel(selected);
+}
+
 uint32 MenuWindow::FindItem(const char *label)
 {
     FUNCTION_MARKER(0x800153F8, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    if (!r_u8(object + 10))
+    if (!this->count)
         return 0;
     uint32 index = 0;
-    uint32 row = object;
     for (;;)
     {
-        uint32 stored_label = r_u32(row + 24);
-        if (NamesEqualIgnoringCase(label, MapMenuItemLabel(stored_label)))
+        if (NamesEqualIgnoringCase(label, GetItemLabel(index)))
             return index;
-        uint32 count = r_u8(object + 10);
+        uint32 count = this->count;
         ++index;
         if (index >= count)
             return 0;
-        row += 28;
     }
 }
 
 uint32 MenuWindow::AddItem(const char *label)
 {
     FUNCTION_MARKER(0x80015474, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 label_address = label ? GuestMemoryAddress(label) : 0;
-    // TODO Persistent menu labels must remain in mapped game memory
-    if (label && !label_address)
+    uint32 count = this->count;
+    if (count >= 15)
     {
-        GameDiagnostic("TODO Unmapped persistent menu label\n");
+        GameDiagnostic("Menu item capacity exceeded\n");
         abort();
     }
-    uint32 count = r_u8(object + 10);
-    w_u32(object + count * 28 + 24, label_address);
-    count = r_u8(object + 10);
-    w_u8(object + count * 28 + 37, 1);
-    count = r_u8(object + 10);
-    w_u8(object + count * 28 + 36, 0);
-    uint32 result = r_u8(object + 10) + 1;
-    w_u8(object + 10, result);
+    this->items[count].label = label;
+    count = this->count;
+    this->items[count].enabled = 1;
+    count = this->count;
+    this->items[count].height = 0;
+    uint32 result = this->count + 1;
+    this->count = result;
     return result;
 }
 
 uint32 MenuWindow::EnableItem(const char *label)
 {
     FUNCTION_MARKER(0x800154E0, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
     uint32 index = FindItem(label);
-    w_u8(object + index * 28 + 37, 1);
+    this->items[index].enabled = 1;
     return 1;
 }
 
 uint32 MenuWindow::DisableItem(const char *label)
 {
     FUNCTION_MARKER(0x8001551C, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
     uint32 index = FindItem(label);
-    w_u8(object + index * 28 + 37, 0);
+    this->items[index].enabled = 0;
     return index;
 }
 
 uint32 MenuWindow::SetItemHeight(const char *label, uint32 height)
 {
     FUNCTION_MARKER(0x80015590, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
     uint32 index = FindItem(label);
-    w_u8(object + index * 28 + 36, height);
+    this->items[index].height = height;
     return index;
 }
 
 uint32 MenuWindow::IsSelected(const char *label)
 {
     FUNCTION_MARKER(0x800155D4, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 selected = r_u8(object + 6);
-    uint32 stored_label = r_u32(object + selected * 28 + 24);
-    return NamesEqualIgnoringCase(label, MapMenuItemLabel(stored_label));
+    uint32 selected = this->selected;
+    return NamesEqualIgnoringCase(label, GetItemLabel(selected));
 }
 
 extern "C" uint32 sub_800153F8(uint32 object, uint32 label)
@@ -280,42 +296,36 @@ static void StoreMenuPositionOutput(uint32 *output, uint32 value)
 uint32 MenuWindow::GetItemPosition(const char *label, uint32 *x, uint32 *y)
 {
     FUNCTION_MARKER(0x80015614, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    StoreMenuPositionOutput(x, r_u32(object + 12));
-    StoreMenuPositionOutput(y, r_u32(object + 16));
-    uint32 result = r_u8(object + 10);
+    StoreMenuPositionOutput(x, this->pos[0]);
+    StoreMenuPositionOutput(y, this->pos[1]);
+    uint32 result = this->count;
     if (!result)
         return result;
     uint32 index = 0;
-    uint32 row = object;
+    MenuItem *row = this->items;
     do
     {
-        if (r_u8(row + 37))
+        if (row->enabled)
         {
-            uint32 height = r_u8(row + 36);
+            uint32 height = row->height;
             uint32 position = ReadMenuPositionOutput(y);
             StoreMenuPositionOutput(y, position + height);
-            uint32 stored_label = r_u32(row + 24);
-            result = NamesEqualIgnoringCase(label, MapMenuItemLabel(stored_label));
+            result = NamesEqualIgnoringCase(label, GetItemLabel(index));
             if (result)
                 return result;
             position = ReadMenuPositionOutput(y);
-            uint32 spacing = r_u32(object + 20);
+            uint32 spacing = this->spacing;
             StoreMenuPositionOutput(y, position + spacing);
         }
-        uint32 count = r_u8(object + 10);
+        uint32 count = this->count;
         ++index;
         result = index < count;
-        row += 28;
+        ++row;
     } while (result);
     return result;
 }
 
-extern "C" uint32 sub_80015614(uint32 object, uint32 label, uint32 x, uint32 y)
-{
-    FUNCTION_MARKER(0x80015614, "SLUS_003.73");
-    return MenuWindow::Attach(object).GetItemPosition(MapMenuItemLabel(label), (uint32 *)psx_addr(x, 4), (uint32 *)psx_addr(y, 4));
-}
+
 
 extern "C" uint32 xport_draft_host_sub_80015614_p34(uint32 object, uint32 label, void *x, void *y)
 {
@@ -326,20 +336,17 @@ extern "C" uint32 xport_draft_host_sub_80015614_p34(uint32 object, uint32 label,
 uint32 MenuWindow::Draw(void)
 {
     FUNCTION_MARKER(0x800156E0, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 row_height, enabled, red, green, blue, brightness, label_address, numbered, draw_color, draw_glow;
+    uint32 row_height, enabled, red, green, blue, brightness, numbered, draw_color, draw_glow;
     sint32 current_pulse, current_glow, current_scale, unselected_scale;
     uint32 pulse_bits, glow_bits;
     sint32 index;
-    uint32 row;
+    MenuItem *row;
     uint32 y;
     sint32 result;
     short pulse;
     short glow;
     unsigned char fade;
     const char *text;
-    uint32 name;
-    sint32 length_cursor;
     sint32 length;
     char *suffix;
     sint32 text_scale;
@@ -355,94 +362,86 @@ uint32 MenuWindow::Draw(void)
     uint32 link;
     char numbered_label[104];
     index = 0;
-    SetHudTextAlignment(r_u8(((uint32)((object + 4)))));
-    row = object;
-    y = r_u32(((uint32)((object + 16))));
+    SetHudTextAlignment(this->alignment);
+    row = this->items;
+    y = this->pos[1];
     while (1)
     {
-        result = (index < r_u8(((uint32)((object + 10)))));
+        result = (index < this->count);
         if (!result)
             return result;
-        row_height = r_u8(row + 36);
-        enabled = r_u8(row + 37);
+        row_height = row->height;
+        enabled = row->enabled;
         y += row_height;
         if (!enabled)
             goto LABEL_37;
-        if (((sint16)r_u16(((uint32)((row + 28)))) > 0))
+        if (((sint16)row->scale > 0))
         {
-            if ((index == r_u8(((uint32)((object + 6))))))
+            if ((index == this->selected))
             {
-                red = r_u8(row + 38);
-                green = r_u8(row + 39);
-                blue = r_u8(row + 40);
+                red = row->color[0][0];
+                green = row->color[0][1];
+                blue = row->color[0][2];
                 SetHudTextColor(red, green, blue, 0);
-                current_pulse = (sint16)r_u16(row + 46);
-                pulse_bits = r_u16(row + 46);
+                current_pulse = (sint16)row->pulse;
+                pulse_bits = row->pulse;
                 pulse = (sint16)(pulse_bits - 16);
                 if (current_pulse < 129)
                 {
                 LABEL_9:
-                    if (((sint16)r_u16(((uint32)((row + 46)))) < 128))
-                        w_u16(((uint32)((row + 46))), 255);
+                    if (((sint16)row->pulse < 128))
+                        row->pulse = 255;
                 }
                 else
                 {
-                    w_u16(((uint32)((row + 46))), pulse);
+                    row->pulse = pulse;
                     if ((pulse < 128))
                     {
-                        w_u16(((uint32)((row + 46))), 128);
+                        row->pulse = 128;
                         goto LABEL_9;
                     }
                 }
-                current_glow = (sint16)r_u16(row + 48);
-                glow_bits = r_u16(row + 48);
+                current_glow = (sint16)row->glow;
+                glow_bits = row->glow;
                 glow = (sint16)(glow_bits + 32);
                 if (current_glow < 256)
                 {
-                    w_u16(((uint32)((row + 48))), glow);
+                    row->glow = glow;
                     if ((glow >= 257))
-                        w_u16(((uint32)((row + 48))), 256);
+                        row->glow = 256;
                 }
-                w_u8(((uint32)((row + 44))), 0);
+                row->brightness = 0;
             }
             else
             {
-                red = r_u8(row + 41);
-                brightness = r_u8(row + 44);
-                green = r_u8(row + 42);
-                blue = r_u8(row + 43);
+                red = row->color[1][0];
+                brightness = row->brightness;
+                green = row->color[1][1];
+                blue = row->color[1][2];
                 SetHudTextColor((red * brightness >> 7) & 255, (green * brightness >> 7) & 255, (blue * brightness >> 7) & 255, 0);
-                fade = (r_u8(((uint32)((row + 44)))) + 6);
-                w_u8(((uint32)((row + 44))), fade);
+                fade = (row->brightness + 6);
+                row->brightness = fade;
                 if ((fade >= 0x81))
-                    w_u8(((uint32)((row + 44))), 0x80);
-                current_pulse = (sint16)r_u16(row + 46);
-                pulse_bits = r_u16(row + 46);
+                    row->brightness = 0x80;
+                current_pulse = (sint16)row->pulse;
+                pulse_bits = row->pulse;
                 if (current_pulse < 16)
-                    w_u16(((uint32)((row + 46))), 0);
+                    row->pulse = 0;
                 else
-                    w_u16(row + 46, pulse_bits - 16);
-                if ((sint16)r_u16(((uint32)((row + 46)))))
-                    w_u16(((uint32)((row + 48))), 256);
+                    row->pulse = pulse_bits - 16;
+                if ((sint16)row->pulse)
+                    row->glow = 256;
                 else
-                    w_u16(((uint32)((row + 48))), 0);
+                    row->glow = 0;
             }
-            current_scale = (sint16)r_u16(row + 28);
-            unselected_scale = (sint16)r_u16(row + 34);
+            current_scale = (sint16)row->scale;
+            unselected_scale = (sint16)row->unselected_scale;
             SetHudTextDepth(unselected_scale >= current_scale);
-            numbered = r_u8(object + 9);
-            label_address = r_u32(row + 24);
-            text = MapMenuItemLabel(label_address);
+            numbered = this->numbered;
+            text = GetItemLabel(index);
             if (numbered && !NamesEqualIgnoringCase(text, MapMenuItemLabel(r_u32(0x800A5660))))
             {
-                name = r_u32(((uint32)((row + 24))));
-                length_cursor = 1;
-                if (r_u8(name))
-                {
-                    while (r_u8((name + (length_cursor++) * 1)))
-                        ;
-                }
-                length = (length_cursor - 1);
+                length = (sint32)strlen(text);
                 text = numbered_label;
                 // TODO Original numbered-label local buffer can overflow
                 if ((uint32)length + 3 > sizeof(numbered_label))
@@ -450,24 +449,24 @@ uint32 MenuWindow::Draw(void)
                     GameDiagnostic("TODO Numbered menu label exceeds original local buffer\n");
                     abort();
                 }
-                CopyGameString(MapMenuItemLabel(r_u32(row + 24)), numbered_label);
+                CopyGameString(GetItemLabel(index), numbered_label);
                 numbered_label[length] = 32;
                 suffix = &numbered_label[(length + 1)];
                 *suffix = (char)(index + 49);
                 suffix[1] = 0;
             }
-            SetHudTextScale((sint16)r_u16(((uint32)((row + 32)))));
+            SetHudTextScale((sint16)row->selected_scale);
             if ((MeasureStyledHudText(text) < 491))
-                text_scale = (sint16)r_u16(((uint32)((row + 28))));
+                text_scale = (sint16)row->scale;
             else
-                text_scale = (sint16)r_u16(((uint32)((row + 34))));
+                text_scale = (sint16)row->unselected_scale;
             SetHudTextScale(text_scale);
-            draw_color = (uint32)(sint32)(sint16)r_u16(row + 46);
-            draw_glow = (uint32)(sint32)(sint16)r_u16(row + 48);
-            width = (sint32)DrawStyledHudText(r_u32(object + 12), y, text, 0, draw_color, draw_glow);
-            if (((r_u8(((uint32)((object + 7)))) && (index == r_u8(((uint32)((object + 8)))))) && !(r_u8(((uint32)((object + 4)))))))
+            draw_color = (uint32)(sint32)(sint16)row->pulse;
+            draw_glow = (uint32)(sint32)(sint16)row->glow;
+            width = (sint32)DrawStyledHudText(this->pos[0], y, text, 0, draw_color, draw_glow);
+            if (((this->has_arrows && (index == this->arrow_item)) && !(this->alignment)))
             {
-                current_scale = (sint16)r_u16(row + 28);
+                current_scale = (sint16)row->scale;
                 arrow_offset = (uint32)((sint32)((uint32)width * (uint32)current_scale) / 512) + (uint32)((sint32)((uint32)current_scale * 14) / 256);
                 left_arrow = r_u32(0x800FF668);
                 right_arrow = left_arrow + 20;
@@ -481,7 +480,7 @@ uint32 MenuWindow::Draw(void)
                     w_u8(left_arrow + 4, 255);
                     w_u8(left_arrow + 5, 0);
                     w_u8(((uint32)((left_arrow + 6))), 0);
-                    left_center = r_u16(((uint32)((object + 12))));
+                    left_center = (uint16)this->pos[0];
                     w_u16(((uint32)((left_arrow + 10))), y);
                     w_u16(((uint32)((left_arrow + 8))), (left_center - arrow_offset));
                     w_u16(((uint32)((left_arrow + 14))), (y - 6));
@@ -493,7 +492,7 @@ uint32 MenuWindow::Draw(void)
                     w_u8(right_arrow + 4, 255);
                     w_u8(right_arrow + 5, 0);
                     w_u8(((uint32)((right_arrow + 6))), 0);
-                    right_center = r_u16(((uint32)((object + 12))));
+                    right_center = (uint16)this->pos[0];
                     w_u16(((uint32)((right_arrow + 10))), y);
                     w_u16(((uint32)((right_arrow + 8))), (right_center + arrow_offset));
                     w_u16(((uint32)((right_arrow + 14))), (y - 6));
@@ -511,126 +510,122 @@ uint32 MenuWindow::Draw(void)
                 }
             }
         }
-        y += r_u32(((uint32)((object + 20))));
+        y += this->spacing;
     LABEL_37:
-        row += 28;
+        ++row;
 
         ++index;
     }
 }
 
-extern "C" uint32 sub_800156E0(uint32 object)
-{
-    FUNCTION_MARKER(0x800156E0, "SLUS_003.73");
-    return MenuWindow::Attach(object).Draw();
-}
+
 
 uint32 MenuWindow::Update(void)
 {
-    uint32 menu = NativeObjectGuestAddress(this);
     uint32 current_word, target_word;
-    uint32 row, selection, count, repeat, previous, next, index;
+    uint32 selection, count, repeat, previous, next, index;
+    MenuItem *row;
     sint32 current, target;
     sint16 stepped;
     FUNCTION_MARKER(0x80015BA4, "SLUS_003.73");
     // TODO Original selection traversal requires at least one enabled row
     for (;;)
     {
-        row = menu + 28 * r_u8(menu + 6);
-        if (r_u8(row + 37))
+        row = this->items + this->selected;
+        if (row->enabled)
             break;
-        w_u16(row + 30, r_u16(row + 34));
-        row = menu + 28 * r_u8(menu + 6);
-        w_u16(row + 28, r_u16(row + 34));
-        selection = r_u8(menu + 6) + 1;
-        count = r_u8(menu + 10);
-        w_u8(menu + 6, selection);
+        row->target_scale = row->unselected_scale;
+        row = this->items + this->selected;
+        row->scale = row->unselected_scale;
+        selection = this->selected + 1;
+        count = this->count;
+        this->selected = selection;
         if ((uint8)selection >= count)
-            w_u8(menu + 6, 0);
-        row = menu + 28 * r_u8(menu + 6);
-        w_u16(row + 30, r_u16(row + 32));
-        row = menu + 28 * r_u8(menu + 6);
-        w_u16(row + 28, r_u16(row + 34));
+            this->selected = 0;
+        row = this->items + this->selected;
+        row->target_scale = row->selected_scale;
+        row = this->items + this->selected;
+        row->scale = row->unselected_scale;
     }
     previous = r_u8(0x800EC198);
     next = previous ? 0 : r_u8(0x800EC1A8);
     if (previous || next)
     {
-        repeat = r_u32(0x800FF014);
+        repeat = menu_repeat;
         if (!repeat || ((sint32)repeat >= 11 && !(repeat & 1)))
         {
             if (previous)
             {
-                row = menu + 28 * r_u8(menu + 6);
-                w_u16(row + 30, r_u16(row + 34));
+                row = this->items + this->selected;
+                row->target_scale = row->unselected_scale;
                 do
                 {
-                    selection = r_u8(menu + 6);
-                    selection = selection ? selection - 1 : r_u8(menu + 10) - 1;
-                    w_u8(menu + 6, selection);
-                    row = menu + 28 * r_u8(menu + 6);
-                } while (!r_u8(row + 37));
-                w_u16(row + 30, r_u16(row + 32));
+                    selection = this->selected;
+                    selection = selection ? selection - 1 : this->count - 1;
+                    this->selected = selection;
+                    row = this->items + this->selected;
+                } while (!row->enabled);
+                row->target_scale = row->selected_scale;
                 PlaySoundEffect(26, 0x2000, 0);
             }
             if (r_u8(0x800EC1A8))
             {
-                row = menu + 28 * r_u8(menu + 6);
-                w_u16(row + 30, r_u16(row + 34));
-                count = r_u8(menu + 10);
+                row = this->items + this->selected;
+                row->target_scale = row->unselected_scale;
+                count = this->count;
                 do
                 {
-                    selection = r_u8(menu + 6) + 1;
-                    w_u8(menu + 6, selection);
+                    selection = this->selected + 1;
+                    this->selected = selection;
                     if ((uint8)selection >= count)
-                        w_u8(menu + 6, 0);
-                    row = menu + 28 * r_u8(menu + 6);
-                } while (!r_u8(row + 37));
-                w_u16(row + 30, r_u16(row + 32));
+                        this->selected = 0;
+                    row = this->items + this->selected;
+                } while (!row->enabled);
+                row->target_scale = row->selected_scale;
                 PlaySoundEffect(26, 0x2000, 0);
             }
         }
-        repeat = r_u32(0x800FF014);
-        w_u32(0x800FF014, repeat + 1);
+        repeat = menu_repeat;
+        menu_repeat = repeat + 1;
     }
     else
-        w_u32(0x800FF014, 0);
-    count = r_u8(menu + 10);
+        menu_repeat = 0;
+    count = this->count;
     if (!count)
         return 0;
-    row = menu;
+    row = this->items;
     index = 0;
     for (;;)
     {
-        current = (sint16)r_u16(row + 28);
-        target = (sint16)r_u16(row + 30);
-        current_word = r_u16(row + 28);
+        current = (sint16)row->scale;
+        target = (sint16)row->target_scale;
+        current_word = row->scale;
         if (current < target)
         {
             stepped = (sint16)(current_word + 40);
-            w_u16(row + 28, (uint16)stepped);
-            target = (sint16)r_u16(row + 30);
-            target_word = r_u16(row + 30);
+            row->scale = (uint16)stepped;
+            target = (sint16)row->target_scale;
+            target_word = row->target_scale;
             if (target >= stepped)
                 goto next_row;
-            w_u16(row + 28, target_word);
+            row->scale = target_word;
         }
-        current = (sint16)r_u16(row + 28);
-        target = (sint16)r_u16(row + 30);
-        current_word = r_u16(row + 28);
+        current = (sint16)row->scale;
+        target = (sint16)row->target_scale;
+        current_word = row->scale;
         if (target < current)
         {
             stepped = (sint16)(current_word - 40);
-            w_u16(row + 28, (uint16)stepped);
-            target = (sint16)r_u16(row + 30);
-            target_word = r_u16(row + 30);
+            row->scale = (uint16)stepped;
+            target = (sint16)row->target_scale;
+            target_word = row->target_scale;
             if (stepped < target)
-                w_u16(row + 28, target_word);
+                row->scale = target_word;
         }
     next_row:
-        count = r_u8(menu + 10);
+        count = this->count;
         ++index;
-        row += 28;
+        ++row;
         if ((sint32)index >= (sint32)count)
             return 0;
     }

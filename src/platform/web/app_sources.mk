@@ -103,6 +103,7 @@ APP_SOURCES := \
 	../../pickup_effects.cpp \
 	../../model_projection.cpp \
 	../../main_menu.cpp \
+	../../model_render_view.cpp \
 	../../model_render.cpp \
 	../../model_scratch_packets.cpp \
 	../../model_shadow.cpp \
@@ -148,6 +149,15 @@ APP_SOURCES := \
 	../../game_panel.cpp \
 	../../hud_sprites.cpp \
 	../../model_resources.cpp \
+	../../model_vram.cpp \
+	../../model_grid.cpp \
+	../../model_animation_data.cpp \
+	../../model_attachment_data.cpp \
+	../../model_hierarchy.cpp \
+	../../model_materials.cpp \
+	../../model_geometry.cpp \
+	../../texture_resources.cpp \
+	../../model_keys.cpp \
 	../../palette_resources.cpp \
 	../../audio_session.cpp \
 	../../audio_voice.cpp \
@@ -169,6 +179,8 @@ APP_SOURCES := \
 	../../world_gravity.cpp \
 	../../game_random.cpp \
 	../../startup_resources.cpp \
+	../../level_catalogue.cpp \
+	../../startup_image.cpp \
 	../../movie_lifecycle.cpp \
 	../../mesh_ring_effect.cpp \
 	../../ring_attack.cpp \

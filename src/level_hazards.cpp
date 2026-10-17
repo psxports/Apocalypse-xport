@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "angle_math.h"
 #include "game_sdk_bindings.h"
 #include "fire_cycle.h"
 #include "audio_session.h"
@@ -50,24 +52,24 @@ FloatingHazard::FloatingHazard(const uint8 *record_data, uint32 index) : Enemy()
     bank = r_u32(0x800FF62C);
     w_u32(object + 68, 0x800A2908);
     sub_800626C8(object, bank);
-    animation = sub_8006E080(0xB9E8D489, r_u8(0x800FF644));
-    flags = r_u16(object);
-    w_u16(object + 22, animation);
-    w_u16(object, (flags & 0xFFFD) | 8);
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
+    animation = ::FindModelResourceIndex(0xB9E8D489, r_u8(0x800FF644));
+    flags = this->model.flags;
+    this->model.model_idx = animation;
+    this->model.flags = (flags & 0xFFFD) | 8;
+    AddToList(visual_lists.actors);
     w_u16(object + 212, 64);
     w_u16(object + 218, 20);
-    w_u16(object + 58, 9);
+    this->kind = 9;
     const uint8 *angles = ReadPosition(record_data);
     const uint8 *script = ReadAngles(angles);
     w_u32(object + 400, GuestMemoryAddress(script));
-    w_u16(object + 214, index);
-    w_u8(object + 129, 2);
-    w_u8(object + 130, 2);
-    w_u8(object + 131, 2);
-    w_u8(object + 144, 16);
-    w_u8(object + 145, 16);
-    w_u8(object + 146, 16);
+    this->record_idx = index;
+    motion.drag[0] = 2;
+    motion.drag[1] = 2;
+    motion.drag[2] = 2;
+    motion.angular_drag[0] = 16;
+    motion.angular_drag[1] = 16;
+    motion.angular_drag[2] = 16;
     cursor = r_u32(object + 400);
     w_u16(object + 436, 12);
     w_u16(object + 438, 256);
@@ -82,7 +84,7 @@ uint32 FloatingHazard::Destroy(uint32 reason)
     uint32 result;
     FUNCTION_MARKER(0x8005A74C, "SLUS_003.73");
     w_u32(object + 68, 0x800A2908);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     result = Enemy::Destroy(0);
     if (reason & 1)
         result = ReleaseObjectStorage(object);
@@ -141,18 +143,18 @@ uint32 FloatingHazard::UpdateHeight()
         if (!result || state)
             return result;
         result = r_u16(object + 474) + 1;
-        w_u32(object + 120, 24576);
+        motion.acceleration[1] = 24576;
         w_u16(object + 474, result);
     }
-    y = r_u32(object + 8);
+    y = this->model.pos[1];
     floor = r_u32(0x800FF37C);
     result = (sint32)floor < (sint32)y;
     if (result)
     {
         result = r_u16(object + 474);
-        w_u32(object + 120, 0);
-        w_u32(object + 108, 0);
-        w_u32(object + 8, floor);
+        motion.acceleration[1] = 0;
+        motion.velocity[1] = 0;
+        this->model.pos[1] = floor;
         ++result;
         w_u16(object + 474, result);
     }
@@ -165,18 +167,18 @@ uint32 FloatingHazard::Update()
     uint32 flags, value, player, damage, distance, phase, height, y;
     sint16 angles[4];
     FUNCTION_MARKER(0x8005A860, "SLUS_003.73");
-    if (!r_u32(object + 108))
+    if (!motion.velocity[1])
     {
-        y = r_u32(object + 8);
+        y = this->model.pos[1];
         height = r_u32(object + 500);
-        w_u32(object + 8, y - height);
+        this->model.pos[1] = y - height;
     }
-    flags = r_u16(object + 76);
+    flags = this->activation_flags;
     w_u16(object + 388, flags);
     if (flags & 1)
     {
         value = r_u8(object + 384);
-        w_u16(object + 76, flags & 0xFFFE);
+        this->activation_flags = flags & 0xFFFE;
         w_u8(object + 384, value + 1);
     }
     if (r_u8(object + 380))
@@ -189,7 +191,7 @@ uint32 FloatingHazard::Update()
     }
     else
         UpdateHeight();
-    if (r_u32(0x800FF5A0))
+    if (visual_lists.players)
     {
         value = r_u16(object + 438);
         distance = r_u32(object + 220);
@@ -197,39 +199,39 @@ uint32 FloatingHazard::Update()
         {
             Explode();
             damage = ScaleDamageForDifficulty(r_u16(object + 440));
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             ApplyObjectDamage(player, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
             FinishFromTable();
         }
     }
     if (r_u32(object + 396) & 1)
     {
-        distance = MeasurePositionDistance((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 484, 12));
+        distance = MeasurePositionDistance((const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 484, 12));
         if ((sint32)distance < 129)
             w_u32(object + 396, r_u32(object + 396) & ~1);
         else
         {
             xport_draft_host_sub_80066B8C_p1(angles, object + 4, object + 484);
-            xport_draft_host_sub_800667CC_p3(object + 116, r_u16(object + 436), angles);
+            BuildDirectionVector(motion.acceleration, r_u16(object + 436), (const uint16 *)angles);
         }
     }
     if (!RandomRange(64))
     {
         value = RandomRange(256) - 128;
-        w_u16(object + 132, 0);
-        w_u16(object + 134, value);
-        w_u16(object + 136, 0);
+        motion.angular_velocity[0] = 0;
+        motion.angular_velocity[1] = value;
+        motion.angular_velocity[2] = 0;
     }
-    if (!r_u32(object + 108))
+    if (!motion.velocity[1])
     {
         value = RandomRange(512);
         phase = (r_u16(object + 496) + value) & 4095;
         w_u16(object + 496, phase);
-        height = (uint32)(sint32)(sint16)r_u16(0x800F863C + phase * 4);
-        y = r_u32(object + 8);
+        height = (uint32)rsin(phase);
+        y = this->model.pos[1];
         height <<= 5;
         w_u32(object + 500, height);
-        w_u32(object + 8, y + height);
+        this->model.pos[1] = y + height;
     }
     return sub_8004B9A4(object);
 }
@@ -258,13 +260,7 @@ uint32 FloatingHazard::ExecuteCommand(uint32 command)
     return 1;
 }
 
-extern "C" uint32 sub_8005A630(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x8005A630, "SLUS_003.73");
-    void *native_instance_storage = AllocateNativeObjectStorage(object, sizeof(FloatingHazard));
-    new (native_instance_storage) FloatingHazard((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
+
 
 extern "C" uint32 sub_8005A74C(uint32 object, uint32 reason)
 {
@@ -284,11 +280,7 @@ extern "C" uint32 sub_8005A860(uint32 object)
     return FloatingHazard::Attach(object).FloatingHazard::Update();
 }
 
-extern "C" uint32 sub_8005AADC(uint32 object)
-{
-    FUNCTION_MARKER(0x8005AADC, "SLUS_003.73");
-    return FloatingHazard::Attach(object).UpdateHeight();
-}
+
 
 extern "C" uint32 sub_8005AB58(uint32 object, uint32 command)
 {
@@ -298,76 +290,77 @@ extern "C" uint32 sub_8005AB58(uint32 object, uint32 command)
 
 BallisticHazard::BallisticHazard(const uint32 *position, uint32 kind, uint32 flags, uint32 parameter, sint32 vertical_speed) : Enemy()
 {
+    uint32 trig_angle;
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 x, y, z, value, radius, table, player, coefficient, floor;
+    uint32 x, y, z, value, radius, player, coefficient, floor;
     FUNCTION_MARKER(0x8005ABF8, "SLUS_003.73");
     w_u32(object + 68, 0x800A28B0);
     x = ReadMovingRecordPosition(position, 0);
     y = ReadMovingRecordPosition(position, 1);
     z = ReadMovingRecordPosition(position, 2);
-    w_u32(object + 240, x);
-    w_u32(object + 244, y);
-    w_u32(object + 248, z);
-    x = r_u32(object + 240);
-    y = r_u32(object + 244);
-    z = r_u32(object + 248);
-    w_u32(object + 4, x);
-    w_u32(object + 8, y);
-    w_u32(object + 12, z);
+    pos_history.saved[0] = x;
+    pos_history.saved[1] = y;
+    pos_history.saved[2] = z;
+    x = pos_history.saved[0];
+    y = pos_history.saved[1];
+    z = pos_history.saved[2];
+    this->model.pos[0] = x;
+    this->model.pos[1] = y;
+    this->model.pos[2] = z;
     if (kind == 2)
     {
         SetModelBank((const char *)psx_addr(0x800FF574, 1));
         value = FindModelResourceIndex(0x717FB6B2, r_u8(0x800FF645));
-        w_u16(object + 22, value);
-        w_u32(object + 120, (uint32)vertical_speed << 12);
+        this->model.model_idx = value;
+        motion.acceleration[1] = (uint32)vertical_speed << 12;
         w_u16(object + 200, 128);
     }
     else if ((sint32)kind >= 0 && (sint32)kind <= 3)
     {
         SetModelBank((const char *)psx_addr(r_u32(0x800FF62C), 1));
         value = FindModelResourceIndex(0x2D990A1E, r_u8(0x800FF644));
-        w_u16(object + 22, value);
-        w_u32(object + 120, (uint32)vertical_speed << 12);
-        w_u16(object + 18, RandomRange(4096));
+        this->model.model_idx = value;
+        motion.acceleration[1] = (uint32)vertical_speed << 12;
+        this->model.angles[1] = RandomRange(4096);
         value = 256 - RandomRange(128);
-        w_u8(object + 144, 16);
+        motion.angular_drag[0] = 16;
         w_u16(object + 200, 128);
-        w_u16(object + 132, value);
+        motion.angular_velocity[0] = value;
         w_u16(object + 436, kind == 3 ? 48 : 32);
         w_u16(object + 438, 256);
         w_u16(object + 440, kind == 3 ? 4 : 8);
         if (kind == 1)
         {
             radius = RandomRange(512);
-            table = 0x800F863C + (RandomRange(4096) & 4095) * 4;
-            coefficient = (uint32)(sint32)(sint16)r_u16(table);
-            player = r_u32(0x800FF5A0);
+            trig_angle = RandomRange(4096) & 4095;
+            coefficient = (uint32)rsin(trig_angle);
+            player = visual_lists.players;
             value = r_u32(player + 4);
-            w_u32(object + 4, value + radius * coefficient);
-            coefficient = (uint32)(sint32)(sint16)r_u16(table + 2);
+            this->model.pos[0] = value + radius * coefficient;
+            coefficient = (uint32)rcos(trig_angle);
             value = r_u32(player + 12);
-            w_u32(object + 12, value + radius * coefficient);
-            x = r_u32(object + 4);
-            y = r_u32(object + 8);
-            z = r_u32(object + 12);
-            w_u32(object + 240, x);
-            w_u32(object + 244, y);
-            w_u32(object + 248, z);
+            this->model.pos[2] = value + radius * coefficient;
+            x = this->model.pos[0];
+            y = this->model.pos[1];
+            z = this->model.pos[2];
+            pos_history.saved[0] = x;
+            pos_history.saved[1] = y;
+            pos_history.saved[2] = z;
         }
     }
-    w_u16(object, r_u16(object) & 0xFFFD);
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
-    w_u8(object + 129, 2);
-    w_u8(object + 130, 5);
-    w_u8(object + 131, 2);
+    this->model.flags = this->model.flags & 0xFFFD;
+    AddToList(visual_lists.actors);
+    motion.drag[0] = 2;
+    motion.drag[1] = 5;
+    motion.drag[2] = 2;
     w_u16(object + 212, 0);
-    w_u16(object + 58, 410);
+    this->kind = 410;
     w_u16(object + 496, flags);
     w_u32(object + 500, parameter);
-    w_u16(object + 78, r_u16(object + 78) & 0xFFEF);
+    this->lifecycle_flags = this->lifecycle_flags & 0xFFEF;
     if (flags & 5)
     {
-        floor = FindGroundHeight((const uint32 *)psx_addr(object + 4, 12), 0, 8192);
+        floor = FindGroundHeight((const uint32 *)this->model.pos, 0, 8192);
         if (floor == (uint32)-1)
         {
             Enemy::Finish();
@@ -375,11 +368,11 @@ BallisticHazard::BallisticHazard(const uint32 *position, uint32 kind, uint32 fla
         }
         w_u32(object + 488, floor);
         EnableShadow();
-        value = r_u32(object + 8);
-        x = r_u32(object + 4);
+        value = this->model.pos[1];
+        x = this->model.pos[0];
         value = floor - value;
         w_u32(object + 184, x);
-        z = r_u32(object + 12);
+        z = this->model.pos[2];
         w_u16(object + 204, (uint32)((sint32)value >> 12));
         w_u32(object + 188, floor);
         w_u32(object + 192, z);
@@ -388,11 +381,11 @@ BallisticHazard::BallisticHazard(const uint32 *position, uint32 kind, uint32 fla
     {
         EnableShadow();
         floor = r_u32(0x800FF37C);
-        value = r_u32(object + 8);
-        x = r_u32(object + 4);
+        value = this->model.pos[1];
+        x = this->model.pos[0];
         w_u16(object + 204, (uint32)((sint32)(floor - value) >> 12));
         w_u32(object + 184, x);
-        z = r_u32(object + 12);
+        z = this->model.pos[2];
         w_u32(object + 188, floor - 65536);
         w_u32(object + 192, z);
     }
@@ -404,7 +397,7 @@ uint32 BallisticHazard::Destroy(uint32 reason)
     uint32 result;
     FUNCTION_MARKER(0x8005AF34, "SLUS_003.73");
     w_u32(object + 68, 0x800A28B0);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     result = Enemy::Destroy(0);
     return (reason & 1) ? ReleaseObjectStorage(object) : result;
 }
@@ -415,13 +408,7 @@ uint32 BallisticHazard::Damage(uint32, const sint32 *, uint32)
     return 0;
 }
 
-extern "C" uint32 sub_8005ABF8(uint32 object, uint32 position, uint32 kind, uint32 flags, uint32 parameter, sint32 vertical_speed)
-{
-    FUNCTION_MARKER(0x8005ABF8, "SLUS_003.73");
-    void *native_instance_storage = AllocateNativeObjectStorage(object, sizeof(BallisticHazard));
-    new (native_instance_storage) BallisticHazard((const uint32 *)psx_addr(position, 12), kind, flags, parameter, vertical_speed);
-    return object;
-}
+
 
 extern "C" uint32 sub_8005AF34(uint32 object, uint32 reason)
 {
@@ -446,15 +433,16 @@ uint32 BallisticHazard::FinishFromTable()
 
 static uint32 DamageBallisticHazardPlayer(uint32 damage)
 {
-    uint32 player = r_u32(0x800FF5A0);
+    uint32 player = visual_lists.players;
     return ApplyObjectDamage(player, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
 }
 
 uint32 BallisticHazard::Update()
 {
+    uint32 trig_angle;
     uint32 object = NativeObjectGuestAddress(this);
     uint32 child, flags, result, y, floor, parameter, distance, threshold, damage;
-    uint32 value, point[3], velocity[3], table, random, product, kind, name, index;
+    uint32 value, point[3], velocity[3], random, product, kind, name, index;
     sint32 quotient;
     FUNCTION_MARKER(0x8005AFA0, "SLUS_003.73");
     child = r_u32(object + 196);
@@ -465,16 +453,16 @@ uint32 BallisticHazard::Update()
     result = flags & 2;
     if (flags & 5)
     {
-        y = r_u32(object + 8);
+        y = this->model.pos[1];
         floor = r_u32(object + 488);
         if ((sint32)y >= (sint32)floor)
         {
             if (flags == 4)
             {
-                w_u32(object + 8, floor);
-                SpawnFireCycle((const uint32 *)psx_addr(object + 4, 12), 180, 1, 2);
+                this->model.pos[1] = floor;
+                SpawnFireCycle((const uint32 *)this->model.pos, 180, 1, 2);
                 parameter = r_u32(object + 500);
-                SpawnExplosionRing((const uint32 *)psx_addr(object + 4, 12), (uint32)((sint32)parameter >> 1), 255, 128, 0, 4, 1, 100);
+                SpawnExplosionRing((const uint32 *)this->model.pos, (uint32)((sint32)parameter >> 1), 255, 128, 0, 4, 1, 100);
                 distance = r_u32(object + 220);
                 parameter = r_u32(object + 500);
                 if (distance < parameter)
@@ -491,7 +479,7 @@ uint32 BallisticHazard::Update()
                     velocity[2] = r_u32(0x800A71D4);
                     void *dram_addr = AllocateNativeObjectStorage(child, sizeof(ImpactRing));
                     new (dram_addr) ImpactRing(velocity);
-                    ImpactRing::Attach(child).SetGeometry((const uint32 *)psx_addr(object + 4, 12), 0, 0);
+                    ImpactRing::Attach(child).SetGeometry((const uint32 *)this->model.pos, 0, 0);
                     value = (uint32)((sint32)parameter / 16);
                     w_u16(child + 10, 16);
                     w_u16(child + 116, value);
@@ -502,19 +490,19 @@ uint32 BallisticHazard::Update()
             else if (flags == 1)
             {
                 if (r_u32(0x800FF378) == 1)
-                    PlayPositionedSound(59, (const uint32 *)psx_addr(object + 4, 12), 0);
+                    PlayPositionedSound(59, (const uint32 *)this->model.pos, 0);
                 for (index = 0; index < r_u16(object + 440); ++index)
                 {
                     random = RandomRange(4096);
                     floor = r_u32(object + 488);
-                    w_u32(object + 8, floor - 0x20000);
-                    table = 0x800F863C + (random & 4095) * 4;
-                    value = (uint32)(sint32)(sint16)r_u16(table);
+                    this->model.pos[1] = floor - 0x20000;
+                    trig_angle = random & 4095;
+                    value = (uint32)rsin(trig_angle);
                     parameter = r_u32(object + 500);
                     product = value * parameter;
                     velocity[0] = (uint32)((sint32)product / 8);
                     random = RandomRange(32);
-                    value = (uint32)(sint32)(sint16)r_u16(table + 2);
+                    value = (uint32)rcos(trig_angle);
                     parameter = r_u32(object + 500);
                     product = value * parameter;
                     velocity[1] = (0 - 16 - random) << 12;
@@ -526,7 +514,7 @@ uint32 BallisticHazard::Update()
                         floor = r_u32(object + 488);
                         name = r_u32(0x800FF62C);
                         void *dram_addr = AllocateNativeObjectStorage(child, sizeof(Debris));
-                        new (dram_addr) Debris((const uint32 *)psx_addr(object + 4, 12), velocity, kind, floor, 193, 24, psx_addr(name, 1));
+                        new (dram_addr) Debris((const uint32 *)this->model.pos, velocity, kind, floor, 193, 24, psx_addr(name, 1));
                     }
                     // Skip the missing child under the approved allocation-failure contract
                     value = r_u16(object + 436) >> 3;
@@ -545,16 +533,16 @@ uint32 BallisticHazard::Update()
     {
         if (!result)
             return result;
-        y = r_u32(object + 8);
+        y = this->model.pos[1];
         floor = r_u32(0x800FF37C);
         if ((sint32)y >= (sint32)floor)
         {
-            point[0] = r_u32(object + 4);
-            point[1] = r_u32(object + 8);
-            point[2] = r_u32(object + 12);
+            point[0] = this->model.pos[0];
+            point[1] = this->model.pos[1];
+            point[2] = this->model.pos[2];
             point[1] -= 286720;
             CreateSplash(point);
-            PlayPositionedSound(57, (const uint32 *)psx_addr(object + 4, 12), 0);
+            PlayPositionedSound(57, (const uint32 *)this->model.pos, 0);
             return FinishFromTable();
         }
         value = r_u32(object + 188);
@@ -565,7 +553,7 @@ uint32 BallisticHazard::Update()
     w_u16(object + 202, result);
     if (distance < threshold)
     {
-        result = r_u32(0x800FF5A0);
+        result = visual_lists.players;
         if (result)
         {
             damage = ScaleDamageForDifficulty(r_u16(object + 436));

@@ -55,26 +55,16 @@ extern "C" uint32 xport_draft_host_sub_8009835C_p1(const void *location)
 extern "C" uint32 xport_draft_host_sub_80099B3C_p1(void *result, uint32 name)
 {
     FUNCTION_MARKER(0x80099B3C, "SLUS_003.73");
-#if defined(LOCKSTEP_DEBUG)
-    return cd_search_file_native(result, (const char *)psx_addr(name, 1)) != 0;
-#else
     return FindDataCdFile((CdlFILE *)result, (const char *)psx_addr(name, 1));
-#endif
 }
 
-extern "C" uint32 sub_80099B3C(uint32 result, uint32 name)
-{
-    FUNCTION_MARKER(0x80099B3C, "SLUS_003.73");
-    return xport_draft_host_sub_80099B3C_p1(psx_addr(result, sizeof(CdlFILE)), name);
-}
+
 
 static uint32 ControlCdStartup(uint32 command, const void *parameter, void *output)
 {
     const void *original_parameter = parameter;
-#if !defined(LOCKSTEP_DEBUG)
     CdlLOC location;
     parameter = PrepareDataCdLocation(command, parameter, &location);
-#endif
     uint32 success = (uint32)CdControlB((uint8)command, (uint8 *)parameter, (uint8 *)output);
     if (success != 0 && (uint8)command == 2 && parameter != 0)
         memcpy(psx_addr(0x800FDA40, 3), original_parameter, 3);
@@ -104,10 +94,8 @@ extern "C" uint32 sub_80097F34(uint32 command, uint32 parameter)
 extern "C" uint32 xport_draft_host_sub_80097F34_p2(uint32 command, void *parameter)
 {
     FUNCTION_MARKER(0x80097F34, "SLUS_003.73");
-#if !defined(LOCKSTEP_DEBUG)
     CdlLOC location;
     parameter = (void *)PrepareDataCdLocation(command, parameter, &location);
-#endif
     uint32 success = (uint32)CdControlF((uint8)command, (uint8 *)parameter);
     if (success != 0)
         w_u8(0x800FDA45, command);
@@ -125,10 +113,8 @@ extern "C" uint32 sub_80097D90(uint32 mode, uint32 result)
     FUNCTION_MARKER(0x80097D90, "SLUS_003.73");
     uint8 *response = result ? (uint8 *)psx_addr(result, 8) : 0;
     uint32 completion = (uint32)CD_sync((sint32)mode, response);
-#if !defined(LOCKSTEP_DEBUG)
     if (completion == 2 && r_u8(0x800FDA45) == 17)
         RebaseDataCdResponse(response);
-#endif
     return completion;
 }
 
@@ -202,11 +188,7 @@ extern "C" uint32 xport_draft_host_sub_8009AB6C_p2(uint32 mode, void *result)
     return (uint32)completed;
 }
 
-extern "C" uint32 sub_8009AB6C(uint32 mode, uint32 result)
-{
-    FUNCTION_MARKER(0x8009AB6C, "SLUS_003.73");
-    return xport_draft_host_sub_8009AB6C_p2(mode, result ? psx_addr(result, 8) : 0);
-}
+
 
 static uint32 SignalCdReadCompletion(void)
 {
@@ -295,12 +277,7 @@ extern "C" uint32 sub_800981D4(uint32 destination, uint32 count)
     return sub_8009986C(destination, count) == 0;
 }
 
-extern "C" uint32 sub_800981B4(uint32 volume)
-{
-    FUNCTION_MARKER(0x800981B4, "SLUS_003.73");
-    sub_8009928C(volume);
-    return 1;
-}
+
 
 extern "C" void sub_8009AD7C(void)
 {

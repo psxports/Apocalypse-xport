@@ -6,7 +6,7 @@
 class Flamethrower : public WeaponNode
 {
 public:
-    Flamethrower(uint32 list, uint32 mode);
+    Flamethrower(ModelInstance **list, ModelInstance **secondary_list);
     static Flamethrower &Attach(uint32 object);
     virtual uint32 Destroy(uint32 reason);
     uint32 Configure(uint32 amount);

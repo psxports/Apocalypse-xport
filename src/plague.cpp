@@ -1,3 +1,11 @@
+#include "enemy_list.h"
+#include "visual_object.h"
+#include "angle_math.h"
+#include "object_damage.h"
+#include "vector_arithmetic.h"
+#include "object_collision_events.h"
+#include "model_animation.h"
+#include "game_random.h"
 #include "game_sdk_bindings.h"
 extern "C"
 {
@@ -60,12 +68,12 @@ static uint32 DividePlagueJump(uint32 numerator, uint32 denominator)
 
 static void StopPlagueMotion(uint32 object)
 {
-    w_u32(object + 112, 0);
-    w_u32(object + 108, 0);
-    w_u32(object + 104, 0);
-    w_u32(object + 124, 0);
-    w_u32(object + 120, 0);
-    w_u32(object + 116, 0);
+    Plague::Attach(object).motion.velocity[2] = 0;
+    Plague::Attach(object).motion.velocity[1] = 0;
+    Plague::Attach(object).motion.velocity[0] = 0;
+    Plague::Attach(object).motion.acceleration[2] = 0;
+    Plague::Attach(object).motion.acceleration[1] = 0;
+    Plague::Attach(object).motion.acceleration[0] = 0;
 }
 
 static void SelectPlagueFarTarget(uint32 object, uint32 position[4])
@@ -73,7 +81,7 @@ static void SelectPlagueFarTarget(uint32 object, uint32 position[4])
     uint32 random;
     do
     {
-        random = sub_80066570(8);
+        random = RandomRange(8);
         apocalypse_trigger_position(position, r_u16(object + 516 + 2 * random));
     }
     while (apocalypse_position_distance_native(position, psx_addr(object + 4, 12)) < 257);
@@ -81,9 +89,9 @@ static void SelectPlagueFarTarget(uint32 object, uint32 position[4])
 
 static void ClearPlagueVelocity(uint32 object)
 {
-    w_u32(object + 112, 0);
-    w_u32(object + 108, 0);
-    w_u32(object + 104, 0);
+    Plague::Attach(object).motion.velocity[2] = 0;
+    Plague::Attach(object).motion.velocity[1] = 0;
+    Plague::Attach(object).motion.velocity[0] = 0;
 }
 
 static void SavePlagueRecovery(uint32 object, uint32 state)
@@ -109,7 +117,7 @@ static uint32 CreatePlagueOrbitWeapon(uint32 object, uint32 slot)
 static uint32 ReadPlagueOrbitDelta(uint32 object)
 {
     uint32 phase = r_u16(object + 638);
-    uint32 sine = (uint32)(sint32)(sint16)r_u16(0x800F863C + 4 * (phase & 4095));
+    uint32 sine = (uint32)rsin(phase & 4095);
     return (uint32)((sint32)(19 * sine) >> 11);
 }
 
@@ -144,14 +152,14 @@ Plague::Plague(const uint8 *record_data, uint32 index) : Enemy()
     rotation = GuestMemoryAddress(ReadPosition(record_data));
     value = r_u16(rotation);
     cursor = rotation + 6;
-    w_u16(object + 16, value);
+    this->model.angles[0] = value;
     value = r_u16(rotation + 2);
-    w_u16(object + 18, value);
+    this->model.angles[1] = value;
     value = r_u16(rotation + 4);
     w_u32(object + 400, cursor);
     w_u8(object + 380, 1);
-    w_u16(object + 214, index);
-    w_u16(object + 20, value);
+    this->record_idx = index;
+    this->model.angles[2] = value;
     Configure();
     ExecuteScript((const uint16 *)psx_addr(r_u32(object + 400), 2));
 }
@@ -162,10 +170,10 @@ uint32 Plague::Configure()
     uint32 value, first, second, target;
     FUNCTION_MARKER(0x80045134, "SLUS_003.73");
     SetModelBank((const char *)psx_addr(0x800FF4C0, 1));
-    w_u8(object + 129, 31);
-    w_u8(object + 130, 31);
-    w_u8(object + 131, 31);
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
+    motion.drag[0] = 31;
+    motion.drag[1] = 31;
+    motion.drag[2] = 31;
+    AddToList(visual_lists.actors);
     StartAnimation(0, 1);
     AllocateBehaviorTable(1, 5);
     value = sub_8004B914(object, 10);
@@ -173,19 +181,19 @@ uint32 Plague::Configure()
     SetBehaviorValue(0, 2, 160);
     w_u16(object + 436, 16);
     w_u16(object + 438, 32);
-    w_u16(object + 58, 223);
+    this->kind = 223;
     w_u32(object + 208, 128);
     w_u8(object + 454, 0);
     w_u16(object + 472, 0);
     w_u16(object + 474, 0);
-    w_u16(object + 36, 6000);
-    w_u16(object + 38, 6000);
-    w_u16(object + 40, 6000);
+    this->model.scale[0] = 6000;
+    this->model.scale[1] = 6000;
+    this->model.scale[2] = 6000;
     w_u16(object + 456, 292);
-    value = r_u16(object);
+    value = this->model.flags;
     w_u8(object + 381, 0);
     w_u8(object + 314, 1);
-    w_u16(object, value | 0x200);
+    this->model.flags = value | 0x200;
     first = sub_8006B864(32, 0, 1);
     w_u32(object + 316, first);
     second = sub_8006B864(16, 0, 1);
@@ -212,7 +220,7 @@ uint32 Plague::Destroy(uint32 reason)
     uint32 value, table, receiver, target, index;
     FUNCTION_MARKER(0x800452B4, "SLUS_003.73");
     w_u32(object + 68, 0x800A252C);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     FreeBehaviorTable();
     ClearTrackedObjectHealth();
     value = r_u32(object + 316);
@@ -252,40 +260,43 @@ uint32 Plague::Destroy(uint32 reason)
 
 uint32 Plague::Update()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 hero, x, y, z, flags, value, timer, target, current_xy, current_z;
-    uint32 desired_xy, scale, vx, vy, vz, distance, table, damage;
-    uint32 record[36], delta[4], normal[4];
+    uint32 desired_xy, scale, vx, vy, vz, distance, damage;
+    CollisionRay record;
+    uint32 delta[4], normal[4];
     sint16 desired[4];
     sint32 frame, magnitude;
     FUNCTION_MARKER(0x800453F4, "SLUS_003.73");
-    hero = r_u32(0x800FF5A0);
+    hero = visual_lists.players;
     if (!hero)
         return 0;
     x = r_u32(0x800A71CC);
     y = r_u32(0x800A71D0);
     z = r_u32(0x800A71D4);
-    w_u32(object + 116, x);
-    w_u32(object + 120, y);
-    w_u32(object + 124, z);
+    motion.acceleration[0] = x;
+    motion.acceleration[1] = y;
+    motion.acceleration[2] = z;
     if (!r_u8(object + 381))
     {
-        sub_8007CA50(object, 0x800A6BD0);
+        SetModelBoneTable(this->model.bank, PlagueAttachments);
         w_u8(object + 381, 1);
     }
-    flags = r_u16(object + 76);
+    flags = this->activation_flags;
     w_u16(object + 388, flags);
     if (flags & 1)
     {
         value = r_u8(object + 384);
         w_u8(object + 384, value + 1);
         value = r_u32(object + 396);
-        w_u16(object + 76, flags & 0xFFFE);
+        this->activation_flags = flags & 0xFFFE;
         w_u32(object + 396, value | 0x100);
     }
     if (r_u32(object + 220) < 256)
     {
-        hero = r_u32(0x800FF5A0);
+        hero = visual_lists.players;
         if (hero)
             ApplyObjectContactImpulse(hero, object);
     }
@@ -302,26 +313,26 @@ uint32 Plague::Update()
     UpdateOrbitingWeapons();
     SpawnPickup();
     if (r_u8(object + 382))
-        sub_8006C0B8(object + 116, 0x800A6844);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844, 12));
     IntegrateMotion();
-    record[0] = r_u32(object + 4);
-    record[1] = r_u32(object + 8) - 0x40000;
-    z = r_u32(object + 12);
-    record[3] = record[0];
-    record[4] = record[1] + 0x1000000;
-    record[2] = z;
-    record[5] = z;
-    apocalypse_collision_init(record);
-    apocalypse_collision_query(record, 1);
-    if (record[26])
+    record.pos[0][0] = this->model.pos[0];
+    record.pos[0][1] = this->model.pos[1] - 0x40000;
+    z = this->model.pos[2];
+    record.pos[1][0] = record.pos[0][0];
+    record.pos[1][1] = record.pos[0][1] + 0x1000000;
+    record.pos[0][2] = z;
+    record.pos[1][2] = z;
+    InitializeCollisionRay(record);
+    QueryCollisionRay(record, 1);
+    if (record.hit.GetObject())
     {
         w_u8(object + 314, 1);
-        w_u32(object + 184, record[27]);
-        w_u32(object + 188, record[28]);
-        w_u32(object + 192, record[29]);
-        w_u16(object + 164, record[30]);
-        w_u16(object + 166, record[30] >> 16);
-        w_u16(object + 168, record[31]);
+        w_u32(object + 184, record.hit_pos[0]);
+        w_u32(object + 188, record.hit_pos[1]);
+        w_u32(object + 192, record.hit_pos[2]);
+        w_u16(object + 164, (uint16)record.n.vx);
+        w_u16(object + 166, (uint16)record.n.vy);
+        w_u16(object + 168, (uint16)record.n.vz);
     }
     else
         w_u8(object + 314, 0);
@@ -342,16 +353,27 @@ uint32 Plague::Update()
         xport_draft_host_sub_80066B8C_p1(desired, object + 4, target);
         desired[0] = 0;
         current_xy = ReadPlagueAnglesWord(object + 16);
-        current_z = (uint32)(sint32)(sint16)r_u16(object + 20);
+        current_z = (uint32)(sint32)(sint16)this->model.angles[2];
         desired_xy = (uint16)desired[0] | ((uint32)(uint16)desired[1] << 16);
         scale = flags & 0x30 ? 32 : r_u16(object + 438);
-        sub_80066CF0(current_xy, current_z & 0xFFFF, object + 132, object + 138,
-                    desired_xy, (uint16)desired[2], scale);
+        motion_cur_word = current_xy;
+        motion_cur_tail = current_z & 0xFFFF;
+        motion_target_word = desired_xy;
+        motion_target_tail = (uint16)desired[2];
+        motion_cur.vx = (sint16)motion_cur_word;
+        motion_cur.vy = (sint16)(motion_cur_word >> 16);
+        motion_cur.vz = (sint16)motion_cur_tail;
+        motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+        motion_target.vx = (sint16)motion_target_word;
+        motion_target.vy = (sint16)(motion_target_word >> 16);
+        motion_target.vz = (sint16)motion_target_tail;
+        motion_target.pad = (sint16)(motion_target_tail >> 16);
+        UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, scale);
         if (flags & 0x30)
             goto attack;
         if (r_u32(object + 396) & 4)
         {
-            frame = (sint8)r_u8(object + 24);
+            frame = (sint8)this->model.frame;
             if (frame < 13)
             {
                 w_u32(object + 304, 0x10000);
@@ -360,36 +382,36 @@ uint32 Plague::Update()
             }
             else if (r_u16(object + 502))
                 w_u8(object + 382, 1);
-            frame = (sint8)r_u8(object + 24);
+            frame = (sint8)this->model.frame;
             if (frame >= 13 && !(r_u32(object + 396) & 8))
             {
                 x = r_u32(object + 484);
-                y = r_u32(object + 4);
+                y = this->model.pos[0];
                 timer = r_u16(object + 502);
                 vx = DividePlagueJump(x - y, timer);
                 x = r_u32(object + 492);
-                y = r_u32(object + 12);
+                y = this->model.pos[2];
                 timer = r_u16(object + 502);
                 vz = DividePlagueJump(x - y, timer);
                 x = r_u32(object + 488);
-                y = r_u32(object + 8);
+                y = this->model.pos[1];
                 timer = r_u16(object + 502);
                 vy = DividePlagueJump(x - y, timer);
                 value = r_u32(object + 396);
                 w_u32(object + 396, value | 8);
-                w_u32(object + 104, vx);
-                w_u32(object + 112, vz);
-                w_u32(object + 108, vy - (timer << 14));
+                motion.velocity[0] = vx;
+                motion.velocity[2] = vz;
+                motion.velocity[1] = vy - (timer << 14);
                 sub_80069EF4(114, object + 4, 0);
             }
             else
             {
-                frame = (sint8)r_u8(object + 24);
+                frame = (sint8)this->model.frame;
                 if (frame >= 23)
                 {
                     if (!r_u16(object + 502))
                         goto jump_finished;
-                    vy = r_u32(object + 108);
+                    vy = motion.velocity[1];
                     w_u32(object + 304, (sint32)vy >= 0 && frame < 34 ? 0x10000 : 0);
                 }
             }
@@ -404,9 +426,9 @@ uint32 Plague::Update()
                     x = r_u32(object + 484);
                     y = r_u32(object + 488);
                     z = r_u32(object + 492);
-                    w_u32(object + 4, x);
-                    w_u32(object + 8, y);
-                    w_u32(object + 12, z);
+                    this->model.pos[0] = x;
+                    this->model.pos[1] = y;
+                    this->model.pos[2] = z;
                     StopPlagueMotion(object);
                     w_u32(object + 304, 0x10000);
                     w_u8(object + 382, 0);
@@ -418,17 +440,17 @@ uint32 Plague::Update()
         }
         else
         {
-            value = r_u8(object + 26);
+            value = this->model.animation;
             if (value != 6 && value != 1)
                 StartAnimation(1, 1);
             for (value = 0; value < 3; ++value)
             {
                 x = r_u32(object + 484 + 4 * value);
-                y = r_u32(object + 4 + 4 * value);
+                y = this->model.pos[value];
                 delta[value] = (uint32)((sint32)(x - y) >> 12);
             }
-            xport_draft_host_sub_800872BC_p12(delta, normal);
-            magnitude = (sint16)r_u16(object + 134);
+            NormalizeShortVector(delta, normal);
+            magnitude = (sint16)motion.angular_velocity[1];
             if (magnitude < 0)
                 magnitude = -magnitude;
             if (magnitude > 128)
@@ -437,9 +459,9 @@ uint32 Plague::Update()
             vx = normal[0] * scale;
             vy = normal[1] * scale;
             vz = normal[2] * scale;
-            w_u32(object + 104, vx);
-            w_u32(object + 108, vy);
-            w_u32(object + 112, vz);
+            motion.velocity[0] = vx;
+            motion.velocity[1] = vy;
+            motion.velocity[2] = vz;
             distance = sub_80066918(object + 4, object + 484);
             scale = r_u16(object + 436);
             if (distance < 2 * scale)
@@ -447,18 +469,15 @@ uint32 Plague::Update()
         }
     }
 attack:
-    if (r_u8(object + 26) == 7)
+    if (this->model.animation == 7)
     {
-        hero = r_u32(0x800FF5A0);
-        if (hero && (uint32)(r_u8(object + 24) - 15) < 5
+        hero = visual_lists.players;
+        if (hero && (uint32)(this->model.frame - 15) < 5
             && sub_80066918(object + 4, hero + 4) < 280)
         {
             damage = sub_8004B914(object, 2);
-            hero = r_u32(0x800FF5A0);
-            table = r_u32(hero + 68);
-            value = (uint32)(sint32)(sint16)r_u16(table + 48);
-            target = r_u32(table + 52);
-            apocalypse_object_virtual52(target, hero + value, damage, 0x800A71CC, 0);
+            hero = visual_lists.players;
+            ApplyObjectDamage(hero, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
         }
     }
     return sub_8007FDF0(object);
@@ -506,19 +525,19 @@ void Plague::UpdateState()
                 ground = (sint32)sub_80067A18(object + 4, 0, 4096);
                 if (ground == -1)
                     return;
-                value = r_u32(object + 8);
+                value = this->model.pos[1];
                 radius = (sint16)r_u16(object + 456);
                 if (((sint32)((uint32)ground - value) >> 12) >= 2 * radius)
                     return;
                 value = (uint32)ground - ((uint32)radius << 12);
-                w_u32(object + 8, value);
+                this->model.pos[1] = value;
                 w_u16(object + 202, (uint32)((sint32)((uint32)ground - value) >> 12));
                 w_u32(object + 188, (uint32)ground);
                 w_u8(object + 382, 0);
                 ClearPlagueVelocity(object);
                 w_u16(object + 462, 0);
                 w_u16(object + 218, 800);
-                sub_8006D390(object, 24, 42, 4096);
+                ::TrackObjectHealth(object, 24, 42, 4096);
                 StartAnimation(0, 1);
                 goto advance_substate;
             }
@@ -538,9 +557,9 @@ void Plague::UpdateState()
 
         case 0x80045CF4:
             w_u16(object + 504, 1);
-            if (!sub_80066570(64))
+            if (!RandomRange(64))
             {
-                random = sub_80066570(2);
+                random = RandomRange(2);
                 apocalypse_trigger_position(position, r_u16(object + 536 + 2 * random));
                 child = sub_80032DC0(112);
                 if (child)
@@ -558,12 +577,12 @@ void Plague::UpdateState()
                     return;
                 if ((sint16)r_u16(object + 218) < 560)
                 {
-                    value = r_u32(0x800FF5DC);
+                    value = visual_lists.solids;
                     second = r_u16(object + 536);
-                    sub_80064E10(value, second);
-                    value = r_u32(0x800FF5DC);
+                    ::ActivateObjectsByIndex(value, second);
+                    value = visual_lists.solids;
                     second = r_u16(object + 538);
-                    sub_80064E10(value, second);
+                    ::ActivateObjectsByIndex(value, second);
                     goto advance_state;
                 }
                 value = r_u8(object + 500) + 1;
@@ -583,7 +602,7 @@ void Plague::UpdateState()
             if (substate != 1 || (r_u32(object + 396) & 1))
                 return;
             phase = r_u8(object + 501);
-            if (phase >= 2 || (phase == substate && sub_80066570(2)))
+            if (phase >= 2 || (phase == substate && RandomRange(2)))
                 goto far_jump_and_repeat;
             if ((sint16)r_u16(object + 218) < 560)
                 goto far_jump_and_repeat;
@@ -607,7 +626,7 @@ void Plague::UpdateState()
                 {
                     value = r_u32(object + 572);
                     w_u32(object + 396, flags | 128);
-                    sub_8006A294(value);
+                    ::StopSoundVoices(value);
                 }
                 else
                     w_u16(object + 460, (uint32)increment + 1);
@@ -615,9 +634,9 @@ void Plague::UpdateState()
             substate = r_u16(object + 474);
             if (!substate)
             {
-                value = r_u32(0x800FF5DC);
+                value = visual_lists.solids;
                 second = r_u16(object + 510);
-                sub_80064E10(value, second);
+                ::ActivateObjectsByIndex(value, second);
                 value = sub_80069DF0(115, 8192, 0);
                 w_u32(object + 572, value);
             }
@@ -625,7 +644,7 @@ void Plague::UpdateState()
             {
                 if (r_u32(object + 396) & 1)
                     return;
-                random = sub_80066570(2);
+                random = RandomRange(2);
                 apocalypse_trigger_position(position, r_u16(object + 532 + 2 * random));
                 ground = (sint32)apocalypse_ground_native(position, 512, 2048);
                 radius = (sint16)r_u16(object + 456);
@@ -640,9 +659,9 @@ void Plague::UpdateState()
                 return;
             if ((sint16)r_u16(object + 218) < 320 && (flags & 128))
             {
-                value = r_u32(0x800FF5DC);
+                value = visual_lists.solids;
                 second = r_u16(object + 510);
-                sub_80064E10(value, second);
+                ::ActivateObjectsByIndex(value, second);
                 w_u32(object + 396, r_u32(object + 396) & 0xFFFFFF7F);
                 SelectPlagueFarTarget(object, position);
                 ground = (sint32)apocalypse_ground_native(position, 512, 2048);
@@ -664,7 +683,7 @@ void Plague::UpdateState()
                 if (r_u32(object + 396) & 1)
                     return;
                 StartAnimation(0, 1);
-                TrackTarget((const uint8 *)psx_addr(r_u32(0x800FF5A0), 80));
+                TrackTarget((const uint8 *)psx_addr(visual_lists.players, 80));
                 goto advance_substate;
             }
             if (substate != 1)
@@ -692,7 +711,7 @@ void Plague::UpdateState()
             {
                 if (r_u32(object + 396) & 1)
                     return;
-                if (r_u8(object + 26) != 9)
+                if (this->model.animation != 9)
                     SetAnimationRange(9, 0, 0xFFFFFFFF);
                 else if (r_u8(object + 303))
                     w_u16(object + 474, 2);
@@ -708,26 +727,26 @@ void Plague::UpdateState()
                 w_u16(object + 474, 0);
                 return;
             }
-            if (r_u8(object + 26) != 6)
+            if (this->model.animation != 6)
                 StartAnimation(6, 1);
             flags = r_u32(object + 396);
-            if (!(flags & 1) || !sub_80066570(12))
+            if (!(flags & 1) || !RandomRange(12))
             {
-                if (sub_80066570(3))
+                if (RandomRange(3))
                 {
-                    hero = r_u32(0x800FF5A0);
+                    hero = visual_lists.players;
                     position[0] = r_u32(hero + 4);
                     position[1] = r_u32(hero + 8);
                     position[2] = r_u32(hero + 12);
                 }
                 else
                 {
-                    hero = r_u32(0x800FF5A0);
+                    hero = visual_lists.players;
                     scalar = 8;
                     position[0] = r_u32(hero + 4);
                     position[1] = r_u32(hero + 8);
                     position[2] = r_u32(hero + 12);
-                    xport_draft_host_sub_8006C47C_p12(velocity, &scalar, hero + 104);
+                    MultiplyScalarVector(velocity, &scalar, VisualObject::Attach(hero).motion.velocity);
                     velocity[1] = 0;
                     scalar = 8;
                     xport_draft_host_sub_8006C47C_p123(scaled, &scalar, velocity);
@@ -735,7 +754,7 @@ void Plague::UpdateState()
                 }
                 ground = (sint32)apocalypse_ground_native(position, 512, 2048);
                 if (ground == -1)
-                    position[1] = r_u32(object + 8);
+                    position[1] = this->model.pos[1];
                 else
                 {
                     radius = (sint16)r_u16(object + 456);
@@ -748,9 +767,9 @@ void Plague::UpdateState()
                 value = (uint32)increment - 1;
             else
             {
-                position[0] = r_u32(object + 4);
-                position[1] = r_u32(object + 8);
-                position[2] = r_u32(object + 12);
+                position[0] = this->model.pos[0];
+                position[1] = this->model.pos[1];
+                position[2] = this->model.pos[2];
                 y = position[1];
                 radius = (sint16)r_u16(object + 456);
                 w_u32(0x800FF3AC, 0);
@@ -768,7 +787,7 @@ void Plague::UpdateState()
                     direction[2] = 0;
                     direction[0] = 0;
                     direction[1] = -4096;
-                    random = sub_80066570(48);
+                    random = RandomRange(48);
                     TexturedQuad::Attach(child).SetColors((random + 64) & 255, 128, 0);
                     w_u32(child + 168, 0);
                     value = r_u32(child + 168);
@@ -790,7 +809,7 @@ void Plague::UpdateState()
                 value = 5;
             }
             w_u16(object + 462, value);
-            hero = r_u32(0x800FF5A0);
+            hero = visual_lists.players;
             if (sub_80066918(object + 4, hero + 4) < 256)
                 SavePlagueRecovery(object, 32);
             return;
@@ -799,8 +818,8 @@ void Plague::UpdateState()
             substate = r_u16(object + 474);
             if (!substate)
             {
-                hero = r_u32(0x800FF5A0);
-                child = r_u32(0x800FF904);
+                hero = visual_lists.players;
+                child = visual_lists.cameras;
                 w_u32(hero + 452, 900);
                 if (child)
                 {
@@ -836,7 +855,7 @@ void Plague::UpdateState()
             }
             else if (substate != 2)
                 return;
-            increment = (sint8)r_u8(object + 24);
+            increment = (sint8)this->model.frame;
             timer = r_u16(object + 460);
             if (increment >= 45)
             {
@@ -845,8 +864,8 @@ void Plague::UpdateState()
                 direction[1] = 4096;
                 direction[2] = 0;
                 SetParticleSpread((const sint16 *)direction);
-                sub_800350E8(2);
-                random = sub_80066570(64);
+                ::SetParticleSize(2);
+                random = RandomRange(64);
                 sub_800350FC((random + 48) & 255, 128, 0);
                 sub_80035110(1, 2, 0);
                 xport_draft_host_sub_8007CC10_p1(position, object, 0);
@@ -877,12 +896,12 @@ void Plague::UpdateState()
                         new (dram_addr) TrailProjectile(position, velocity, (const uint16 *)direction, 16, 64, 64, 200, 240, 200, 0, 128, 0);
                     }
                 w_u32(0x800FF3AC, 1);
-                if ((sint8)r_u8(object + 24) >= 68)
-                    w_u8(object + 24, 68);
+                if ((sint8)this->model.frame >= 68)
+                    this->model.frame = 68;
             }
-            if (!sub_80066570(12))
+            if (!RandomRange(12))
             {
-                random = sub_80066570(2);
+                random = RandomRange(2);
                 sub_80069EF4(random + 1, object + 4, 0);
                 child = sub_80032DC0(124);
                 if (child)
@@ -893,28 +912,28 @@ void Plague::UpdateState()
             }
             if (timer > 180)
             {
-                increment = (sint16)r_u16(object + 36);
-                value = r_u16(object + 36) - 128;
+                increment = (sint16)this->model.scale[0];
+                value = this->model.scale[0] - 128;
                 if (increment > 512)
                 {
-                    second = r_u16(object + 40);
-                    w_u16(object + 36, value);
-                    w_u16(object + 40, second - 128);
+                    second = this->model.scale[2];
+                    this->model.scale[0] = value;
+                    this->model.scale[2] = second - 128;
                 }
                 else
                 {
-                    increment = (sint16)r_u16(object + 38);
-                    value = r_u16(object + 38) - 512;
+                    increment = (sint16)this->model.scale[1];
+                    value = this->model.scale[1] - 512;
                     if (increment > 512)
-                        w_u16(object + 38, value);
+                        this->model.scale[1] = value;
                     else
                         w_u16(object + 474, r_u16(object + 474) + 1);
                 }
             }
             w_u16(object + 460, timer + 1);
             increment = (sint16)r_u16(object + 462);
-            angle = r_u16(object + 18);
-            w_u16(object + 18, angle + (uint32)increment);
+            angle = this->model.angles[1];
+            this->model.angles[1] = angle + (uint32)increment;
             w_u16(object + 462, (uint32)increment + 1);
             return;
 
@@ -923,7 +942,7 @@ void Plague::UpdateState()
             if (!substate)
             {
                 flags = r_u32(object + 396);
-                hero = r_u32(0x800FF5A0);
+                hero = visual_lists.players;
                 w_u32(object + 396, flags & 0xFFFFFFFE);
                 ClearPlagueVelocity(object);
                 TrackTarget((const uint8 *)psx_addr(hero, 80));
@@ -941,11 +960,11 @@ void Plague::UpdateState()
             if (substate != 1)
                 return;
             xport_draft_host_sub_8007CC10_p1(position, object, 0);
-            if ((sint8)r_u8(object + 24) < 37)
+            if ((sint8)this->model.frame < 37)
             {
                 child = r_u32(object + 648);
                 xport_draft_host_sub_80032EE4_p2(child, position);
-                increment = (sint8)r_u8(object + 24);
+                increment = (sint8)this->model.frame;
                 child = r_u32(object + 648);
                 sub_80034994(child, ((uint32)increment << 2) + 16);
                 return;
@@ -959,7 +978,7 @@ void Plague::UpdateState()
                 apocalypse_object_cleanup(target, child + (uint32)increment, 3);
                 w_u32(object + 648, 0);
             }
-            hero = r_u32(0x800FF5A0);
+            hero = visual_lists.players;
             xport_draft_host_sub_80066B8C_p12(aim, position, hero + 4);
             child = sub_80032DC0(268);
             if (child)
@@ -970,10 +989,10 @@ void Plague::UpdateState()
             }
             for (phase = 0; phase < 4096; phase += 256)
             {
-                increment = (sint16)r_u16(0x800F863E + 4 * (phase & 4095));
+                increment = rcos(phase & 4095);
                 value = r_u8(0x800A6BE4 + (phase >> 8));
                 x = (uint32)increment * value;
-                increment = (sint16)r_u16(0x800F863C + 4 * (phase & 4095));
+                increment = rsin(phase & 4095);
                 y = (uint32)increment * value;
                 direction[2] = 0;
                 direction[0] = (sint16)(((uint32)(uint16)aim[0] - (uint32)((sint32)x >> 12)) & 4095);
@@ -994,7 +1013,7 @@ void Plague::UpdateState()
             if (!substate)
             {
                 flags = r_u32(object + 396);
-                hero = r_u32(0x800FF5A0);
+                hero = visual_lists.players;
                 w_u32(object + 396, flags & 0xFFFFFFFE);
                 ClearPlagueVelocity(object);
                 TrackTarget((const uint8 *)psx_addr(hero, 80));
@@ -1005,7 +1024,7 @@ void Plague::UpdateState()
             {
                 if (!r_u8(object + 303))
                     return;
-                increment = (sint8)r_u8(object + 24);
+                increment = (sint8)this->model.frame;
                 SetAnimationRange(7, (uint32)increment, 0);
                 goto advance_substate;
             }
@@ -1070,36 +1089,36 @@ uint32 Plague::SpawnPickup()
         if (state == 2)
         {
             maximum = (sint32)(sint16)r_u16(0x800EC526);
-            now = r_u32(0x800FF5A0);
+            now = visual_lists.players;
             health = (sint32)(sint16)r_u16(now + 218);
             maximum = (maximum + (maximum < 0 ? 1 : 0)) >> 1;
             if (health < maximum)
             {
-                index = sub_80066570(2);
+                index = RandomRange(2);
                 trigger = r_u16(object + 544 + 2 * index);
                 xport_draft_host_sub_8006613C_p1(position, trigger);
                 resource = 14;
                 goto create;
             }
         }
-        choice = sub_80066570(3);
+        choice = RandomRange(3);
         if (!choice)
         {
-            index = sub_80066570(2);
+            index = RandomRange(2);
             trigger = r_u16(object + 544 + 2 * index);
             xport_draft_host_sub_8006613C_p1(position, trigger);
             resource = 5;
             goto create;
         }
-        index = sub_80066570(4);
+        index = RandomRange(4);
         trigger = r_u16(object + 548 + 2 * index);
     }
     else
     {
-        choice = sub_80066570(3);
+        choice = RandomRange(3);
         if (choice == 1)
         {
-            index = sub_80066570(2);
+            index = RandomRange(2);
             trigger = r_u16(object + 568 + 2 * index);
             xport_draft_host_sub_8006613C_p1(position, trigger);
             resource = 14;
@@ -1107,17 +1126,17 @@ uint32 Plague::SpawnPickup()
         }
         if (choice)
         {
-            index = sub_80066570(2);
+            index = RandomRange(2);
             trigger = r_u16(object + 564 + 2 * index);
             xport_draft_host_sub_8006613C_p1(position, trigger);
             resource = 15;
             goto create;
         }
-        index = sub_80066570(4);
+        index = RandomRange(4);
         trigger = r_u16(object + 556 + 2 * index);
     }
     xport_draft_host_sub_8006613C_p1(position, trigger);
-    choice = sub_80066570(2);
+    choice = RandomRange(2);
     resource = choice ? 3 : 4;
 create:
     xport_draft_host_sub_80020EF8_p2(resource, position, 4, 240, 0x800A71CC);
@@ -1129,7 +1148,7 @@ create:
 uint32 Plague::UpdateOrbitingWeapons()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 node = r_u32(0x800FF5DC), identity, child, second, third;
+    uint32 node = visual_lists.solids, identity, child, second, third;
     uint32 timer, phase, angle, slot, table, receiver, target, index, random;
     uint32 position[3], direction[3];
     sint16 angles[3];
@@ -1218,7 +1237,7 @@ uint32 Plague::UpdateOrbitingWeapons()
             angle = (r_u16(node + 18) + delta) & 4095;
             w_u16(node + 18, angle);
         }
-        random = sub_80066570(4);
+        random = RandomRange(4);
         phase = r_u16(object + 638);
         timer = r_u16(object + 640);
         w_u16(object + 638, phase + 4 + random);
@@ -1367,34 +1386,24 @@ uint32 Plague::TrackTarget(const uint8 *target)
     return flags;
 }
 
-uint32 Plague::ClearFacing()
+uint16 *Plague::ClearFacing()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80047808, "SLUS_003.73");
     uint32 flags = r_u32(object + 396) & 0xFFFFFFCF;
     w_u32(object + 396, flags);
-    w_u16(object + 136, 0);
-    w_u16(object + 134, 0);
-    w_u16(object + 132, 0);
-    w_u16(object + 142, 0);
-    w_u16(object + 140, 0);
-    w_u16(object + 138, 0);
-    return object + 138;
+    motion.angular_velocity[2] = 0;
+    motion.angular_velocity[1] = 0;
+    motion.angular_velocity[0] = 0;
+    motion.angular_acceleration[2] = 0;
+    motion.angular_acceleration[1] = 0;
+    motion.angular_acceleration[0] = 0;
+    return motion.angular_acceleration;
 }
 
-extern "C" uint32 sub_8004509C(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x8004509C, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(Plague));
-    new (dram_addr) Plague((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
 
-extern "C" uint32 sub_80045134(uint32 object)
-{
-    FUNCTION_MARKER(0x80045134, "SLUS_003.73");
-    return Plague::Attach(object).Plague::Configure();
-}
+
+
 
 extern "C" uint32 sub_800452B4(uint32 object, uint32 reason)
 {
@@ -1414,23 +1423,11 @@ extern "C" uint32 sub_800453F4(uint32 object)
     return Plague::Attach(object).Plague::Update();
 }
 
-extern "C" void sub_80045BA8(uint32 object)
-{
-    FUNCTION_MARKER(0x80045BA8, "SLUS_003.73");
-    Plague::Attach(object).UpdateState();
-}
 
-extern "C" uint32 sub_80046EBC(uint32 object)
-{
-    FUNCTION_MARKER(0x80046EBC, "SLUS_003.73");
-    return Plague::Attach(object).Plague::SpawnPickup();
-}
 
-extern "C" uint32 sub_800470B0(uint32 object)
-{
-    FUNCTION_MARKER(0x800470B0, "SLUS_003.73");
-    return Plague::Attach(object).Plague::UpdateOrbitingWeapons();
-}
+
+
+
 
 extern "C" uint32 sub_800474F0(uint32 object, uint32 command)
 {
@@ -1444,36 +1441,20 @@ extern "C" uint32 sub_800476D0(uint32 object, uint32 command)
     return Plague::Attach(object).Plague::ExecuteCommand(command);
 }
 
-extern "C" uint32 sub_800476F0(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x800476F0, "SLUS_003.73");
-    return Plague::Attach(object).SetJumpTarget((const uint32 *)psx_addr(position, 12));
-}
+
 
 extern "C" uint32 apocalypse_enemy_jump_target_native(uint32 object, const void *position)
 {
     return Plague::Attach(object).SetJumpTarget((const uint32 *)position);
 }
 
-extern "C" uint32 sub_80047758(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x80047758, "SLUS_003.73");
-    return Plague::Attach(object).SetMoveTarget((const uint32 *)psx_addr(position, 12));
-}
+
 
 extern "C" uint32 apocalypse_enemy_move_target_native(uint32 object, const void *position)
 {
     return Plague::Attach(object).SetMoveTarget((const uint32 *)position);
 }
 
-extern "C" uint32 sub_80047788(uint32 object, uint32 target)
-{
-    FUNCTION_MARKER(0x80047788, "SLUS_003.73");
-    return Plague::Attach(object).TrackTarget((const uint8 *)psx_addr(target, 80));
-}
 
-extern "C" uint32 sub_80047808(uint32 object)
-{
-    FUNCTION_MARKER(0x80047808, "SLUS_003.73");
-    return Plague::Attach(object).ClearFacing();
-}
+
+

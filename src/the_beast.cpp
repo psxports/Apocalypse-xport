@@ -1,3 +1,13 @@
+#include "cd_voice_event.h"
+#include "enemy_list.h"
+#include "record_factory.h"
+#include "screen_flash.h"
+#include "visual_object.h"
+#include "angle_math.h"
+#include "object_damage.h"
+#include "object_collision_events.h"
+#include "model_animation.h"
+#include "game_random.h"
 #include "game_sdk_bindings.h"
 extern "C"
 {
@@ -5,6 +15,7 @@ extern "C"
 #include "draft_first_adapters.h"
 }
 #include "the_beast.h"
+#include "projectile_guided.h"
 #include "game_panel.h"
 #include "spawn_points.h"
 #include "native_object_storage.h"
@@ -68,14 +79,28 @@ static uint32 ReadBeastPlanarDistance(const uint32 *left, const uint32 *right)
     return sub_80085B54(x * x + z * z);
 }
 
-static void InterpolateBeastAngles(uint32 current, const uint16 *desired, uint32 delta, uint32 acceleration, uint32 scale)
+static void InterpolateBeastAngles(uint32 current, const uint16 *desired, uint16 *delta, uint16 *acceleration, uint32 scale)
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     uint32 packed = r_u32(current);
     packed = r_u32(current);
     uint32 tail = r_u16(current + 4);
     uint32 desired_packed = desired[0] | ((uint32)desired[1] << 16);
     uint32 desired_tail = desired[2];
-    sub_80066CF0(packed, tail, delta, acceleration, desired_packed, desired_tail, scale);
+    motion_cur_word = packed;
+    motion_cur_tail = tail;
+    motion_target_word = desired_packed;
+    motion_target_tail = desired_tail;
+    motion_cur.vx = (sint16)motion_cur_word;
+    motion_cur.vy = (sint16)(motion_cur_word >> 16);
+    motion_cur.vz = (sint16)motion_cur_tail;
+    motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+    motion_target.vx = (sint16)motion_target_word;
+    motion_target.vy = (sint16)(motion_target_word >> 16);
+    motion_target.vz = (sint16)motion_target_tail;
+    motion_target.pad = (sint16)(motion_target_tail >> 16);
+    UpdateAngleAcceleration(motion_cur, delta, acceleration, motion_target, scale);
 }
 
 static void FireBeastWeapon(uint32 weapon, const uint32 *position, const uint16 *angles)
@@ -139,16 +164,16 @@ static void RestoreBeastState(uint32 object)
 
 static void ClearBeastVelocity(uint32 object)
 {
-    w_u32(object + 112, 0);
-    w_u32(object + 108, 0);
-    w_u32(object + 104, 0);
+    TheBeast::Attach(object).motion.velocity[2] = 0;
+    TheBeast::Attach(object).motion.velocity[1] = 0;
+    TheBeast::Attach(object).motion.velocity[0] = 0;
 }
 
 static void BeginBeastAttack(TheBeast &owner)
 {
     const uint32 object = NativeObjectGuestAddress(&owner);
     uint32 flags = r_u32(object + 396);
-    uint32 player = r_u32(0x800FF5A0);
+    uint32 player = visual_lists.players;
     w_u32(object + 396, flags & 0xFFFFFFFE);
     ClearBeastVelocity(object);
     owner.TrackTarget(player);
@@ -229,13 +254,13 @@ TheBeast::TheBeast(const uint8 *record_data, uint32 index)
     }
     w_u32(object + 68, 0x800A20C0);
     cursor = sub_80062B0C(object, data);
-    w_u16(object + 16, r_u16(cursor));
-    w_u16(object + 18, r_u16(cursor + 2));
+    this->model.angles[0] = r_u16(cursor);
+    this->model.angles[1] = r_u16(cursor + 2);
     roll = r_u16(cursor + 4);
     w_u32(object + 400, cursor + 6);
     w_u8(object + 380, 1);
-    w_u16(object + 214, index);
-    w_u16(object + 20, roll);
+    this->record_idx = index;
+    this->model.angles[2] = roll;
     Configure();
     cursor = r_u32(object + 400);
     sub_8004BE90(object, cursor);
@@ -247,11 +272,11 @@ uint32 TheBeast::Configure()
     uint32 buffer, colors;
     FUNCTION_MARKER(0x800409E0, "SLUS_003.73");
     sub_800626C8(object, 0x800A2040);
-    w_u8(object + 129, 31);
-    w_u8(object + 130, 31);
-    w_u8(object + 131, 31);
-    sub_80062A38(object, 0x800FF4E8);
-    w_u16(object, r_u16(object) | 128);
+    motion.drag[0] = 31;
+    motion.drag[1] = 31;
+    motion.drag[2] = 31;
+    AddToList(visual_lists.actors);
+    this->model.flags = this->model.flags | 128;
     sub_8004BD04(object, 3, 5);
     sub_8004BDCC(object, 0, 0, 0);
     sub_8004BDCC(object, 1, 0, 0);
@@ -260,7 +285,7 @@ uint32 TheBeast::Configure()
     sub_8004BDCC(object, 2, 1, 2);
     w_u16(object + 436, 32);
     w_u16(object + 438, 32);
-    w_u16(object + 58, 220);
+    this->kind = 220;
     w_u16(object + 456, 271);
     w_u32(object + 552, 0);
     w_u32(object + 556, 0);
@@ -297,7 +322,7 @@ uint32 TheBeast::Destroy(uint32 reason)
     FUNCTION_MARKER(0x80040B64, "SLUS_003.73");
     w_u32(object + 68, 0x800A20C0);
     ClearTrackedObjectHealth();
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     Enemy::FreeBehaviorTable();
     child = r_u32(object + 552);
     DestroyTheBeastChild(child, 0);
@@ -344,14 +369,14 @@ uint32 TheBeast::SpawnPickup()
     if (mode < 5)
         return 0x800F0000;
     threshold = r_u16(0x800EC526);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     health = (sint16)r_u16(player + 218);
     kind = 0;
-    if (health < ((sint32)(threshold << 16) >> 17) && sub_80066570(3) == 0)
+    if (health < ((sint32)(threshold << 16) >> 17) && RandomRange(3) == 0)
         kind = 14;
     if (!kind)
     {
-        choice = sub_80066570(6);
+        choice = RandomRange(6);
         switch (choice)
         {
             case 0: kind = 5; break;
@@ -373,7 +398,7 @@ uint32 TheBeast::SpawnPickup()
         xport_draft_host_sub_8006613C_p1(position, choice);
         if (apocalypse_ground_native(position, 0, 2048) != (uint32)-1)
         {
-            candidate = r_u32(0x800FF204);
+            candidate = visual_lists.pickups;
             if (candidate)
             {
                 x = position[0];
@@ -410,31 +435,26 @@ uint32 TheBeast::Update()
     uint16 desired[4], weapon_angles[4];
     uint32 velocity_x, velocity_z, velocity_y;
     sint16 pitch;
-    union
-    {
-        uint32 words[36];
-        uint16 halfwords[72];
-        uint8 bytes[144];
-    } raycast;
+    CollisionRay raycast;
     FUNCTION_MARKER(0x80040F34, "SLUS_003.73");
     x = r_u32(0x800A71CC);
     y = r_u32(0x800A71D0);
     z = r_u32(0x800A71D4);
-    w_u32(object + 116, x);
-    w_u32(object + 120, y);
-    w_u32(object + 124, z);
-    sub_8007CECC(object);
+    motion.acceleration[0] = x;
+    motion.acceleration[1] = y;
+    motion.acceleration[2] = z;
+    UpdateModelAnimationData(object);
     sub_8007FDF0(object);
-    sub_8007D148(object);
-    flags = r_u16(object + 76);
+    BuildModelPose(*this);
+    flags = this->activation_flags;
     w_u16(object + 388, flags);
     if (flags & 1)
     {
         value = r_u8(object + 384);
-        w_u16(object + 76, flags & 65534);
+        this->activation_flags = flags & 65534;
         w_u8(object + 384, value + 1);
     }
-    mode = r_u8(object + 26);
+    mode = this->model.animation;
     if (mode == 3)
     {
         frame = sub_8006325C(object, 3, 5);
@@ -469,7 +489,7 @@ uint32 TheBeast::Update()
             if (child)
                 apocalypse_beast_ground_effect_native(child, position, 10, 64, 96, 96, 20, 64, 128);
             xport_draft_host_sub_80069EF4_p2(137, position, 0);
-            current = r_u32(0x800FF904);
+            current = visual_lists.cameras;
             sub_800774EC(current, object + 4, 1);
         }
     }
@@ -488,35 +508,35 @@ uint32 TheBeast::Update()
         UpdateBehavior();
     if (!r_u8(object + 381))
     {
-        sub_8007CA50(object, 0x800A6A70);
-        sub_8007CAC8(object, 0x800A6AAC);
-        flags = r_u16(object);
+        SetModelBoneTable(this->model.bank, TheBeastAttachments);
+        InitializeModelAnimation(TheBeastHierarchy);
+        flags = this->model.flags;
         w_u8(object + 381, 1);
-        w_u16(object, flags | 4);
+        this->model.flags = flags | 4;
     }
     if (r_u8(object + 382))
-        sub_8006C0B8(object + 116, 0x800A6844);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844, 12));
     sub_8004B9A4(object);
-    x = r_u32(object + 4);
-    raycast.words[0] = x;
-    y = r_u32(object + 8) - 262144;
-    raycast.words[1] = y;
-    z = r_u32(object + 12);
-    raycast.words[3] = x;
-    raycast.words[4] = y + 8388608;
-    raycast.words[2] = z;
-    raycast.words[5] = z;
-    xport_draft_host_sub_8007BB24_p1(&raycast);
-    xport_draft_host_sub_8007DD04_p1(&raycast, 1);
-    if (raycast.words[26])
+    x = this->model.pos[0];
+    raycast.pos[0][0] = x;
+    y = this->model.pos[1] - 262144;
+    raycast.pos[0][1] = y;
+    z = this->model.pos[2];
+    raycast.pos[1][0] = x;
+    raycast.pos[1][1] = y + 8388608;
+    raycast.pos[0][2] = z;
+    raycast.pos[1][2] = z;
+    InitializeCollisionRay(raycast);
+    QueryCollisionRay(raycast, 1);
+    if (raycast.hit.GetObject())
     {
         w_u8(object + 314, 1);
-        w_u32(object + 184, raycast.words[27]);
-        w_u32(object + 188, raycast.words[28]);
-        w_u32(object + 192, raycast.words[29]);
-        w_u16(object + 164, raycast.halfwords[60]);
-        w_u16(object + 166, raycast.halfwords[61]);
-        w_u16(object + 168, raycast.halfwords[62]);
+        w_u32(object + 184, raycast.hit_pos[0]);
+        w_u32(object + 188, raycast.hit_pos[1]);
+        w_u32(object + 192, raycast.hit_pos[2]);
+        w_u16(object + 164, (uint16)raycast.n.vx);
+        w_u16(object + 166, (uint16)raycast.n.vy);
+        w_u16(object + 168, (uint16)raycast.n.vz);
     }
     else
         w_u8(object + 314, 0);
@@ -532,13 +552,13 @@ uint32 TheBeast::Update()
         w_u32(object + 540, z);
         xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 532);
         desired[0] = 0;
-        InterpolateBeastAngles(object + 16, desired, object + 132, object + 138, 24);
+        InterpolateBeastAngles(object + 16, (const uint16 *)desired, motion.angular_velocity, motion.angular_acceleration, 24);
     }
     else if (flags & 32)
     {
         xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 532);
         desired[0] = 0;
-        InterpolateBeastAngles(object + 16, desired, object + 132, object + 138, 16);
+        InterpolateBeastAngles(object + 16, (const uint16 *)desired, motion.angular_velocity, motion.angular_acceleration, 16);
     }
     flags = r_u32(object + 396);
     if (flags & 64)
@@ -546,7 +566,7 @@ uint32 TheBeast::Update()
         xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 496);
         value = desired[1];
         desired[0] = 0;
-        current = r_u16(object + 18);
+        current = this->model.angles[1];
         desired[1] = (value - current) & 4095;
     }
     else
@@ -555,59 +575,58 @@ uint32 TheBeast::Update()
         desired[1] = 0;
         desired[2] = 0;
     }
-    InterpolateBeastAngles(object + 508, desired, object + 514, object + 520, 16);
+    InterpolateBeastAngles(object + 508, desired, (uint16 *)psx_addr(object + 514, 4), (uint16 *)psx_addr(object + 520, 4), 16);
     sub_8006C730(object + 508, object + 514);
     sub_8006C624(object + 508);
     sub_8006C730(object + 514, object + 520);
-    sub_8006C8E8(object + 514, object + 144);
+    DampAngles((uint16 *)psx_addr(object + 514, 6), motion.angular_drag);
     sub_8006C64C(object + 514);
-    current = r_u32(object + 360);
     value = r_u16(object + 510);
-    w_u16(current + 206, value);
+    GetModelJointAngles(17).rotation[1] = (uint16)value;
     flags = r_u32(object + 396);
     if (!(flags & 1))
         goto StoppedAnimation;
     if (flags & 4)
     {
-        frame = (uint32)(sint32)(sint8)r_u8(object + 24);
+        frame = (uint32)(sint32)(sint8)this->model.frame;
         if ((sint32)frame < 18)
         {
             w_u32(object + 304, 65536);
             w_u8(object + 382, 0);
-            w_u32(object + 112, 0);
-            w_u32(object + 108, 0);
-            w_u32(object + 104, 0);
-            w_u32(object + 124, 0);
-            w_u32(object + 120, 0);
-            w_u32(object + 116, 0);
+            motion.velocity[2] = 0;
+            motion.velocity[1] = 0;
+            motion.velocity[0] = 0;
+            motion.acceleration[2] = 0;
+            motion.acceleration[1] = 0;
+            motion.acceleration[0] = 0;
         }
         else if (r_u16(object + 544))
             w_u8(object + 382, 1);
-        frame = (uint32)(sint32)(sint8)r_u8(object + 24);
+        frame = (uint32)(sint32)(sint8)this->model.frame;
         if ((sint32)frame >= 18 && !(r_u32(object + 396) & 8))
         {
             x = r_u32(object + 484);
-            y = r_u32(object + 4);
+            y = this->model.pos[0];
             timer = r_u16(object + 544);
             velocity_x = DivideBeastMovement(x - y, timer);
             x = r_u32(object + 492);
-            y = r_u32(object + 12);
+            y = this->model.pos[2];
             timer = r_u16(object + 544);
             velocity_z = DivideBeastMovement(x - y, timer);
             x = r_u32(object + 488);
-            y = r_u32(object + 8);
+            y = this->model.pos[1];
             timer = r_u16(object + 544);
             velocity_y = DivideBeastMovement(x - y, timer);
             flags = r_u32(object + 396);
             w_u32(object + 396, flags | 8);
-            w_u32(object + 104, velocity_x);
-            w_u32(object + 112, velocity_z);
-            w_u32(object + 108, velocity_y - (timer << 14));
+            motion.velocity[0] = velocity_x;
+            motion.velocity[2] = velocity_z;
+            motion.velocity[1] = velocity_y - (timer << 14);
             sub_80069EF4(139, object + 4, 0);
         }
         else
         {
-            frame = (uint32)(sint32)(sint8)r_u8(object + 24);
+            frame = (uint32)(sint32)(sint8)this->model.frame;
             if ((sint32)frame >= 38)
             {
                 if (!r_u16(object + 544))
@@ -625,12 +644,12 @@ uint32 TheBeast::Update()
                 x = r_u32(object + 484);
                 y = r_u32(object + 488);
                 z = r_u32(object + 492);
-                w_u32(object + 4, x);
-                w_u32(object + 8, y);
-                w_u32(object + 12, z);
-                position[0] = r_u32(object + 4);
-                position[1] = r_u32(object + 8);
-                position[2] = r_u32(object + 12);
+                this->model.pos[0] = x;
+                this->model.pos[1] = y;
+                this->model.pos[2] = z;
+                position[0] = this->model.pos[0];
+                position[1] = this->model.pos[1];
+                position[2] = this->model.pos[2];
                 value = (uint32)(sint32)(sint16)r_u16(object + 456);
                 position[1] += (value - 32) << 12;
                 if (r_u16(object + 472) != 4)
@@ -639,14 +658,14 @@ uint32 TheBeast::Update()
                     if (child)
                         apocalypse_beast_ground_effect_native(child, position, 10, 64, 96, 96, 20, 64, 128);
                 }
-                w_u32(object + 112, 0);
-                w_u32(object + 108, 0);
-                w_u32(object + 104, 0);
-                w_u32(object + 124, 0);
-                w_u32(object + 120, 0);
+                motion.velocity[2] = 0;
+                motion.velocity[1] = 0;
+                motion.velocity[0] = 0;
+                motion.acceleration[2] = 0;
+                motion.acceleration[1] = 0;
                 w_u8(object + 382, 0);
-                current = r_u32(0x800FF904);
-                w_u32(object + 116, 0);
+                current = visual_lists.cameras;
+                motion.acceleration[0] = 0;
                 w_u32(object + 304, 65536);
                 sub_800774EC(current, object + 4, 0);
                 sub_80069EF4(138, object + 4, 0);
@@ -667,15 +686,15 @@ JumpFinished:
             speed = 128;
         xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 484);
         desired[0] = 0;
-        InterpolateBeastAngles(object + 16, desired, object + 132, object + 138, speed);
+        InterpolateBeastAngles(object + 16, (const uint16 *)desired, motion.angular_velocity, motion.angular_acceleration, speed);
         speed = r_u16(object + 436);
-        sub_800667CC(object + 104, speed, object + 16);
+        BuildDirectionVector(motion.velocity, speed, (const uint16 *)this->model.angles);
         flags = r_u32(object + 396);
         if (flags & 2)
         {
-            position[0] = r_u32(object + 4);
+            position[0] = this->model.pos[0];
             position[1] = r_u32(object + 488);
-            position[2] = r_u32(object + 12);
+            position[2] = this->model.pos[2];
             distance = xport_draft_host_sub_8006689C_p12(position, psx_addr(object + 484, 12));
             value = distance < 64;
         }
@@ -692,13 +711,13 @@ JumpFinished:
     }
     if (r_u32(object + 396) & 1)
     {
-        if (!r_u8(object + 26) && r_u8(object + 303))
+        if (!this->model.animation && r_u8(object + 303))
             sub_80063118(object, 3, 1);
-        mode = r_u8(object + 26);
+        mode = this->model.animation;
         goto AttackAnimation;
     }
 StoppedAnimation:
-    mode = r_u8(object + 26);
+    mode = this->model.animation;
     if (mode == 3)
     {
         frame = sub_8006325C(object, 3, 43);
@@ -707,19 +726,19 @@ StoppedAnimation:
         frame = sub_8006325C(object, 3, 17);
         if (sub_80062D24(object, frame, 2))
             sub_80063038(object, 9, 0, (uint32)-1);
-        mode = r_u8(object + 26);
+        mode = this->model.animation;
     }
 AttackAnimation:
     if (mode == 2)
     {
-        frame = r_u8(object + 24);
+        frame = this->model.frame;
         if (frame - 15 < 6)
         {
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             if (player)
             {
                 xport_draft_host_sub_8007CC10_p1(position, object, 0);
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 xport_draft_host_sub_8006C3AC_p123(discarded_direction, position, psx_addr(player + 4, 12));
                 xport_draft_host_sub_8006BF04_p1(discarded_direction);
             }
@@ -755,9 +774,9 @@ AttackAnimation:
         if (weapon || r_u32(object + 556))
         {
             xport_draft_host_sub_8007CC10_p1(position, object, 3);
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             xport_draft_host_sub_80066B8C_p12(weapon_angles, position, player + 4);
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             player_ground[0] = r_u32(player + 184);
             player_ground[1] = r_u32(player + 188);
             player_ground[2] = r_u32(player + 192);
@@ -815,10 +834,10 @@ AttackAnimation:
         if (weapon)
         {
             xport_draft_host_sub_8007CC10_p1(muzzle, object, 3);
-            mode = r_u8(object + 26);
+            mode = this->model.animation;
             if (mode == 6)
             {
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 xport_draft_host_sub_80066B8C_p12(weapon_angles, muzzle, player + 4);
                 pitch = (sint16)weapon_angles[0];
                 xport_draft_host_sub_8007CC10_p1(position, object, 4);
@@ -843,7 +862,7 @@ AttackAnimation:
             w_u32(object + 560, 0);
         }
     }
-    mode = r_u8(object + 26);
+    mode = this->model.animation;
     if (mode == 7)
     {
         frame = sub_8006325C(object, 7, 25);
@@ -852,12 +871,15 @@ AttackAnimation:
             xport_draft_host_sub_8007CC10_p1(position, object, 0);
             child = sub_800625AC(428);
             if (child)
-                child = xport_draft_host_sub_8002D7C4_p2(child, position, object + 16, 10, 0x800FF5A0, 1);
+            {
+                void *storage = AllocateNativeObjectStorage(child, sizeof(GuidedProjectile));
+                new (storage) GuidedProjectile(position, 10, &visual_lists.players, 1);
+            }
             w_u32(object + 572, child);
             flags = r_u16(child + 78);
             w_u16(child + 78, flags | 32);
             child = r_u32(object + 572);
-            w_u32(child + 380, 0);
+            GuidedProjectile::Attach(child).SetLaunchDelay(0);
         }
         frame = sub_8006325C(object, 7, 68);
         if (sub_80062D24(object, frame, 2))
@@ -865,12 +887,12 @@ AttackAnimation:
             if (r_u32(object + 572))
             {
                 xport_draft_host_sub_8007CC10_p1(muzzle, object, 0);
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 xport_draft_host_sub_80066B8C_p12(weapon_angles, muzzle, player + 4);
-                weapon_angles[1] = r_u16(object + 18);
+                weapon_angles[1] = this->model.angles[1];
                 child = r_u32(object + 572);
                 apocalypse_guided_projectile_angles_native(child, weapon_angles);
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 child = r_u32(object + 572);
                 sub_8002DC0C(child, 0, player + 184);
                 child = r_u32(object + 572);
@@ -899,22 +921,22 @@ uint32 TheBeast::Resize(uint32 increment)
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 flags, scale, product, height, old_height, displacement, y;
     FUNCTION_MARKER(0x80041FDC, "SLUS_003.73");
-    flags = r_u16(object);
-    scale = (uint32)(sint32)(sint16)r_u16(object + 36);
+    flags = this->model.flags;
+    scale = (uint32)(sint32)(sint16)this->model.scale[0];
     scale += increment;
-    w_u16(object, flags | 512);
+    this->model.flags = flags | 512;
     product = ((scale << 4) + scale) << 4;
     product -= scale;
-    w_u16(object + 40, scale);
-    w_u16(object + 38, scale);
-    w_u16(object + 36, scale);
+    this->model.scale[2] = scale;
+    this->model.scale[1] = scale;
+    this->model.scale[0] = scale;
     old_height = (uint32)(sint32)(sint16)r_u16(object + 456);
     height = (uint32)((sint32)product >> 12);
     w_u16(object + 456, height);
     height = (uint32)(sint32)(sint16)height;
     displacement = (height - old_height) << 12;
-    y = r_u32(object + 8);
-    w_u32(object + 8, y - displacement);
+    y = this->model.pos[1];
+    this->model.pos[1] = y - displacement;
     return displacement;
 }
 
@@ -934,9 +956,9 @@ uint32 TheBeast::UpdateLighting()
     w_u16(0x800FFBAC, 2048);
     w_u16(0x800FFBAE, 2048);
     w_u16(0x800FFBB0, 2048);
-    random = sub_80066570(256);
+    random = RandomRange(256);
     flicker[0] = (sint16)(random << 4);
-    random = sub_80066570((uint32)((sint32)random >> 1));
+    random = RandomRange((uint32)((sint32)random >> 1));
     flicker[1] = (sint16)(random << 4);
     flicker[2] = 0;
     weapon = r_u32(object + 552);
@@ -1022,14 +1044,14 @@ uint32 TheBeast::Damage(uint32 damage, const sint32 *, uint32 reason)
 void TheBeast::UpdateBehavior()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 state, phase, value, player, camera, floor, flags, child, table, target, index, entry, best, selected, chosen, distance, scale, counter, point_index, yaw;
+    uint32 state, phase, value, player, camera, floor, flags, child, table, target, index, entry, best, selected, chosen, distance, scale, counter, yaw;
     uint32 position[4], destination[4], delta[4], normalized[4], scaled[4], sample[4];
     uint32 shift, scalar;
     uint16 angles[4];
     uint8 voices[3];
     sint32 health, step, old_counter, adjustment;
     bool selection_valid;
-    union { uint32 words[36]; uint8 bytes[144]; } raycast;
+    CollisionRay raycast;
     FUNCTION_MARKER(0x80042360, "SLUS_003.73");
     state = r_u16(object + 472);
     if (state > 128)
@@ -1045,16 +1067,16 @@ void TheBeast::UpdateBehavior()
                     if (floor != (uint32)-1)
                     {
                         value = (uint32)(sint32)(sint16)r_u16(object + 456);
-                        w_u32(object + 8, floor - (value << 12));
+                        this->model.pos[1] = floor - (value << 12);
                     }
-                    player = r_u32(0x800FF5A0);
+                    player = visual_lists.players;
                     w_u32(player + 452, 150);
                     w_u16(object + 218, 300);
-                    sub_8006D390(object, 24, 42, 4096);
+                    ::TrackObjectHealth(object, 24, 42, 4096);
                     AdvanceBeastPhase(object);
                     return;
                 case 1:
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     w_u32(camera + 304, 1);
                     w_u32(camera + 296, object);
                     w_u32(camera + 340, 1);
@@ -1079,7 +1101,7 @@ void TheBeast::UpdateBehavior()
                     }
                     if (phase == 2)
                     {
-                        camera = r_u32(0x800FF904);
+                        camera = visual_lists.cameras;
                         sub_80078618(camera, (uint32)-206, 30);
                         sub_800786A0(camera, 90, 30);
                         sub_800786E4(camera, 604, 30);
@@ -1092,8 +1114,8 @@ void TheBeast::UpdateBehavior()
                         voices[0] = r_u8(0x800FF4B0);
                         voices[1] = r_u8(0x800FF4B1);
                         voices[2] = r_u8(0x800FF4B2);
-                        index = sub_80066570(3);
-                        sub_8002FD2C(19, voices[index]);
+                        index = RandomRange(3);
+                        ::SelectCdVoice(19, voices[index]);
                         PlayBeastAnimation(object, 6);
                         AdvanceBeastPhase(object);
                     }
@@ -1101,8 +1123,8 @@ void TheBeast::UpdateBehavior()
                 case 4:
                     if (!r_u8(object + 303))
                         return;
-                    camera = r_u32(0x800FF904);
-                    player = r_u32(0x800FF5A0);
+                    camera = visual_lists.cameras;
+                    player = visual_lists.players;
                     w_u32(camera + 304, 1);
                     w_u32(camera + 296, player);
                     w_u32(camera + 340, 1);
@@ -1138,7 +1160,7 @@ void TheBeast::UpdateBehavior()
             phase = r_u16(object + 474);
             w_u16(object + 440, state);
             w_u16(object + 442, phase);
-            if (!sub_80066570(2))
+            if (!RandomRange(2))
                 SelectBeastState(object, 64);
             else
             {
@@ -1152,7 +1174,7 @@ void TheBeast::UpdateBehavior()
             if (!phase)
             {
                 index = r_u16(0x800FF4B4);
-                sub_80064874(index);
+                ::SpawnRecord(index);
                 sub_80069EF4(132, object + 4, 0);
                 PlayBeastAnimation(object, 5);
                 AdvanceBeastPhase(object);
@@ -1161,12 +1183,12 @@ void TheBeast::UpdateBehavior()
             {
                 if (r_u8(object + 303))
                 {
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     sub_800774EC(camera, object + 4, 1);
                     index = r_u16(0x800FF4B6);
-                    sub_80064874(index);
+                    ::SpawnRecord(index);
                     index = r_u16(0x800FF4B8);
-                    sub_80064874(index);
+                    ::SpawnRecord(index);
                     SelectBeastState(object, 4);
                 }
                 else
@@ -1178,12 +1200,12 @@ void TheBeast::UpdateBehavior()
             if (!phase)
             {
                 w_u16(object + 438, 48);
-                SetJumpDestination((const uint32 *)psx_addr(object + 4, 12));
+                SetJumpDestination((const uint32 *)this->model.pos);
                 AdvanceBeastPhase(object);
             }
             else if (phase == 1 && !(r_u32(object + 396) & 1))
             {
-                sub_8001BE78(255, 255, 255, 8, 0, 0);
+                ::SetScreenFlash(255, 255, 255, 8, 0, 0);
                 SelectBeastState(object, 5);
                 w_u16(object + 438, 48);
             }
@@ -1194,8 +1216,8 @@ void TheBeast::UpdateBehavior()
             {
                 case 0:
                     w_u16(object + 218, 200);
-                    sub_8006D390(object, 24, 42, 4096);
-                    camera = r_u32(0x800FF904);
+                    ::TrackObjectHealth(object, 24, 42, 4096);
+                    camera = visual_lists.cameras;
                     w_u16(object + 436, 48);
                     w_u32(camera + 564, 18);
                     AdvanceBeastPhase(object);
@@ -1216,7 +1238,7 @@ void TheBeast::UpdateBehavior()
                         w_u16(object + 442, phase);
                         return;
                     }
-                    player = r_u32(0x800FF5A0);
+                    player = visual_lists.players;
                     if (!player)
                         return;
                     if (apocalypse_candidate_native(object, destination, player + 4, 512, 1024, 128, 1024, 1, 0))
@@ -1229,7 +1251,7 @@ void TheBeast::UpdateBehavior()
                         ClearBeastVelocity(object);
                     return;
                 case 2:
-                    if (!(r_u32(object + 396) & 1) || !sub_80066570(32))
+                    if (!(r_u32(object + 396) & 1) || !RandomRange(32))
                         w_u16(object + 474, 1);
                     return;
                 case 3:
@@ -1270,7 +1292,7 @@ void TheBeast::UpdateBehavior()
             {
                 case 0:
                     w_u16(object + 218, 600);
-                    sub_8006D390(object, 24, 42, 4096);
+                    ::TrackObjectHealth(object, 24, 42, 4096);
                     phase = r_u16(object + 474);
                     w_u16(object + 460, 0);
                     w_u16(object + 474, phase + 1);
@@ -1301,7 +1323,7 @@ void TheBeast::UpdateBehavior()
                         w_u16(object + 474, 3);
                         return;
                     }
-                    player = r_u32(0x800FF5A0);
+                    player = visual_lists.players;
                     if (!player)
                         return;
                     if (!apocalypse_candidate_native(object, position, player + 4, 512, 1024, 128, 1024, 1, 0))
@@ -1310,7 +1332,7 @@ void TheBeast::UpdateBehavior()
                         w_u16(object + 474, 3);
                         return;
                     }
-                    xport_draft_host_sub_8006C3AC_p123(delta, position, psx_addr(object + 4, 12));
+                    xport_draft_host_sub_8006C3AC_p123(delta, position, this->model.pos);
                     delta[1] = 0;
                     scalar = 0;
                     while (scalar < 8)
@@ -1319,18 +1341,18 @@ void TheBeast::UpdateBehavior()
                         xport_draft_host_sub_8006C564_p123(normalized, delta, &shift);
                         xport_draft_host_sub_8006C40C_p123(scaled, normalized, &scalar);
                         xport_draft_host_sub_8006C34C_p13(sample, object + 4, scaled);
-                        raycast.words[1] = sample[1];
-                        raycast.words[1] = sample[1] - 2097152;
-                        raycast.words[4] = sample[1];
-                        raycast.words[0] = sample[0];
-                        raycast.words[2] = sample[2];
-                        raycast.words[3] = sample[0];
-                        raycast.words[5] = sample[2];
-                        raycast.words[4] = sample[1] + 8388608;
-                        xport_draft_host_sub_8007BB24_p1(&raycast);
-                        raycast.bytes[136] = 0;
-                        xport_draft_host_sub_8007DD04_p1(&raycast, 1);
-                        if (!raycast.words[26])
+                        raycast.pos[0][1] = sample[1];
+                        raycast.pos[0][1] = sample[1] - 2097152;
+                        raycast.pos[1][1] = sample[1];
+                        raycast.pos[0][0] = sample[0];
+                        raycast.pos[0][2] = sample[2];
+                        raycast.pos[1][0] = sample[0];
+                        raycast.pos[1][2] = sample[2];
+                        raycast.pos[1][1] = sample[1] + 8388608;
+                        InitializeCollisionRay(raycast);
+                        raycast.triggers = 0;
+                        QueryCollisionRay(raycast, 1);
+                        if (!raycast.hit.GetObject())
                         {
                             ClearBeastVelocity(object);
                             w_u16(object + 474, 3);
@@ -1349,7 +1371,7 @@ void TheBeast::UpdateBehavior()
                     {
                         if (phase == 4)
                             w_u16(object + 474, 1);
-                        else if (!(r_u32(object + 396) & 1) || !sub_80066570(32))
+                        else if (!(r_u32(object + 396) & 1) || !RandomRange(32))
                         {
                             phase = r_u16(object + 474);
                             w_u16(object + 474, phase - 1);
@@ -1392,12 +1414,12 @@ void TheBeast::UpdateBehavior()
                 case 6:
                     if (!r_u8(object + 303))
                     {
-                        if ((sint8)r_u8(object + 24) == 15)
+                        if ((sint8)this->model.frame == 15)
                         {
                             step = (sint16)r_u16(object + 460);
-                            player = r_u32(0x800FF5DC);
+                            player = visual_lists.solids;
                             index = r_u16(0x800A6B94 + (uint32)step * 2);
-                            sub_80064E10(player, index);
+                            ::ActivateObjectsByIndex(player, index);
                             step = (sint16)r_u16(object + 460);
                             w_u16(object + 460, step + 1);
                         }
@@ -1443,7 +1465,7 @@ void TheBeast::UpdateBehavior()
             if (!phase)
             {
                 w_u16(object + 218, 600);
-                sub_8006D390(object, 24, 42, 4096);
+                ::TrackObjectHealth(object, 24, 42, 4096);
                 PlayBeastAnimation(object, 4);
                 AdvanceBeastPhase(object);
             }
@@ -1451,15 +1473,15 @@ void TheBeast::UpdateBehavior()
             {
                 if (r_u8(object + 303))
                     w_u16(object + 474, 2);
-                else if ((sint8)r_u8(object + 24) == 15)
+                else if ((sint8)this->model.frame == 15)
                 {
                     entry = 0x800A6BA0;
                     for (index = 0; index < 5; ++index)
                     {
                         value = r_u16(entry);
                         entry += 2;
-                        player = r_u32(0x800FF5DC);
-                        sub_80064E10(player, value);
+                        player = visual_lists.solids;
+                        ::ActivateObjectsByIndex(player, value);
                     }
                 }
             }
@@ -1489,9 +1511,9 @@ void TheBeast::UpdateBehavior()
                         SelectBeastState(object, 9);
                         return;
                     }
-                    player = r_u32(0x800FF5A0);
+                    player = visual_lists.players;
                     distance = sub_80066918(object + 4, player + 4);
-                    scale = (uint32)((3 * (sint16)r_u16(object + 36)) >> 4);
+                    scale = (uint32)((3 * (sint16)this->model.scale[0]) >> 4);
                     state = r_u16(object + 472);
                     phase = r_u16(object + 474);
                     SelectBeastState(object, distance < scale ? 80 : 64);
@@ -1515,7 +1537,7 @@ void TheBeast::UpdateBehavior()
                         {
                             value = r_u16(entry);
                             xport_draft_host_sub_8006613C_p1(position, value);
-                            player = r_u32(0x800FF5A0);
+                            player = visual_lists.players;
                             distance = xport_draft_host_sub_8006689C_p12(position, psx_addr(player + 4, 12));
                             if (distance < best)
                             {
@@ -1556,14 +1578,14 @@ void TheBeast::UpdateBehavior()
                 case 4:
                     if (!r_u8(object + 303))
                     {
-                        if ((sint8)r_u8(object + 24) == 15)
+                        if ((sint8)this->model.frame == 15)
                         {
                             step = (sint16)r_u16(object + 460);
                             w_u16(object + 460, step + 1);
                             chosen = (uint32)(sint32)(sint16)r_u16(object + 464);
-                            player = r_u32(0x800FF5DC);
+                            player = visual_lists.solids;
                             value = r_u16(0x800A6BAC + chosen * 2);
-                            sub_80064E10(player, value);
+                            ::ActivateObjectsByIndex(player, value);
                         }
                         return;
                     }
@@ -1590,7 +1612,7 @@ void TheBeast::UpdateBehavior()
             {
                 w_u16(object + 218, 400);
                 sub_8004BDCC(object, 2, 1, 4);
-                sub_8006D390(object, 24, 42, 4096);
+                ::TrackObjectHealth(object, 24, 42, 4096);
                 value = r_u16(0x800FF4BA);
                 xport_draft_host_sub_8006613C_p1(position, value);
                 chosen = (uint32)(sint32)(sint16)r_u16(object + 464);
@@ -1625,9 +1647,9 @@ void TheBeast::UpdateBehavior()
                     SelectBeastState(object, 10);
                     return;
                 }
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 distance = sub_80066918(object + 4, player + 4);
-                scale = (uint32)((3 * (sint16)r_u16(object + 36)) >> 4);
+                scale = (uint32)((3 * (sint16)this->model.scale[0]) >> 4);
                 if (distance < scale)
                 {
                     state = r_u16(object + 472);
@@ -1644,10 +1666,10 @@ void TheBeast::UpdateBehavior()
                 chosen = (uint32)(sint32)(sint16)r_u16(object + 464);
                 value = r_u16(0x800A6BAC + chosen * 2);
                 xport_draft_host_sub_8006613C_p1(position, value);
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 chosen = 0;
                 if (ReadBeastPointDistance(position, player + 4) < 1024)
-                    chosen = sub_80066570(3) != 0;
+                    chosen = RandomRange(3) != 0;
                 if (chosen)
                 {
                     w_u16(object + 446, 768);
@@ -1662,10 +1684,10 @@ void TheBeast::UpdateBehavior()
             phase = r_u16(object + 474);
             if (phase - 1 < 3)
             {
-                if (!sub_80066570(60))
+                if (!RandomRange(60))
                     sub_80069EF4(132, object + 4, 3);
                 value = (uint32)(sint32)(sint16)r_u16(object + 464);
-                camera = r_u32(0x800FF904);
+                camera = visual_lists.cameras;
                 yaw = (value - 16) & 4095;
                 w_u16(object + 464, yaw);
                 sub_8007851C(camera, yaw, 4);
@@ -1674,11 +1696,11 @@ void TheBeast::UpdateBehavior()
             switch (phase)
             {
                 case 0:
-                    player = r_u32(0x800FF5A0);
+                    player = visual_lists.players;
                     w_u32(player + 452, 900);
                     sub_80069EF4(132, object + 4, 0);
                     sub_80063118(object, 12, 1);
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     w_u16(object + 460, 0);
                     w_u16(object + 464, 2048);
                     if (camera)
@@ -1689,15 +1711,15 @@ void TheBeast::UpdateBehavior()
                         w_u32(camera + 336, object);
                         w_u32(camera + 564, 3);
                         sub_8007851C(camera, 2048, 4);
-                        camera = r_u32(0x800FF904);
+                        camera = visual_lists.cameras;
                         sub_800785D8(camera, 1324, 16);
-                        camera = r_u32(0x800FF904);
+                        camera = visual_lists.cameras;
                         sub_80078618(camera, (uint32)-854, 16);
-                        camera = r_u32(0x800FF904);
+                        camera = visual_lists.cameras;
                         sub_8007865C(camera, 0, 16);
-                        camera = r_u32(0x800FF904);
+                        camera = visual_lists.cameras;
                         sub_800786A0(camera, (uint32)-144, 16);
-                        camera = r_u32(0x800FF904);
+                        camera = visual_lists.cameras;
                         sub_800786E4(camera, (uint32)-472, 16);
                     }
                     AdvanceBeastPhase(object);
@@ -1708,14 +1730,14 @@ void TheBeast::UpdateBehavior()
                     if (counter < 180)
                     {
                         w_u16(object + 460, old_counter + 1);
-                        if (!sub_80066570(3))
+                        if (!RandomRange(3))
                         {
                             w_u32(0x800FF3AC, 0);
                             child = sub_80032DC0(92);
                             if (child)
                             {
                                 void *dram_addr = AllocateNativeObjectStorage(child, sizeof(BeastOrbitEffect));
-                                new (dram_addr) BeastOrbitEffect((const uint32 *)psx_addr(object + 4, 12));
+                                new (dram_addr) BeastOrbitEffect((const uint32 *)this->model.pos);
                             }
                             w_u32(0x800FF3AC, 1);
                         }
@@ -1728,8 +1750,8 @@ void TheBeast::UpdateBehavior()
                     AdvanceBeastPhase(object);
                     return;
                 case 2:
-                    flags = r_u16(object);
-                    w_u16(object, flags & 65407);
+                    flags = this->model.flags;
+                    this->model.flags = flags & 65407;
                     sub_800626F8(object, 0, 255, 0, 0);
                     w_u32(object + 176, 0x02404040);
                     w_u16(object + 180, 10240);
@@ -1738,12 +1760,12 @@ void TheBeast::UpdateBehavior()
                     w_u16(object + 474, phase + 1);
                     return;
                 case 3:
-                    if ((sint16)r_u16(object + 36) >= 2049)
+                    if ((sint16)this->model.scale[0] >= 2049)
                     {
                         Resize((uint32)-16);
                         return;
                     }
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     old_counter = (sint16)r_u16(camera + 494) - 2048;
                     if (old_counter < 0)
                         old_counter = -old_counter;
@@ -1755,18 +1777,18 @@ void TheBeast::UpdateBehavior()
                     }
                     return;
                 case 4:
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     w_u32(camera + 564, 3);
                     sub_8007851C(camera, 2048, 4);
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     sub_800785D8(camera, 1324, 16);
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     sub_80078618(camera, (uint32)-316, 16);
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     sub_8007865C(camera, 0, 16);
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     sub_800786A0(camera, 220, 16);
-                    camera = r_u32(0x800FF904);
+                    camera = visual_lists.cameras;
                     sub_800786E4(camera, (uint32)-328, 16);
                     AdvanceBeastPhase(object);
                     return;
@@ -1776,13 +1798,13 @@ void TheBeast::UpdateBehavior()
                     w_u16(object + 460, old_counter + 1);
                     if (counter == 16)
                     {
-                        flags = r_u16(object);
+                        flags = this->model.flags;
                         w_u32(object + 176, 0);
-                        w_u16(object, flags | 1);
-                        sub_8001BE78(240, 240, 240, 32, 0, 0);
-                        position[0] = r_u32(object + 4);
-                        position[1] = r_u32(object + 8);
-                        position[2] = r_u32(object + 12);
+                        this->model.flags = flags | 1;
+                        ::SetScreenFlash(240, 240, 240, 32, 0, 0);
+                        position[0] = this->model.pos[0];
+                        position[1] = this->model.pos[1];
+                        position[2] = this->model.pos[2];
                         value = (uint32)(sint32)(sint16)r_u16(object + 456);
                         position[1] += value << 12;
                         child = sub_800625AC(296);
@@ -1815,7 +1837,7 @@ void TheBeast::UpdateBehavior()
                             sub_8001EB64(child, object + 4, 255, 128, 0, 512, 32);
                     }
                     if (counter == 190)
-                        sub_8001BEF8(30, 1);
+                        ::FadeScreenToWhite(30, 1);
                     return;
                 default:
                     return;
@@ -1852,12 +1874,12 @@ void TheBeast::UpdateBehavior()
             {
                 if (state == 64)
                 {
-                    value = r_u8(object + 24);
+                    value = this->model.frame;
                     sub_8004BDCC(object, 1, 0, value - 18 < 22);
                 }
-                else if (state == 96 && (sint8)r_u8(object + 24) >= 28)
+                else if (state == 96 && (sint8)this->model.frame >= 28)
                     sub_8004BDCC(object, 1, 0, 1);
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 if (!player || r_u8(object + 303))
                 {
                     if (state == 80)
@@ -1867,18 +1889,15 @@ void TheBeast::UpdateBehavior()
                 }
                 else if (state == 80)
                 {
-                    value = r_u8(object + 24);
+                    value = this->model.frame;
                     if (value - 13 < 9)
                     {
                         distance = sub_80066918(object + 4, player + 4);
-                        scale = (uint32)((3 * (sint16)r_u16(object + 36)) >> 4);
+                        scale = (uint32)((3 * (sint16)this->model.scale[0]) >> 4);
                         if (distance < scale)
                         {
-                            player = r_u32(0x800FF5A0);
-                            table = r_u32(player + 68);
-                            adjustment = (sint16)r_u16(table + 48);
-                            target = r_u32(table + 52);
-                            apocalypse_object_virtual52(target, player + (uint32)adjustment, 2, 0x800A71CC, 0);
+                            player = visual_lists.players;
+                            ApplyObjectDamage(player, 2, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
                         }
                     }
                 }
@@ -1898,10 +1917,10 @@ void TheBeast::UpdateBehavior()
                 case 0:
                     flags = r_u32(object + 396);
                     w_u32(object + 396, flags & 0xFFFFFFFE);
-                    w_u32(object + 112, 0);
-                    w_u32(object + 108, 0);
+                    motion.velocity[2] = 0;
+                    motion.velocity[1] = 0;
                     chosen = r_u16(object + 444);
-                    w_u32(object + 104, 0);
+                    motion.velocity[0] = 0;
                     if (chosen)
                     {
                         chosen = (uint32)(sint32)(sint16)r_u16(object + 464);
@@ -1991,9 +2010,9 @@ void TheBeast::UpdateBehavior()
                     step = (sint16)r_u16(object + 466);
                     if (step < 48)
                     {
-                        player = r_u32(0x800FF5A0);
+                        player = visual_lists.players;
                         distance = sub_80066918(object + 4, player + 4);
-                        scale = (uint32)((3 * (sint16)r_u16(object + 36)) >> 4);
+                        scale = (uint32)((3 * (sint16)this->model.scale[0]) >> 4);
                         if (distance >= scale)
                         {
                             w_u16(object + 466, step + 1);
@@ -2017,22 +2036,19 @@ void TheBeast::UpdateBehavior()
             }
             else if (phase == 1)
             {
-                if ((sint8)r_u8(object + 24) == 15)
+                if ((sint8)this->model.frame == 15)
                 {
-                    player = r_u32(0x800FF5A0);
+                    player = visual_lists.players;
                     distance = sub_80066918(object + 4, player + 4);
-                    scale = (uint32)((3 * (sint16)r_u16(object + 36)) >> 4);
+                    scale = (uint32)((3 * (sint16)this->model.scale[0]) >> 4);
                     if (distance < scale)
                     {
-                        player = r_u32(0x800FF5A0);
-                        table = r_u32(player + 68);
+                        player = visual_lists.players;
                         health = (sint16)r_u16(0x800EC526);
-                        adjustment = (sint16)r_u16(table + 48);
                         if (health < 0)
                             health += 3;
                         health >>= 2;
-                        target = r_u32(table + 52);
-                        apocalypse_object_virtual52(target, player + (uint32)adjustment, health, 0x800A71CC, 0);
+                        ApplyObjectDamage(player, health, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
                     }
                 }
                 else if (r_u8(object + 303))
@@ -2103,7 +2119,7 @@ uint32 TheBeast::ExecuteCommand(uint32 command)
             position[2] = r_u32(cursor + 8);
             ShiftVectorLeft(position, &shift);
             if (command == 0x4222 || command == 0x4225)
-                AddVectors(position, (const uint32 *)psx_addr(object + 4, 12));
+                AddVectors(position, (const uint32 *)this->model.pos);
             w_u32(object + 400, cursor + 12);
             break;
         case 0x4221:
@@ -2141,7 +2157,7 @@ uint32 TheBeast::SetDestination(const uint32 *position)
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 mode, x, y, z, flags;
     FUNCTION_MARKER(0x8004481C, "SLUS_003.73");
-    mode = r_u8(object + 26);
+    mode = this->model.animation;
     if (mode && mode != 3)
         sub_80063038(object, 0, 0, (uint32)-1);
     x = ReadTheBeastTargetWord(position, 0);
@@ -2207,20 +2223,20 @@ uint32 TheBeast::SetFacingPoint(const uint32 *position)
     return flags;
 }
 
-uint32 TheBeast::ClearFacing()
+uint16 *TheBeast::ClearFacing()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 flags;
     FUNCTION_MARKER(0x80044978, "SLUS_003.73");
     flags = r_u32(object + 396);
     w_u32(object + 396, flags & 0xFFFFFFCF);
-    w_u16(object + 136, 0);
-    w_u16(object + 134, 0);
-    w_u16(object + 132, 0);
-    w_u16(object + 142, 0);
-    w_u16(object + 140, 0);
-    w_u16(object + 138, 0);
-    return object + 138;
+    motion.angular_velocity[2] = 0;
+    motion.angular_velocity[1] = 0;
+    motion.angular_velocity[0] = 0;
+    motion.angular_acceleration[2] = 0;
+    motion.angular_acceleration[1] = 0;
+    motion.angular_acceleration[0] = 0;
+    return motion.angular_acceleration;
 }
 
 uint32 TheBeast::SetBoneFacingPoint(const uint32 *position)
@@ -2249,19 +2265,9 @@ uint32 TheBeast::ClearBoneFacing()
     return flags;
 }
 
-extern "C" uint32 sub_800408A0(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x800408A0, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(TheBeast));
-    new (dram_addr) TheBeast((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
 
-extern "C" uint32 sub_800409E0(uint32 object)
-{
-    FUNCTION_MARKER(0x800409E0, "SLUS_003.73");
-    return TheBeast::Attach(object).Configure();
-}
+
+
 
 extern "C" uint32 sub_80040B64(uint32 object, uint32 reason)
 {
@@ -2269,23 +2275,9 @@ extern "C" uint32 sub_80040B64(uint32 object, uint32 reason)
     return TheBeast::Attach(object).TheBeast::Destroy(reason);
 }
 
-extern "C" uint32 sub_80040D14(uint32 object)
-{
-    FUNCTION_MARKER(0x80040D14, "SLUS_003.73");
-    return TheBeast::Attach(object).SpawnPickup();
-}
 
-extern "C" uint32 sub_80041FDC(uint32 object, uint32 increment)
-{
-    FUNCTION_MARKER(0x80041FDC, "SLUS_003.73");
-    return TheBeast::Attach(object).Resize(increment);
-}
 
-extern "C" uint32 sub_80042038(uint32 object)
-{
-    FUNCTION_MARKER(0x80042038, "SLUS_003.73");
-    return TheBeast::Attach(object).TheBeast::UpdateLighting();
-}
+
 
 extern "C" uint32 sub_800422C0(uint32 object, uint32 damage, uint32, uint32 reason)
 {
@@ -2305,47 +2297,19 @@ extern "C" uint32 sub_80044608(uint32 object, uint32 command)
     return TheBeast::Attach(object).TheBeast::ExecuteCommand(command);
 }
 
-extern "C" uint32 sub_8004481C(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x8004481C, "SLUS_003.73");
-    return TheBeast::Attach(object).SetDestination((const uint32 *)psx_addr(position, 12));
-}
 
-extern "C" uint32 sub_80044898(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x80044898, "SLUS_003.73");
-    return TheBeast::Attach(object).SetJumpDestination((const uint32 *)psx_addr(position, 12));
-}
 
-extern "C" uint32 sub_80044900(uint32 object, uint32 target)
-{
-    FUNCTION_MARKER(0x80044900, "SLUS_003.73");
-    return TheBeast::Attach(object).TrackTarget(target);
-}
 
-extern "C" uint32 sub_8004494C(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x8004494C, "SLUS_003.73");
-    return TheBeast::Attach(object).SetFacingPoint((const uint32 *)psx_addr(position, 12));
-}
 
-extern "C" uint32 sub_80044978(uint32 object)
-{
-    FUNCTION_MARKER(0x80044978, "SLUS_003.73");
-    return TheBeast::Attach(object).ClearFacing();
-}
 
-extern "C" uint32 sub_800449AC(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x800449AC, "SLUS_003.73");
-    return TheBeast::Attach(object).SetBoneFacingPoint((const uint32 *)psx_addr(position, 12));
-}
 
-extern "C" uint32 sub_800449D8(uint32 object)
-{
-    FUNCTION_MARKER(0x800449D8, "SLUS_003.73");
-    return TheBeast::Attach(object).ClearBoneFacing();
-}
+
+
+
+
+
+
+
 
 extern "C" uint32 apocalypse_beast_destination_native(uint32 object, const uint32 *position)
 {
@@ -2373,8 +2337,4 @@ extern "C" uint32 sub_80040F34(uint32 object)
     return TheBeast::Attach(object).TheBeast::Update();
 }
 
-extern "C" void sub_80042360(uint32 object)
-{
-    FUNCTION_MARKER(0x80042360, "SLUS_003.73");
-    TheBeast::Attach(object).TheBeast::UpdateBehavior();
-}
+

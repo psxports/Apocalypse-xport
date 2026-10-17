@@ -39,8 +39,4 @@ uint32 FadePackedColor(uint32 *color, sint32 amount)
     return result;
 }
 
-extern "C" uint32 sub_80032D3C(uint32 color, uint32 amount)
-{
-    FUNCTION_MARKER(0x80032D3C, "SLUS_003.73");
-    return FadePackedColor((uint32 *)psx_addr(color, 4), (sint32)amount);
-}
+

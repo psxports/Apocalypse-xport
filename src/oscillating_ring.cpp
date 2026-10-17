@@ -58,7 +58,7 @@ void OscillatingRing::Update()
             speed = r_u32(object + 104 + index * 4);
             phase += speed;
             w_u32(object + 136 + index * 4, phase);
-            sine = (uint32)(sint32)(sint16)r_u16(0x800F863C + (phase & 4095) * 4);
+            sine = (uint32)rsin(phase & 4095);
             amplitude = r_u32(object + 168);
             product = amplitude * sine;
             buffer = r_u32(object + 72);

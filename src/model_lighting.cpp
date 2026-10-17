@@ -15,11 +15,11 @@ void ReadRendererNormal(uint32 address, uint32 normal[3])
     normal[2] = last;
 }
 
-void LoadRendererVertexLighting(uint32 color_offset, uint32 color_table, uint32 normal_address)
+void LoadRendererVertexLighting(uint32 color_offset, const ModelPalette *color_table, uint32 normal_address)
 {
     uint32 color, packed, last, y;
     FUNCTION_MARKER(0x80082224, "SLUS_003.73");
-    color = r_u32(color_table + (color_offset & 0x3FC));
+    color = ReadModelPaletteColor(color_table, (color_offset & 0x3FC) >> 2);
     packed = r_u32(normal_address);
     last = r_u32(normal_address + 4);
     y = (uint32)((sint32)packed >> 16);
@@ -29,16 +29,6 @@ void LoadRendererVertexLighting(uint32 color_offset, uint32 color_table, uint32 
     xport_gte_write_data(11, last);
 }
 
-extern "C" void sub_800821B8(uint32 address, uint32 normal[3])
-{
-    FUNCTION_MARKER(0x800821B8, "SLUS_003.73");
-    ReadRendererNormal(address, normal);
-}
-extern "C" void sub_80082224(uint32 color_offset, uint32 color_table, uint32 normal_address)
-{
-    FUNCTION_MARKER(0x80082224, "SLUS_003.73");
-    LoadRendererVertexLighting(color_offset, color_table, normal_address);
-}
 
 void LoadRendererScratchLighting(uint32 scratch)
 {
@@ -52,8 +42,4 @@ void LoadRendererScratchLighting(uint32 scratch)
     xport_gte_write_data(11, z);
 }
 
-extern "C" void sub_80082254(uint32 scratch)
-{
-    FUNCTION_MARKER(0x80082254, "SLUS_003.73");
-    LoadRendererScratchLighting(scratch);
-}
+

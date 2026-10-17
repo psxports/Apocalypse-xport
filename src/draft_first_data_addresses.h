@@ -9,5 +9,4 @@
 #define aDiskerror 0x800A456Cu
 #define aComSCode02x02x 0x800A4578u
 #define aD 0x800A45A8u
-#define aPsx 0x800FF7A8u
 #endif

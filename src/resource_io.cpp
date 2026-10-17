@@ -2,67 +2,296 @@
 extern "C"
 {
 #include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-#include "game_startup_adapters.h"
 }
 #include "resource_io.h"
 #include "game_data_io.h"
-#include "native_object_storage.h"
-#include <stdio.h>
+#include "loading_screen.h"
 #include <stdlib.h>
+#include <string.h>
+
+struct ResourceEntry
+{
+    const char *name;
+    uint32 offset;
+    uint32 bytes;
+};
+
+struct ResourceDirectory
+{
+    ResourceEntry *entries;
+    char *names;
+    uint32 count;
+};
+
+struct ResourceRead
+{
+    uint8 *dst;
+    uint32 offset;
+    uint32 bytes;
+    uint32 progress;
+    uint32 phase;
+    uint32 option;
+    uint32 failures;
+    sint32 error;
+};
+
+static ResourceDirectory resource_directory;
+static ResourceRead resource_read;
+
+static uint32 RoundResourceSize(uint32 bytes)
+{
+    uint32 rounded = bytes + 2047;
+    if ((sint32)rounded < 0)
+        rounded = bytes + 4094;
+    return (uint32)((sint32)rounded >> 11) << 11;
+}
+
+static void ReleaseResourceDirectory()
+{
+    free(resource_directory.entries);
+    free(resource_directory.names);
+    ResourceDirectory empty = {0, 0, 0};
+    resource_directory = empty;
+}
+
+static bool DecodeResourceDirectory(const uint8 *data, uint32 bytes, uint32 wad_bytes)
+{
+    uint32 pos = 0, count = 0, name_bytes = 0;
+    while (pos < bytes && data[pos] != 255)
+    {
+        uint32 begin = pos;
+        while (pos < bytes && data[pos])
+            ++pos;
+        if (pos == bytes || pos == begin || pos > 0x7FFFFFFB)
+            return false;
+        name_bytes += pos - begin + 1;
+        pos = (pos + 4) & ~3;
+        if (pos > bytes || bytes - pos < 8)
+            return false;
+        uint32 offset = xport_load_le32(data + pos);
+        uint32 size = xport_load_le32(data + pos + 4);
+        if ((offset & 2047) || size > 0x7FFFF800 || offset > wad_bytes || RoundResourceSize(size) > wad_bytes - offset)
+            return false;
+        pos += 8;
+        ++count;
+    }
+    if (pos == bytes || !count)
+        return false;
+    ResourceEntry *entries = (ResourceEntry *)calloc(count, sizeof(*entries));
+    char *names = (char *)malloc(name_bytes);
+    if (!entries || !names)
+    {
+        free(entries);
+        free(names);
+        return false;
+    }
+    pos = 0;
+    char *name = names;
+    for (uint32 idx = 0; idx < count; ++idx)
+    {
+        uint32 begin = pos;
+        while (data[pos])
+            ++pos;
+        uint32 len = pos - begin + 1;
+        memcpy(name, data + begin, len);
+        entries[idx].name = name;
+        name += len;
+        pos = (pos + 4) & ~3;
+        entries[idx].offset = xport_load_le32(data + pos);
+        entries[idx].bytes = xport_load_le32(data + pos + 4);
+        pos += 8;
+    }
+    ReleaseResourceDirectory();
+    resource_directory.entries = entries;
+    resource_directory.names = names;
+    resource_directory.count = count;
+    return true;
+}
+
+static void LoadResourceDirectory()
+{
+    size_t bytes, wad_bytes, read_bytes;
+    const char *path = "DATA/CD.HED";
+    if (!xport_file_size(path, &bytes) || !bytes || bytes > 0x7FFFFFFF || !xport_file_size("DATA/CD.WAD", &wad_bytes) || wad_bytes > 0x7FFFFFFF)
+    {
+        GameDiagnostic("Cannot size game resource directory or archive\n");
+        abort();
+    }
+    uint8 *data = (uint8 *)malloc(bytes);
+    bool valid = data && xport_file_read(path, data, bytes, &read_bytes) && read_bytes == bytes && DecodeResourceDirectory(data, (uint32)bytes, (uint32)wad_bytes);
+    free(data);
+    if (!valid)
+    {
+        GameDiagnostic("Invalid game resource directory: %s\n", path);
+        abort();
+    }
+}
+
+static uint8 FoldResourceNameByte(uint8 value)
+{
+    if (value >= 'A' && value <= 'Z')
+        value += 'a' - 'A';
+    return value;
+}
+
+static const ResourceEntry *FindResource(const char *name)
+{
+    for (uint32 idx = 0; idx < resource_directory.count; ++idx)
+    {
+        const ResourceEntry *entry = resource_directory.entries + idx;
+        const char *left = name, *right = entry->name;
+        while (*left && FoldResourceNameByte((uint8)*left) == FoldResourceNameByte((uint8)*right))
+        {
+            ++left;
+            ++right;
+        }
+        if (!*left && !*right)
+            return entry;
+    }
+    return 0;
+}
+
+static void DrawResourceReadError()
+{
+    // Original diagnostic rectangle is immutable data beside the resource log format
+    PSX_RECT rect = {485, 18, 10, 10};
+    ClearImage(&rect, 255, 0, 0);
+    rect.y += 256;
+    ClearImage(&rect, 255, 0, 0);
+}
 
 void SetResourceReadOption(uint32 option)
 {
     FUNCTION_MARKER(0x8006AED8, "SLUS_003.73");
-    // TODO Recover the option meanings from all resource-reader branches
-    w_u32(0x800FF70C, option);
+    // Retained request has no consumer in the synchronous native file reader
+    resource_read.option = option;
 }
 
 uint32 InitializeResourceDirectory()
 {
-    uint32 result;
-#if defined(LOCKSTEP_DEBUG)
-    uint8 file[24];
-    uint32 sectors;
-#endif
     FUNCTION_MARKER(0x8006AEE4, "SLUS_003.73");
-    w_u32(0x800FF700, 0);
+    resource_read.phase = 0;
+    resource_read.failures = 0;
+    resource_read.dst = 0;
+    resource_read.error = 0;
     sub_80097D14(0);
-#if !defined(LOCKSTEP_DEBUG)
     if (!sub_80097B4C())
         abort();
-    result = LoadDataResourceDirectory();
-    w_u32(0x800FFC38, result);
-    w_u32(0x800FF710, 0);
-    return result;
-#else
-    while (!sub_80097B4C())
+    LoadResourceDirectory();
+    return 0;
+}
+
+uint32 GetResourceReadPhase()
+{
+    return resource_read.phase;
+}
+
+uint32 GetResourceReadProgress()
+{
+    return resource_read.progress;
+}
+
+uint32 GetResourceFileSize(const char *name)
+{
+    const ResourceEntry *entry = FindResource(name);
+    if (!entry)
     {
-        GameDiagnostic("%s", (const char *)psx_addr(0x800A3A60, 1));
-        for (uint32 frame = 0; frame < 100; ++frame)
-            VSync(0);
+        GameDiagnostic("Missing game resource: %s\n", name);
+        abort();
     }
-    while (!xport_draft_host_sub_80099B3C_p1(file, 0x800A3A70))
+    return entry->bytes;
+}
+
+uint32 LookupResource(const char *name)
+{
+    FUNCTION_MARKER(0x8006B04C, "SLUS_003.73");
+    resource_read.progress = 0;
+    GameDiagnostic("\n%s", name);
+    const ResourceEntry *entry = FindResource(name);
+    if (!entry)
     {
-        while (!sub_80097B4C())
-            for (uint32 frame = 0; frame < 100; ++frame)
-                VSync(0);
-        for (uint32 frame = 0; frame < 100; ++frame)
-            VSync(0);
+        GameDiagnostic("\nMissing game resource: %s\n", name);
+        abort();
     }
-    sectors = (xport_load_le32(file + 4) + 2047) >> 11;
-    xport_draft_host_sub_80097DF8_p2(2, file, 0);
-    sub_8009AA6C(sectors, 0x801007A8, 128);
-    while ((sint32)sub_8009AB6C(1, 0) > 0)
-        VSync(0);
-    while (!xport_draft_host_sub_80099B3C_p1(file, 0x800A3A7C))
-        for (uint32 frame = 0; frame < 100; ++frame)
-            VSync(0);
-    result = xport_draft_host_sub_8009835C_p1(file);
-    w_u32(0x800FFC38, result);
-    w_u32(0x800FF710, 0);
-    return result;
-#endif
+    resource_read.offset = entry->offset;
+    resource_read.bytes = RoundResourceSize(entry->bytes);
+    return resource_read.bytes;
+}
+
+uint32 BeginResourceRead(void *dst)
+{
+    FUNCTION_MARKER(0x8006B234, "SLUS_003.73");
+    sub_8002F130();
+    resource_read.dst = (uint8 *)dst;
+    resource_read.error = 0;
+    resource_read.phase = 1;
+    resource_read.progress = 0;
+    // Media ownership still lives in the CD voice subsystem until its migration
+    w_u32(0x800FF2B8, 0);
+    w_u32(0x800FF2BC, 1);
+    w_u32(0x800FF2C0, 0);
+    return 1;
+}
+
+uint32 BeginResourceRead(uint32 destination)
+{
+    // Temporary incoming boundary for resource consumers not yet migrated
+    return BeginResourceRead(psx_addr(destination, resource_read.bytes));
+}
+
+uint32 ProcessResourceRead()
+{
+    FUNCTION_MARKER(0x8006B2A8, "SLUS_003.73");
+    bool error = false;
+    if (resource_read.phase == 1)
+    {
+        resource_read.progress = 0;
+        if (CdControl(9, 0, 0))
+            resource_read.phase = 2;
+        else
+            error = true;
+    }
+    else if (resource_read.phase == 2)
+    {
+        resource_read.error = resource_read.bytes && ReadDataResource(resource_read.dst, resource_read.offset, resource_read.bytes) ? 0 : -1;
+        if (!resource_read.error)
+            resource_read.phase = 3;
+        else
+        {
+            error = true;
+            resource_read.phase = 1;
+        }
+    }
+    else if (resource_read.phase == 3)
+    {
+        if (resource_read.progress == resource_read.bytes)
+        {
+            resource_read.phase = 0;
+            resource_read.dst = 0;
+        }
+        else if (resource_read.error >= 0)
+            resource_read.progress = resource_read.bytes;
+        else
+        {
+            error = true;
+            if ((sint32)++resource_read.failures >= 5)
+            {
+                resource_read.failures = 0;
+                resource_read.phase = 1;
+            }
+        }
+    }
+    if (error)
+        DrawResourceReadError();
+    return DrawLevelLoadProgress();
+}
+
+uint32 WaitForResourceRead()
+{
+    FUNCTION_MARKER(0x8006B44C, "SLUS_003.73");
+    while (resource_read.phase)
+        ProcessResourceRead();
+    return 0;
 }
 
 extern "C" void sub_8006AED8(uint32 option)
@@ -70,153 +299,22 @@ extern "C" void sub_8006AED8(uint32 option)
     FUNCTION_MARKER(0x8006AED8, "SLUS_003.73");
     SetResourceReadOption(option);
 }
-extern "C" uint32 sub_8006AEE4(void)
+
+
+
+extern "C" uint32 apocalypse_resource_lookup(const char *name)
 {
-    FUNCTION_MARKER(0x8006AEE4, "SLUS_003.73");
-    return InitializeResourceDirectory();
+    return LookupResource(name);
 }
 
-static uint8 ReadResourceNameByte(const char *name, uint32 mapped, uint32 index)
-{
-    if (mapped)
-        return r_u8(mapped + index);
-    return (uint8)name[index];
-}
-
-static uint8 FoldResourceNameByte(uint8 value)
-{
-    if (value >= 'A' && value <= 'Z')
-        value = (uint8)(value + 32);
-    return value;
-}
-
-uint32 LookupResource(const char *name)
-{
-    uint32 mapped, table = 0x801007A8, destination, input, copy, left, right, mismatch;
-    uint32 byte_count, rounded, blocks, result;
-    uint8 character;
-    sint16 rectangle[4];
-    FUNCTION_MARKER(0x8006B04C, "SLUS_003.73");
-    mapped = GuestMemoryAddress(name);
-    w_u32(0x800FF6FC, 0);
-    copy = 0;
-    destination = 0x800FF714;
-    // TODO Original resource-name copy has no destination length bound
-    do
-    {
-        character = ReadResourceNameByte(name, mapped, copy++);
-        w_u8(destination++, character);
-    } while (character);
-    input = 0;
-    while (ReadResourceNameByte(name, mapped, input))
-    {
-        mismatch = 0;
-        do
-        {
-            left = ReadResourceNameByte(name, mapped, input);
-            ++input;
-            right = r_u8(table);
-            ++table;
-            left = FoldResourceNameByte((uint8)left);
-            right = FoldResourceNameByte((uint8)right);
-            if (left != right)
-            {
-                mismatch = 1;
-                break;
-            }
-        } while (ReadResourceNameByte(name, mapped, input));
-        if (mismatch)
-        {
-            input = 0;
-            do
-            {
-                character = r_u8(table);
-                ++table;
-            } while (character);
-        }
-        else if (!r_u8(table))
-            continue;
-        else
-        {
-            input = 0;
-            ++table;
-            do
-            {
-                character = r_u8(table);
-                ++table;
-            } while (character);
-        }
-        table = ((table + 3) & 0xFFFFFFFC) + 8;
-        if (r_u8(table) == 255)
-        {
-            left = r_u32(0x800FF718);
-            right = r_u32(0x800FF71C);
-            xport_store_le32((uint8 *)rectangle, left);
-            xport_store_le32((uint8 *)rectangle + 4, right);
-            xport_draft_host_sub_8008847C_p1(rectangle, 0, 0, 255);
-            rectangle[1] = (sint16)((uint16)rectangle[1] + 256);
-            xport_draft_host_sub_8008847C_p1(rectangle, 0, 0, 255);
-        }
-    }
-    table = (table + 4) & 0xFFFFFFFC;
-    w_u32(0x800FFC48, r_u32(table));
-    byte_count = r_u32(table + 4);
-    rounded = byte_count + 2047;
-    if ((sint32)rounded < 0)
-        rounded = byte_count + 4094;
-    blocks = (uint32)((sint32)rounded >> 11);
-    result = blocks << 11;
-    w_u32(0x800FFC44, blocks);
-    w_u32(0x800FFC2C, result);
-    w_u32(0x800FF708, 1);
-    return result;
-}
-
-extern "C" uint32 apocalypse_resource_lookup(const char *name) { return LookupResource(name); }
 extern "C" uint32 sub_8006B04C(uint32 name)
 {
     FUNCTION_MARKER(0x8006B04C, "SLUS_003.73");
     return LookupResource((const char *)psx_addr(name, 1));
 }
 
-uint32 BeginResourceRead(uint32 destination)
-{
-    FUNCTION_MARKER(0x8006B234, "SLUS_003.73");
-    return game_startup_read_begin(0, destination);
-}
 
-uint32 ProcessResourceRead()
-{
-    FUNCTION_MARKER(0x8006B2A8, "SLUS_003.73");
-    // Preserve the current native buffer transfer adapter contract
-    return game_startup_read_step();
-}
 
-uint32 WaitForResourceRead()
-{
-    uint32 busy;
-    FUNCTION_MARKER(0x8006B44C, "SLUS_003.73");
-    busy = r_u32(0x800FF700);
-    while (busy)
-    {
-        ProcessResourceRead();
-        busy = r_u32(0x800FF700);
-    }
-    return busy;
-}
 
-extern "C" sint32 sub_8006B234(uint32 destination)
-{
-    FUNCTION_MARKER(0x8006B234, "SLUS_003.73");
-    return (sint32)BeginResourceRead(destination);
-}
-extern "C" uint32 sub_8006B2A8(void)
-{
-    FUNCTION_MARKER(0x8006B2A8, "SLUS_003.73");
-    return ProcessResourceRead();
-}
-extern "C" sint32 sub_8006B44C(void)
-{
-    FUNCTION_MARKER(0x8006B44C, "SLUS_003.73");
-    return (sint32)WaitForResourceRead();
-}
+
+

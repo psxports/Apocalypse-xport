@@ -166,19 +166,9 @@ uint32 PathParticleEmitter::Update()
     }
 }
 
-extern "C" uint32 sub_8001F8AC(uint32 object, uint32 identifier)
-{
-    FUNCTION_MARKER(0x8001F8AC, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(PathParticleEmitter));
-    new (dram_addr) PathParticleEmitter(identifier);
-    return object;
-}
 
-extern "C" uint32 sub_8001F6A0(uint32 identifier)
-{
-    FUNCTION_MARKER(0x8001F6A0, "SLUS_003.73");
-    return SpawnPathParticleEmitter(identifier);
-}
+
+
 extern "C" uint32 sub_8001F9B8(uint32 object, uint32 reason)
 {
     FUNCTION_MARKER(0x8001F9B8, "SLUS_003.73");

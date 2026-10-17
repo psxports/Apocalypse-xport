@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "object_damage.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -39,30 +41,30 @@ uint32 BeamBarrier::Initialize(uint32 mode)
     uint32 difference[3];
     sint32 count;
     FUNCTION_MARKER(0x80019ED0, "SLUS_003.73");
-    flags = r_u16(object);
-    secondary_flags = r_u16(object + 78);
-    w_u16(object, flags | 1);
-    w_u16(object + 78, secondary_flags & 0xFFEF);
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
-    left = r_u32(object + 4);
+    flags = this->model.flags;
+    secondary_flags = this->lifecycle_flags;
+    this->model.flags = flags | 1;
+    this->lifecycle_flags = secondary_flags & 0xFFEF;
+    AddToList(visual_lists.actors);
+    left = this->model.pos[0];
     right = r_u32(object + 296);
     upper = right;
     if ((sint32)left < (sint32)right)
         w_u32(object + 308, left);
     else
     {
-        upper = r_u32(object + 4);
+        upper = this->model.pos[0];
         w_u32(object + 308, right);
     }
     w_u32(object + 312, upper);
-    left = r_u32(object + 12);
+    left = this->model.pos[2];
     right = r_u32(object + 304);
     upper = right;
     if ((sint32)left < (sint32)right)
         w_u32(object + 316, left);
     else
     {
-        upper = r_u32(object + 12);
+        upper = this->model.pos[2];
         w_u32(object + 316, right);
     }
     w_u32(object + 320, upper);
@@ -87,9 +89,9 @@ uint32 BeamBarrier::Initialize(uint32 mode)
         new (dram_addr) EndpointBeam(32, green, blue, (uint32)count, 700, 32, 48, 440, 110, 800, 147);
     }
     w_u32(object + 328, effect);
-    EndpointBeam::Attach(effect).SetEndpoints((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 296, 12));
+    EndpointBeam::Attach(effect).SetEndpoints((const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 296, 12));
     w_u8(r_u32(object + 328) + 66, 1);
-    w_u16(object + 58, 404);
+    this->kind = 404;
     SetMode(mode);
     return 404;
 }
@@ -101,12 +103,12 @@ BeamBarrier::BeamBarrier(const uint32 *data, uint32 index, uint32 mode) : Visual
     FUNCTION_MARKER(0x80019DA0, "SLUS_003.73");
     w_u32(object + 68, 0x800A0740);
     value = ReadBeamBarrierWord(data, 0);
-    w_u32(object + 4, value << 12);
+    this->model.pos[0] = value << 12;
     value = ReadBeamBarrierWord(data, 1);
-    w_u32(object + 8, value << 12);
+    this->model.pos[1] = value << 12;
     value = ReadBeamBarrierWord(data, 2);
-    w_u16(object + 214, index);
-    w_u32(object + 12, value << 12);
+    this->record_idx = index;
+    this->model.pos[2] = value << 12;
     cursor = sub_80066088(index);
     sub_8006613C(object + 296, r_u16(cursor + 2));
     Initialize(mode);
@@ -121,9 +123,9 @@ BeamBarrier::BeamBarrier(const uint32 *position, const uint32 *target) : VisualO
     x = ReadBeamBarrierWord(position, 0);
     y = ReadBeamBarrierWord(position, 1);
     z = ReadBeamBarrierWord(position, 2);
-    w_u32(object + 4, x);
-    w_u32(object + 8, y);
-    w_u32(object + 12, z);
+    this->model.pos[0] = x;
+    this->model.pos[1] = y;
+    this->model.pos[2] = z;
     x = ReadBeamBarrierWord(target, 0);
     y = ReadBeamBarrierWord(target, 1);
     z = ReadBeamBarrierWord(target, 2);
@@ -139,7 +141,7 @@ uint32 BeamBarrier::Destroy(uint32 reason)
     uint32 child, table, receiver, target;
     FUNCTION_MARKER(0x8001A0B4, "SLUS_003.73");
     w_u32(object + 68, 0x800A0740);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     child = r_u32(object + 328);
     if (child)
     {
@@ -155,13 +157,13 @@ uint32 BeamBarrier::Destroy(uint32 reason)
 uint32 BeamBarrier::Update()
 {
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 player, coordinate, bound, result, table, receiver, target, value, index;
+    uint32 player, coordinate, bound, result, receiver, value, index;
     uint32 collision[4];
     uint16 angles[3];
     FUNCTION_MARKER(0x8001A14C, "SLUS_003.73");
     // The current virtual caller supplies the callback target in V0
     result = 0x8001A14C;
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (!player)
         return result;
     coordinate = r_u32(player + 4);
@@ -182,18 +184,16 @@ uint32 BeamBarrier::Update()
     result = (sint32)coordinate < (sint32)bound;
     if (!result)
         return result;
-    result = IntersectObjectSpheres((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 296, 12), collision, player, 0);
-    player = r_u32(0x800FF5A0);
+    result = IntersectObjectSpheres((const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 296, 12), collision, player, 0);
+    player = visual_lists.players;
     if (result != player)
         return result;
-    table = r_u32(result + 68);
-    receiver = result + (uint32)(sint32)(sint16)r_u16(table + 48);
-    target = r_u32(table + 52);
-    apocalypse_object_virtual52(target, receiver, 10, 0x800A71CC, 0);
+    receiver = result;
+    ApplyObjectDamage(receiver, 10, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
     result = r_u32(object + 324);
     if (!result)
         return result;
-    Player::Attach(r_u32(0x800FF5A0)).Player::ApplyBeamContactImpulse(object);
+    Player::Attach(visual_lists.players).Player::ApplyBeamContactImpulse(object);
     SetParticleDirection((const sint16 *)psx_addr(0x800FF5E4, 6));
     angles[0] = 512;
     angles[1] = 4096;
@@ -208,7 +208,7 @@ uint32 BeamBarrier::Update()
         value = AllocateEffectStorage(88);
         if (value)
         {
-            uint32 position = r_u32(0x800FF5A0) + 4;
+            uint32 position = visual_lists.players + 4;
             void *dram_addr = AllocateNativeObjectStorage(value, sizeof(FadingParticle));
             new (dram_addr) FadingParticle((const uint32 *)psx_addr(position, 12), 16, 8192, 32);
         }
@@ -217,27 +217,11 @@ uint32 BeamBarrier::Update()
     return 1;
 }
 
-extern "C" uint32 sub_80019DA0(uint32 object, uint32 data, uint32 index, uint32 mode)
-{
-    FUNCTION_MARKER(0x80019DA0, "SLUS_003.73");
-    void *storage = AllocateNativeObjectStorage(object, sizeof(BeamBarrier));
-    new (storage) BeamBarrier((const uint32 *)psx_addr(data, 12), index, mode);
-    return object;
-}
 
-extern "C" uint32 sub_80019E48(uint32 object, uint32 position, uint32 target)
-{
-    FUNCTION_MARKER(0x80019E48, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(BeamBarrier));
-    new (dram_addr) BeamBarrier((const uint32 *)psx_addr(position, 12), (const uint32 *)psx_addr(target, 12));
-    return object;
-}
 
-extern "C" uint32 sub_80019ED0(uint32 object, uint32 mode)
-{
-    FUNCTION_MARKER(0x80019ED0, "SLUS_003.73");
-    return BeamBarrier::Attach(object).Initialize(mode);
-}
+
+
+
 
 extern "C" uint32 sub_8001A0B4(uint32 object, uint32 reason)
 {
@@ -245,11 +229,7 @@ extern "C" uint32 sub_8001A0B4(uint32 object, uint32 reason)
     return BeamBarrier::Attach(object).BeamBarrier::Destroy(reason);
 }
 
-extern "C" void sub_8001A144(uint32 object, uint32 mode)
-{
-    FUNCTION_MARKER(0x8001A144, "SLUS_003.73");
-    BeamBarrier::Attach(object).SetMode(mode);
-}
+
 
 extern "C" uint32 sub_8001A14C(uint32 object)
 {

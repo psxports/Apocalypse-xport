@@ -135,13 +135,7 @@ TrailProjectile &TrailProjectile::Attach(uint32 object)
     return *static_cast<TrailProjectile *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_8004B08C(uint32 object, uint32 position, uint32 target, uint32 angles, uint32 lifetime, uint32 speed, uint32 scale, uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue)
-{
-    FUNCTION_MARKER(0x8004B08C, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(TrailProjectile));
-    new (dram_addr) TrailProjectile((const uint32 *)psx_addr(position, 12), (const uint32 *)psx_addr(target, 12), (const uint16 *)psx_addr(angles, 6), lifetime, speed, scale, red, green, blue, tail_red, tail_green, tail_blue);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_trail_projectile_native(uint32 object, const void *position, const void *target, const void *angles, uint32 lifetime, uint32 speed, uint32 scale, uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue)
 {

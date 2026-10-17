@@ -1,9 +1,12 @@
+#include "model_render_view.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 }
 #include "model_shadow.h"
+#include "model_geometry.h"
+#include "texture_resources.h"
 #include "model_projection.h"
 #include <string.h>
 
@@ -76,21 +79,20 @@ static void LoadShadowCorner(uint32 vertex, const uint16 center[3], const uint16
     xport_gte_write_data(vertex * 2 + 1, values[2]);
 }
 
-uint32 RenderModelShadow(uint32 model, const void *matrix, uint32 rgb, uint32 scale, uint32 depth_bias, uint32 texture)
+uint32 RenderModelShadow(const ModelGeometry &model, const void *matrix, uint32 rgb, uint32 scale, uint32 depth_bias, const TextureResource &texture)
 {
-    uint32 packed, minimum, maximum, product, axis, camera, rotation[5], transpose[5], stretched[5];
+    ModelRenderView *camera;
+    uint32 packed, minimum, maximum, product, axis, rotation[5], transpose[5], stretched[5];
     uint32 extents[3], average, numerator, length, squares[3], factor, depth, packet, result, projected, bucket;
     uint16 center[3], relative[3], normalized[3], basis[3], first[3], second[3], selected[3];
     FUNCTION_MARKER(0x8007B2E4, "SLUS_003.73");
     for (axis = 0; axis < 3; ++axis)
     {
-        packed = r_u32(model + 20 + axis * 4);
-        minimum = packed & 65535;
-        maximum = (uint32)((sint32)packed >> 16);
+        minimum = (uint16)model.bounds[axis].max;
+        maximum = (uint32)(sint32)model.bounds[axis].min;
         product = (uint32)((sint32)(minimum - maximum) >> 1) * scale;
         extents[axis] = (uint32)((sint32)product >> 12);
-        packed = r_u32(model + 20 + axis * 4);
-        center[axis] = (uint16)((sint32)((packed & 65535) + (uint32)((sint32)packed >> 16)) >> 1);
+        center[axis] = (uint16)((sint32)((uint16)model.bounds[axis].max + (uint32)(sint32)model.bounds[axis].min) >> 1);
     }
     LoadShadowVector(center);
     for (axis = 0; axis < 5; ++axis)
@@ -99,9 +101,9 @@ uint32 RenderModelShadow(uint32 model, const void *matrix, uint32 rgb, uint32 sc
     StoreShadowVector(center);
     for (axis = 0; axis < 3; ++axis)
         center[axis] = (uint16)(center[axis] + ReadShadowMatrixHalf(matrix, 20 + axis * 4));
-    camera = r_u32(0x800FFB0C);
+    camera = &GetConfiguredModelRenderView();
     for (axis = 0; axis < 3; ++axis)
-        center[axis] = (uint16)(center[axis] - r_u16(camera + 4 + axis * 4));
+        center[axis] = (uint16)(center[axis] - ((uint32)(uint16)camera->pos[axis]));
     LoadShadowVector(center);
     NormalizeProjectionIr();
     StoreShadowVector(relative);
@@ -161,8 +163,8 @@ uint32 RenderModelShadow(uint32 model, const void *matrix, uint32 rgb, uint32 sc
     CrossShadowVector(relative);
     ScaleProjectionIr(factor);
     StoreShadowVector(second);
-    camera = r_u32(0x800FFB0C);
-    sub_800878DC(camera + 116);
+    camera = &GetConfiguredModelRenderView();
+    SetRotMatrix(&camera->projection);
     xport_gte_write_control(5, 0);
     xport_gte_write_control(6, 0);
     xport_gte_write_control(7, 0);
@@ -197,16 +199,16 @@ uint32 RenderModelShadow(uint32 model, const void *matrix, uint32 rgb, uint32 sc
         w_u16(packet + 8 + axis * 8, r_u16(projected + axis * 8));
         w_u16(packet + 10 + axis * 8, r_u16(projected + 2 + axis * 8));
     }
-    w_u8(packet + 12, r_u8(texture));
-    w_u8(packet + 13, r_u8(texture + 1));
-    w_u8(packet + 20, r_u8(texture + 4) - 1);
-    w_u8(packet + 21, r_u8(texture + 5));
-    w_u8(packet + 28, r_u8(texture + 8));
-    w_u8(packet + 29, r_u8(texture + 9) - 1);
-    w_u8(packet + 36, r_u8(texture + 10) - 1);
-    w_u8(packet + 37, r_u8(texture + 11) - 1);
-    w_u16(packet + 14, r_u16(texture + 2));
-    product = r_u16(texture + 6);
+    w_u8(packet + 12, texture.uv[0].u);
+    w_u8(packet + 13, texture.uv[0].v);
+    w_u8(packet + 20, texture.uv[1].u - 1);
+    w_u8(packet + 21, texture.uv[1].v);
+    w_u8(packet + 28, texture.uv[2].u);
+    w_u8(packet + 29, texture.uv[2].v - 1);
+    w_u8(packet + 36, texture.uv[3].u - 1);
+    w_u8(packet + 37, texture.uv[3].v - 1);
+    w_u16(packet + 14, texture.clut);
+    product = texture.tpage;
     packed = r_u32(packet);
     w_u16(packet + 22, (product & 0xFF9F) | 32);
     bucket = r_u32(0x800FF660) + depth * 4 + 112;
@@ -216,9 +218,5 @@ uint32 RenderModelShadow(uint32 model, const void *matrix, uint32 rgb, uint32 sc
     return result;
 }
 
-extern "C" uint32 sub_8007B2E4(uint32 model, uint32 matrix, uint32 rgb, uint32 scale, uint32 depth_bias, uint32 texture)
-{
-    FUNCTION_MARKER(0x8007B2E4, "SLUS_003.73");
-    return RenderModelShadow(model, psx_addr(matrix, 32), rgb, scale, depth_bias, texture);
-}
-extern "C" uint32 apocalypse_model_shadow_native(uint32 model, const void *matrix, uint32 rgb, uint32 scale, uint32 depth_bias, uint32 texture) { return RenderModelShadow(model, matrix, rgb, scale, depth_bias, texture); }
+
+

@@ -9,7 +9,7 @@ extern "C" {
 class SpiralRayWeapon : public WeaponNode
 {
 public:
-    SpiralRayWeapon(uint32 target);
+    SpiralRayWeapon(ModelInstance **target);
     static SpiralRayWeapon &Attach(uint32 object);
     virtual ~SpiralRayWeapon() {}
     virtual uint32 Destroy(uint32 reason);

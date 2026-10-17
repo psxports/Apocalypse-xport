@@ -1,5 +1,6 @@
 #include "game_sdk_bindings.h"
 #include "native_object_storage.h"
+#include "object.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -12,6 +13,7 @@ struct NativeObjectStorage
 {
     uint32 guest_address;
     void *address;
+    Object *object;
     size_t size;
     NativeObjectStorage *guest_next;
     NativeObjectStorage *pointer_next;
@@ -34,6 +36,36 @@ static size_t PointerBucket(const void *pointer)
     return (reinterpret_cast<size_t>(pointer) >> 4) & 1023;
 }
 
+static NativeObjectStorage *FindPointerStorage(const void *pointer)
+{
+    NativeObjectStorage *storage = guest_objects[PointerBucket(pointer)];
+    while (storage && storage->address != pointer)
+        storage = storage->pointer_next;
+    return storage;
+}
+
+Object::Object()
+{
+    NativeObjectStorage *storage = FindPointerStorage(this);
+    if (!storage || storage->object)
+    {
+        GameDiagnostic("Invalid native object construction\n");
+        abort();
+    }
+    storage->object = this;
+}
+
+Object::~Object()
+{
+    NativeObjectStorage *storage = FindPointerStorage(this);
+    if (!storage || storage->object != this)
+    {
+        GameDiagnostic("Invalid native object destruction\n");
+        abort();
+    }
+    storage->object = 0;
+}
+
 void *AllocateNativeObjectStorage(uint32 guest_address, size_t size)
 {
     NativeObjectStorage *storage = FindStorage(guest_address);
@@ -45,11 +77,14 @@ void *AllocateNativeObjectStorage(uint32 guest_address, size_t size)
         uint32 bucket = ((guest_address >> 4) ^ guest_address) & 1023;
         storage->guest_address = guest_address;
         storage->address = 0;
+        storage->object = 0;
         storage->size = 0;
         storage->guest_next = native_objects[bucket];
         storage->pointer_next = 0;
         native_objects[bucket] = storage;
     }
+    if (storage->object)
+        storage->object->~Object();
     if (storage->size < size)
     {
         if (storage->address)
@@ -72,6 +107,25 @@ void *AllocateNativeObjectStorage(uint32 guest_address, size_t size)
         guest_objects[bucket] = storage;
     }
     return storage->address;
+}
+
+void ReleaseNativeObjectStorage(uint32 guest_address)
+{
+    NativeObjectStorage *storage = FindStorage(guest_address);
+    if (!storage)
+        return;
+    if (storage->object)
+        storage->object->~Object();
+    NativeObjectStorage **previous = &native_objects[((guest_address >> 4) ^ guest_address) & 1023];
+    while (*previous != storage)
+        previous = &(*previous)->guest_next;
+    *previous = storage->guest_next;
+    previous = &guest_objects[PointerBucket(storage->address)];
+    while (*previous != storage)
+        previous = &(*previous)->pointer_next;
+    *previous = storage->pointer_next;
+    free(storage->address);
+    free(storage);
 }
 
 void *FindNativeObjectStorage(uint32 guest_address)

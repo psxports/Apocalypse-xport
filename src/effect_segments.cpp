@@ -115,13 +115,7 @@ uint32 SegmentEffect::SetEndpoints(const uint32 *origin, const uint32 *target)
     return result;
 }
 
-extern "C" uint32 sub_800322F4(uint32 object, uint32 count)
-{
-    FUNCTION_MARKER(0x800322F4, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(SegmentEffect));
-    new (dram_addr) SegmentEffect(count);
-    return object;
-}
+
 
 extern "C" uint32 sub_800323CC(uint32 object, uint32 reason)
 {
@@ -129,17 +123,9 @@ extern "C" uint32 sub_800323CC(uint32 object, uint32 reason)
     return SegmentEffect::Attach(object).SegmentEffect::Destroy(reason);
 }
 
-extern "C" uint32 sub_8003243C(uint32 object)
-{
-    FUNCTION_MARKER(0x8003243C, "SLUS_003.73");
-    return SegmentEffect::Attach(object).SegmentEffect::Enable();
-}
 
-extern "C" uint32 sub_800324D4(uint32 object, uint32 origin, uint32 target)
-{
-    FUNCTION_MARKER(0x800324D4, "SLUS_003.73");
-    return SegmentEffect::Attach(object).SegmentEffect::SetEndpoints((const uint32 *)psx_addr(origin, 12), (const uint32 *)psx_addr(target, 12));
-}
+
+
 
 SegmentEffect &SegmentEffect::Attach(uint32 object)
 {

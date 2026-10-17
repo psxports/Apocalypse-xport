@@ -92,11 +92,7 @@ uint32 SpawnRecord(uint32 index)
     return 1;
 }
 
-extern "C" uint32 sub_80064874(uint32 index)
-{
-    FUNCTION_MARKER(0x80064874, "SLUS_003.73");
-    return SpawnRecord(index);
-}
+
 
 uint32 InitializeLevelRecords()
 {
@@ -172,15 +168,12 @@ uint32 InitializeLevelRecords()
     return 0;
 }
 
-extern "C" uint32 sub_80065DE8(void)
-{
-    FUNCTION_MARKER(0x80065DE8, "SLUS_003.73");
-    return InitializeLevelRecords();
-}
+
 
 uint32 CreateObjectFromRecord(uint32 index)
 {
-    uint32 record, cursor, data, object = 0, list_head = 0;
+    uint32 record, cursor, data, object = 0;
+    ModelInstance **list_head = 0;
     uint32 preserve_list = 0, clear_flag = 0, special_flag = 0;
     uint16 tag = 0xFFFF;
     sint32 type, kind;
@@ -471,28 +464,25 @@ uint32 CreateObjectFromRecord(uint32 index)
 finish:
     if (!object)
         return 0;
-    w_u16(object + 214, index);
+    VisualObject &visual = VisualObject::Attach(object);
+    visual.record_idx = index;
     w_u16(object + 170, tag);
     if (clear_flag)
-        w_u16(object + 78, r_u16(object + 78) & 0xFFFD);
+        visual.lifecycle_flags &= 0xFFFD;
     if (special_flag)
-        w_u16(object + 78, r_u16(object + 78) | 4);
+        visual.lifecycle_flags |= 4;
     if (!preserve_list)
     {
-        if (object == r_u32(0x800FF4E8))
-            list_head = 0x800FF4E8;
-        if (object == r_u32(0x800FF5DC))
-            list_head = 0x800FF5DC;
-        if (object == r_u32(0x800FF204))
-            list_head = 0x800FF204;
-        VisualObject::Attach(object).VisualObject::MoveToTemporaryList((uint32 *)psx_addr(list_head, 4));
+        if (&VisualObject::Attach(object).model == visual_lists.actors)
+            list_head = &visual_lists.actors;
+        if (&VisualObject::Attach(object).model == visual_lists.solids)
+            list_head = &visual_lists.solids;
+        if (&VisualObject::Attach(object).model == visual_lists.pickups)
+            list_head = &visual_lists.pickups;
+        VisualObject::Attach(object).VisualObject::MoveToTemporaryList(*list_head);
     }
     FlagObjectNearReference(object);
     return object;
 }
 
-extern "C" uint32 sub_800641E8(uint32 index)
-{
-    FUNCTION_MARKER(0x800641E8, "SLUS_003.73");
-    return CreateObjectFromRecord(index);
-}
+

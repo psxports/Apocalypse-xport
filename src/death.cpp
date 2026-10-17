@@ -1,3 +1,12 @@
+#include "enemy_list.h"
+#include "model_resources.h"
+#include "screen_flash.h"
+#include "visual_object.h"
+#include "angle_math.h"
+#include "object_damage.h"
+#include "vector_arithmetic.h"
+#include "model_animation.h"
+#include "game_random.h"
 #include "game_sdk_bindings.h"
 #include "object_force.h"
 #include "level_session.h"
@@ -32,13 +41,13 @@ Death::Death(const uint8 *record_data, uint32 index) : Enemy()
     }
     w_u32(object + 68, 0x800A2648);
     cursor = sub_80062B0C(object, data);
-    w_u16(object + 16, r_u16(cursor));
-    w_u16(object + 18, r_u16(cursor + 2));
+    this->model.angles[0] = r_u16(cursor);
+    this->model.angles[1] = r_u16(cursor + 2);
     roll = r_u16(cursor + 4);
     w_u32(object + 400, cursor + 6);
     w_u8(object + 380, 1);
-    w_u16(object + 214, index);
-    w_u16(object + 20, roll);
+    this->record_idx = index;
+    this->model.angles[2] = roll;
     Configure();
     cursor = r_u32(object + 400);
     sub_8004BE90(object, cursor);
@@ -50,13 +59,13 @@ uint32 Death::Configure()
     uint32 flags, behavior, damage, height, product;
     FUNCTION_MARKER(0x80047B34, "SLUS_003.73");
     sub_800626C8(object, 0x800FF4C8);
-    w_u8(object + 129, 31);
-    w_u8(object + 130, 3);
-    w_u8(object + 131, 31);
-    sub_80062A38(object, 0x800FF4E8);
-    flags = r_u16(object);
+    motion.drag[0] = 31;
+    motion.drag[1] = 3;
+    motion.drag[2] = 31;
+    AddToList(visual_lists.actors);
+    flags = this->model.flags;
     behavior = r_u32(object + 396);
-    w_u16(object, flags | 2048);
+    this->model.flags = flags | 2048;
     w_u32(object + 396, behavior | 64);
     StartAnimation(0, 1);
     sub_8004BD04(object, 2, 8);
@@ -71,7 +80,7 @@ uint32 Death::Configure()
     w_u16(object + 436, 16);
     w_u16(object + 438, 32);
     // The original stores type221 although the factory branch is222
-    w_u16(object + 58, 221);
+    this->kind = 221;
     w_u32(object + 208, 128);
     w_u16(object + 456, 128);
     height = (uint32)(sint32)(sint16)r_u16(object + 456);
@@ -83,12 +92,12 @@ uint32 Death::Configure()
     product = height * 6500;
     w_u16(object + 204, 1024);
     w_u32(0x800FF4EC, object);
-    flags = r_u16(object);
+    flags = this->model.flags;
     w_u16(object + 182, 10);
-    w_u16(object + 40, 6500);
-    w_u16(object + 38, 6500);
-    w_u16(object + 36, 6500);
-    w_u16(object, flags | 512);
+    this->model.scale[2] = 6500;
+    this->model.scale[1] = 6500;
+    this->model.scale[0] = 6500;
+    this->model.flags = flags | 512;
     height = (uint32)((sint32)product >> 12);
     w_u16(object + 456, height);
     return height;
@@ -100,7 +109,7 @@ uint32 Death::Destroy(uint32 reason)
     uint32 voices, child, index, entry;
     FUNCTION_MARKER(0x80047CE0, "SLUS_003.73");
     w_u32(object + 68, 0x800A2648);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     Enemy::FreeBehaviorTable();
     ClearTrackedObjectHealth();
     voices = r_u32(object + 580);
@@ -123,14 +132,30 @@ uint32 Death::Destroy(uint32 reason)
 
 void Death::InterpolateFacing(const uint16 desired[3])
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     uint32 object = NativeObjectGuestAddress(this);
     uint32 packed = r_u32(object + 16);
     uint32 tail = r_u16(object + 20);
-    sub_80066CF0(packed, tail, object + 132, object + 138, desired[0] | ((uint32)desired[1] << 16), desired[2], 32);
+    motion_cur_word = packed;
+    motion_cur_tail = tail;
+    motion_target_word = desired[0] | ((uint32)desired[1] << 16);
+    motion_target_tail = desired[2];
+    motion_cur.vx = (sint16)motion_cur_word;
+    motion_cur.vy = (sint16)(motion_cur_word >> 16);
+    motion_cur.vz = (sint16)motion_cur_tail;
+    motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+    motion_target.vx = (sint16)motion_target_word;
+    motion_target.vy = (sint16)(motion_target_word >> 16);
+    motion_target.vz = (sint16)motion_target_tail;
+    motion_target.pad = (sint16)(motion_target_tail >> 16);
+    UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, 32);
 }
 
 uint32 Death::Update()
 {
+    SVECTOR motion_cur, motion_target;
+    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
     uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z, flags, value, phase, strength, player, index, kind, packed, tail, scale, speed, distance;
     uint32 point[4], difference[4], normal[4];
@@ -140,12 +165,12 @@ uint32 Death::Update()
     x = r_u32(0x800A71CC);
     y = r_u32(0x800A71D0);
     z = r_u32(0x800A71D4);
-    w_u32(object + 116, x);
-    w_u32(object + 120, y);
-    w_u32(object + 124, z);
+    motion.acceleration[0] = x;
+    motion.acceleration[1] = y;
+    motion.acceleration[2] = z;
     if (!r_u8(object + 381))
     {
-        sub_8007CA50(object, 0x800A6BF4);
+        SetModelBoneTable(this->model.bank, DeathAttachments);
         w_u8(object + 381, 1);
     }
     if (r_u32(object + 396) & 64)
@@ -158,11 +183,11 @@ uint32 Death::Update()
     }
     else if (r_u8(object + 383))
     {
-        value = sub_80066570(64);
+        value = RandomRange(64);
         w_u32(object + 176, ((value + 64) << 16) | 0x06004040);
         phase = r_u16(object + 584);
         strength = r_u8(object + 383);
-        signed_value = (sint16)r_u16(0x800F863C + (phase & 4095) * 4);
+        signed_value = rsin(phase & 4095);
         value = strength * (uint32)signed_value;
         if ((sint32)value < 0)
             value += 15;
@@ -189,20 +214,20 @@ uint32 Death::Update()
         w_u16(object + 576, 0);
         for (index = 0; index < 8; ++index)
         {
-            value = sub_80066570(512);
-            player = r_u32(0x800FF5A0);
+            value = RandomRange(512);
+            player = visual_lists.players;
             x = r_u32(player + 4);
             point[0] = x + ((value - 256) << 12);
             y = r_u32(player + 8);
             point[1] = y - 4194304;
-            value = sub_80066570(1024);
-            player = r_u32(0x800FF5A0);
+            value = RandomRange(1024);
+            player = visual_lists.players;
             z = r_u32(player + 12);
             point[2] = z + ((value + 1024) << 12);
             value = apocalypse_ground_native(point, 0, 4096);
             if (value == (uint32)-1)
                 continue;
-            value = sub_80066570(6);
+            value = RandomRange(6);
             switch (value)
             {
                 case 0: kind = 7; break;
@@ -216,17 +241,17 @@ uint32 Death::Update()
             break;
         }
     }
-    flags = r_u16(object + 76);
+    flags = this->activation_flags;
     w_u16(object + 388, flags);
     if (flags & 1)
     {
         value = r_u8(object + 384);
-        w_u16(object + 76, flags & 0xFFFE);
+        this->activation_flags = flags & 0xFFFE;
         w_u8(object + 384, value + 1);
     }
     if (r_u32(object + 220) < 256)
     {
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         if (player)
             ApplyObjectContactImpulse(player, object);
     }
@@ -243,10 +268,10 @@ uint32 Death::Update()
         UpdateState();
     }
     if (r_u8(object + 382))
-        sub_8006C0B8(object + 116, 0x800A6844);
+        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844, 12));
     sub_8004B9A4(object);
-    x = r_u32(object + 4);
-    z = r_u32(object + 12);
+    x = this->model.pos[0];
+    z = this->model.pos[2];
     flags = r_u32(object + 396);
     w_u32(object + 184, x);
     w_u32(object + 192, z);
@@ -271,9 +296,9 @@ uint32 Death::Update()
     }
     else if (flags & 1)
     {
-        point[0] = r_u32(object + 4);
+        point[0] = this->model.pos[0];
         point[1] = r_u32(object + 488);
-        point[2] = r_u32(object + 12);
+        point[2] = this->model.pos[2];
         distance = xport_draft_host_sub_8006689C_p12(point, psx_addr(object + 484, 12));
         scale = r_u16(object + 436);
         if (distance < scale * 2)
@@ -282,18 +307,30 @@ uint32 Death::Update()
         {
             xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 484);
             desired[0] = 0;
-            packed = r_u32(object + 16);
-            tail = r_u16(object + 20);
+            packed = ((uint32)this->model.angles[0] | ((uint32)this->model.angles[1] << 16));
+            tail = this->model.angles[2];
             scale = r_u16(object + 438);
-            sub_80066CF0(packed, tail, object + 132, object + 138, desired[0] | ((uint32)desired[1] << 16), desired[2], scale);
+            motion_cur_word = packed;
+            motion_cur_tail = tail;
+            motion_target_word = desired[0] | ((uint32)desired[1] << 16);
+            motion_target_tail = desired[2];
+            motion_cur.vx = (sint16)motion_cur_word;
+            motion_cur.vy = (sint16)(motion_cur_word >> 16);
+            motion_cur.vz = (sint16)motion_cur_tail;
+            motion_cur.pad = (sint16)(motion_cur_tail >> 16);
+            motion_target.vx = (sint16)motion_target_word;
+            motion_target.vy = (sint16)(motion_target_word >> 16);
+            motion_target.vz = (sint16)motion_target_tail;
+            motion_target.pad = (sint16)(motion_target_tail >> 16);
+            UpdateAngleAcceleration(motion_cur, motion.angular_velocity, motion.angular_acceleration, motion_target, scale);
             for (index = 0; index < 3; ++index)
             {
                 value = r_u32(object + 484 + index * 4);
-                x = r_u32(object + 4 + index * 4);
+                x = this->model.pos[index];
                 difference[index] = (uint32)((sint32)(value - x) >> 12);
             }
-            xport_draft_host_sub_800872BC_p12(difference, normal);
-            signed_value = (sint16)r_u16(object + 134);
+            NormalizeShortVector(difference, normal);
+            signed_value = (sint16)motion.angular_velocity[1];
             absolute = signed_value < 0 ? -signed_value : signed_value;
             if (absolute >= 65)
                 absolute = 64;
@@ -305,14 +342,14 @@ uint32 Death::Update()
             x = normal[0] * speed;
             y = normal[1] * speed;
             z = normal[2] * speed;
-            w_u32(object + 104, x);
-            w_u32(object + 108, y);
-            w_u32(object + 112, z);
+            motion.velocity[0] = x;
+            motion.velocity[1] = y;
+            motion.velocity[2] = z;
         }
     }
     else
         return sub_8007FDF0(object);
-    if ((r_u32(object + 396) & 1) && r_u8(object + 26) != 2)
+    if ((r_u32(object + 396) & 1) && this->model.animation != 2)
         StartAnimation(2, 1);
     return sub_8007FDF0(object);
 }
@@ -354,15 +391,15 @@ static void AdvanceDeathPhase(uint32 object)
 
 static void ClearDeathMotion(uint32 object)
 {
-    w_u32(object + 112, 0);
-    w_u32(object + 108, 0);
-    w_u32(object + 104, 0);
+    Death::Attach(object).motion.velocity[2] = 0;
+    Death::Attach(object).motion.velocity[1] = 0;
+    Death::Attach(object).motion.velocity[0] = 0;
 }
 
 static void HoldDeathTarget(uint32 object, uint32 mask)
 {
     uint32 flags = r_u32(object + 396);
-    uint32 player = r_u32(0x800FF5A0);
+    uint32 player = visual_lists.players;
     w_u32(object + 396, flags & mask);
     ClearDeathMotion(object);
     sub_80049C98(object, player);
@@ -378,10 +415,8 @@ static void RestoreDeathState(uint32 object)
 
 static void DamageDeathTarget(uint32 player, uint32 damage)
 {
-    uint32 table = r_u32(player + 68);
-    uint32 receiver = player + (uint32)(sint32)(sint16)r_u16(table + 48);
-    uint32 target = r_u32(table + 52);
-    apocalypse_object_virtual52(target, receiver, damage, 0x800A71CC, 0);
+    uint32 receiver = player;
+    ApplyObjectDamage(receiver, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
 }
 
 static uint32 CreateDeathBeam(uint32 red, uint32 green, uint32 blue)
@@ -404,7 +439,7 @@ static void SelectDeathDestination(uint32 object)
     uint32 point[3], index, floor, height;
     do
     {
-        index = sub_80066570(4);
+        index = RandomRange(4);
         index = r_u16(object + 496 + index * 2);
         xport_draft_host_sub_8006613C_p1(point, index);
     } while (apocalypse_position_distance_native(point, psx_addr(object + 4, 12)) < 257);
@@ -427,9 +462,9 @@ static void UpdateDeathAttack(uint32 object, uint32 phase)
             Death::Attach(object).StartAnimation(0, 1);
             w_u16(object + 462, 190);
             HoldDeathTarget(object, 0xFFFFFFFE);
-            value = r_u32(0x800FF5DC);
+            value = visual_lists.solids;
             index = r_u16(object + 574);
-            sub_80064E10(value, index);
+            ::ActivateObjectsByIndex(value, index);
             AdvanceDeathPhase(object);
             return;
         case 1:
@@ -439,7 +474,7 @@ static void UpdateDeathAttack(uint32 object, uint32 phase)
                 w_u16(object + 462, (uint32)timer - 1);
             else
             {
-                sub_80049D18(object);
+                Death::Attach(object).ClearFacing();
                 AdvanceDeathPhase(object);
             }
             return;
@@ -497,7 +532,7 @@ static void UpdateDeathAttack(uint32 object, uint32 phase)
             value = r_u8(object + 24);
             if (value - 4 < 9)
             {
-                player = r_u32(0x800FF5A0);
+                player = visual_lists.players;
                 xport_draft_host_sub_80066B8C_p1(angles, object + 4, player + 4);
                 timer = (sint8)r_u8(object + 24);
                 angles[1] = (sint16)(((uint32)(uint16)angles[1] - (((uint32)timer << 6) - 512)) & 4095);
@@ -583,7 +618,7 @@ static void UpdateDeathSpawn(uint32 object, uint32 phase)
             }
             return;
         case 2:
-            sub_8006A294(r_u32(object + 580));
+            ::StopSoundVoices(r_u32(object + 580));
             w_u32(object + 580, 0);
             for (index = 0; index < 10; ++index)
             {
@@ -592,14 +627,14 @@ static void UpdateDeathSpawn(uint32 object, uint32 phase)
                 ReadDeathSpawnPoint(object, index, point);
                 SpawnDeathFadingRing(point);
                 value = point[1];
-                kind = sub_80066570(256) + 128;
+                kind = RandomRange(256) + 128;
                 point[1] -= kind << 12;
                 child = sub_800625AC(320);
                 if (child)
                 {
                     kind = r_u8(0x800FF644);
-                    resource = sub_8006E080(0x3CD11145, kind);
-                    kind = (resource + sub_80066570(16)) & 65535;
+                    resource = ::FindModelResourceIndex(0x3CD11145, kind);
+                    kind = (resource + RandomRange(16)) & 65535;
                     flags = r_u32(0x800FF62C);
                     child = apocalypse_debris_native(child, point, 0x800A71CC, kind, value, 9, 999, flags);
                 }
@@ -639,7 +674,7 @@ static void UpdateDeathSpawn(uint32 object, uint32 phase)
         case 4:
             if ((sint8)r_u8(object + 24) < 72)
                 return;
-            sub_8001BE78(64, 255, 0, 16, 0, 0);
+            ::SetScreenFlash(64, 255, 0, 16, 0, 0);
             for (index = 0; index < 10; ++index)
             {
                 child = r_u32(object + 644 + index * 4);
@@ -662,7 +697,7 @@ static void UpdateDeathSpawn(uint32 object, uint32 phase)
         case 5:
             if (r_u8(object + 303))
             {
-                sub_80049D18(object);
+                Death::Attach(object).ClearFacing();
                 RestoreDeathState(object);
             }
             return;
@@ -711,21 +746,21 @@ static void UpdateDeathSummon(uint32 object, uint32 phase)
                 w_u16(object + 462, (uint32)timer + 1);
                 return;
             }
-            sub_8006A294(r_u32(object + 580));
+            ::StopSoundVoices(r_u32(object + 580));
             w_u32(object + 580, 0);
             for (index = 0; index < 5; ++index)
             {
                 sub_80032ED8(r_u32(object + 604 + index * 4));
                 w_u32(object + 604 + index * 4, 0);
             }
-            value = sub_80066570(2);
+            value = RandomRange(2);
             sub_80069DF0(value ? 91 : 92, 8192, 0);
             AdvanceDeathPhase(object);
             return;
         case 3:
             if (r_u8(object + 303))
             {
-                sub_80049D18(object);
+                Death::Attach(object).ClearFacing();
                 RestoreDeathState(object);
             }
             return;
@@ -740,12 +775,12 @@ static void UpdateDeathEnding(uint32 object, uint32 phase)
     if (phase)
     {
         value = ((uint32)(sint32)(sint16)r_u16(object + 464) - 32) & 4095;
-        camera = r_u32(0x800FF904);
+        camera = visual_lists.cameras;
         w_u16(object + 464, value);
         sub_8007851C(camera, value, 4);
-        if (!sub_80066570(30))
+        if (!RandomRange(30))
         {
-            value = sub_80066570(2);
+            value = RandomRange(2);
             sub_80069EF4(value + 96, object + 4, 3);
         }
         timer = (sint16)r_u16(object + 466);
@@ -757,7 +792,7 @@ static void UpdateDeathEnding(uint32 object, uint32 phase)
             w_u16(object + 468, interval >= 4 ? (uint32)interval - 3 : 1);
             w_u16(object + 466, (uint32)interval - 1);
             xport_draft_host_sub_8007CC10_p1(point, object, 3);
-            value = sub_80066570(16);
+            value = RandomRange(16);
             point[1] += value << 12;
             destination[0] = point[0];
             destination[1] = point[1] - 0x800000;
@@ -777,25 +812,23 @@ static void UpdateDeathEnding(uint32 object, uint32 phase)
     switch (phase)
     {
         case 0:
-            node = r_u32(0x800FF4E8);
-            player = r_u32(0x800FF5A0);
+            node = visual_lists.actors;
+            player = visual_lists.players;
             w_u32(player + 452, 900);
             while (node)
             {
                 if (r_u16(node + 58) == 200 && r_u16(node + 390) == 128)
                 {
-                    child = r_u32(node + 68);
                     value = (uint32)(sint32)(sint16)r_u16(node + 218);
-                    player = node + (uint32)(sint32)(sint16)r_u16(child + 48);
-                    child = r_u32(child + 52);
-                    apocalypse_object_virtual52(child, player, value, 0x800A71CC, 0);
+                    player = node;
+                    ApplyObjectDamage(player, value, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
                 }
                 node = r_u32(node + 28);
             }
             value = r_u32(object + 580);
             if (value)
             {
-                sub_8006A294(value);
+                ::StopSoundVoices(value);
                 w_u32(object + 580, 0);
             }
             sub_80069EF4(96, object + 4, 3);
@@ -810,17 +843,17 @@ static void UpdateDeathEnding(uint32 object, uint32 phase)
                     w_u32(object + 604 + index * 4, 0);
                 }
             }
-            sub_80049D18(object);
+            Death::Attach(object).ClearFacing();
             w_u32(object + 396, r_u32(object + 396) & 0xFFFFFFFE);
             ClearDeathMotion(object);
-            w_u16(object + 136, 0);
-            w_u16(object + 134, 0);
-            w_u16(object + 132, 0);
-            w_u16(object + 142, 0);
-            w_u16(object + 140, 0);
-            w_u16(object + 138, 0);
+            Death::Attach(object).motion.angular_velocity[2] = 0;
+            Death::Attach(object).motion.angular_velocity[1] = 0;
+            Death::Attach(object).motion.angular_velocity[0] = 0;
+            Death::Attach(object).motion.angular_acceleration[2] = 0;
+            Death::Attach(object).motion.angular_acceleration[1] = 0;
+            Death::Attach(object).motion.angular_acceleration[0] = 0;
             Death::Attach(object).SetAnimationRange(8, 0, (uint32)-1);
-            camera = r_u32(0x800FF904);
+            camera = visual_lists.cameras;
             w_u16(object + 464, 2048);
             w_u16(object + 466, 16);
             w_u16(object + 468, 16);
@@ -832,12 +865,12 @@ static void UpdateDeathEnding(uint32 object, uint32 phase)
                 w_u32(camera + 340, 1);
                 w_u32(camera + 336, object);
                 sub_8007851C(camera, 2048, 4);
-                sub_800785D8(r_u32(0x800FF904), 1332, 16);
-                sub_80078618(r_u32(0x800FF904), (uint32)-1608, 64);
-                sub_8007865C(r_u32(0x800FF904), 0, 16);
-                sub_800786A0(r_u32(0x800FF904), 460, 16);
-                sub_800786E4(r_u32(0x800FF904), 564, 16);
-                sub_80077490(r_u32(0x800FF904), 0);
+                sub_800785D8(visual_lists.cameras, 1332, 16);
+                sub_80078618(visual_lists.cameras, (uint32)-1608, 64);
+                sub_8007865C(visual_lists.cameras, 0, 16);
+                sub_800786A0(visual_lists.cameras, 460, 16);
+                sub_800786E4(visual_lists.cameras, 564, 16);
+                sub_80077490(visual_lists.cameras, 0);
             }
             AdvanceDeathPhase(object);
             return;
@@ -899,12 +932,12 @@ void Death::UpdateState()
                 floor = sub_80067A18(object + 4, 0, 4096);
                 if (floor == (uint32)-1)
                     return;
-                value = r_u32(object + 8);
+                value = this->model.pos[1];
                 height = (uint32)(sint32)(sint16)r_u16(object + 456);
                 if (((sint32)(floor - value) >> 12) >= (sint32)(height << 1))
                     return;
                 value = floor - (height << 12);
-                w_u32(object + 8, value);
+                this->model.pos[1] = value;
                 height = floor - value;
                 phase = r_u16(object + 474);
                 w_u32(object + 188, floor);
@@ -1008,19 +1041,19 @@ void Death::UpdateState()
             {
                 w_u32(object + 396, r_u32(object + 396) & 0xFFFFFFFE);
                 ClearDeathMotion(object);
-                sub_80049D18(object);
+                ClearFacing();
                 SetAnimationRange(5, 0, (uint32)-1);
                 sub_80069EF4(90, object + 4, 0);
                 AdvanceDeathPhase(object);
             }
             else if (phase == 1)
             {
-                value = r_u16(object + 18);
-                flags = r_u8(object + 24);
-                w_u16(object + 18, (value - 113) & 4095);
+                value = this->model.angles[1];
+                flags = this->model.frame;
+                this->model.angles[1] = (value - 113) & 4095;
                 if (flags - 8 < 13 && r_u32(object + 220) < 768)
                 {
-                    player = r_u32(0x800FF5A0);
+                    player = visual_lists.players;
                     DamageDeathTarget(player, 2);
                 }
                 if (r_u8(object + 303))
@@ -1044,11 +1077,7 @@ void Death::UpdateState()
     }
 }
 
-extern "C" void sub_800484D0(uint32 object)
-{
-    FUNCTION_MARKER(0x800484D0, "SLUS_003.73");
-    Death::Attach(object).UpdateState();
-}
+
 
 uint32 Death::ReadParameters(uint32 command)
 {
@@ -1147,7 +1176,7 @@ uint32 Death::TrackTarget(uint32 target)
     return result;
 }
 
-uint32 Death::ClearFacing()
+uint16 *Death::ClearFacing()
 {
     uint32 object = NativeObjectGuestAddress(this);
     uint32 flags;
@@ -1156,28 +1185,18 @@ uint32 Death::ClearFacing()
     flags &= 0xFFFFFFEF;
     flags &= 0xFFFFFFDF;
     w_u32(object + 396, flags);
-    w_u16(object + 136, 0);
-    w_u16(object + 134, 0);
-    w_u16(object + 132, 0);
-    w_u16(object + 142, 0);
-    w_u16(object + 140, 0);
-    w_u16(object + 138, 0);
-    return object + 138;
+    motion.angular_velocity[2] = 0;
+    motion.angular_velocity[1] = 0;
+    motion.angular_velocity[0] = 0;
+    motion.angular_acceleration[2] = 0;
+    motion.angular_acceleration[1] = 0;
+    motion.angular_acceleration[0] = 0;
+    return motion.angular_acceleration;
 }
 
-extern "C" uint32 sub_80047A9C(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x80047A9C, "SLUS_003.73");
-    void *native_instance_storage = AllocateNativeObjectStorage(object, sizeof(Death));
-    new (native_instance_storage) Death((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
 
-extern "C" uint32 sub_80047B34(uint32 object)
-{
-    FUNCTION_MARKER(0x80047B34, "SLUS_003.73");
-    return Death::Attach(object).Configure();
-}
+
+
 
 extern "C" uint32 sub_80047CE0(uint32 object, uint32 reason)
 {
@@ -1203,11 +1222,7 @@ extern "C" uint32 sub_80049C48(uint32 object, uint32 command)
     return Death::Attach(object).Death::ExecuteCommand(command);
 }
 
-extern "C" uint32 sub_80049C68(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x80049C68, "SLUS_003.73");
-    return Death::Attach(object).SetDestination((const uint32 *)psx_addr(position, 12));
-}
+
 
 extern "C" uint32 sub_80049C98(uint32 object, uint32 target)
 {
@@ -1215,11 +1230,7 @@ extern "C" uint32 sub_80049C98(uint32 object, uint32 target)
     return Death::Attach(object).TrackTarget(target);
 }
 
-extern "C" uint32 sub_80049D18(uint32 object)
-{
-    FUNCTION_MARKER(0x80049D18, "SLUS_003.73");
-    return Death::Attach(object).ClearFacing();
-}
+
 
 extern "C" uint32 apocalypse_death_destination_native(uint32 object, const uint32 position[3])
 {

@@ -28,7 +28,6 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
     sint32 v24;
     sint32 v25;
     sint32 v26;
-    uint32 v27;
     sint32 v28;
     sint32 v29;
     sint32 v30;
@@ -38,7 +37,6 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
     sint8 v34;
     sint8 v35;
     sint8 v36;
-    sint32 v37;
     sint8 v38;
     sint8 v39;
     sint32 v40;
@@ -108,17 +106,19 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
     sint32 v105;
     uint32 v106;
     sint32 v107;
-    uint32 v108;
     sint32 v109;
     sint32 v110;
     sint32 v111;
     sint32 v112;
     sint32 v114;
-    uint32 font, glyph_width, glyph_offset, current_character, packet_end, packet_limit, texture_bottom, texture_top, texture_left, texture_right;
+    const TextureFrame *glyph_frame = 0;
+    const TextureResource *glyph_tex = 0;
+    const TextureResource *glow = GetHudGlowTexture();
+    uint32 glyph_width, glyph_offset, current_character, packet_end, packet_limit, texture_bottom, texture_top, texture_left, texture_right;
     uint32 coord_x, coord_y, coord_right, coord_bottom, packet_word, head_word, head_address;
     FUNCTION_MARKER(0x8001AA28, "SLUS_003.73");
     // Packet links retain the original ordered header and ordering-table accesses
-    if (r_u32(0x800FF1D0))
+    if (glow)
         v114 = ((color | (color << 16)) | (color << 8));
     else
         v114 = 0;
@@ -138,9 +138,9 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
         else
         {
             v14 = (sint32)((uint32)v14 + 1);
-            font = r_u32(0x800FF6E0);
-            glyph_width = r_u8(font + (uint32)v17 + 2);
-            glyph_offset = (uint32)(sint32)(sint8)r_u8(font + (uint32)v17);
+            glyph_frame = &GetTextureFrame(GetHudFont(), v15);
+            glyph_width = glyph_frame->w;
+            glyph_offset = (uint32)(sint32)glyph_frame->ox;
             v18 = (sint32)((uint32)v103 + glyph_width + glyph_offset);
         }
         v103 = v18;
@@ -182,15 +182,14 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
         }
         else
         {
-            font = r_u32(0x800FF6E0);
             v23 = r_u32(0x800FF668);
             v24 = v23 + 40;
             v25 = v23 + 80;
             v26 = v23 + 120;
-            v108 = font + (uint32)v22 * 8;
+            glyph_frame = &GetTextureFrame(GetHudFont(), v22);
             packet_end = (uint32)v23 + 212;
             packet_limit = r_u32(0x800FF374);
-            v27 = r_u32(v108 + 4);
+            glyph_tex = glyph_frame->tex;
             v28 = v23 + 160;
             if (packet_limit < packet_end)
                 return v104;
@@ -198,10 +197,10 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
             v29 = r_u32(0x800FF1B4);
             w_u32(((uint32)(v23)), 150994944);
             w_u32(((uint32)((v23 + 4))), v29);
-            v30 = r_u32(v27);
-            v31 = r_u32((v27 + (1) * 4));
-            v32 = r_u32((v27 + (2) * 4));
-            v33 = r_u16((((uint32)(v27)) + (5) * 2));
+            v30 = PackTextureUv(*glyph_tex, 0);
+            v31 = PackTextureUv(*glyph_tex, 1);
+            v32 = PackTextureUv(*glyph_tex, 2);
+            v33 = glyph_tex->uv[3].uv;
             w_u32(((uint32)((v23 + 12))), v30);
             w_u32(((uint32)((v23 + 20))), v31);
             w_u32(((uint32)((v23 + 28))), v32);
@@ -220,13 +219,12 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
             if (v114)
             {
                 w_u32(((uint32)((v26 + 4))), (v114 | 0x2E000000));
-                v37 = r_u32(0x800FF1D0);
                 w_u32(((uint32)(v26)), 150994944);
-                w_u32(((uint32)((v26 + 12))), r_u32(((uint32)(v37))));
-                w_u32(((uint32)((v26 + 20))), r_u32(((uint32)((v37 + 4)))));
-                texture_bottom = r_u8((uint32)v37 + 9);
-                texture_top = r_u8((uint32)v37 + 1);
-                texture_left = r_u8((uint32)v37);
+                w_u32(((uint32)((v26 + 12))), PackTextureUv(*glow, 0));
+                w_u32(((uint32)((v26 + 20))), PackTextureUv(*glow, 1));
+                texture_bottom = glow->uv[2].v;
+                texture_top = glow->uv[0].v;
+                texture_left = glow->uv[0].u;
                 v38 = (sint8)texture_left;
                 v39 = (sint8)(texture_bottom - (uint32)(((sint32)texture_bottom - (sint32)texture_top) >> 3));
                 w_u8(((uint32)((v26 + 28))), texture_left);
@@ -235,46 +233,43 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
                 w_u32(((uint32)((v28 + 16))), v114);
                 w_u32(((uint32)((v28 + 28))), 0);
                 w_u32(((uint32)((v28 + 40))), 0);
-                v40 = r_u32(0x800FF1D0);
                 w_u32(((uint32)(v28)), 201326592);
-                w_u16(((uint32)((v28 + 14))), r_u16(((uint32)((v40 + 2)))));
-                v40 = ((v40 & 0xFFFF0000) | (((r_u16(((uint32)((v40 + 6))))) & 0xFFFF) << 0));
+                w_u16(((uint32)((v28 + 14))), glow->clut);
+                v40 = glow->tpage;
                 w_u8(((uint32)((v28 + 12))), v38);
                 w_u8(((uint32)((v28 + 13))), v39);
-                v41 = r_u32(0x800FF1D0);
                 w_u16(((uint32)((v28 + 26))), v40);
-                v42 = r_u8(((uint32)((v41 + 4))));
+                v42 = glow->uv[1].u;
                 w_u8(((uint32)((v26 + 37))), v39);
                 w_u8(((uint32)((v26 + 36))), v42);
                 w_u8(((uint32)((v28 + 24))), v42);
                 w_u8(((uint32)((v28 + 25))), v39);
-                font = r_u32(0x800FF1D0);
-                v43 = r_u8(font + 10);
-                v44 = r_u8(font + 8);
+                v43 = glow->uv[3].u;
+                v44 = glow->uv[2].u;
                 v45 = ((3 * (v43 - v44)) >> 4);
                 v46 = ((v44 + v43) >> 1);
                 w_u8(((uint32)((v28 + 36))), (v46 - v45));
-                v41 = ((v41 & 0xFFFFFF00) | (((r_u8(((uint32)((r_u32(0x800FF1D0) + 9))))) & 0xFF) << 0));
+                v41 = glow->uv[2].v;
                 w_u8(((uint32)((v28 + 48))), (v46 + v45));
                 w_u8(((uint32)((v28 + 37))), v41);
-                w_u8(((uint32)((v28 + 49))), r_u8(((uint32)((r_u32(0x800FF1D0) + 11)))));
+                w_u8(((uint32)((v28 + 49))), glow->uv[3].v);
                 texture_top = r_u8((uint32)v28 + 37);
                 texture_bottom = r_u8((uint32)v28 + 49);
                 w_u8((uint32)v28 + 37, texture_top - 1);
                 w_u8((uint32)v28 + 49, texture_bottom - 1);
             }
             v47 = r_u16(0x800FF1B8);
-            glyph_offset = (uint32)(sint32)(sint8)r_u8(v108);
+            glyph_offset = (uint32)(sint32)glyph_frame->ox;
             w_u16((uint32)v23 + 8, (uint32)v105 + (uint32)((sint32)(glyph_offset * (uint32)v47) >> 8));
-            glyph_offset = (uint32)(sint32)(sint8)r_u8(v108 + 1);
+            glyph_offset = (uint32)(sint32)glyph_frame->oy;
             w_u16((uint32)v23 + 10, v106 + (uint32)((sint32)(glyph_offset * (uint32)v47) >> 8) - (uint32)v107);
-            glyph_width = r_u8(v108 + 2);
+            glyph_width = glyph_frame->w;
             coord_y = r_u16((uint32)v23 + 10);
             coord_x = r_u16((uint32)v23 + 8);
             w_u16((uint32)v23 + 18, coord_y);
             w_u16((uint32)v23 + 24, coord_x);
             w_u16((uint32)v23 + 16, coord_x + ((glyph_width * (uint32)v47) >> 8));
-            glyph_width = r_u8(v108 + 3);
+            glyph_width = glyph_frame->h;
             coord_y = r_u16((uint32)v23 + 10);
             w_u16((uint32)v23 + 26, coord_y + ((glyph_width * (uint32)v47) >> 8));
             coord_right = r_u16((uint32)v23 + 16);
@@ -507,8 +502,8 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
                     w_u32(head_address, (head_word & 0xFF000000) | ((uint32)v85 & 0xFFFFFF));
                 }
             }
-            glyph_width = r_u8(v108 + 2);
-            glyph_offset = (uint32)(sint32)(sint8)r_u8(v108);
+            glyph_width = glyph_frame->w;
+            glyph_offset = (uint32)(sint32)glyph_frame->ox;
             current_character = r_u16(0x800FF1B8);
             v105 = (sint32)((uint32)v105 + 3 + (uint32)((sint32)((glyph_width + glyph_offset) * current_character) >> 8));
         }

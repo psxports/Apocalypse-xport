@@ -70,7 +70,7 @@ extern "C" uint32 apocalypse_crt_initialize(void)
     InitializeObjectUpVector();
     InitializeObjectMotionConstants();
     InitializeObjectZeroVectors();
-    ResetCameraPresetData();
+    ResetCameraDefaults();
     return 1;
 }
 

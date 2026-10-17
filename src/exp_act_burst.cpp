@@ -1,3 +1,4 @@
+#include "model_render_view.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -32,8 +33,8 @@ ExpActBurst::ExpActBurst(const uint32 *position, uint32 count, uint32 spread, ui
     FUNCTION_MARKER(0x8001D484, "SLUS_003.73");
     w_u32(object + 68, 0x800A1184);
     SetPosition(position);
-    origin[0] = r_u32(0x800ED520) << 12;
-    origin[2] = r_u32(0x800ED528) << 12;
+    origin[0] = GetModelRenderView().pos[0] << 12;
+    origin[2] = GetModelRenderView().pos[2] << 12;
     origin[1] = 0;
     target[0] = ReadBurstWord(position, 0);
     target[2] = ReadBurstWord(position, 2);
@@ -198,11 +199,7 @@ extern "C" uint32 apocalypse_explosion_debris_native(uint32 object, const void *
     return object;
 }
 
-extern "C" uint32 sub_8001D484(uint32 object, uint32 position, uint32 count, uint32 spread, uint32 jitter_y, uint32 upward_speed, uint32 gravity, uint32 drag_y, uint32 speed, uint32 acceleration, uint32 drag_xz, uint32 angle_speed, uint32 angle_acceleration, uint32 size_step, uint32 color_step, uint32 fade_start, uint32 field92)
-{
-    FUNCTION_MARKER(0x8001D484, "SLUS_003.73");
-    return apocalypse_explosion_debris_native(object, psx_addr(position, 12), count, spread, jitter_y, upward_speed, gravity, drag_y, speed, acceleration, drag_xz, angle_speed, angle_acceleration, size_step, color_step, fade_start, field92);
-}
+
 
 extern "C" uint32 sub_8001D918(uint32 object, uint32 reason)
 {

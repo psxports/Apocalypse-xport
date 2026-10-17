@@ -12,7 +12,8 @@ uint32 WaitForMovieCdStop();
 uint32 SelectMovieRecord(uint32 movie);
 uint32 PrepareMovieTexture(uint32 resource);
 uint32 QueueMoviePosition(const uint32 *position);
-uint32 RemapMovieTexturePolygons(uint32 tpage, const uint8 *texture);
+struct TextureResource;
+uint32 RemapMovieTexturePolygons(uint32 tpage, const TextureResource &texture);
 
 uint32 UpdateMoviePlayback(void);
 uint32 PrepareMoviePlaybackBuffers(void);

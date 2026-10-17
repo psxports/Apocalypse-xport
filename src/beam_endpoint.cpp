@@ -152,7 +152,7 @@ uint32 EndpointBeam::SetEndpoints(const uint32 *origin, const uint32 *target)
 
 static uint32 ReadEndpointSine(uint32 angle)
 {
-    return (uint32)(sint32)(sint16)r_u16(0x800F863C + (angle & 4095) * 4);
+    return (uint32)rsin(angle & 4095);
 }
 
 static void StoreEndpointPoint(uint32 destination, const uint32 point[3])
@@ -273,11 +273,7 @@ extern "C" uint32 sub_80035DC8(uint32 object, uint32 red, uint32 green, uint32 b
     return object;
 }
 
-extern "C" uint32 sub_8003603C(uint32 object, uint32 red, uint32 green, uint32 blue, uint32 size)
-{
-    FUNCTION_MARKER(0x8003603C, "SLUS_003.73");
-    return EndpointBeam::Attach(object).SetChildColors(red, green, blue, size);
-}
+
 
 extern "C" uint32 sub_80035FC0(uint32 object, uint32 reason)
 {
@@ -285,11 +281,7 @@ extern "C" uint32 sub_80035FC0(uint32 object, uint32 reason)
     return EndpointBeam::Attach(object).EndpointBeam::Destroy(reason);
 }
 
-extern "C" uint32 sub_800360FC(uint32 object, uint32 origin, uint32 target)
-{
-    FUNCTION_MARKER(0x800360FC, "SLUS_003.73");
-    return EndpointBeam::Attach(object).SetEndpoints((const uint32 *)psx_addr(origin, 12), (const uint32 *)psx_addr(target, 12));
-}
+
 
 extern "C" uint32 sub_80036200(uint32 object)
 {

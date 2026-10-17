@@ -1,3 +1,4 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -71,24 +72,14 @@ uint32 ClearActivationRecords()
     return object;
 }
 
-extern "C" uint32 sub_8006FBB0(uint32 object, uint32 index, uint32 state)
-{
-    FUNCTION_MARKER(0x8006FBB0, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(ActivationRecord));
-    new (dram_addr) ActivationRecord(index, state);
-    return object;
-}
+
 
 extern "C" uint32 sub_8006FC00(uint32 object, uint32 reason)
 {
     FUNCTION_MARKER(0x8006FC00, "SLUS_003.73");
     return ActivationRecord::Attach(object).ActivationRecord::Destroy(reason);
 }
-extern "C" uint32 sub_8006FB04(void)
-{
-    FUNCTION_MARKER(0x8006FB04, "SLUS_003.73");
-    return ClearActivationRecords();
-}
+
 
 void DeleteActivationRecords()
 {
@@ -133,16 +124,8 @@ uint32 DeactivateDistantObject(uint32 object, uint32 distance)
     return 1;
 }
 
-extern "C" void sub_8006FB60(void)
-{
-    FUNCTION_MARKER(0x8006FB60, "SLUS_003.73");
-    DeleteActivationRecords();
-}
-extern "C" uint32 sub_8006FC84(uint32 object, uint32 distance)
-{
-    FUNCTION_MARKER(0x8006FC84, "SLUS_003.73");
-    return DeactivateDistantObject(object, distance);
-}
+
+
 
 void RestoreNearbyObjects()
 {
@@ -152,7 +135,7 @@ void RestoreNearbyObjects()
     node = r_u32(0x800FF7DC);
     while (node)
     {
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         next = r_u32(node + 20);
         if (MeasurePositionDistance((const uint32 *)psx_addr(player + 4, 12), (const uint32 *)psx_addr(node + 8, 12)) < 9000)
         {
@@ -176,11 +159,7 @@ void RestoreNearbyObjects()
     }
 }
 
-extern "C" void sub_8006FD18(void)
-{
-    FUNCTION_MARKER(0x8006FD18, "SLUS_003.73");
-    RestoreNearbyObjects();
-}
+
 
 ActivationRecordBase &ActivationRecordBase::Attach(uint32 object)
 {

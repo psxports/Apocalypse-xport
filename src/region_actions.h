@@ -4,7 +4,8 @@
 #include "psx.h"
 
 #ifdef __cplusplus
-uint32 ApplyRegionToObjects(const uint32 *lower, const uint32 *upper, uint32 object, uint32 trigger);
+struct ModelInstance;
+uint32 ApplyRegionToObjects(const uint32 *lower, const uint32 *upper, ModelInstance *instance, uint32 trigger);
 uint32 RemoveRegionEffects(const uint32 *lower, const uint32 *upper);
 uint32 ClearRegion(const uint32 *lower, const uint32 *upper);
 uint32 SetRegionObjectsEnabled(const uint32 *lower, const uint32 *upper, uint32 enabled);

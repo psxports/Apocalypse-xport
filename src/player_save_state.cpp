@@ -1,3 +1,5 @@
+#include "weapon_nodes.h"
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -23,30 +25,13 @@ static uint32 ReadPlayerSaveByte(const uint8 *record, uint32 mapped, uint32 offs
     return mapped ? r_u8(mapped + offset) : record[offset];
 }
 
-uint32 FindLevelEntry(uint32 name)
-{
-    uint32 entry = 0x800A5254, candidate;
-    FUNCTION_MARKER(0x80018948, "SLUS_003.73");
-    candidate = r_u32(entry + 4);
-    if (!r_u8(candidate))
-        return 0;
-    for (;;)
-    {
-        candidate = r_u32(entry + 4);
-        if (sub_80067724(candidate, name))
-            return entry;
-        entry += 24;
-        if ((sint32)entry >= (sint32)0x800A562C)
-            return 0;
-        candidate = r_u32(entry + 4);
-        if (!r_u8(candidate))
-            return 0;
-    }
-}
+
 
 uint32 CaptureCurrentPlayerSave()
 {
-    uint32 source, destination, character, position[4], owner, object, index, result;
+    Player *player = 0;
+    uint32 source, destination, character, position[4], owner, index, result;
+    WeaponNode *object;
     uint32 owner_value, global_value, mask, ammo;
     FUNCTION_MARKER(0x800189EC, "SLUS_003.73");
     source = r_u32(0x800FF83C);
@@ -73,7 +58,8 @@ uint32 CaptureCurrentPlayerSave()
         ++destination;
     }
     w_u8(destination, 0);
-    owner = r_u32(0x800FF5A0);
+    player = visual_lists.players ? static_cast<Player *>(visual_lists.players->owner) : 0;
+    owner = player ? NativeObjectGuestAddress(player) : 0;
     if (owner)
     {
         owner_value = (uint32)(sint32)(sint16)r_u16(owner + 218);
@@ -85,17 +71,17 @@ uint32 CaptureCurrentPlayerSave()
         w_u32(0x800A543C, owner_value);
         for (index = 0; index < 8; ++index)
         {
-            object = r_u32(owner + 612 + index * 4);
+            object = player->weapons[index];
             if (object)
             {
                 mask = r_u8(0x800A5416);
                 w_u8(0x800A5416, mask | (1 << index));
-                object = r_u32(owner + 612 + index * 4);
-                ammo = r_u32(object + 56);
+                object = player->weapons[index];
+                ammo = object->ammo;
                 w_u32(0x800A5418 + index * 4, ammo);
             }
         }
-        owner_value = r_u8(owner + 644);
+        owner_value = (uint8)player->sel_weapon;
         w_u8(0x800A5417, owner_value);
     }
     SaveGameSettings((uint8 *)psx_addr(0x800A5444, 24));
@@ -116,11 +102,13 @@ uint32 CalculatePlayerSaveChecksum(const uint8 *record)
 
 uint32 RestorePlayerInventory(uint8 *record)
 {
-    uint32 mapped, health, owner, index, mask, weapon, ammo, selected;
+    uint32 mapped, health, owner, index, mask, ammo, selected;
+    WeaponNode *weapon;
     FUNCTION_MARKER(0x80018B70, "SLUS_003.73");
     mapped = GuestMemoryAddress(record);
     health = ReadPlayerSaveWord(record, mapped, 104);
-    owner = r_u32(0x800FF5A0);
+    Player &player = *static_cast<Player *>(visual_lists.players->owner);
+    owner = NativeObjectGuestAddress(&player);
     if ((sint32)health < 3)
     {
         health = 3;
@@ -136,14 +124,14 @@ uint32 RestorePlayerInventory(uint8 *record)
         mask = ReadPlayerSaveByte(record, mapped, 66);
         if ((mask >> index) & 1)
         {
-            Player::Attach(owner).ReplaceWeapon(index);
-            weapon = r_u32(owner + 612 + index * 4);
+            player.ReplaceWeapon(index);
+            weapon = player.weapons[index];
             ammo = ReadPlayerSaveWord(record, mapped, 68 + index * 4);
-            w_u32(weapon + 56, ammo);
+            weapon->ammo = ammo;
         }
     }
     selected = ReadPlayerSaveByte(record, mapped, 67);
-    w_u32(owner + 644, selected);
+    player.sel_weapon = selected;
     return selected;
 }
 
@@ -159,13 +147,5 @@ extern "C" uint32 sub_80018B70(uint32 record)
     return RestorePlayerInventory((uint8 *)psx_addr(record, 136));
 }
 
-extern "C" uint32 sub_80018948(uint32 name)
-{
-    FUNCTION_MARKER(0x80018948, "SLUS_003.73");
-    return FindLevelEntry(name);
-}
-extern "C" uint32 sub_800189EC(void)
-{
-    FUNCTION_MARKER(0x800189EC, "SLUS_003.73");
-    return CaptureCurrentPlayerSave();
-}
+
+

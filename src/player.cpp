@@ -1,3 +1,9 @@
+#include "audio_voice.h"
+#include "enemy_list.h"
+#include "cheat_input.h"
+#include "visual_object.h"
+#include "object_damage.h"
+#include "model_resources.h"
 #include "game_sdk_bindings.h"
 extern "C"
 {
@@ -77,110 +83,19 @@ Player &Player::Attach(uint32 object)
 
 void Player::StopSelectedWeapon(uint32 selected)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 weapon, table, receiver, target;
-    weapon = r_u32(object + selected * 4 + 612);
-    if (!weapon)
-        return;
-    table = r_u32(weapon);
-    receiver = weapon + (uint32)(sint32)(sint16)r_u16(table + 24);
-    target = r_u32(table + 28);
-    switch (target)
-    {
-        case 0x8002BCA0: return;
-        case 0x80024FDC: Flamethrower::Attach(receiver).Flamethrower::Update((const sint32 *)psx_addr(object + 4, 12), (const sint16 *)psx_addr(0x800FF5E4, 6)); return;
-        case 0x800243DC: SpiralRayWeapon::Attach(receiver).SpiralRayWeapon::Update((const sint32 *)psx_addr(object + 4, 12), (const sint16 *)psx_addr(0x800FF5E4, 6)); return;
-        case 0x80023380: MachineGun::Attach(receiver).MachineGun::Update((const sint32 *)psx_addr(object + 4, 12), (const sint16 *)psx_addr(0x800FF5E4, 6)); return;
-        case 0x80022C90: MachineGun::Attach(receiver).MachineGun::Fire((const uint32 *)psx_addr(object + 4, 12), (const sint16 *)psx_addr(0x800FF5E4, 6)); return;
-        case 0x800251E8: HomingMissiles::Attach(receiver).HomingMissiles::Update((const sint32 *)psx_addr(object + 4, 12), (const sint16 *)psx_addr(0x800FF5E4, 6)); return;
-        case 0x800254E8: PulseLaser::Attach(receiver).PulseLaser::Update((const sint32 *)psx_addr(object + 4, 12), (const sint16 *)psx_addr(0x800FF5E4, 6)); return;
-        case 0x800284A4: ParticleBeam::Attach(receiver).ParticleBeam::Update((const sint32 *)psx_addr(object + 4, 12), (const sint16 *)psx_addr(0x800FF5E4, 6)); return;
-        case 0x80028EE4: RipLaser::Attach(receiver).RipLaser::Update((const sint32 *)psx_addr(object + 4, 12), (const sint16 *)psx_addr(0x800FF5E4, 6)); return;
-        case 0x8002A798: Grenades::Attach(receiver).Grenades::Update((const sint32 *)psx_addr(object + 4, 12), (const sint16 *)psx_addr(0x800FF5E4, 6)); return;
-        case 0x8002B640: Rockets::Attach(receiver).Rockets::Update((const sint32 *)psx_addr(object + 4, 12), (const sint16 *)psx_addr(0x800FF5E4, 6)); return;
-        default:
-            GameDiagnostic("TODO Player weapon stop target %08X\n", target);
-            abort();
-    }
+    WeaponNode *weapon = weapons[selected];
+    if (weapon)
+        weapon->Update((const sint32 *)model.pos, (const sint16 *)psx_addr(0x800FF5E4, 6));
 }
 
-static uint32 DispatchPlayerWeapon(uint32 target, uint32 receiver, const sint32 position[3], const sint16 rotation[3])
-{
-    if (target == 0x8002BCA0)
-    {
-        // The empty original callback preserves its target in v0
-        return target;
-    }
-    if (target == 0x8002BCA8)
-        return WeaponNode::Attach(receiver).WeaponNode::Fire((const uint32 *)position, rotation);
-    if (target == 0x800243DC)
-        return SpiralRayWeapon::Attach(receiver).SpiralRayWeapon::Update(position, rotation);
-    if (target == 0x80023C14)
-        return SpiralRayWeapon::Attach(receiver).SpiralRayWeapon::Fire((const uint32 *)position, rotation);
-    if (target == 0x800251E8)
-        return HomingMissiles::Attach(receiver).HomingMissiles::Update(position, rotation);
-    if (target == 0x800254E8)
-    {
-        PulseLaser::Attach(receiver).PulseLaser::Update(position, rotation);
-        return 0;
-    }
-    if (target == 0x8002A798)
-        return Grenades::Attach(receiver).Grenades::Update(position, rotation);
-    if (target == 0x80028EE4)
-    {
-        RipLaser::Attach(receiver).RipLaser::Update(position, rotation);
-        return 0;
-    }
-    if (target == 0x800284A4)
-    {
-        ParticleBeam::Attach(receiver).ParticleBeam::Update(position, rotation);
-        return 0;
-    }
-    if (target == 0x8002B640)
-        return Rockets::Attach(receiver).Rockets::Update(position, rotation);
-    if (target == 0x8002A65C)
-        return Grenades::Attach(receiver).Grenades::Fire((const uint32 *)position, rotation);
-    if (target == 0x800286F4)
-        return RipLaser::Attach(receiver).RipLaser::Fire((const uint32 *)position, rotation);
-    if (target == 0x80027978)
-        return ParticleBeam::Attach(receiver).ParticleBeam::Fire((const uint32 *)position, rotation);
-    if (target == 0x80025380)
-        return PulseLaser::Attach(receiver).PulseLaser::Fire((const uint32 *)position, rotation);
-    if (target == 0x8002510C)
-        return HomingMissiles::Attach(receiver).HomingMissiles::Fire((const uint32 *)position, rotation);
-    if (target == 0x8002B588)
-        return Rockets::Attach(receiver).Rockets::Fire((const uint32 *)position, rotation);
-    if (target == 0x80022C90)
-        return MachineGun::Attach(receiver).MachineGun::Fire((const uint32 *)position, rotation);
-    if (target == 0x80024598)
-        return Flamethrower::Attach(receiver).Flamethrower::Fire((const uint32 *)position, rotation);
-    if (target == 0x80024FDC)
-    {
-        Flamethrower::Attach(receiver).Flamethrower::Update(position, rotation);
-        return 0;
-    }
-    if (target == 0x80023380)
-    {
-        /* The observed tick uses position and ignores the rotation carrier */
-        return MachineGun::Attach(receiver).MachineGun::Update(position, rotation);
-    }
-    GameDiagnostic("TODO 8005D360 weapon target %08X receiver %08X position %p rotation %p\n", target, receiver, (const void *)position, (const void *)rotation);
-    abort();
-}
 
-static uint32 CallPlayerWeaponSlot(uint32 weapon, uint32 slot, const sint32 position[3], const sint16 rotation[3])
-{
-    uint32 table, receiver, target;
-    table = r_u32(weapon);
-    receiver = weapon + (uint32)(sint32)(sint16)r_u16(table + slot);
-    target = r_u32(table + slot + 4);
-    return DispatchPlayerWeapon(target, receiver, position, rotation);
-}
+
+
 
 uint32 SavePlayerTransform()
 {
     FUNCTION_MARKER(0x8005C580, "SLUS_003.73");
-    uint32 player = r_u32(0x800FF5A0);
+    uint32 player = visual_lists.players;
     uint32 x = r_u32(player + 4);
     uint32 y = r_u32(player + 8);
     uint32 z = r_u32(player + 12);
@@ -196,10 +111,13 @@ uint32 SavePlayerTransform()
     return player;
 }
 
-Player::Player() : Character()
+Player::Player() : Character(), sel_weapon(0), prev_weapon(0)
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8005C5C0, "SLUS_003.73");
+    WeaponNode *new_weapon = 0;
+    for (uint32 slot = 0; slot < 8; ++slot)
+        weapons[slot] = 0;
     uint32 count;
     short flags;
     short maximum_health;
@@ -216,26 +134,26 @@ Player::Player() : Character()
     w_u32(0x800FF5A4, 0);
     w_u32(0x800FF5A8, 0);
     w_u16((object + (74) * 2), 2);
-    AddToList((uint32 *)psx_addr(0x800FF5A0, 4));
+    AddToList(visual_lists.players);
     count = r_u32(0x800FF59C);
-    flags = ((sint16)(r_u16((object + (39) * 2))));
+    flags = ((sint16)(this->lifecycle_flags));
     w_u16((object + (106) * 2), 100);
     w_u32(0x800FF59C, (count + 1));
-    w_u16((object + (39) * 2), (flags & 0xFFFD));
+    this->lifecycle_flags = (flags & 0xFFFD);
     maximum_health = r_u16(0x800EC526);
-    object_flags = ((sint16)(r_u16(object)));
+    object_flags = ((sint16)(this->model.flags));
     w_u32((((uint32)(object)) + (111) * 4), 0x800EC0F8);
-    w_u16(object, (object_flags | 0x80));
+    this->model.flags = (object_flags | 0x80);
     w_u16((object + (109) * 2), maximum_health);
     SetModelBank((const char *)psx_addr(0x800FF5B0, 1));
-    w_u16((object + (29) * 2), 50);
+    this->kind = 50;
     damping_shift = r_u8(0x800EC6D8);
-    w_u8((((uint32)(object)) + (129) * 1), 1);
-    w_u8((((uint32)(object)) + (131) * 1), 1);
-    w_u8((((uint32)(object)) + (130) * 1), damping_shift);
-    w_u8((((uint32)(object)) + (144) * 1), 5);
-    w_u8((((uint32)(object)) + (145) * 1), 1);
-    w_u8((((uint32)(object)) + (146) * 1), 5);
+    motion.drag[0] = 1;
+    motion.drag[2] = 1;
+    motion.drag[1] = damping_shift;
+    motion.angular_drag[0] = 5;
+    motion.angular_drag[1] = 1;
+    motion.angular_drag[2] = 5;
     w_u8((((uint32)(object)) + (582) * 1), r_u8(0x800EC4B4));
     animation_state = r_u16(0x800EC4B8);
     w_u16((object + (106) * 2), 100);
@@ -254,23 +172,24 @@ Player::Player() : Character()
     w_u8(((uint32)((r_u32((((uint32)(object)) + (80) * 4)) + 2))), 0x80);
     InitializeAnimation();
     w_u32(0x800FF840, 50);
-    w_u32(((uint32)((r_u32(0x800FF904) + 564))), 3);
+    w_u32(((uint32)((visual_lists.cameras + 564))), 3);
     weapon = AllocateZeroedHeapBlock(88);
     if (weapon)
     {
         void *dram_addr = AllocateNativeObjectStorage(weapon, sizeof(MachineGun));
-        new (dram_addr) MachineGun(0x800FF4E8);
+        new_weapon = new (dram_addr) MachineGun(&visual_lists.actors);
     }
     ammo = 5;
     difficulty = (r_u32(0x800FF384) != 0);
-    w_u32((((uint32)(object)) + (153) * 4), weapon);
+    this->weapons[0] = new_weapon;
     if (!difficulty)
         ammo = 7;
-    w_u32((weapon + (10) * 4), ammo);
-    w_u32((((uint32)(object)) + (161) * 4), 0);
-    w_u32((((uint32)(object)) + (162) * 4), 1);
+    new_weapon->damage = ammo;
+    this->sel_weapon = 0;
+    this->prev_weapon = 1;
     w_u32((((uint32)(object)) + (133) * 4), 3);
-    SetModelBoneTable((const uint8 *)psx_addr(object, 28), (const uint16 *)psx_addr(0x800A6ECC, 4));
+    SetModelBoneTable(this->model.bank, PlayerAttachments);
+    InitializeModelAnimation(PlayerHierarchy);
 }
 
 uint32 Player::Destroy(uint32 reason)
@@ -285,9 +204,9 @@ uint32 Player::Destroy(uint32 reason)
     buffer = r_u32(object + 320);
     if (buffer)
         ReleaseHeapBlock(buffer);
-    RemoveFromList((uint32 *)psx_addr(0x800FF5A0, 4));
+    RemoveFromList(visual_lists.players);
     w_u32(0x800FF59C, r_u32(0x800FF59C) - 1);
-    Player::ClearWeapons();
+    Player::ReleaseResources();
     Character::Destroy(0);
     return (reason & 1) ? ReleaseObjectStorage(object) : 0;
 }
@@ -297,7 +216,7 @@ void Player::StopWeapon()
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 selected;
     FUNCTION_MARKER(0x8005C868, "SLUS_003.73");
-    selected = r_u32(object + 644);
+    selected = this->sel_weapon;
     StopSelectedWeapon(selected);
 }
 
@@ -546,24 +465,25 @@ uint32 Player::RestoreHealth(uint32 amount)
     if (signed_maximum < (sint16)health)
         w_u16(object + 218, maximum);
     sound = RandomRange(2);
-    PlayCdVoiceEvent(1, sound, (const uint32 *)psx_addr(object + 4, 12), 1);
+    PlayCdVoiceEvent(1, sound, (const uint32 *)this->model.pos, 1);
     return 1;
 }
 
-uint32 UpdatePlayerLighting(uint32 object)
+uint32 Player::UpdateLighting()
 {
+    const uint32 object = NativeObjectGuestAddress(this);
+    uint32 trig_angle;
     FUNCTION_MARKER(0x8005CF0C, "SLUS_003.73");
     uint32 color;
     sint32 red;
     sint32 green;
     sint32 blue;
     signed int intensity;
-    sint32 weapon;
+    WeaponNode *weapon;
     uint32 fallback_intensity;
     short fallback_color;
     sint32 heading;
-    uint32 trig;
-    short sine;
+        short sine;
     short cosine;
     uint32 shifted[4];
 
@@ -589,7 +509,7 @@ uint32 UpdatePlayerLighting(uint32 object)
     w_u16(0x800FFBD0, 4096);
     w_u16(0x800FFBCE, 4096);
     w_u16(0x800FFBCC, 4096);
-    color = r_u32(((uint32)((object + 32))));
+    color = this->model.color;
     red = ((unsigned char)(color));
     green = ((color >> 8) & 255);
     blue = ((color >> 16) & 255);
@@ -607,10 +527,10 @@ uint32 UpdatePlayerLighting(uint32 object)
     uint32 second_color = r_u32(0x800FFBD8);
     w_u32(0x800FFBDC, first_color);
     w_u32(0x800FFBE0, second_color);
-    weapon = r_u32(((uint32)(((object + (4 * r_u32(((uint32)((object + 644)))))) + 612))));
-    if (apocalypse_weapon_light_colors((uint32)weapon, &light_red, &light_green, (uint8 *)light_blue))
+    weapon = this->weapons[this->sel_weapon];
+    if (weapon && weapon->ReadLight(&light_red, &light_green, (uint8 *)light_blue))
     {
-        SubtractVectors(vector.words, (const uint32 *)psx_addr(object + 416, 12), (const uint32 *)psx_addr(object + 4, 12));
+        SubtractVectors(vector.words, (const uint32 *)psx_addr(object + 416, 12), (const uint32 *)this->model.pos);
         shift = 12;
         ShiftVectorRight(shifted, vector.words, &shift);
         NormalizeFixedVector(vector.words, shifted);
@@ -626,7 +546,7 @@ uint32 UpdatePlayerLighting(uint32 object)
         w_u16(0x800FFBB8, 0);
         w_u16(0x800FFBB4, 0);
         w_u16(0x800FFBB6, -4096);
-        fallback_intensity = r_u8(((uint32)((object + 35))));
+        fallback_intensity = (uint8)(this->model.color >> 24);
         fallback_color = (16 * fallback_intensity);
         if ((fallback_intensity < 0x40))
             fallback_color = 1024;
@@ -634,10 +554,10 @@ uint32 UpdatePlayerLighting(uint32 object)
         w_u16(0x800FFBCE, fallback_color);
         w_u16(0x800FFBCC, fallback_color);
     }
-    uint32 heading_object = r_u32(0x800FF904);
+    uint32 heading_object = visual_lists.cameras;
     heading = heading_object ? r_u16(heading_object + 494) & 4095 : 0;
-    trig = 0x800F863C + heading * 4;
-    sine = r_u16(trig);
+    trig_angle = heading;
+    sine = (uint16)rsin(trig_angle);
     uint32 normal_x = r_u16(0x800FFBB4);
     uint32 normal_z = r_u16(0x800FFBB8);
     uint32 second_x = r_u16(0x800FFBBC);
@@ -645,7 +565,7 @@ uint32 UpdatePlayerLighting(uint32 object)
     uint32 second_z = r_u16(0x800FFBC0);
     w_u16(0x800FFBC6, 0);
     w_u16(0x800FFBC4, sine);
-    cosine = r_u16(trig + 2);
+    cosine = (uint16)rcos(trig_angle);
     w_u16(0x800EE6F0, normal_x);
     uint32 normal_y = r_u16(0x800FFBB6);
     w_u16(0x800EE6F4, normal_z);
@@ -681,21 +601,21 @@ uint32 UpdatePlayerLighting(uint32 object)
     return 64;
 }
 
-uint32 Player::SetContactColor(uint32 polygon, uint32 surface)
+uint32 Player::SetContactColor(const ModelPolygon &polygon, uint32 surface)
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 flags, table, count, index, vertex, selected = 0, maximum = 0, color, component, result;
+    uint32 flags, count, index, vertex, selected = 0, maximum = 0, color, component, result;
     bool found = false;
     FUNCTION_MARKER(0x8005D20C, "SLUS_003.73");
-    flags = r_u16(polygon);
+    flags = polygon.flags;
     if (flags & 2048)
     {
-        table = r_u32(0x800EAEF8 + r_u8(surface + 27) * 64 + 32);
+        const ModelPalette *table = &GetModelBank(r_u8(surface + 27)).colors;
         count = (flags & 16) ? 3 : 4;
         for (index = 0; index < count; ++index)
         {
-            vertex = r_u8(polygon + 12 + index);
-            color = r_u32(table + vertex * 4) & 0xFFFFFF;
+            vertex = ((polygon.color >> (index * 8)) & 255);
+            color = ReadModelPaletteColor(table, vertex) & 0xFFFFFF;
             if ((maximum & 255) < (color & 255))
             {
                 maximum = color;
@@ -720,14 +640,14 @@ uint32 Player::SetContactColor(uint32 polygon, uint32 surface)
         if (!found)
         {
             // Human-approved repair of the original undefined all-black index
-            selected = r_u8(polygon + 12);
+            selected = (polygon.color & 255);
         }
-        color = r_u32(table + selected * 4);
+        color = ReadModelPaletteColor(table, selected);
         result = color + (maximum << 24);
     }
     else
     {
-        color = r_u32(polygon + 12) & 0xFFFFFF;
+        color = polygon.color & 0xFFFFFF;
         if (color & 255)
             maximum = color;
         component = color >> 8;
@@ -738,7 +658,7 @@ uint32 Player::SetContactColor(uint32 polygon, uint32 surface)
             maximum = component;
         result = color + (maximum << 24);
     }
-    w_u32(object + 32, result);
+    this->model.color = result;
     return result;
 }
 
@@ -746,6 +666,7 @@ uint32 Player::UpdateWeapons(const sint16 *a2, uint32 a3)
 {
     const uint32 a1 = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8005D360, "SLUS_003.73");
+    WeaponNode *new_weapon = 0;
     sint32 result;
     sint32 v7;
     sint32 v8;
@@ -781,21 +702,20 @@ uint32 Player::UpdateWeapons(const sint16 *a2, uint32 a3)
     const sint16 *v37;
     sint32 v38;
     sint32 v39;
-    sint32 v40;
+    WeaponNode *v40;
     sint32 v41;
     sint32 v42;
     sint32 v43;
     uint32 v44;
     sint32 v45;
     sint32 v46;
-    sint32 v47;
+    WeaponNode *v47;
     uint32 v48;
     sint32 v49;
     int v54[4];
     uint32 angles[2];
-    result = r_u32(((uint32)((a1 + 360))));
-    if (!result)
-        return result;
+    if (!HasModelJointAngles())
+        return 0;
     v7 = 0;
     if (((((r_u8(((uint32)((r_u32(((uint32)((a1 + 444)))) + 288)))) && (r_u32(((uint32)((a1 + 460)))) != 0x40000)) && !r_u32(0x800FF218)) && !(r_u32(((uint32)((a1 + 452)))))) && r_u32(((uint32)((a1 + 532))))))
     {
@@ -807,7 +727,7 @@ uint32 Player::UpdateWeapons(const sint16 *a2, uint32 a3)
         }
         if ((r_u32(0x800FF2FC) == 2))
             SetGamePadActuator(0, 12, 1, 120);
-        if (!r_u32(0x800FF318))
+        if (!GetCheatOptions().weapon_cheat)
         {
             v9 = r_u32(((uint32)((a1 + 532))));
             v10 = (v9 == 0);
@@ -815,160 +735,160 @@ uint32 Player::UpdateWeapons(const sint16 *a2, uint32 a3)
             if (!v10)
                 w_u32(((uint32)((a1 + 532))), v11);
         }
-        PlayCdVoiceEvent(0, 2, (const uint32 *)psx_addr(a1 + 4, 12), 1);
+        PlayCdVoiceEvent(0, 2, (const uint32 *)this->model.pos, 1);
     }
     v12 = r_u32(((uint32)((a1 + 444))));
     if (r_u8(((uint32)((v12 + 305)))))
     {
         w_u8(((uint32)((v12 + 305))), 0);
-        if (r_u32(0x800FF318))
+        if (GetCheatOptions().weapon_cheat)
         {
             PlaySoundEffect(26, 8192, 0);
-            switch (r_u32(((uint32)((r_u32(((uint32)(((a1 + (4 * r_u32(((uint32)((a1 + 644)))))) + 612)))) + 4)))))
+            switch (this->weapons[this->sel_weapon]->type)
             {
                 case 1:
-                    if (!(r_u32(((uint32)((a1 + 620))))))
+                    if (!(this->weapons[2]))
                     {
                         v15 = AllocateZeroedHeapBlock(68);
                         if (v15)
                         {
                             void *dram_addr = AllocateNativeObjectStorage(v15, sizeof(PulseLaser));
-                            new (dram_addr) PulseLaser(0x800FF4E8);
+                            new_weapon = new (dram_addr) PulseLaser(&visual_lists.actors);
                         }
                         v16 = 10;
                         v10 = (r_u32(0x800FF384) != 0);
-                        w_u32(((uint32)((a1 + 620))), v15);
+                        this->weapons[2] = new_weapon;
                         if (!v10)
                             v16 = 15;
-                        w_u32((v15 + (10) * 4), v16);
+                        new_weapon->damage = v16;
                     }
-                    w_u32(((uint32)((a1 + 648))), 1);
-                    w_u32(((uint32)((a1 + 644))), 2);
+                    this->prev_weapon = 1;
+                    this->sel_weapon = 2;
                     break;
 
                 case 2:
-                    if (!(r_u32(((uint32)((a1 + 624))))))
+                    if (!(this->weapons[3]))
                     {
                         v17 = AllocateZeroedHeapBlock(104);
                         if (v17)
                         {
                             void *dram_addr = AllocateNativeObjectStorage(v17, sizeof(ParticleBeam));
-                            new (dram_addr) ParticleBeam(0x800FF4E8, 3000, 0, 256, 9);
+                            new_weapon = new (dram_addr) ParticleBeam(&visual_lists.actors, 3000, 0, 256, 9);
                         }
                         v18 = 10;
                         v10 = (r_u32(0x800FF384) != 0);
-                        w_u32(((uint32)((a1 + 624))), v17);
+                        this->weapons[3] = new_weapon;
                         if (!v10)
                             v18 = 15;
-                        w_u32((v17 + (10) * 4), v18);
+                        new_weapon->damage = v18;
                     }
-                    w_u32(((uint32)((a1 + 648))), 2);
-                    w_u32(((uint32)((a1 + 644))), 3);
+                    this->prev_weapon = 2;
+                    this->sel_weapon = 3;
                     break;
 
                 case 3:
-                    if (!(r_u32(((uint32)((a1 + 628))))))
+                    if (!(this->weapons[4]))
                     {
                         v19 = AllocateZeroedHeapBlock(100);
                         if (v19)
                         {
                             void *dram_addr = AllocateNativeObjectStorage(v19, sizeof(RipLaser));
-                            new (dram_addr) RipLaser(0x800FF4E8);
+                            new_weapon = new (dram_addr) RipLaser(&visual_lists.actors);
                         }
                         v20 = 2;
                         v10 = (r_u32(0x800FF384) != 0);
-                        w_u32(((uint32)((a1 + 628))), v19);
+                        this->weapons[4] = new_weapon;
                         if (!v10)
                             v20 = 3;
-                        w_u32((v19 + (10) * 4), v20);
+                        new_weapon->damage = v20;
                     }
-                    w_u32(((uint32)((a1 + 648))), 3);
-                    w_u32(((uint32)((a1 + 644))), 4);
+                    this->prev_weapon = 3;
+                    this->sel_weapon = 4;
                     break;
 
                 case 4:
-                    if (!(r_u32(((uint32)((a1 + 632))))))
+                    if (!(this->weapons[5]))
                     {
                         v21 = AllocateZeroedHeapBlock(68);
                         if (v21)
                         {
                             void *dram_addr = AllocateNativeObjectStorage(v21, sizeof(Grenades));
-                            new (dram_addr) Grenades(0x800FF4E8);
+                            new_weapon = new (dram_addr) Grenades(&visual_lists.actors);
                         }
                         v22 = 120;
                         v10 = (r_u32(0x800FF384) != 0);
-                        w_u32(((uint32)((a1 + 632))), v21);
+                        this->weapons[5] = new_weapon;
                         if (!v10)
                             v22 = 180;
-                        w_u32((v21 + (10) * 4), v22);
+                        new_weapon->damage = v22;
                     }
-                    w_u32(((uint32)((a1 + 648))), 4);
-                    w_u32(((uint32)((a1 + 644))), 5);
+                    this->prev_weapon = 4;
+                    this->sel_weapon = 5;
                     break;
 
                 case 5:
-                    if (!(r_u32(((uint32)((a1 + 636))))))
+                    if (!(this->weapons[6]))
                     {
                         v23 = AllocateZeroedHeapBlock(68);
                         if (v23)
                         {
                             void *dram_addr = AllocateNativeObjectStorage(v23, sizeof(HomingMissiles));
-                            new (dram_addr) HomingMissiles(0x800FF4E8);
+                            new_weapon = new (dram_addr) HomingMissiles(&visual_lists.actors);
                         }
                         v24 = 15;
                         v10 = (r_u32(0x800FF384) != 0);
-                        w_u32(((uint32)((a1 + 636))), v23);
+                        this->weapons[6] = new_weapon;
                         if (!v10)
                             v24 = 22;
-                        w_u32((v23 + (10) * 4), v24);
+                        new_weapon->damage = v24;
                     }
-                    w_u32(((uint32)((a1 + 648))), 5);
-                    w_u32(((uint32)((a1 + 644))), 6);
+                    this->prev_weapon = 5;
+                    this->sel_weapon = 6;
                     break;
 
                 case 6:
-                    if (!(r_u32(((uint32)((a1 + 640))))))
+                    if (!(this->weapons[7]))
                     {
                         v25 = AllocateZeroedHeapBlock(68);
                         if (v25)
                         {
                             void *dram_addr = AllocateNativeObjectStorage(v25, sizeof(Rockets));
-                            new (dram_addr) Rockets(0x800FF4E8);
+                            new_weapon = new (dram_addr) Rockets(&visual_lists.actors);
                         }
                         v26 = 40;
                         v10 = (r_u32(0x800FF384) != 0);
-                        w_u32(((uint32)((a1 + 640))), v25);
+                        this->weapons[7] = new_weapon;
                         if (!v10)
                             v26 = 60;
-                        w_u32((v25 + (10) * 4), v26);
+                        new_weapon->damage = v26;
                     }
-                    w_u32(((uint32)((a1 + 648))), 6);
-                    w_u32(((uint32)((a1 + 644))), 7);
+                    this->prev_weapon = 6;
+                    this->sel_weapon = 7;
                     break;
 
                 case 7:
-                    w_u32(((uint32)((a1 + 648))), 7);
-                    w_u32(((uint32)((a1 + 644))), 0);
+                    this->prev_weapon = 7;
+                    this->sel_weapon = 0;
                     break;
 
                 case 8:
-                    if (!(r_u32(((uint32)((a1 + 616))))))
+                    if (!(this->weapons[1]))
                     {
                         v13 = AllocateZeroedHeapBlock(72);
                         if (v13)
                         {
                             void *dram_addr = AllocateNativeObjectStorage(v13, sizeof(Flamethrower));
-                            new (dram_addr) Flamethrower(0x800FF4E8, 0);
+                            new_weapon = new (dram_addr) Flamethrower(&visual_lists.actors, 0);
                         }
                         v14 = 10;
                         v10 = (r_u32(0x800FF384) != 0);
-                        w_u32(((uint32)((a1 + 616))), v13);
+                        this->weapons[1] = new_weapon;
                         if (!v10)
                             v14 = 15;
-                        w_u32((v13 + (10) * 4), v14);
+                        new_weapon->damage = v14;
                     }
-                    w_u32(((uint32)((a1 + 648))), 0);
-                    w_u32(((uint32)((a1 + 644))), 1);
+                    this->prev_weapon = 0;
+                    this->sel_weapon = 1;
                     break;
 
                 default:
@@ -977,31 +897,29 @@ uint32 Player::UpdateWeapons(const sint16 *a2, uint32 a3)
         }
         else
         {
-            v28 = r_u32(((uint32)((a1 + 644))));
+            v28 = this->sel_weapon;
             v29 = (v28 + 1);
             if ((sint32)(v28 + 1) < 8)
             {
-                v30 = ((4 * (v28 + 1)) + a1);
-                while (!(r_u32(((uint32)((v30 + 612))))))
+                while (!(this->weapons[v29]))
                 {
                     ++v29;
-                    v30 += 4;
                     if ((sint32)v29 >= 8)
                         goto LABEL_73;
                 }
 
                 PlaySoundEffect(26, 8192, 0);
-                v27 = r_u32(((uint32)((a1 + 644))));
-                w_u32(((uint32)((a1 + 644))), v29);
-                w_u32(((uint32)((a1 + 648))), v27);
+                v27 = this->sel_weapon;
+                this->sel_weapon = v29;
+                this->prev_weapon = v27;
             }
         LABEL_73:
-            if (((v28 == r_u32(((uint32)((a1 + 644))))) && v28))
+            if (((v28 == this->sel_weapon) && v28))
             {
                 PlaySoundEffect(26, 8192, 0);
-                v31 = r_u32(((uint32)((a1 + 644))));
-                w_u32(((uint32)((a1 + 644))), 0);
-                w_u32(((uint32)((a1 + 648))), v31);
+                v31 = this->sel_weapon;
+                this->sel_weapon = 0;
+                this->prev_weapon = v31;
             }
         }
     }
@@ -1015,25 +933,25 @@ uint32 Player::UpdateWeapons(const sint16 *a2, uint32 a3)
     }
     if (button1)
     {
-        v47 = r_u32(((uint32)(((a1 + (4 * r_u32(((uint32)((a1 + 644)))))) + 612))));
+        v47 = this->weapons[this->sel_weapon];
         if (v47)
-            CallPlayerWeaponSlot(v47, 24, v54, a2);
+            v47->Update(v54, a2);
         w_u8(((uint32)((a1 + 536))), 0);
-        AddVectors((uint32 *)v54, (const uint32 *)psx_addr(a1 + 104, 12));
+        AddVectors((uint32 *)v54, (const uint32 *)motion.velocity);
         goto LABEL_126;
     }
     v32 = r_u8(((uint32)((a1 + 536))));
     w_u16(((uint32)((a1 + 580))), 0);
     w_u8(((uint32)((a1 + 536))), (v32 + 1));
     CopyAngleVector((uint16 *)angles, (const uint16 *)a2);
-    if (!(r_u32(((uint32)(((a1 + (4 * r_u32(((uint32)((a1 + 644)))))) + 612))))))
+    if (!(this->weapons[this->sel_weapon]))
         goto LABEL_122;
     v34 = v54[1];
     v35 = v54[2];
     w_u32(((uint32)((a1 + 416))), v54[0]);
     w_u32(((uint32)((a1 + 420))), v34);
     w_u32(((uint32)((a1 + 424))), v35);
-    v36 = r_u32(((uint32)((r_u32(((uint32)(((a1 + (4 * r_u32(((uint32)((a1 + 644)))))) + 612)))) + 4))));
+    v36 = this->weapons[this->sel_weapon]->type;
     if ((v36 == 5))
         goto LABEL_86;
     if ((v36 < 6))
@@ -1053,7 +971,7 @@ uint32 Player::UpdateWeapons(const sint16 *a2, uint32 a3)
             if (button2)
                 cone = 1536;
         }
-        SelectAimTarget((sint16 *)angles, (const uint32 *)v54, a2, 4096, cone, 3072, 0, 0, r_u32(0x800FF4E8));
+        SelectAimTarget((sint16 *)angles, (const uint32 *)v54, a2, 4096, cone, 3072, 0, 0, visual_lists.actors);
         goto LABEL_93;
     }
     if (((v36 < 9) && (v36 >= 7)))
@@ -1063,16 +981,16 @@ LABEL_93:
 
     if ((r_u8(((uint32)((a1 + 536)))) < 2))
     {
-        v40 = r_u32(((uint32)(((a1 + (4 * r_u32(((uint32)((a1 + 644)))))) + 612))));
-        CallPlayerWeaponSlot(v40, 24, v54, (const sint16 *)angles);
+        v40 = this->weapons[this->sel_weapon];
+        v40->Update(v54, (const sint16 *)angles);
     }
     else
     {
-        v39 = r_u32(((uint32)((a1 + 644))));
+        v39 = this->sel_weapon;
         w_u8(((uint32)((a1 + 536))), 1);
         {
-            uint32 weapon = r_u32(a1 + 612 + 4 * (uint32)v39);
-            v38 = CallPlayerWeaponSlot(weapon, 16, v54, (const sint16 *)angles);
+            uint32 weapon = this->weapons[v39];
+            v38 = weapon->Fire((const uint32 *)v54, (const sint16 *)angles);
         }
     }
     if (r_u32(0x800FF2FC))
@@ -1138,7 +1056,7 @@ LABEL_93:
                 break;
         }
     }
-    v44 = r_u32(((uint32)(((a1 + (4 * r_u32(((uint32)((a1 + 644)))))) + 612))));
+    v44 = this->weapons[this->sel_weapon];
     v7 = 1;
     if ((r_u32((v44 + (1) * 4)) == 8))
         goto LABEL_126;
@@ -1152,10 +1070,10 @@ LABEL_93:
         uint32 target = r_u32(table + 12);
         (void)apocalypse_object_cleanup(target, receiver, 3);
     }
-    w_u32(((uint32)(((a1 + (4 * r_u32(((uint32)((a1 + 644)))))) + 612))), 0);
-    v46 = r_u32(((uint32)((a1 + 644))));
-    w_u32(((uint32)((a1 + 644))), 0);
-    w_u32(((uint32)((a1 + 648))), v46);
+    this->weapons[this->sel_weapon] = 0;
+    v46 = this->sel_weapon;
+    this->sel_weapon = 0;
+    this->prev_weapon = v46;
 LABEL_122:
     v7 = 1;
 
@@ -1167,11 +1085,11 @@ LABEL_127:
 
     do
     {
-        if ((v45 != r_u32(((uint32)((a1 + 644))))))
+        if ((v45 != this->sel_weapon))
         {
             v49 = r_u32(((uint32)((v48 + 612))));
             if (v49)
-                CallPlayerWeaponSlot(v49, 24, v54, a2);
+                v49->Update(v54, a2);
         }
         ++v45;
         v48 += 4;
@@ -1193,33 +1111,25 @@ uint32 Player::Finish()
     result = IsFinished();
     if (!result)
     {
-        result = r_u16(object + 78);
-        flags = r_u16(object);
+        result = this->lifecycle_flags;
+        flags = this->model.flags;
         result |= 0x40;
         flags |= 1;
-        w_u16(object + 78, result);
-        w_u16(object, flags);
+        this->lifecycle_flags = result;
+        this->model.flags = flags;
     }
     return result;
 }
 
-uint32 Player::ClearWeapons()
+uint32 Player::ReleaseResources()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8005DD84, "SLUS_003.73");
     for (uint32 index = 0; index < 8; ++index)
-    {
-        uint32 slot = object + 612 + index * 4;
-        uint32 child = r_u32(slot);
-        if (child)
+        if (weapons[index])
         {
-            uint32 table = r_u32(child);
-            uint32 receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-            uint32 target = r_u32(table + 12);
-            apocalypse_object_cleanup(target, receiver, 3);
-            w_u32(slot, 0);
+            weapons[index]->Destroy(3);
+            weapons[index] = 0;
         }
-    }
     return 0;
 }
 
@@ -1227,7 +1137,7 @@ uint32 Player::Damage(uint32 damage, const sint32 *vector, uint32 reason)
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8005DDF0, "SLUS_003.73");
-    if (r_u32(0x800FF31C))
+    if (GetCheatOptions().invulnerable)
         return 0;
     if ((sint16)r_u16(object + 218) <= 0)
         return 0;
@@ -1241,7 +1151,7 @@ uint32 Player::Damage(uint32 damage, const sint32 *vector, uint32 reason)
     // Preserve the existing ABI mapping of a zero guest vector address
     const uint32 *input = vector ? (const uint32 *)vector : (const uint32 *)psx_addr(0, 12);
     ShiftVectorRight(impulse, input, &shift);
-    AddVectors((uint32 *)psx_addr(object + 104, 12), impulse);
+    AddVectors((uint32 *)motion.velocity, impulse);
     if ((sint32)damage >= 2)
     {
         sint32 maximum = (sint16)r_u16(0x800EC526);
@@ -1280,7 +1190,7 @@ uint32 Player::Damage(uint32 damage, const sint32 *vector, uint32 reason)
     SetScreenFlash(128, 0, 0, 8, 0, 0);
     uint32 sound = RandomRange(4);
     PlaySoundEffect(sound + 4, 8192, 0);
-    if (!r_u8(object + 26))
+    if (!this->model.animation)
     {
         uint32 range = RandomRange(4);
         uint32 first_frame = r_u8(0x800FF5CC + range * 2);
@@ -1290,13 +1200,13 @@ uint32 Player::Damage(uint32 damage, const sint32 *vector, uint32 reason)
     return 1;
 }
 
-uint32 Player::ApplyContactImpulse(uint32 object)
+uint32 *Player::ApplyContactImpulse(uint32 object)
 {
     const uint32 player = NativeObjectGuestAddress(this);
     uint32 difference[3], shifted[3], scaled[3], divided[3], impulse[3];
     uint32 distance, left_shift, right_shift;
     FUNCTION_MARKER(0x8005E07C, "SLUS_003.73");
-    SubtractVectors(difference, (const uint32 *)psx_addr(player + 4, 12), (const uint32 *)psx_addr(object + 4, 12));
+    SubtractVectors(difference, (const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 4, 12));
     difference[1] = 0;
     distance = MeasureVectorLength(difference);
     if (!distance)
@@ -1307,8 +1217,8 @@ uint32 Player::ApplyContactImpulse(uint32 object)
     DivideVector(divided, scaled, &distance);
     right_shift = 12;
     ShiftVectorLeft(impulse, divided, &right_shift);
-    AddVectors((uint32 *)psx_addr(player + 104, 12), impulse);
-    return player + 104;
+    AddVectors((uint32 *)motion.velocity, impulse);
+    return motion.velocity;
 }
 
 uint32 Player::ApplyBeamContactImpulse(uint32 object)
@@ -1322,9 +1232,9 @@ uint32 Player::ApplyBeamContactImpulse(uint32 object)
     x = r_u32(object + 296);
     z = r_u32(object + 4);
     beam_angle = (1024 - (uint32)ratan2((sint32)(left - right), (sint32)(x - z))) & 4095;
-    left = r_u32(player + 236);
+    left = pos_history.prev[2];
     right = r_u32(object + 12);
-    x = r_u32(player + 228);
+    x = pos_history.prev[0];
     z = r_u32(object + 4);
     player_angle = (1024 - (uint32)ratan2((sint32)(left - right), (sint32)(x - z))) & 4095;
     subtract = beam_angle < player_angle ? player_angle - beam_angle < 2049 : beam_angle - player_angle >= 2049;
@@ -1332,7 +1242,7 @@ uint32 Player::ApplyBeamContactImpulse(uint32 object)
     angles[1] = (uint16)((subtract ? beam_angle - 1024 : beam_angle + 1024) & 4095);
     angles[2] = 0;
     BuildDirectionVector(impulse, 512, angles);
-    AddVectors((uint32 *)psx_addr(player + 104, 12), impulse);
+    AddVectors((uint32 *)motion.velocity, impulse);
     w_u16(player + 574, 60);
     w_u16(player + 576, 60);
     return 60;
@@ -1343,22 +1253,18 @@ uint32 Player::ReplaceWeapon(uint32 kind)
     const uint32 owner = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8005E260, "SLUS_003.73");
     kind &= 65535;
-    uint32 old, table, object, slot, lifetime, previous, receiver, target;
+    uint32 object, weapon_damage, previous;
+    WeaponNode *new_weapon = 0;
+    WeaponNode **slot;
     if (kind < 1 || kind > 7)
         return 0;
     if (kind == 1)
-        PlayCdVoiceEvent(0, 3, (const uint32 *)psx_addr(owner + 4, 12), 1);
+        PlayCdVoiceEvent(0, 3, (const uint32 *)this->model.pos, 1);
     else
-        PlayCdVoiceEvent(0, RandomRange(2), (const uint32 *)psx_addr(owner + 4, 12), 1);
-    slot = owner + 0x264 + 4 * kind;
-    old = r_u32(slot);
-    if (old)
-    {
-        table = r_u32(old);
-        receiver = old + (uint32)(sint32)(sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        (void)apocalypse_object_cleanup(target, receiver, 3);
-    }
+        PlayCdVoiceEvent(0, RandomRange(2), (const uint32 *)this->model.pos, 1);
+    slot = &weapons[kind];
+    if (*slot)
+        (*slot)->Destroy(3);
     switch (kind)
     {
         case WPN_FLAMETHROWER:
@@ -1366,71 +1272,71 @@ uint32 Player::ReplaceWeapon(uint32 kind)
             if (object)
             {
                 void *dram_addr = AllocateNativeObjectStorage(object, sizeof(Flamethrower));
-                new (dram_addr) Flamethrower(0x800FF4E8, 0);
+                new_weapon = new (dram_addr) Flamethrower(&visual_lists.actors, 0);
             }
-            lifetime = r_u32(0x800FF384) ? 10 : 15;
+            weapon_damage = r_u32(0x800FF384) ? 10 : 15;
             break;
         case WPN_PULSE_LASER:
             object = AllocateZeroedHeapBlock(0x44);
             if (object)
             {
                 void *dram_addr = AllocateNativeObjectStorage(object, sizeof(PulseLaser));
-                new (dram_addr) PulseLaser(0x800FF4E8);
+                new_weapon = new (dram_addr) PulseLaser(&visual_lists.actors);
             }
-            lifetime = r_u32(0x800FF384) ? 10 : 15;
+            weapon_damage = r_u32(0x800FF384) ? 10 : 15;
             break;
         case WPN_PARTICLE_BEAM:
             object = AllocateZeroedHeapBlock(0x68);
             if (object)
             {
                 void *dram_addr = AllocateNativeObjectStorage(object, sizeof(ParticleBeam));
-                new (dram_addr) ParticleBeam(0x800FF4E8, 3000, 0, 256, 9);
+                new_weapon = new (dram_addr) ParticleBeam(&visual_lists.actors, 3000, 0, 256, 9);
             }
-            lifetime = r_u32(0x800FF384) ? 10 : 15;
+            weapon_damage = r_u32(0x800FF384) ? 10 : 15;
             break;
         case WPN_RIP_LASER:
             object = AllocateZeroedHeapBlock(0x64);
             if (object)
             {
                 void *dram_addr = AllocateNativeObjectStorage(object, sizeof(RipLaser));
-                new (dram_addr) RipLaser(0x800FF4E8);
+                new_weapon = new (dram_addr) RipLaser(&visual_lists.actors);
             }
-            lifetime = r_u32(0x800FF384) ? 2 : 3;
+            weapon_damage = r_u32(0x800FF384) ? 2 : 3;
             break;
         case WPN_GRENADES:
             object = AllocateZeroedHeapBlock(0x44);
             if (object)
             {
                 void *dram_addr = AllocateNativeObjectStorage(object, sizeof(Grenades));
-                new (dram_addr) Grenades(0x800FF4E8);
+                new_weapon = new (dram_addr) Grenades(&visual_lists.actors);
             }
-            lifetime = r_u32(0x800FF384) ? 120 : 180;
+            weapon_damage = r_u32(0x800FF384) ? 120 : 180;
             break;
         case WPN_HOMING_MISSILES:
             object = AllocateZeroedHeapBlock(0x44);
             if (object)
             {
                 void *dram_addr = AllocateNativeObjectStorage(object, sizeof(HomingMissiles));
-                new (dram_addr) HomingMissiles(0x800FF4E8);
+                new_weapon = new (dram_addr) HomingMissiles(&visual_lists.actors);
             }
-            lifetime = r_u32(0x800FF384) ? 15 : 22;
+            weapon_damage = r_u32(0x800FF384) ? 15 : 22;
             break;
         default:
             object = AllocateZeroedHeapBlock(0x44);
             if (object)
             {
                 void *dram_addr = AllocateNativeObjectStorage(object, sizeof(Rockets));
-                new (dram_addr) Rockets(0x800FF4E8);
+                new_weapon = new (dram_addr) Rockets(&visual_lists.actors);
             }
-            lifetime = r_u32(0x800FF384) ? 40 : 60;
+            weapon_damage = r_u32(0x800FF384) ? 40 : 60;
             break;
     }
-    w_u32(slot, object);
-    // TODO The original writes the ammo field even when allocation returns zero
-    w_u32(object + 40, lifetime);
-    previous = r_u32(owner + 0x284);
-    w_u32(owner + 0x284, kind);
-    w_u32(owner + 0x288, previous);
+    *slot = new_weapon;
+    // TODO Original allocation failure leaves no weapon for the damage store
+    new_weapon->damage = weapon_damage;
+    previous = this->sel_weapon;
+    this->sel_weapon = kind;
+    this->prev_weapon = previous;
     return 1;
 }
 
@@ -1476,9 +1382,9 @@ uint32 Player::EnterDeathState()
             return xport_draft_guest_call1(target, object + (uint32)adjustment);
         }
     }
-    w_u32(object + 112, 0);
-    w_u32(object + 108, 0);
-    w_u32(object + 104, 0);
+    motion.velocity[2] = 0;
+    motion.velocity[1] = 0;
+    motion.velocity[0] = 0;
     w_u32(object + 460, 0x40000);
     return SetAnimationRange(animation, 0, (uint32)-1);
 }
@@ -1489,7 +1395,7 @@ void Player::PrepareDeathCamera()
     uint32 camera, mode, angle;
     sint32 distance;
     FUNCTION_MARKER(0x8005E90C, "SLUS_003.73");
-    camera = r_u32(0x800FF904);
+    camera = visual_lists.cameras;
     if (!camera)
         return;
     if (!r_u32(object + 448))
@@ -1498,15 +1404,15 @@ void Player::PrepareDeathCamera()
     SetCameraOrbitDistanceTransition(64, 32);
     mode = r_u32(0x800FF378);
     distance = mode == 10 ? -1400 : -700;
-    camera = r_u32(0x800FF904);
+    camera = visual_lists.cameras;
     SetCameraOrbitHeightTransition((uint32)distance, 32);
-    camera = r_u32(0x800FF904);
+    camera = visual_lists.cameras;
     SetCameraTargetLateralOffsetTransition(0, 32);
-    camera = r_u32(0x800FF904);
+    camera = visual_lists.cameras;
     SetCameraTargetHeightOffsetTransition(0, 32);
-    camera = r_u32(0x800FF904);
+    camera = visual_lists.cameras;
     SetCameraTargetForwardOffsetTransition(0, 32);
-    camera = r_u32(0x800FF904);
+    camera = visual_lists.cameras;
     angle = r_u16(camera + 494);
     Camera::Attach(camera).SetYawTransition((angle + 1024) & 0xFFF, 34);
 }
@@ -1529,7 +1435,7 @@ uint32 Player::TryEnterMovementState16()
         return 0;
     if ((uint32)(r_u16(object + 474) - (uint32)768) < 2561)
         return 0;
-    animation = r_u8(object + 26);
+    animation = this->model.animation;
     w_u32(object + 460, 16);
     if (animation != 1)
         StartAnimation(1, 1);
@@ -1546,7 +1452,7 @@ uint32 Player::TryEnterMovementState32()
     sint32 angle = (sint16)r_u16(object + 474);
     if (angle < 1281 || angle >= 2816)
         return 0;
-    animation = r_u8(object + 26);
+    animation = this->model.animation;
     w_u32(object + 460, 32);
     if (animation != 1)
         StartAnimation(1, 1);
@@ -1563,7 +1469,7 @@ uint32 Player::TryEnterMovementState512()
     sint32 angle = (sint16)r_u16(object + 474);
     if (angle < 2816 || angle >= 3329)
         return 0;
-    animation = r_u8(object + 26);
+    animation = this->model.animation;
     w_u32(object + 460, 512);
     if (animation != 1)
         StartAnimation(1, 1);
@@ -1580,7 +1486,7 @@ uint32 Player::TryEnterMovementState1024()
     sint32 angle = (sint16)r_u16(object + 474);
     if (angle < 768 || angle >= 1281)
         return 0;
-    animation = r_u8(object + 26);
+    animation = this->model.animation;
     w_u32(object + 460, 1024);
     if (animation != 1)
         StartAnimation(1, 1);
@@ -1598,17 +1504,17 @@ uint32 Player::TryActivateOneShotActivator()
     second = r_u8(object + 472);
     if (!(first | second))
         return 0;
-    w_u32(object + 112, 0);
-    w_u32(object + 108, 0);
-    w_u32(object + 104, 0);
-    w_u32(object + 124, 0);
-    w_u32(object + 120, 0);
+    motion.velocity[2] = 0;
+    motion.velocity[1] = 0;
+    motion.velocity[0] = 0;
+    motion.acceleration[2] = 0;
+    motion.acceleration[1] = 0;
     attached = r_u32(object + 516);
-    w_u32(object + 116, 0);
+    motion.acceleration[0] = 0;
     angles = r_u32(attached + 16);
     tail = r_u16(attached + 20);
-    w_u32(object + 16, angles);
-    w_u16(object + 20, tail);
+    this->model.SetAnglesXY(angles);
+    this->model.angles[2] = tail;
     SetAnimationRange(7, 0, (uint32)-1);
     attached = r_u32(object + 516);
     w_u32(object + 460, 65536);
@@ -1627,17 +1533,17 @@ uint32 Player::TryActivateResettingActivator()
     second = r_u8(object + 472);
     if (!(first | second))
         return 0;
-    w_u32(object + 112, 0);
-    w_u32(object + 108, 0);
-    w_u32(object + 104, 0);
-    w_u32(object + 124, 0);
-    w_u32(object + 120, 0);
+    motion.velocity[2] = 0;
+    motion.velocity[1] = 0;
+    motion.velocity[0] = 0;
+    motion.acceleration[2] = 0;
+    motion.acceleration[1] = 0;
     attached = r_u32(object + 520);
-    w_u32(object + 116, 0);
+    motion.acceleration[0] = 0;
     angles = r_u32(attached + 16);
     tail = r_u16(attached + 20);
-    w_u32(object + 16, angles);
-    w_u16(object + 20, tail);
+    this->model.SetAnglesXY(angles);
+    this->model.angles[2] = tail;
     SetAnimationRange(18, 0, (uint32)-1);
     attached = r_u32(object + 520);
     w_u32(object + 460, 131072);
@@ -1668,11 +1574,11 @@ uint32 Player::TryEnterActionState()
         if (!(x | z))
             return 0;
         angle = r_u16(object + 474);
-        camera = r_u32(0x800FF904);
+        camera = visual_lists.cameras;
         w_u16(object + 606, angle);
         heading = camera ? r_u16(camera + 494) + angle : angle;
-        w_u16(object + 18, heading & 4095);
-        flags = r_u16(object);
+        this->model.angles[1] = heading & 4095;
+        flags = this->model.flags;
         w_u32(object + 460, 2048);
         sound = (flags & 8) ? 55 : 0;
         PlaySoundEffect(sound, 8192, 0);
@@ -1681,7 +1587,7 @@ uint32 Player::TryEnterActionState()
     }
     if (!(state & 1584))
     {
-        flags = r_u16(object) & 8;
+        flags = this->model.flags & 8;
         w_u32(object + 460, 256);
         if (flags)
             PlaySoundEffect(72, 8192, 0);
@@ -1693,13 +1599,13 @@ uint32 Player::TryEnterActionState()
     if (!(x | z))
         return 0;
     angle = r_u16(object + 474);
-    camera = r_u32(0x800FF904);
+    camera = visual_lists.cameras;
     w_u16(object + 606, angle);
     heading = camera ? r_u16(camera + 494) + angle : angle;
-    w_u16(object + 18, heading & 4095);
+    this->model.angles[1] = heading & 4095;
     w_u32(object + 460, 2048);
     SetAnimationRange(12, 0, (uint32)-1);
-    sound = (r_u16(object) & 8) ? 55 : 0;
+    sound = (this->model.flags & 8) ? 55 : 0;
     PlaySoundEffect(sound, 8192, 0);
     return 1;
 }
@@ -1717,21 +1623,21 @@ uint32 Player::TryEnterRecordMovementState()
     x = r_u32(object + 496);
     y = r_u32(object + 500);
     z = r_u32(object + 504);
-    w_u32(object + 4, x);
-    w_u32(object + 8, y);
-    w_u32(object + 12, z);
-    height = r_u32(object + 8);
+    this->model.pos[0] = x;
+    this->model.pos[1] = y;
+    this->model.pos[2] = z;
+    height = this->model.pos[1];
     record = r_u32(object + 512);
-    w_u32(object + 8, height + 524288);
+    this->model.pos[1] = height + 524288;
     kind = r_u16(record + 58);
     if (kind != 400 && kind != 401)
         return 0;
     record = r_u32(object + 512);
     w_u32(object + 460, kind == 400 ? 32768 : 16384);
-    w_u32(object + 108, 0);
+    motion.velocity[1] = 0;
     yaw = r_u16(record + 320);
     input = r_u32(object + 444);
-    w_u16(object + 18, (yaw + 2048) & 4095);
+    this->model.angles[1] = (yaw + 2048) & 4095;
     w_u8(input + 273, 0);
     w_u32(object + 508, 1);
     w_u32(0x800FF5A4, 1);
@@ -1743,7 +1649,8 @@ uint32 Player::TryEnterRecordMovementState()
 uint32 Player::TryEnterJumpState()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 input, latch, impulse, linked, velocity, first, last, flags, delay;
+    uint32 input, latch, impulse, velocity, first, last, flags, delay;
+    ModelInstance *linked;
     FUNCTION_MARKER(0x8005F00C, "SLUS_003.73");
     input = r_u32(object + 444);
     if (!r_u8(input + 273))
@@ -1751,17 +1658,17 @@ uint32 Player::TryEnterJumpState()
     if (r_u8(object + 569))
         return 0;
     PlaySoundEffect(5, 8192, 0);
-    if (r_u16(object) & 8)
+    if (this->model.flags & 8)
         PlaySoundEffect(63, 8192, 0);
     latch = r_u8(object + 569);
     w_u8(object + 569, latch + 1);
     impulse = (uint32)(sint32)(sint16)r_u16(0x800EC4DA);
-    linked = r_u32(object + 428);
+    linked = ground.GetObject();
     impulse = (uint32)0 - (impulse << 12);
     w_u32(object + 564, impulse);
     if (linked)
     {
-        velocity = r_u32(linked + 108);
+        velocity = static_cast<VisualObject *>(linked->owner)->motion.velocity[1];
         if ((sint32)velocity < -262144)
             velocity <<= 1;
         w_u32(object + 564, impulse + velocity);
@@ -1795,7 +1702,7 @@ uint32 Player::TryEnterAirborneState()
     }
     if (check_timer && r_u8(object + 578))
         return 0;
-    w_u32(object + 480, r_u32(object + 8));
+    w_u32(object + 480, this->model.pos[1]);
     first = (uint32)(sint32)(sint16)r_u16(0x800EC4D4);
     last = (uint32)(sint32)(sint16)r_u16(0x800EC4D6);
     SetAnimationRange(2, first + 1, last);
@@ -1813,7 +1720,7 @@ uint32 Player::TryEnterLandingState()
     threshold = r_u32(object + 484);
     w_u8(object + 578, 4);
     if (threshold)
-        distance = (uint32)((sint32)(r_u32(object + 8) - r_u32(object + 480)) >> 12);
+        distance = (uint32)((sint32)(this->model.pos[1] - r_u32(object + 480)) >> 12);
     if (threshold && (sint32)threshold < (sint32)distance)
     {
         numerator = (distance - threshold) * (uint32)(sint32)(sint16)r_u16(0x800EC526);
@@ -1824,17 +1731,15 @@ uint32 Player::TryEnterLandingState()
             damage = numerator;
         else
             damage = (uint32)((sint32)numerator / (sint32)denominator);
-        table = r_u32(object + 68);
-        receiver = object + (uint32)(sint32)(sint16)r_u16(table + 48);
-        target = r_u32(table + 52);
-        apocalypse_object_virtual52_native(target, receiver, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+        receiver = object;
+        ApplyObjectDamage(receiver, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
         if ((sint16)r_u16(object + 218) <= 0)
             return 1;
     }
     else if (r_u32(0x800FF2FC))
         SetGamePadActuator(0, 4, 0, 1);
     SetAnimationRange(2, (uint32)(sint32)(sint16)r_u16(0x800EC4D6) + 1, (uint32)-1);
-    sound = (r_u16(object) & 8) ? 56 : 19;
+    sound = (this->model.flags & 8) ? 56 : 19;
     PlaySoundEffect(sound, 8192, 0);
     input = r_u32(object + 444);
     w_u32(object + 460, 8);
@@ -1858,25 +1763,25 @@ uint32 Player::TryEnterAnimation10State()
     w_u32(object + 460, 4096);
     if (!flags)
     {
-        w_u32(object + 8, r_u32(object + 544) + 524288);
+        this->model.pos[1] = r_u32(object + 544) + 524288;
         return 1;
     }
     MultiplyVector((uint32 *)scaled, (const uint32 *)psx_addr(object + 552, 12), &scale);
     AddVectors((uint32 *)position, (const uint32 *)psx_addr(object + 540, 12), (const uint32 *)scaled);
-    w_u32(object + 4, (uint32)position[0]);
-    w_u32(object + 8, (uint32)position[1]);
-    w_u32(object + 12, (uint32)position[2]);
+    this->model.pos[0] = (uint32)position[0];
+    this->model.pos[1] = (uint32)position[1];
+    this->model.pos[2] = (uint32)position[2];
     angle_z = (sint32)r_u32(object + 560);
-    height = r_u32(object + 8);
+    height = this->model.pos[1];
     angle_x = (sint32)r_u32(object + 552);
-    w_u32(object + 8, height + 524288);
-    w_u16(object + 18, (1024 - (uint32)ratan2(angle_z, angle_x)) & 4095);
+    this->model.pos[1] = height + 524288;
+    this->model.angles[1] = (1024 - (uint32)ratan2(angle_z, angle_x)) & 4095;
     MultiplyScalarVector((uint32 *)offset, &offset_scale, (const uint32 *)psx_addr(object + 552, 12));
-    SubtractVectors((uint32 *)position, (const uint32 *)psx_addr(object + 4, 12), (const uint32 *)offset);
+    SubtractVectors((uint32 *)position, (const uint32 *)this->model.pos, (const uint32 *)offset);
     position[1] = (sint32)((uint32)position[1] - 884736);
-    if (!r_u32(object + 428))
+    if (!ground.GetObject())
     {
-        uint32 camera = r_u32(0x800FF904);
+        uint32 camera = visual_lists.cameras;
         Camera::Attach(camera).SetTargetTransition(position, 36);
     }
     return 1;
@@ -1892,29 +1797,17 @@ uint32 Player::UpdateGroundContact()
     sint32 v5;
     sint32 v6;
 
-    union
-    {
-        uint32 words[35];
-
-        struct
-        {
-            sint32 origin[3], target[3];
-            uint8 workspace[0x68 - 6 * sizeof(sint32)];
-            uint32 hit;
-            sint32 position[3];
-            uint16 rotation[3];
-        } fields;
-    } ray;
+    CollisionRay ray;
 
     result = (r_u32(((uint32)(((uint32)(a1) + (uint32)(460))))) & 0x3000);
     if (result)
         goto LABEL_8;
-    if (((r_u16(((uint32)(a1))) & 8) != 0))
+    if (((this->model.flags & 8) != 0))
     {
-        v3 = r_u32(((uint32)(((uint32)(a1) + (uint32)(4)))));
+        v3 = this->model.pos[0];
         w_u8(((uint32)(((uint32)(a1) + (uint32)(314)))), 1);
         v4 = r_u32(0x800FF37C);
-        v5 = r_u32(((uint32)(((uint32)(a1) + (uint32)(12)))));
+        v5 = this->model.pos[2];
         result = -4096;
         w_u16(((uint32)(((uint32)(a1) + (uint32)(164)))), 0);
         w_u16(a1 + 166, (uint32)-4096);
@@ -1928,20 +1821,20 @@ uint32 Player::UpdateGroundContact()
     {
         w_u8(((uint32)(((uint32)(a1) + (uint32)(314)))), 1);
         result = ((uint32)(r_u8(((uint32)(((uint32)(a1) + (uint32)(582)))))) << (uint32)(12));
-        w_u32(((uint32)(((uint32)(a1) + (uint32)(188)))), ((uint32)(r_u32(((uint32)(((uint32)(a1) + (uint32)(8)))))) + (uint32)(result)));
+        w_u32(((uint32)(((uint32)(a1) + (uint32)(188)))), ((uint32)(this->model.pos[1]) + (uint32)(result)));
         return result;
     }
-    ray.fields.origin[0] = r_u32(((uint32)(((uint32)(a1) + (uint32)(4)))));
-    ray.fields.origin[1] = ((uint32)(r_u32(((uint32)(((uint32)(a1) + (uint32)(8)))))) - (uint32)(0x40000));
-    v6 = r_u32(((uint32)(((uint32)(a1) + (uint32)(12)))));
-    ray.fields.target[0] = ray.fields.origin[0];
-    ray.fields.target[1] = ((uint32)(ray.fields.origin[1]) + (uint32)(0x800000));
-    ray.fields.origin[2] = v6;
-    ray.fields.target[2] = v6;
-    InitializeCollisionRay((uint8 *)&ray);
-    QueryCollisionRay((uint8 *)&ray, 1);
+    ray.pos[0][0] = this->model.pos[0];
+    ray.pos[0][1] = ((uint32)(this->model.pos[1]) - (uint32)(0x40000));
+    v6 = this->model.pos[2];
+    ray.pos[1][0] = ray.pos[0][0];
+    ray.pos[1][1] = ((uint32)(ray.pos[0][1]) + (uint32)(0x800000));
+    ray.pos[0][2] = v6;
+    ray.pos[1][2] = v6;
+    InitializeCollisionRay(ray);
+    QueryCollisionRay(ray, 1);
     result = 1;
-    if (!ray.fields.hit)
+    if (!ray.hit.GetObject())
     {
     LABEL_8:
         w_u8(((uint32)(((uint32)(a1) + (uint32)(314)))), 0);
@@ -1949,13 +1842,13 @@ uint32 Player::UpdateGroundContact()
     else
     {
         w_u8(((uint32)(((uint32)(a1) + (uint32)(314)))), 1);
-        w_u32(((uint32)(((uint32)(a1) + (uint32)(184)))), ray.fields.position[0]);
-        w_u32(((uint32)(((uint32)(a1) + (uint32)(188)))), ray.fields.position[1]);
-        w_u32(((uint32)(((uint32)(a1) + (uint32)(192)))), ray.fields.position[2]);
-        w_u16(((uint32)(((uint32)(a1) + (uint32)(164)))), ray.fields.rotation[0]);
-        w_u16(((uint32)(((uint32)(a1) + (uint32)(166)))), ray.fields.rotation[1]);
-        result = ray.fields.rotation[2];
-        w_u16(((uint32)(((uint32)(a1) + (uint32)(168)))), ray.fields.rotation[2]);
+        w_u32(((uint32)(((uint32)(a1) + (uint32)(184)))), ray.hit_pos[0]);
+        w_u32(((uint32)(((uint32)(a1) + (uint32)(188)))), ray.hit_pos[1]);
+        w_u32(((uint32)(((uint32)(a1) + (uint32)(192)))), ray.hit_pos[2]);
+        w_u16(((uint32)(((uint32)(a1) + (uint32)(164)))), (uint16)ray.n.vx);
+        w_u16(((uint32)(((uint32)(a1) + (uint32)(166)))), (uint16)ray.n.vy);
+        result = (uint16)ray.n.vz;
+        w_u16(((uint32)(((uint32)(a1) + (uint32)(168)))), (uint16)ray.n.vz);
     }
     return result;
 }
@@ -1965,20 +1858,21 @@ void Player::SetWeaponStop(uint32 duration)
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 selected;
     FUNCTION_MARKER(0x8005F62C, "SLUS_003.73");
-    selected = r_u32(object + 644);
+    selected = this->sel_weapon;
     w_u32(object + 456, duration);
     StopSelectedWeapon(selected);
 }
 
 uint32 Player::Update()
 {
+    uint32 trig_angle;
     const uint32 a1 = NativeObjectGuestAddress(this);
     uint32 callback_table, callback_receiver, callback_target;
     uint32 movement_x, movement_z;
     uint32 camera_address;
     sint16 camera_angles[3];
     sint16 weapon_angles[4];
-    uint32 first_aim, second_aim, yaw_model, body_heading, model_heading;
+    uint32 first_aim, second_aim, body_heading, model_heading;
     FUNCTION_MARKER(0x8005F688, "SLUS_003.73");
     /* TODO Recover GTE register carriers and missing host GTE adapters */
 
@@ -1986,7 +1880,7 @@ uint32 Player::Update()
     sint32 v3;
     sint32 v4;
     sint32 result;
-    sint32 v6;
+    ModelInstance *v6;
     sint32 v7;
     sint8 v8;
     sint32 v9;
@@ -2003,10 +1897,8 @@ uint32 Player::Update()
     sint32 v20;
     short v21;
     sint32 v22;
-    sint32 v23;
     sint32 v24;
-    uint32 v25;
-    sint32 v26;
+        sint32 v26;
     sint32 v27;
     sint32 v28;
     sint32 v29;
@@ -2035,7 +1927,7 @@ uint32 Player::Update()
     sint32 v52;
     sint32 v53;
     sint32 v54;
-    sint32 v55;
+    ModelInstance *v55;
     sint32 v56;
     sint32 v57;
     sint32 v58;
@@ -2131,7 +2023,6 @@ uint32 Player::Update()
     sint32 v148;
     sint32 v149;
     sint32 v150;
-    sint32 v151;
     short v152;
     short v153;
     sint32 v154;
@@ -2153,13 +2044,13 @@ uint32 Player::Update()
     sint32 v173;
     sint32 v174;
     sint32 v175;
-    sint32 v176;
+    ModelInstance *v176;
     sint32 v177;
     sint32 v178;
-    sint32 v179;
-    uint32 v180;
+    ModelInstance *v179;
+    ModelInstance *v180;
     sint32 v181;
-    sint32 v182;
+    ModelInstance *v182;
     sint32 v183;
     sint32 v184;
     sint32 v185;
@@ -2184,15 +2075,10 @@ uint32 Player::Update()
     sint32 v204;
     sint32 v205;
     short v206;
-    sint32 v207;
     sint32 v208;
-    sint32 v209;
     sint32 v210;
     sint32 v211;
     sint32 v212;
-    sint32 v213;
-    sint32 v214;
-    sint32 v215;
     sint32 position[4];
 #define v216 position[0]
 #define v217 position[1]
@@ -2205,15 +2091,8 @@ uint32 Player::Update()
 #define v223 vectors[1]
 #define v224 (vectors + 2)
 #define v225 vectors[4]
-    sint32 collision_record[35];
-#define v227 collision_record
-#define v228 collision_record[2]
-#define v229 collision_record[3]
-#define v230 collision_record[4]
-#define v231 collision_record[5]
-#define v232 ((char *)(collision_record + 6))
-#define v233 collision_record[26]
-    sint32 v234[35];
+    CollisionRay weapon_ray, muzzle_ray;
+    sint32 muzzle_offset[3], muzzle_pos[3];
     sint32 v236;
     sint32 v237;
     sint32 v238;
@@ -2228,9 +2107,9 @@ uint32 Player::Update()
         w_u32(((uint32)((a1 + 456))), result);
         return result;
     }
-    (v6 = r_u32(((uint32)((a1 + 428)))));
-    if ((v6 && ((r_u16(((uint32)((v6 + 78)))) & 0x40) != 0)))
-        w_u32(((uint32)((a1 + 428))), 0);
+    (v6 = ground.GetObject());
+    if ((v6 && ((static_cast<VisualObject *>(v6->owner)->lifecycle_flags & 0x40) != 0)))
+        ground.Reset();
     w_u32(0x800FF970u, 0);
     (v7 = r_u8(((uint32)((a1 + 465)))));
     (v4 = (v7 == 0));
@@ -2274,43 +2153,43 @@ uint32 Player::Update()
         w_u8(((uint32)((r_u32(((uint32)((a1 + 444)))) + 273))), 0);
         w_u8(((uint32)((r_u32(((uint32)((a1 + 444)))) + 81))), 0);
     }
-    (v14 = r_u8(((uint32)((a1 + 26)))));
+    (v14 = this->model.animation);
     w_u32(((uint32)((a1 + 304))), 0x10000);
     if (((v14 == 5) && (r_u8(((uint32)((a1 + 297)))) == 1)))
         w_u32(((uint32)((a1 + 304))), 0x20000);
-    if (r_u32(0x800FF328u))
+    if (GetCheatOptions().enemy_finish_cheat)
     {
         (v15 = r_u32(((uint32)((a1 + 444)))));
         if (r_u8(((uint32)((v15 + 81)))))
         {
             w_u8(((uint32)((v15 + 81))), 0);
-            sub_8005C338();
+            ::FinishSelectedEnemies();
         }
     }
     (result = r_u8(((uint32)((a1 + 464)))));
     if (!result)
     {
-        w_u16(((uint32)(a1)), (r_u16(((uint32)(a1))) | (4u)));
-        uint32 saved_x = r_u32(a1 + 4);
-        (v16 = r_u32(((uint32)((a1 + 8)))));
-        (v17 = r_u32(((uint32)((a1 + 12)))));
-        w_u32(a1 + 228, saved_x);
-        w_u32(((uint32)((a1 + 232))), v16);
-        w_u32(((uint32)((a1 + 236))), v17);
+        this->model.flags = (this->model.flags | (4u));
+        uint32 saved_x = this->model.pos[0];
+        (v16 = this->model.pos[1]);
+        (v17 = this->model.pos[2]);
+        pos_history.prev[0] = saved_x;
+        pos_history.prev[1] = v16;
+        pos_history.prev[2] = v17;
         (v19 = (r_u32(((uint32)((a1 + 460)))) & 0xF000));
-        (v18 = r_u32(((uint32)((a1 + 108)))));
-        w_u32(((uint32)((a1 + 32))), 8421504);
+        (v18 = motion.velocity[1]);
+        this->model.color = 8421504;
         if (!v19)
             ResolvePlayerCollisionMotion(a1);
-        (v21 = (r_u16(((uint32)(a1))) & 0xFFF7));
+        (v21 = (this->model.flags & 0xFFF7));
         (v20 = r_u32(0x800FF378u));
         (v4 = (v20 == 1));
-        w_u16(((uint32)(a1)), v21);
+        this->model.flags = v21;
         uint32 water_contact = 0;
         if (v4 || v20 == 5)
         {
             uint32 offset = r_u8(a1 + 582);
-            uint32 height = r_u32(a1 + 8);
+            uint32 height = this->model.pos[1];
             uint32 surface = r_u32(0x800FF37C);
             water_contact = (sint32)surface < (sint32)(height + (offset << 12));
         }
@@ -2318,25 +2197,25 @@ uint32 Player::Update()
         {
             (v22 = r_u32(0x800FF380u));
             (v4 = (v22 == 0));
-            w_u16(((uint32)(a1)), (v21 | 8));
+            this->model.flags = (v21 | 8);
             if (v4)
             {
                 if (((r_u32(0x800FF2F0u) & 3) == 0))
                 {
                     uint32 surface = r_u32(0x800FF37C);
-                    v216 = r_u32(a1 + 4);
-                    v217 = r_u32(a1 + 8);
-                    v218 = r_u32(a1 + 12);
+                    v216 = this->model.pos[0];
+                    v217 = this->model.pos[1];
+                    v218 = this->model.pos[2];
                     v217 = surface;
-                    (v24 = (sub_80066570(32) + 32));
-                    (v25 = (0x800F863Cu + ((sub_80066570(4096) & 0xFFF)) * 4u));
-                    v216 = (sint32)((uint32)v216 + (uint32)v24 * (uint32)(sint32)(sint16)r_u16(v25));
-                    v218 = (sint32)((uint32)v218 + (uint32)v24 * (uint32)(sint32)(sint16)r_u16(v25 + 2));
+                    (v24 = (RandomRange(32) + 32));
+                    (trig_angle = RandomRange(4096) & 0xFFF);
+                    v216 = (sint32)((uint32)v216 + (uint32)v24 * (uint32)rsin(trig_angle));
+                    v218 = (sint32)((uint32)v218 + (uint32)v24 * (uint32)rcos(trig_angle));
                     (v26 = AllocateEffectStorage(116));
                     if (v26)
                     {
-                        (v28 = (sub_80066570(32) + 32));
-                        (v27 = sub_80066570(4));
+                        (v28 = (RandomRange(32) + 32));
+                        (v27 = RandomRange(4));
                         void *dram_addr = AllocateNativeObjectStorage(v26, sizeof(ExpandingRing));
                         new (dram_addr) ExpandingRing(position, v28, 16, 64, 16, 12, (uint32)v27 + 4);
                     }
@@ -2344,28 +2223,26 @@ uint32 Player::Update()
             }
             else
             {
-                callback_table = r_u32(a1 + 68);
-                callback_receiver = a1 + (uint32)(sint32)(sint16)r_u16(callback_table + 48);
-                callback_target = r_u32(callback_table + 52);
-                apocalypse_object_virtual52(callback_target, callback_receiver, v22, 0x800A71CC, 0);
+                callback_receiver = a1;
+                ApplyObjectDamage(callback_receiver, v22, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
             }
         }
-        if (((r_u32(0x800FF32Cu) && r_u8(0x800EC138u)) && r_u8(0x800EC158u)))
+        if (((GetCheatOptions().free_movement && r_u8(0x800EC138u)) && r_u8(0x800EC158u)))
         {
-            (v29 = r_u32(((uint32)((a1 + 232)))));
-            w_u32(((uint32)((a1 + 8))), v29);
+            (v29 = pos_history.prev[1]);
+            this->model.pos[1] = v29;
             if (r_u8(0x800EC0F8u))
-                w_u32(((uint32)((a1 + 8))), (v29 - 393216));
+                this->model.pos[1] = (v29 - 393216);
             if (r_u8(0x800EC128u))
-                w_u32(((uint32)((a1 + 8))), (r_u32(((uint32)((a1 + 8)))) + (393216)));
-            (v30 = (r_u32(((uint32)((a1 + 12)))) + (5 * (r_u32(((uint32)((a1 + 12)))) - r_u32(((uint32)((a1 + 236))))))));
-            w_u32(((uint32)((a1 + 4))), (r_u32(((uint32)((a1 + 4)))) + ((5 * (r_u32(((uint32)((a1 + 4)))) - r_u32(((uint32)((a1 + 228)))))))));
-            w_u32(((uint32)((a1 + 12))), v30);
+                this->model.pos[1] = (this->model.pos[1] + (393216));
+            (v30 = (this->model.pos[2] + (5 * (this->model.pos[2] - pos_history.prev[2]))));
+            this->model.pos[0] = (this->model.pos[0] + ((5 * (this->model.pos[0] - pos_history.prev[0]))));
+            this->model.pos[2] = v30;
         }
         (v31 = r_u16(((uint32)((a1 + 216)))));
         w_u16(((uint32)((a1 + 212))), 100);
-        w_u16(((uint32)((a1 + 20))), 0);
-        w_u16(((uint32)((a1 + 16))), 0);
+        this->model.angles[2] = 0;
+        this->model.angles[0] = 0;
         if ((((((unsigned char)((v31 >> 1))) ^ 1) & 1) != 0))
         {
             w_u16(a1 + 570, r_u16(a1 + 570) + 1);
@@ -2375,7 +2252,7 @@ uint32 Player::Update()
             w_u16(((uint32)((a1 + 570))), 0);
             w_u8(((uint32)((a1 + 569))), 0);
         }
-        if ((((!r_u32(0x800FF32Cu) && (r_u8(((uint32)((a1 + 26)))) == 17)) && r_u8(((uint32)((a1 + 303))))) && !(r_u32(((uint32)((a1 + 484)))))))
+        if ((((!GetCheatOptions().free_movement && (this->model.animation == 17)) && r_u8(((uint32)((a1 + 303))))) && !(r_u32(((uint32)((a1 + 484)))))))
             sub_8005E708(a1);
         ReadInput();
         if ((r_u8(((uint32)((a1 + 468)))) | r_u8(((uint32)((a1 + 469))))))
@@ -2461,19 +2338,19 @@ uint32 Player::Update()
                         {
                             (v4 = (r_u16(((uint32)((a1 + 570)))) < 0x31u));
                             w_u16(((uint32)((a1 + 580))), 0);
-                            if ((v4 || (r_u8(((uint32)((a1 + 26)))) != 2)))
+                            if ((v4 || (this->model.animation != 2)))
                             {
-                                (v74 = r_u8(((uint32)((a1 + 26)))));
+                                (v74 = this->model.animation);
                                 if ((v74 != 17))
                                 {
                                     (v75 = 0);
-                                    if ((((sint32)(r_u32(((uint32)((a1 + 108)))) ^ (uint32)v18) < 0) || (v74 != 2)))
+                                    if ((((sint32)(motion.velocity[1] ^ (uint32)v18) < 0) || (v74 != 2)))
                                         (v75 = 1);
                                     if (v75)
                                     {
-                                        w_u32(((uint32)((a1 + 480))), r_u32(((uint32)((a1 + 8)))));
+                                        w_u32(((uint32)((a1 + 480))), this->model.pos[1]);
                                         SetAnimationRange(2, ((sint32)(sint16)r_u16(0x800EC4D4u) + 1), (sint32)(sint16)r_u16(0x800EC4D6u));
-                                        w_u8(((uint32)((a1 + 130))), r_u8(0x800EC6DAu));
+                                        motion.drag[1] = r_u8(0x800EC6DAu);
                                     }
                                 }
                             }
@@ -2550,15 +2427,15 @@ uint32 Player::Update()
                                                                     w_u16(a1 + 580, v48);
                                                                     if ((v48 == 1350))
                                                                     {
-                                                                        (v49 = sub_80066570(8));
-                                                                        sub_8002FD2C(8, v49);
+                                                                        (v49 = RandomRange(8));
+                                                                        ::SelectCdVoice(8, v49);
                                                                         (v37 = 0);
                                                                         goto LABEL_232;
                                                                     }
                                                                     (v37 = 0);
                                                                     if ((v48 == 4050))
                                                                     {
-                                                                        (v50 = sub_80066570(8));
+                                                                        (v50 = RandomRange(8));
                                                                         sub_8002FC64(8, v50, (a1 + 4), 0);
                                                                         w_u16(((uint32)((a1 + 580))), 1350);
                                                                     LABEL_231:
@@ -2684,11 +2561,11 @@ uint32 Player::Update()
                 w_u16(((uint32)((a1 + 580))), 0);
                 if (v54)
                 {
-                    (v55 = r_u32(((uint32)((a1 + 428)))));
+                    (v55 = ground.GetObject());
                     (v56 = (sint32)(0u - ((uint32)(sint32)(sint16)r_u16(0x800EC4DAu) << 12)));
                     w_u32(((uint32)((a1 + 564))), v56);
                     if (v55)
-                        w_u32(((uint32)((a1 + 564))), (v56 + r_u32(((uint32)((v55 + 108))))));
+                        w_u32(((uint32)((a1 + 564))), (v56 + static_cast<VisualObject *>(v55->owner)->motion.velocity[1]));
                     w_u32(((uint32)((a1 + 460))), 2);
                     w_u8(((uint32)((a1 + 568))), r_u8(0x800EC4D8u));
                 }
@@ -2711,8 +2588,8 @@ uint32 Player::Update()
             if (r_u8(((uint32)((r_u32(((uint32)((a1 + 444)))) + 256)))))
                 goto LABEL_232;
             (v53 = a1);
-            if ((((sint8)(r_u8(((uint32)((a1 + 24)))))) < 21))
-                (v32 = ((sint8)(r_u8(((uint32)((a1 + 24)))))));
+            if ((((sint8)(this->model.frame)) < 21))
+                (v32 = ((sint8)(this->model.frame)));
         LABEL_229:
             Player::Attach(v53).SetAnimationRange(5, v32, 0);
 
@@ -2721,7 +2598,7 @@ uint32 Player::Update()
         }
         if ((v36 == 0x4000))
         {
-            (v70 = r_u8(((uint32)((a1 + 26)))));
+            (v70 = this->model.animation);
             w_u16(((uint32)((a1 + 580))), 0);
             if ((v70 != 13))
                 goto LABEL_231;
@@ -2747,7 +2624,7 @@ uint32 Player::Update()
                 (v37 = 0);
                 if (v117)
                     goto LABEL_232;
-                (v118 = ((sint8)(r_u8(((uint32)((a1 + 24)))))));
+                (v118 = ((sint8)(this->model.frame)));
                 if (((v118 < 21) && (r_u8(((uint32)((r_u32(((uint32)((a1 + 444)))) + 256)))) || (v118 < 11))))
                     goto LABEL_232;
                 (v58 = 256);
@@ -2781,20 +2658,20 @@ uint32 Player::Update()
                     xport_draft_host_sub_8006C47C_p12(position, &v236, a1 + 552);
                     xport_draft_host_sub_8006C0FC_p2(a1 + 4, position);
                     (v79 = r_u32(((uint32)((a1 + 444)))));
-                    w_u32(((uint32)((a1 + 8))), (r_u32(((uint32)((a1 + 8)))) - (884736)));
+                    this->model.pos[1] = (this->model.pos[1] - (884736));
                     w_u8(((uint32)((v79 + 273))), 0);
                     (v80 = sub_80067A18((a1 + 4), 0, 2048));
                     if ((v80 != -1))
                     {
                         (v81 = (r_u16(((uint32)((a1 + 216)))) | 2));
-                        w_u32(((uint32)((a1 + 8))), (v80 - (r_u8(((uint32)((a1 + 582)))) << 12)));
+                        this->model.pos[1] = (v80 - (r_u8(((uint32)((a1 + 582)))) << 12));
                         w_u16(((uint32)((a1 + 216))), v81);
                     }
                     w_u8(((uint32)((a1 + 578))), 4);
-                    (v82 = r_u32(0x800FF904u));
+                    (v82 = visual_lists.cameras);
                     w_u32(((uint32)((a1 + 460))), 1);
-                    w_u32(((uint32)((a1 + 112))), 0);
-                    w_u32(((uint32)((a1 + 104))), 0);
+                    motion.velocity[2] = 0;
+                    motion.velocity[0] = 0;
                     sub_8007823C(v82);
                     (v37 = 0);
                 }
@@ -2844,26 +2721,26 @@ uint32 Player::Update()
         if ((v36 == 0x10000))
         {
             (v59 = r_u32(((uint32)((a1 + 516)))));
-            (v60 = r_u32(((uint32)((a1 + 4)))));
+            (v60 = this->model.pos[0]);
             w_u16(((uint32)((a1 + 580))), 0);
             (v61 = r_u32(((uint32)((v59 + 296)))));
             if ((sint32)Abs32((sint32)((uint32)v61 - (uint32)v60) >> 3) <= 0x7FFF)
-                w_u32(((uint32)((a1 + 4))), v61);
+                this->model.pos[0] = v61;
             else
-                w_u32(((uint32)((a1 + 4))), ((uint32)v60 + ((sint32)((uint32)v61 - (uint32)v60) >> 3)));
-            (v62 = r_u32(((uint32)((a1 + 12)))));
+                this->model.pos[0] = ((uint32)v60 + ((sint32)((uint32)v61 - (uint32)v60) >> 3));
+            (v62 = this->model.pos[2]);
             (v32 = r_u32(((uint32)((r_u32(((uint32)((a1 + 516)))) + 304)))));
             if ((sint32)Abs32((sint32)((uint32)v32 - (uint32)v62) >> 3) <= 0x7FFF)
-                w_u32(((uint32)((a1 + 12))), v32);
+                this->model.pos[2] = v32;
             else
-                w_u32(((uint32)((a1 + 12))), ((uint32)v62 + ((sint32)((uint32)v32 - (uint32)v62) >> 3)));
-            if (((((uint32)(r_u8(((uint32)((a1 + 24)))))) - 25) < 0x19))
+                this->model.pos[2] = ((uint32)v62 + ((sint32)((uint32)v32 - (uint32)v62) >> 3));
+            if (((((uint32)(this->model.frame)) - 25) < 0x19))
             {
                 (v63 = r_u32(((uint32)((a1 + 516)))));
                 if (v63)
                 {
                     w_u16(((uint32)((v63 + 20))), ((r_u16(((uint32)((v63 + 20)))) - 28) & 0xFFF));
-                    if ((r_u8(((uint32)((a1 + 24)))) == 32))
+                    if ((this->model.frame == 32))
                         OneShotActivator::Attach(r_u32(a1 + 516u)).SpawnObjects();
                 }
             }
@@ -2924,7 +2801,7 @@ uint32 Player::Update()
             }
             (v129 = (v37 - 1));
             (v130 = (v119 - 1));
-            camera_address = r_u32(0x800FF904);
+            camera_address = visual_lists.cameras;
             if (camera_address)
                 v124 = r_u16(camera_address + 494);
             (v131 = r_u32(((uint32)((a1 + 460)))));
@@ -2935,7 +2812,7 @@ uint32 Player::Update()
                     (v136 = (((uint32)((0x800A6FD8u + ((12 * v129)) * 4u))) + (v130) * 1u));
                     (v137 = r_u8(v136));
                     (v138 = ((sint8)(r_u8((v136 + (8) * 1u)))));
-                    if (((v137 != r_u8(((uint32)((a1 + 26))))) || ((v132 = a1), (v138 != ((sint8)(r_u8(((uint32)((a1 + 297))))))))))
+                    if (((v137 != this->model.animation) || ((v132 = a1), (v138 != ((sint8)(r_u8(((uint32)((a1 + 297))))))))))
                     {
                         StartAnimation(v137, v138);
                         (v132 = a1);
@@ -2950,7 +2827,7 @@ uint32 Player::Update()
                 else
                 {
                     (v132 = a1);
-                    if (((r_u8(((uint32)((a1 + 26)))) != 1) || ((v133 = 0), (r_u8(((uint32)((a1 + 297)))) != 1))))
+                    if (((this->model.animation != 1) || ((v133 = 0), (r_u8(((uint32)((a1 + 297)))) != 1))))
                     {
                         StartAnimation(1, 1);
                         (v132 = a1);
@@ -2976,7 +2853,7 @@ uint32 Player::Update()
                     else
                     {
                         (v133 = 0);
-                        (v135 = ((sint16)(r_u16(((uint32)((a1 + 18)))))));
+                        (v135 = ((sint16)(this->model.angles[1])));
                         (v134 = 0);
                     }
                     goto LABEL_296;
@@ -3003,7 +2880,7 @@ uint32 Player::Update()
                 {
                     if ((v119 || !((r_u8(((uint32)((a1 + 468)))) | r_u8(((uint32)((a1 + 469))))))))
                     {
-                        if ((r_u8(((uint32)((a1 + 26)))) != 14))
+                        if ((this->model.animation != 14))
                             SetAnimationRange(14, 0, -1);
                         (v132 = a1);
                         if (!v119)
@@ -3011,24 +2888,23 @@ uint32 Player::Update()
                         LABEL_297:
                             if (r_u32(((uint32)((a1 + 440)))))
                             {
-                                uint32 pose = r_u32(a1 + 360);
+                                ModelJointAngles &facing = GetModelJointAngles(7);
                                 uint32 step = r_u16(a1 + 436);
-                                uint32 yaw = r_u16(pose + 86);
-                                w_u16(pose + 86, (yaw + step) & 4095);
+                                uint32 yaw = facing.rotation[1];
+                                facing.rotation[1] = (uint16)((yaw + step) & 4095);
                                 uint32 remaining = r_u32(a1 + 440) - 1;
                                 w_u32(a1 + 440, remaining);
                                 v4 = remaining != 0;
                                 if (!v4)
                                 {
-                                    pose = r_u32(a1 + 360);
                                     uint32 target = r_u16(a1 + 432);
-                                    w_u16(pose + 86, target);
+                                    facing.rotation[1] = (uint16)target;
                                 }
                             }
 
                             (v147 = r_u32(((uint32)((a1 + 460)))));
-                            w_u32(((uint32)((a1 + 124))), 0);
-                            w_u32(((uint32)((a1 + 116))), 0);
+                            motion.acceleration[2] = 0;
+                            motion.acceleration[0] = 0;
                             if ((v147 != 0x4000))
                             {
                                 if ((v147 >= 0x4001))
@@ -3036,21 +2912,21 @@ uint32 Player::Update()
                                     if ((v147 != 0x8000))
                                     {
                                     LABEL_306:
-                                        w_u32(((uint32)((a1 + 120))), ((uint32)(sint32)(sint16)r_u16(0x800EC4B0u) << 12));
+                                        motion.acceleration[1] = ((uint32)(sint32)(sint16)r_u16(0x800EC4B0u) << 12);
 
                                     LABEL_307:
                                         if (((r_u32(((uint32)((a1 + 460)))) & 0x80000) == 0))
                                         {
                                             (v152 = r_u16(0x800FF5E8u));
-                                            w_u32(a1 + 132u, r_u32(0x800FF5E4u));
-                                            w_u16(((uint32)((a1 + 136))), v152);
+                                            motion.SetAngularVelocityXY(r_u32(0x800FF5E4u));
+                                            motion.angular_velocity[2] = v152;
                                             (v153 = r_u16(0x800FF5E8u));
-                                            w_u32(a1 + 138u, r_u32(0x800FF5E4u));
-                                            w_u16(((uint32)((a1 + 142))), v153);
+                                            motion.SetAngularAccelerationXY(r_u32(0x800FF5E4u));
+                                            motion.angular_acceleration[2] = v153;
                                         }
 
                                         (v154 = 0);
-                                        camera_address = r_u32(0x800FF904);
+                                        camera_address = visual_lists.cameras;
                                         if (camera_address)
                                         {
                                             camera_angles[0] = r_u16(camera_address + 492);
@@ -3074,7 +2950,7 @@ uint32 Player::Update()
                                         }
                                         SetRotMatrix(&v220);
                                         (v237 = 6);
-                                        xport_draft_host_sub_8006C564_p13(v224, a1 + 104u, &v237);
+                                        ShiftVectorRight((uint32 *)v224, motion.velocity, (const uint32 *)&v237);
 
                                         (v216 = v224[0]);
                                         (v217 = v224[1]);
@@ -3094,11 +2970,11 @@ uint32 Player::Update()
                                             switch (v156)
                                             {
                                                 case 0x800:
-                                                    if ((((sint8)(r_u8(((uint32)((a1 + 24)))))) < 20))
+                                                    if ((((sint8)(this->model.frame)) < 20))
                                                     {
-                                                        v216 = (sint32)(0u - ((uint32)(sint32)(sint16)r_u16(0x800EC4C0u) * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 606u) & 0xFFFu))));
+                                                        v216 = (sint32)(0u - ((uint32)(sint32)(sint16)r_u16(0x800EC4C0u) * (uint32)rsin(r_u16(a1 + 606u) & 0xFFFu)));
                                                         (v154 = 1);
-                                                        v218 = (sint32)(0u - ((uint32)(sint32)(sint16)r_u16(0x800EC4C0u) * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 606u) & 0xFFFu) + 2u)));
+                                                        v218 = (sint32)(0u - ((uint32)(sint32)(sint16)r_u16(0x800EC4C0u) * (uint32)rcos(r_u16(a1 + 606u) & 0xFFFu)));
                                                     }
                                                     break;
 
@@ -3120,15 +2996,15 @@ uint32 Player::Update()
                                                             (v158 = r_u16(((uint32)((r_u32(((uint32)((a1 + 512)))) + 320)))));
                                                             (v1 = (v157 / -4));
                                                         }
-                                                        w_u16(((uint32)((a1 + 18))), v158);
+                                                        this->model.angles[1] = v158;
                                                         (v154 = 1);
                                                     }
                                                     break;
 
                                                 case 0x8000:
-                                                    v216 = ((sint32)(sint16)r_u16(0x800EC4C0u) / 4) * 8u * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * ((r_u16(r_u32(a1 + 512u) + 320u) - v124) & 0xFFFu));
+                                                    v216 = ((sint32)(sint16)r_u16(0x800EC4C0u) / 4) * 8u * (uint32)rsin((r_u16(r_u32(a1 + 512u) + 320u) - v124) & 0xFFFu);
                                                     (v154 = 1);
-                                                    v218 = ((sint32)(sint16)r_u16(0x800EC4C0u) / 4) * 8u * (uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * ((r_u16(r_u32(a1 + 512u) + 320u) - v124) & 0xFFFu) + 2u);
+                                                    v218 = ((sint32)(sint16)r_u16(0x800EC4C0u) / 4) * 8u * (uint32)rcos((r_u16(r_u32(a1 + 512u) + 320u) - v124) & 0xFFFu);
                                                     break;
 
                                                 default:
@@ -3142,13 +3018,13 @@ uint32 Player::Update()
                                                             (v162 = 4096);
                                                         if (movement_x)
                                                         {
-                                                            v218 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 474u) & 0xFFFu) + 2u) * (uint32)v162) >> 12) * (uint32)(sint32)(sint16)r_u16(0x800EC4C0u)));
+                                                            v218 = (sint32)(0u - ((uint32)((sint32)((uint32)rcos(r_u16(a1 + 474u) & 0xFFFu) * (uint32)v162) >> 12) * (uint32)(sint32)(sint16)r_u16(0x800EC4C0u)));
                                                             (v218 = ((sint32)((uint32)v218 * r_u32(((uint32)((a1 + 608))))) / 8));
                                                             (v154 = 1);
                                                         }
                                                         if (r_u8(((uint32)((a1 + 469)))))
                                                         {
-                                                            v216 = (sint32)(0u - ((uint32)((sint32)((uint32)(sint32)(sint16)r_u16(0x800F863Cu + 4u * (r_u16(a1 + 474u) & 0xFFFu)) * (uint32)v162) >> 12) * (uint32)(sint32)(sint16)r_u16(0x800EC4C0u)));
+                                                            v216 = (sint32)(0u - ((uint32)((sint32)((uint32)rsin(r_u16(a1 + 474u) & 0xFFFu) * (uint32)v162) >> 12) * (uint32)(sint32)(sint16)r_u16(0x800EC4C0u)));
                                                             (v216 = ((sint32)((uint32)v216 * r_u32(((uint32)((a1 + 608))))) / 8));
                                                             (v154 = 1);
                                                         }
@@ -3170,48 +3046,48 @@ uint32 Player::Update()
 
                                             (v164 = v223);
                                             (v165 = v224[0]);
-                                            w_u32(((uint32)((a1 + 104))), v222);
-                                            w_u32(((uint32)((a1 + 108))), v164);
-                                            w_u32(((uint32)((a1 + 112))), v165);
-                                            xport_gte_write_data(9u, r_u32(a1 + 104u));
-                                            xport_gte_write_data(10u, r_u32(a1 + 108u));
-                                            xport_gte_write_data(11u, r_u32(a1 + 112u));
+                                            motion.velocity[0] = v222;
+                                            motion.velocity[1] = v164;
+                                            motion.velocity[2] = v165;
+                                            xport_gte_write_data(9u, motion.velocity[0]);
+                                            xport_gte_write_data(10u, motion.velocity[1]);
+                                            xport_gte_write_data(11u, motion.velocity[2]);
                                             xport_gte_execute(0x49E012u);
-                                            w_u32(a1 + 104u, xport_gte_read_data(25u));
-                                            w_u32(a1 + 108u, xport_gte_read_data(26u));
-                                            w_u32(a1 + 112u, xport_gte_read_data(27u));
+                                            motion.velocity[0] = xport_gte_read_data(25u);
+                                            motion.velocity[1] = xport_gte_read_data(26u);
+                                            motion.velocity[2] = xport_gte_read_data(27u);
                                             (v240 = 6);
-                                            xport_draft_host_sub_8006C22C_p2(a1 + 104u, &v240);
+                                            ShiftVectorLeft(motion.velocity, (const uint32 *)&v240);
                                             (v166 = r_u32(((uint32)((a1 + 460)))));
                                             if (((v166 & 0x8000) != 0))
                                             {
-                                                sub_8006C0B8((a1 + 4), (a1 + 104));
-                                                sub_8006C0B8((a1 + 496), (a1 + 104));
+                                                AddVectors((uint32 *)this->model.pos, motion.velocity);
+                                                AddVectors((uint32 *)psx_addr((a1 + 496), 12), motion.velocity);
                                                 if (!apocalypse_movement_19318_native(r_u32(a1 + 512), a1 + 496, (uint32 *)vectors) || r_u8(r_u32(a1 + 444u) + 273u))
                                                 {
                                                     w_u8(((uint32)((r_u32(((uint32)((a1 + 444)))) + 273))), 0);
                                                     (v167 = r_u32(((uint32)((a1 + 492)))));
                                                     w_u32(((uint32)((a1 + 460))), 4);
                                                     w_u32(((uint32)((a1 + 508))), 0);
-                                                    sub_8006A294(v167);
+                                                    ::StopSoundVoices(v167);
                                                     goto LABEL_347;
                                                 }
                                             LABEL_342:
                                                 (v168 = v223);
 
                                                 (v169 = v224[0]);
-                                                w_u32(((uint32)((a1 + 4))), v222);
-                                                w_u32(((uint32)((a1 + 8))), v168);
-                                                w_u32(((uint32)((a1 + 12))), v169);
+                                                this->model.pos[0] = v222;
+                                                this->model.pos[1] = v168;
+                                                this->model.pos[2] = v169;
                                                 {
-                                                    uint32 snapshot_x = r_u32(a1 + 4);
-                                                    v170 = r_u32(a1 + 8);
-                                                    v171 = r_u32(a1 + 12);
+                                                    uint32 snapshot_x = this->model.pos[0];
+                                                    v170 = this->model.pos[1];
+                                                    v171 = this->model.pos[2];
                                                     w_u32(a1 + 496, snapshot_x);
                                                     w_u32(a1 + 500, v170);
                                                     w_u32(a1 + 504, v171);
                                                 }
-                                                w_u32(((uint32)((a1 + 8))), (r_u32(((uint32)((a1 + 8)))) + (0x80000)));
+                                                this->model.pos[1] = (this->model.pos[1] + (0x80000));
                                                 goto LABEL_347;
                                             }
                                             if (((v166 & 0x4000) == 0))
@@ -3227,46 +3103,46 @@ uint32 Player::Update()
                                             if ((((r_u32(((uint32)((a1 + 460)))) & 0xC000) == 0) || ((v172 = r_u32(((uint32)((a1 + 444))))), !(r_u8(((uint32)((v172 + 273))))))))
                                             {
                                             LABEL_347:
-                                                if (!(r_u32(((uint32)((a1 + 428))))))
+                                                if (!(ground.GetObject()))
                                                     goto LABEL_360;
 
                                                 (v173 = 0);
                                                 {
-                                                    uint32 snapshot_x = r_u32(a1 + 4);
-                                                    v174 = r_u32(a1 + 8);
-                                                    v175 = r_u32(a1 + 12);
+                                                    uint32 snapshot_x = this->model.pos[0];
+                                                    v174 = this->model.pos[1];
+                                                    v175 = this->model.pos[2];
                                                     v222 = snapshot_x;
                                                     v223 = v174;
                                                     v224[0] = v175;
                                                 }
                                                 if (((r_u32(((uint32)((a1 + 460)))) & 0x3000) != 0))
                                                 {
-                                                    sub_8006C0B8((a1 + 4), (r_u32(((uint32)((a1 + 428)))) + 104));
+                                                    AddVectors((uint32 *)this->model.pos, static_cast<VisualObject *>(ground.GetObject()->owner)->motion.velocity);
                                                     (v173 = 1);
                                                     goto LABEL_357;
                                                 }
                                                 if (r_u16(((uint32)((a1 + 570)))))
                                                 {
-                                                    if (((r_u8(((uint32)((a1 + 468)))) | r_u8(((uint32)((a1 + 469))))) || ((v176 = r_u32(((uint32)((a1 + 428))))), (v177 = r_u32(((uint32)((v176 + 104))))), !((v177 | r_u32(((uint32)((v176 + 112)))))))))
+                                                    if (((r_u8(((uint32)((a1 + 468)))) | r_u8(((uint32)((a1 + 469))))) || ((v176 = ground.GetObject()), (v177 = static_cast<VisualObject *>(v176->owner)->motion.velocity[0]), !((v177 | static_cast<VisualObject *>(v176->owner)->motion.velocity[2])))))
                                                     {
                                                     LABEL_357:
                                                         if (v173)
                                                         {
-                                                            (v227[0] = v222);
-                                                            (v227[1] = v223);
-                                                            (v228 = v224[0]);
-                                                            (v229 = r_u32(((uint32)((a1 + 4)))));
-                                                            (v230 = r_u32(((uint32)((a1 + 8)))));
-                                                            (v231 = r_u32(((uint32)((a1 + 12)))));
-                                                            xport_draft_host_sub_8007BB24_p1(v227);
-                                                            xport_draft_host_sub_8007DD04_p1(v227, 1u);
-                                                            if (v233)
+                                                            (weapon_ray.pos[0][0] = v222);
+                                                            (weapon_ray.pos[0][1] = v223);
+                                                            (weapon_ray.pos[0][2] = v224[0]);
+                                                            (weapon_ray.pos[1][0] = this->model.pos[0]);
+                                                            (weapon_ray.pos[1][1] = this->model.pos[1]);
+                                                            (weapon_ray.pos[1][2] = this->model.pos[2]);
+                                                            InitializeCollisionRay(weapon_ray);
+                                                            QueryCollisionRay(weapon_ray, 1);
+                                                            if (weapon_ray.hit.GetObject())
                                                             {
                                                                 (v184 = v223);
                                                                 (v185 = v224[0]);
-                                                                w_u32(((uint32)((a1 + 4))), v222);
-                                                                w_u32(((uint32)((a1 + 8))), v184);
-                                                                w_u32(((uint32)((a1 + 12))), v185);
+                                                                this->model.pos[0] = v222;
+                                                                this->model.pos[1] = v184;
+                                                                this->model.pos[2] = v185;
                                                             }
                                                         }
 
@@ -3275,9 +3151,9 @@ uint32 Player::Update()
                                                             w_u32(0x800FF5A8u, 1);
 
                                                         if (((r_u8(((uint32)((a1 + 568)))) && r_u8(((uint32)((r_u32(((uint32)((a1 + 444)))) + 272))))) && !r_u32(0x800FF5A8u)))
-                                                            w_u32(((uint32)((a1 + 108))), r_u32(((uint32)((a1 + 564)))));
+                                                            motion.velocity[1] = r_u32(((uint32)((a1 + 564))));
                                                         (v186 = 74);
-                                                        if (((r_u16(((uint32)(a1))) & 8) != 0))
+                                                        if (((this->model.flags & 8) != 0))
                                                         {
                                                             if ((r_u32(0x800FF5D4u) == 74))
                                                                 (v186 = 75);
@@ -3285,10 +3161,10 @@ uint32 Player::Update()
                                                         else
                                                         {
                                                             do
-                                                                (v186 = (sub_80066570(4) + 31));
+                                                                (v186 = (RandomRange(4) + 31));
                                                             while ((v186 == r_u32(0x800FF5D4u)));
                                                         }
-                                                        (v187 = r_u8(((uint32)((a1 + 26)))));
+                                                        (v187 = this->model.animation);
                                                         switch (v187)
                                                         {
                                                             case 1:
@@ -3327,17 +3203,16 @@ uint32 Player::Update()
                                                                     (v206 = r_u16(((uint32)((a1 + 574)))));
                                                                     w_u16(((uint32)((a1 + 182))), 10);
                                                                     w_u16(((uint32)((a1 + 574))), --v206);
-                                                                    (v207 = (a1 + 228));
                                                                     if (v206)
                                                                     {
                                                                     LABEL_392:
-                                                                        if (!sub_8006C304(v207, a1 + 4u))
+                                                                        if (!VectorsDiffer(pos_history.prev, (const uint32 *)this->model.pos))
                                                                         {
                                                                         LABEL_399:
                                                                             if (!r_u32(0x800FF5D8u))
                                                                                 w_u32(0x800FF5D8u, 1);
 
-                                                                            xport_draft_host_sub_8006C3AC_p1(vectors, a1 + 4, a1 + 228);
+                                                                            SubtractVectors((uint32 *)vectors, (const uint32 *)this->model.pos, pos_history.prev);
                                                                             (v211 = a1);
                                                                             if ((r_u32(((uint32)((a1 + 460)))) != 0x40000))
                                                                             {
@@ -3349,22 +3224,22 @@ uint32 Player::Update()
                                                                                 }
                                                                                 xport_draft_host_sub_800666DC_p1(&v225, 0x800FFE90);
                                                                                 (v241 = 16);
-                                                                                xport_draft_host_sub_8006C40C_p123(v232, &v225, &v241);
-                                                                                xport_draft_host_sub_8006C3AC_p13(&v228, a1 + 228, v232);
-                                                                                (v234[0] = v228);
-                                                                                (v234[1] = v229);
-                                                                                (v234[2] = v230);
-                                                                                (v234[3] = r_u32(((uint32)((a1 + 4)))));
-                                                                                (v234[4] = r_u32(((uint32)((a1 + 8)))));
-                                                                                (v234[5] = r_u32(((uint32)((a1 + 12)))));
-                                                                                xport_draft_host_sub_8007BB24_p1(v234);
+                                                                                xport_draft_host_sub_8006C40C_p123(muzzle_offset, &v225, &v241);
+                                                                                SubtractVectors((uint32 *)muzzle_pos, pos_history.prev, (const uint32 *)muzzle_offset);
+                                                                                (muzzle_ray.pos[0][0] = muzzle_pos[0]);
+                                                                                (muzzle_ray.pos[0][1] = muzzle_pos[1]);
+                                                                                (muzzle_ray.pos[0][2] = muzzle_pos[2]);
+                                                                                (muzzle_ray.pos[1][0] = this->model.pos[0]);
+                                                                                (muzzle_ray.pos[1][1] = this->model.pos[1]);
+                                                                                (muzzle_ray.pos[1][2] = this->model.pos[2]);
+                                                                                InitializeCollisionRay(muzzle_ray);
                                                                                 w_u32(0x800FF978u, 0);
-                                                                                ((uint8 *)v234)[136] = 1u;
-                                                                                xport_draft_host_sub_8007DD04_p1(v234, 1u);
+                                                                                muzzle_ray.triggers = 1u;
+                                                                                QueryCollisionRay(muzzle_ray, 1);
                                                                                 w_u32(0x800FF978u, 0);
                                                                                 (v211 = a1);
                                                                             }
-                                                                            UpdateAnimationModel(0x800A6F20);
+                                                                            UpdateAnimationModel(PlayerHierarchy);
                                                                             weapon_angles[0] = 0;
                                                                             weapon_angles[1] = (sint16)v124;
                                                                             weapon_angles[2] = 0;
@@ -3382,9 +3257,8 @@ uint32 Player::Update()
                                                                             }
                                                                             else
                                                                             {
-                                                                                yaw_model = r_u32(a1 + 360);
-                                                                                body_heading = r_u16(a1 + 18);
-                                                                                model_heading = r_u16(yaw_model + 86);
+                                                                                body_heading = this->model.angles[1];
+                                                                                model_heading = GetModelJointAngles(7).rotation[1];
                                                                                 weapon_angles[1] = (sint16)(body_heading + model_heading);
                                                                             }
                                                                             UpdateWeapons(weapon_angles, r_u8(a1 + 572));
@@ -3408,17 +3282,15 @@ uint32 Player::Update()
                                                                             return result;
                                                                         }
 
-                                                                        (v208 = sub_80067508(v207, (a1 + 4), r_u32(0x800FF4E8u)));
+                                                                        (v208 = TraceSegmentCollision(pos_history.prev, (const uint32 *)this->model.pos, visual_lists.actors));
                                                                         if (v208)
                                                                         {
-                                                                            (v209 = (a1 + 228));
                                                                             if ((r_u16(((uint32)((v208 + 58)))) == 201))
                                                                                 goto LABEL_397;
                                                                             ApplyContactImpulse(v208);
                                                                         }
-                                                                        (v209 = (a1 + 228));
                                                                     LABEL_397:
-                                                                        (v210 = sub_80067508(v209, (a1 + 4), r_u32(0x800FF204u)));
+                                                                        (v210 = TraceSegmentCollision(pos_history.prev, (const uint32 *)this->model.pos, visual_lists.pickups));
 
                                                                         if (v210)
                                                                             Pickup::Attach(v210).Collect(*this);
@@ -3426,7 +3298,6 @@ uint32 Player::Update()
                                                                     }
                                                                     w_u32(((uint32)((a1 + 176))), 0);
                                                                 }
-                                                                (v207 = (a1 + 228));
                                                                 goto LABEL_392;
 
                                                             case 3:
@@ -3473,26 +3344,26 @@ uint32 Player::Update()
                                                             goto LABEL_384;
                                                         goto LABEL_383;
                                                     }
-                                                    (v178 = (r_u32(((uint32)((a1 + 4)))) + v177));
-                                                    (v179 = r_u32(((uint32)((a1 + 428)))));
-                                                    w_u32(((uint32)((a1 + 4))), v178);
+                                                    (v178 = (this->model.pos[0] + v177));
+                                                    (v179 = ground.GetObject());
+                                                    this->model.pos[0] = v178;
                                                 }
                                                 else
                                                 {
-                                                    (v180 = r_u32(((uint32)((a1 + 428)))));
-                                                    (v181 = r_u32((v180 + (26) * 4u)));
-                                                    uint32 platform_y = r_u32(v180 + 108);
-                                                    uint32 platform_z = r_u32(v180 + 112);
+                                                    (v180 = ground.GetObject());
+                                                    (v181 = static_cast<VisualObject *>(v180->owner)->motion.velocity[0]);
+                                                    uint32 platform_y = static_cast<VisualObject *>(v180->owner)->motion.velocity[1];
+                                                    uint32 platform_z = static_cast<VisualObject *>(v180->owner)->motion.velocity[2];
                                                     if (!(v181 | platform_y | platform_z))
                                                         goto LABEL_357;
-                                                    (v182 = r_u32(((uint32)((a1 + 428)))));
-                                                    w_u32(((uint32)((a1 + 4))), (r_u32(((uint32)((a1 + 4)))) + (v181)));
-                                                    (v183 = (r_u32(((uint32)((a1 + 8)))) + r_u32(((uint32)((v182 + 108))))));
-                                                    (v179 = r_u32(((uint32)((a1 + 428)))));
-                                                    w_u32(((uint32)((a1 + 8))), v183);
+                                                    (v182 = ground.GetObject());
+                                                    this->model.pos[0] = (this->model.pos[0] + (v181));
+                                                    (v183 = (this->model.pos[1] + static_cast<VisualObject *>(v182->owner)->motion.velocity[1]));
+                                                    (v179 = ground.GetObject());
+                                                    this->model.pos[1] = v183;
                                                 }
                                                 (v173 = 1);
-                                                w_u32(((uint32)((a1 + 12))), (r_u32(((uint32)((a1 + 12)))) + (r_u32(((uint32)((v179 + 112)))))));
+                                                this->model.pos[2] = (this->model.pos[2] + (static_cast<VisualObject *>(v179->owner)->motion.velocity[2]));
                                                 goto LABEL_357;
                                             }
                                             w_u8(((uint32)((v172 + 273))), 0);
@@ -3510,15 +3381,15 @@ uint32 Player::Update()
                             v148 = r_u32(0x800A71CC);
                             v149 = r_u32(0x800A71D0);
                             v150 = r_u32(0x800A71D4);
-                            w_u32(a1 + 104, v148);
-                            w_u32(a1 + 108, v149);
-                            w_u32(a1 + 112, v150);
+                            motion.velocity[0] = v148;
+                            motion.velocity[1] = v149;
+                            motion.velocity[2] = v150;
                             v148 = r_u32(0x800A71CC);
                             v149 = r_u32(0x800A71D0);
                             v150 = r_u32(0x800A71D4);
-                            w_u32(a1 + 116, v148);
-                            w_u32(a1 + 120, v149);
-                            w_u32(a1 + 124, v150);
+                            motion.acceleration[0] = v148;
+                            motion.acceleration[1] = v149;
+                            motion.acceleration[2] = v150;
                             goto LABEL_307;
                         }
                         (v145 = (((uint32)(0x800A6FD8u)) + ((2 * v130)) * 1u));
@@ -3530,15 +3401,15 @@ uint32 Player::Update()
 
                         goto LABEL_297;
                     }
-                    if ((r_u8(((uint32)((a1 + 26)))) != 13))
+                    if ((this->model.animation != 13))
                         StartAnimation(13, 1);
                     (v132 = a1);
-                    (v135 = ((sint16)(r_u16(((uint32)((a1 + 18)))))));
+                    (v135 = ((sint16)(this->model.angles[1])));
                     (v133 = 0);
                 }
                 else if ((v131 == 0x8000))
                 {
-                    if ((r_u8(((uint32)((a1 + 26)))) != 14))
+                    if ((this->model.animation != 14))
                         SetAnimationRange(14, 0, -1);
                     (v132 = a1);
                     if (v119)
@@ -3549,7 +3420,7 @@ uint32 Player::Update()
                         (v135 = ((short)((v124 + r_u16((((uint32)(v146)) + (224) * 2u))))));
                         goto LABEL_296;
                     }
-                    (v135 = ((sint16)(r_u16(((uint32)((a1 + 18)))))));
+                    (v135 = ((sint16)(this->model.angles[1])));
                     (v133 = 0);
                 }
                 else
@@ -3557,7 +3428,7 @@ uint32 Player::Update()
                     (v132 = a1);
                     if (((v131 & 0x1F3800) != 0))
                     {
-                        (v135 = ((sint16)(r_u16(((uint32)((a1 + 18)))))));
+                        (v135 = ((sint16)(this->model.angles[1])));
                         (v133 = 0);
                     }
                     else
@@ -3571,7 +3442,7 @@ uint32 Player::Update()
             }
             if (v119)
             {
-                if ((r_u8(((uint32)((a1 + 26)))) != 9))
+                if ((this->model.animation != 9))
                     StartAnimation(9, 1);
                 (v132 = a1);
                 (v142 = (((uint32)(0x800A6FD8u)) + ((2 * v130)) * 1u));
@@ -3580,7 +3451,7 @@ uint32 Player::Update()
                 (v135 = ((short)((v124 + r_u16((((uint32)(v142)) + (200) * 2u))))));
                 goto LABEL_296;
             }
-            (v140 = r_u8(((uint32)((a1 + 26)))));
+            (v140 = this->model.animation);
             if ((v140 == 6))
             {
                 (v141 = a1);
@@ -3590,14 +3461,14 @@ uint32 Player::Update()
                     (v132 = a1);
 
                     (v133 = 0);
-                    (v135 = ((sint16)(r_u16(((uint32)((a1 + 18)))))));
+                    (v135 = ((sint16)(this->model.angles[1])));
                     (v134 = 0);
                     goto LABEL_296;
                 }
             }
             else
             {
-                if (!(r_u8(((uint32)((a1 + 26))))))
+                if (!(this->model.animation))
                     goto LABEL_264;
                 (v141 = a1);
                 if ((v140 == 5))
@@ -3609,26 +3480,26 @@ uint32 Player::Update()
         if ((v36 == 0x20000))
         {
             (v64 = r_u32(((uint32)((a1 + 520)))));
-            (v65 = r_u32(((uint32)((a1 + 4)))));
+            (v65 = this->model.pos[0]);
             w_u16(((uint32)((a1 + 580))), 0);
             (v66 = r_u32(((uint32)((v64 + 308)))));
             if ((sint32)Abs32((sint32)((uint32)v66 - (uint32)v65) >> 3) <= 0x7FFF)
-                w_u32(((uint32)((a1 + 4))), v66);
+                this->model.pos[0] = v66;
             else
-                w_u32(((uint32)((a1 + 4))), ((uint32)v65 + ((sint32)((uint32)v66 - (uint32)v65) >> 3)));
-            (v67 = r_u32(((uint32)((a1 + 12)))));
+                this->model.pos[0] = ((uint32)v65 + ((sint32)((uint32)v66 - (uint32)v65) >> 3));
+            (v67 = this->model.pos[2]);
             (v32 = r_u32(((uint32)((r_u32(((uint32)((a1 + 520)))) + 316)))));
             if ((sint32)Abs32((sint32)((uint32)v32 - (uint32)v67) >> 3) <= 0x7FFF)
-                w_u32(((uint32)((a1 + 12))), v32);
+                this->model.pos[2] = v32;
             else
-                w_u32(((uint32)((a1 + 12))), ((uint32)v67 + ((sint32)((uint32)v32 - (uint32)v67) >> 3)));
-            if (((r_u8(((uint32)((a1 + 24)))) == 14) && (r_u8(((uint32)((a1 + 297)))) == 1)))
+                this->model.pos[2] = ((uint32)v67 + ((sint32)((uint32)v32 - (uint32)v67) >> 3));
+            if (((this->model.frame == 14) && (r_u8(((uint32)((a1 + 297)))) == 1)))
                 sub_80062044(r_u32(((uint32)((a1 + 520)))));
             if (r_u8(((uint32)((a1 + 303)))))
             {
                 if ((r_u8(((uint32)((a1 + 297)))) == 1))
                 {
-                    SetAnimationRange(18, ((sint8)(r_u8(((uint32)((a1 + 24)))))), 0);
+                    SetAnimationRange(18, ((sint8)(this->model.frame)), 0);
                     (v37 = 0);
                     goto LABEL_232;
                 }
@@ -3645,14 +3516,14 @@ uint32 Player::Update()
         w_u16(((uint32)((a1 + 652))), v69);
         if ((((v69 == 32) || (v69 == 64)) || (v69 == 96)))
         {
-            if (r_u32(0x800FF904u))
+            if (visual_lists.cameras)
             {
                 (v32 = 34);
                 if (r_u32(((uint32)((a1 + 448)))))
-                    sub_8007851C(r_u32(0x800FF904u), ((r_u16(((uint32)((r_u32(0x800FF904u) + 494)))) + 1024) & 0xFFF), 34);
+                    sub_8007851C(visual_lists.cameras, ((r_u16(((uint32)((visual_lists.cameras + 494)))) + 1024) & 0xFFF), 34);
             }
             if ((r_u16(((uint32)((a1 + 652)))) == 64))
-                sub_8001BEF8(128, 1);
+                ::FadeScreenToWhite(128, 1);
         }
         if (!(r_u8(((uint32)((a1 + 303))))))
         {
@@ -3677,7 +3548,7 @@ uint32 Player::Update()
         callback_receiver = a1 + (uint32)(sint32)(sint16)r_u16(callback_table + 16);
         callback_target = r_u32(callback_table + 20);
         apocalypse_object_virtual20(callback_target, callback_receiver);
-        sub_8001BE54();
+        ::ResetScreenFlash();
         goto LABEL_157;
     }
     return result;
@@ -3691,76 +3562,66 @@ uint32 Player::Update()
 #undef v223
 #undef v224
 #undef v225
-#undef v227
-#undef v228
-#undef v229
-#undef v230
-#undef v231
-#undef v232
-#undef v233
 
-uint32 Player::SetFacingTransition(uint32 target_angle, uint32 heading, uint32 immediate)
+void Player::SetFacingTransition(uint32 target_angle, uint32 heading, uint32 immediate)
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80061A78, "SLUS_003.73");
     uint32 target = target_angle & 4095, desired = heading & 4095;
-    uint32 link, yaw_distance, angle_distance, angle_word;
+    ModelJointAngles &facing = GetModelJointAngles(7);
+    uint32 yaw_distance, angle_distance, angle_word;
     sint32 old_heading, old_angle, delta;
     if (r_u8(object + 470) || r_u8(object + 473) == 1)
         immediate = 1;
     if (immediate)
     {
-        link = r_u32(object + 360);
-        w_u16(object + 18, desired);
-        w_u16(link + 86, target);
+        this->model.angles[1] = desired;
+        facing.rotation[1] = (uint16)(target);
         w_u32(object + 436, 0);
         w_u32(object + 440, 0);
-        return link;
+        return;
     }
-    old_heading = (sint16)r_u16(object + 18);
+    old_heading = (sint16)this->model.angles[1];
     delta = (sint32)desired - old_heading;
     yaw_distance = delta < 0 ? 0 - (uint32)delta : (uint32)delta;
     if (yaw_distance - 1025 < 2047)
     {
-        link = r_u32(object + 360);
-        w_u16(object + 18, desired);
-        w_u16(link + 86, target);
+        this->model.angles[1] = desired;
+        facing.rotation[1] = (uint16)(target);
         w_u32(object + 436, 0);
         w_u32(object + 440, 0);
-        return link;
+        return;
     }
-    link = r_u32(object + 360);
-    old_angle = (sint16)r_u16(link + 86);
+    old_angle = (sint16)facing.rotation[1];
     delta = (sint32)target - old_angle;
     angle_distance = delta < 0 ? 0 - (uint32)delta : (uint32)delta;
-    angle_word = r_u16(link + 86);
+    angle_word = facing.rotation[1];
     if (angle_distance - 1025 < 2047)
     {
-        w_u16(object + 18, desired);
-        w_u16(link + 86, target);
+        this->model.angles[1] = desired;
+        facing.rotation[1] = (uint16)(target);
         w_u32(object + 436, 0);
         w_u32(object + 440, 0);
-        return link;
+        return;
     }
     if (yaw_distance && angle_distance)
     {
         uint32 angle = angle_word;
         angle = old_heading < (sint32)desired ? angle - yaw_distance : angle + yaw_distance;
-        w_u16(link + 86, angle & 4095);
+        facing.rotation[1] = (uint16)(angle & 4095);
     }
     w_u32(object + 440, 8);
-    w_u16(object + 18, desired);
-    link = r_u32(object + 360);
+    this->model.angles[1] = desired;
     w_u32(object + 432, target);
-    old_angle = (sint16)r_u16(link + 86);
-    angle_word = r_u16(link + 86);
+    old_angle = (sint16)facing.rotation[1];
+    angle_word = facing.rotation[1];
     if (old_angle < (sint32)target)
         delta = (sint32)target - old_angle < 1024 ? (sint32)target - old_angle : (sint16)(target - 4096) - old_angle;
     else
         delta = old_angle - (sint32)target < 1024 ? (sint32)target - old_angle : (sint32)target - (sint16)(angle_word - 4096);
     delta /= 8;
     w_u32(object + 436, (uint32)delta);
-    return (uint32)delta;
+    return;
 }
 
 extern "C" uint32 sub_8005F688(uint32 object)
@@ -3775,10 +3636,7 @@ extern "C" uint32 sub_8005DDF0(uint32 object, uint32 damage, uint32 vector, uint
     return Player::Attach(object).Player::Damage(damage, vector ? (const sint32 *)psx_addr(vector, 12) : 0, reason);
 }
 
-extern "C" uint32 apocalypse_player_damage_native(uint32 object, uint32 damage, const sint32 vector[3], uint32 reason)
-{
-    return Player::Attach(object).Player::Damage(damage, vector, reason);
-}
+
 
 extern "C" uint32 sub_8005DD40(uint32 object)
 {
@@ -3786,35 +3644,13 @@ extern "C" uint32 sub_8005DD40(uint32 object)
     return Player::Attach(object).Player::Finish();
 }
 
-extern "C" uint32 sub_8005C580(void)
-{
-    FUNCTION_MARKER(0x8005C580, "SLUS_003.73");
-    return SavePlayerTransform();
-}
 
-extern "C" uint32 sub_8005CB1C(uint32 object)
-{
-    FUNCTION_MARKER(0x8005CB1C, "SLUS_003.73");
-    return Player::Attach(object).ReadInput();
-}
 
-extern "C" uint32 sub_8005CF0C(uint32 object)
-{
-    FUNCTION_MARKER(0x8005CF0C, "SLUS_003.73");
-    return UpdatePlayerLighting(object);
-}
 
-extern "C" uint32 sub_8005C8C4(uint32 object)
-{
-    FUNCTION_MARKER(0x8005C8C4, "SLUS_003.73");
-    return TryPlayPlayerKillQuote((const uint32 *)psx_addr(object + 4, 12));
-}
 
-extern "C" uint32 sub_8005CE70(uint32 object, uint32 amount)
-{
-    FUNCTION_MARKER(0x8005CE70, "SLUS_003.73");
-    return Player::Attach(object).Player::RestoreHealth(amount);
-}
+
+
+
 
 extern "C" uint32 sub_8005C5C0(uint32 object)
 {
@@ -3830,11 +3666,7 @@ extern "C" uint32 sub_8005C7C0(uint32 object, uint32 reason)
     return Player::Attach(object).Player::Destroy(reason);
 }
 
-extern "C" uint32 sub_8005DD84(uint32 object)
-{
-    FUNCTION_MARKER(0x8005DD84, "SLUS_003.73");
-    return Player::Attach(object).Player::ClearWeapons();
-}
+
 
 extern "C" uint32 sub_8005E708(uint32 object)
 {
@@ -3842,11 +3674,7 @@ extern "C" uint32 sub_8005E708(uint32 object)
     return Player::Attach(object).EnterDeathState();
 }
 
-extern "C" void sub_8005E90C(uint32 object)
-{
-    FUNCTION_MARKER(0x8005E90C, "SLUS_003.73");
-    Player::Attach(object).PrepareDeathCamera();
-}
+
 
 extern "C" uint32 sub_8005E9E4(uint32 object)
 {
@@ -3854,89 +3682,32 @@ extern "C" uint32 sub_8005E9E4(uint32 object)
     return Player::Attach(object).InitializeAnimation();
 }
 
-extern "C" uint32 sub_8005F300(uint32 object)
-{
-    FUNCTION_MARKER(0x8005F300, "SLUS_003.73");
-    return Player::Attach(object).TryEnterAnimation10State();
-}
 
-extern "C" uint32 sub_8005EEDC(uint32 object)
-{
-    FUNCTION_MARKER(0x8005EEDC, "SLUS_003.73");
-    return Player::Attach(object).TryEnterRecordMovementState();
-}
 
-extern "C" uint32 sub_8005F1B0(uint32 object)
-{
-    FUNCTION_MARKER(0x8005F1B0, "SLUS_003.73");
-    return Player::Attach(object).TryEnterLandingState();
-}
 
-extern "C" uint32 sub_8005F00C(uint32 object)
-{
-    FUNCTION_MARKER(0x8005F00C, "SLUS_003.73");
-    return Player::Attach(object).TryEnterJumpState();
-}
 
-extern "C" uint32 sub_8005F124(uint32 object)
-{
-    FUNCTION_MARKER(0x8005F124, "SLUS_003.73");
-    return Player::Attach(object).TryEnterAirborneState();
-}
 
-extern "C" uint32 sub_80061A78(uint32 object, uint32 target_angle, uint32 heading, uint32 immediate)
-{
-    FUNCTION_MARKER(0x80061A78, "SLUS_003.73");
-    return Player::Attach(object).SetFacingTransition(target_angle, heading, immediate);
-}
 
-extern "C" uint32 sub_8005EA1C(uint32 object)
-{
-    FUNCTION_MARKER(0x8005EA1C, "SLUS_003.73");
-    return Player::Attach(object).TryEnterMovementState16();
-}
 
-extern "C" uint32 sub_8005EA80(uint32 object)
-{
-    FUNCTION_MARKER(0x8005EA80, "SLUS_003.73");
-    return Player::Attach(object).TryEnterMovementState32();
-}
 
-extern "C" uint32 sub_8005EAF0(uint32 object)
-{
-    FUNCTION_MARKER(0x8005EAF0, "SLUS_003.73");
-    return Player::Attach(object).TryEnterMovementState512();
-}
 
-extern "C" uint32 sub_8005EB60(uint32 object)
-{
-    FUNCTION_MARKER(0x8005EB60, "SLUS_003.73");
-    return Player::Attach(object).TryEnterMovementState1024();
-}
 
-extern "C" uint32 sub_8005EBD0(uint32 object)
-{
-    FUNCTION_MARKER(0x8005EBD0, "SLUS_003.73");
-    return Player::Attach(object).TryActivateOneShotActivator();
-}
 
-extern "C" uint32 sub_8005EC7C(uint32 object)
-{
-    FUNCTION_MARKER(0x8005EC7C, "SLUS_003.73");
-    return Player::Attach(object).TryActivateResettingActivator();
-}
 
-extern "C" uint32 sub_8005ED30(uint32 object)
-{
-    FUNCTION_MARKER(0x8005ED30, "SLUS_003.73");
-    return Player::Attach(object).TryEnterActionState();
-}
 
-extern "C" void sub_8005C868(uint32 object)
-{
-    FUNCTION_MARKER(0x8005C868, "SLUS_003.73");
-    Player::Attach(object).StopWeapon();
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 extern "C" void sub_8005F62C(uint32 object, uint32 duration)
 {
@@ -3944,43 +3715,19 @@ extern "C" void sub_8005F62C(uint32 object, uint32 duration)
     Player::Attach(object).SetWeaponStop(duration);
 }
 
-extern "C" uint32 sub_8005D360(uint32 object, uint32 rotation, uint32 enabled)
-{
-    FUNCTION_MARKER(0x8005D360, "SLUS_003.73");
-    return Player::Attach(object).UpdateWeapons((const sint16 *)psx_addr(rotation, 6), enabled);
-}
+
 
 extern "C" uint32 apocalypse_player_action(uint32 object, const sint16 *rotation, uint32 enabled)
 {
     return Player::Attach(object).UpdateWeapons(rotation, enabled);
 }
 
-extern "C" uint32 sub_8005E260(uint32 object, uint32 kind)
-{
-    FUNCTION_MARKER(0x8005E260, "SLUS_003.73");
-    return Player::Attach(object).ReplaceWeapon(kind);
-}
 
-extern "C" uint32 sub_8005F470(uint32 object)
-{
-    FUNCTION_MARKER(0x8005F470, "SLUS_003.73");
-    return Player::Attach(object).UpdateGroundContact();
-}
 
-extern "C" uint32 sub_8005E07C(uint32 object, uint32 other)
-{
-    FUNCTION_MARKER(0x8005E07C, "SLUS_003.73");
-    return Player::Attach(object).ApplyContactImpulse(other);
-}
 
-extern "C" uint32 sub_8005E154(uint32 player, uint32 object)
-{
-    FUNCTION_MARKER(0x8005E154, "SLUS_003.73");
-    return Player::Attach(player).ApplyBeamContactImpulse(object);
-}
 
-extern "C" uint32 sub_8005D20C(uint32 object, uint32 polygon, uint32 surface)
-{
-    FUNCTION_MARKER(0x8005D20C, "SLUS_003.73");
-    return Player::Attach(object).SetContactColor(polygon, surface);
-}
+
+
+
+
+

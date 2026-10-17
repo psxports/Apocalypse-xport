@@ -1,3 +1,8 @@
+#include "player.h"
+#include "weapon_nodes.h"
+#include "visual_object.h"
+#include "cheat_input.h"
+#include "resource_io.h"
 #include "game_sdk_bindings.h"
 extern "C"
 {
@@ -13,16 +18,27 @@ extern "C"
 #include "hud_sprites.h"
 #include "record_data.h"
 #include "model_resources.h"
+#include "effect_lifecycle.h"
 #include "game_heap.h"
 #include "game_random.h"
 
-uint32 LoadPanelResource()
+static const TextureGroup *panel_group;
+
+void ForgetPanelTexture(const TextureGroup *grp)
 {
-    uint32 resource;
+    if (panel_group == grp)
+        panel_group = 0;
+}
+
+void ClearPanelTextureBinding()
+{
+    panel_group = 0;
+}
+
+void LoadPanelResource()
+{
     FUNCTION_MARKER(0x8006CDA0, "SLUS_003.73");
-    resource = FindModelTextureGroup(0x800FF760);
-    w_u32(0x800FF75C, resource);
-    return resource;
+    panel_group = FindModelTextureGroup("Panel");
 }
 
 uint32 ResetPanelDisplayTimer()
@@ -32,20 +48,12 @@ uint32 ResetPanelDisplayTimer()
     return 150;
 }
 
-extern "C" uint32 sub_8006CDA0(void)
-{
-    FUNCTION_MARKER(0x8006CDA0, "SLUS_003.73");
-    return LoadPanelResource();
-}
-extern "C" uint32 sub_8006CDC4(void)
-{
-    FUNCTION_MARKER(0x8006CDC4, "SLUS_003.73");
-    return ResetPanelDisplayTimer();
-}
+
+
 
 uint32 DrawDebugPanel()
 {
-    uint32 enabled = r_u32(0x800FF33C), text = 0x800FF768;
+    uint32 enabled = GetCheatOptions().debug_panel, text = 0x800FF768;
     uint32 trigger, player, numerator, denominator, percentage, position[3], end, start;
     sint32 high;
     FUNCTION_MARKER(0x8006CDD4, "SLUS_003.73");
@@ -55,11 +63,11 @@ uint32 DrawDebugPanel()
     if (trigger != 0xFFFF && (sint16)r_u16(r_u32(r_u32(0x800FF624) + trigger * 4)) == 8)
         text = ReadRecordPosition(position, trigger) + 6;
     QueueHudText(24, 193, text, 32, 32, 114, 1);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     QueueHudNumber(23, 205, (uint32)((sint32)r_u32(player + 4) >> 12), 32, 32, 114, 1);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     QueueHudNumber(90, 205, (uint32)((sint32)r_u32(player + 8) >> 12), 32, 32, 114, 1);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     QueueHudNumber(152, 205, (uint32)((sint32)r_u32(player + 12) >> 12), 32, 32, 114, 1);
     numerator = r_u32(0x800FF34C) * 100;
     high = (sint32)(((sint64)(sint32)numerator * (sint64)0x4BDA12F7) >> 32);
@@ -71,18 +79,14 @@ uint32 DrawDebugPanel()
     denominator = end - start;
     percentage = denominator ? numerator / denominator : 0xFFFFFFFF;
     QueueHudNumber(49, 217, percentage, 32, 32, 114, 1);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (player)
         QueueHudNumber(74, 217, r_u32(player + 644), 32, 32, 114, 1);
-    QueueHudNumber(109, 217, r_u32(0x800FF700), 32, 32, 114, 1);
+    QueueHudNumber(109, 217, GetResourceReadPhase(), 32, 32, 114, 1);
     return QueueHudNumber(127, 217, r_u32(0x800FF2B8), 32, 32, 114, 1);
 }
 
-extern "C" uint32 sub_8006CDD4(void)
-{
-    FUNCTION_MARKER(0x8006CDD4, "SLUS_003.73");
-    return DrawDebugPanel();
-}
+
 
 // TODO Establish original receiver ownership before making this an instance method
 uint32 TrackObjectHealth(uint32 object, uint32 x, uint32 y, uint32 scale)
@@ -105,16 +109,8 @@ void ClearTrackedObjectHealth()
     w_u32(0x800FF76C, 0);
 }
 
-extern "C" uint32 sub_8006D390(uint32 object, uint32 first, uint32 second, uint32 scale)
-{
-    FUNCTION_MARKER(0x8006D390, "SLUS_003.73");
-    return TrackObjectHealth(object, first, second, scale);
-}
-extern "C" void sub_8006D3B4(void)
-{
-    FUNCTION_MARKER(0x8006D3B4, "SLUS_003.73");
-    ClearTrackedObjectHealth();
-}
+
+
 
 void DrawTrackedObjectHealth()
 {
@@ -252,25 +248,25 @@ void DrawTrackedObjectHealth()
     w_u32(buffer + 112, (head & 0xFF000000) | (cursor & 0xFFFFFF));
 }
 
-extern "C" void sub_8006D3C0(void)
-{
-    FUNCTION_MARKER(0x8006D3C0, "SLUS_003.73");
-    DrawTrackedObjectHealth();
-}
+
 
 void DrawWeaponAmmoIndicator(uint32 slot)
 {
+    Player *hero = 0;
     static const uint32 xs[8] = {0, 414, 424, 439, 449, 454, 454, 449};
     static const uint32 ys[8] = {0, 37, 32, 32, 37, 43, 49, 55};
-    uint32 player, weapon, packet, bar, next, limit, ammo, extent, x, y, head, buffer, tag;
+    uint32 player, packet, bar, next, limit, ammo, extent, x, y, head, buffer, tag;
+    WeaponNode *weapon;
     sint32 high;
     FUNCTION_MARKER(0x8006D704, "SLUS_003.73");
-    player = r_u32(0x800FF5A0);
+    hero = visual_lists.players ? static_cast<Player *>(visual_lists.players->owner) : 0;
+    player = hero ? NativeObjectGuestAddress(hero) : 0;
     if (!player)
         return;
-    // Original reads the slot before checking its range
-    weapon = r_u32(player + slot * 4 + 612);
-    if (!weapon || slot >= 8 || !slot)
+    if (slot >= 8 || !slot)
+        return;
+    weapon = hero->weapons[slot];
+    if (!weapon)
         return;
     x = xs[slot];
     y = ys[slot];
@@ -280,7 +276,7 @@ void DrawWeaponAmmoIndicator(uint32 slot)
     bar = packet + 16;
     if (limit < next)
         return;
-    ammo = r_u32(weapon + 56);
+    ammo = weapon->ammo;
     high = (sint32)(((sint64)(sint32)ammo * (sint64)0x10624DD3) >> 32);
     w_u32(0x800FF668, next);
     extent = (uint32)(high >> 3) - (uint32)((sint32)ammo >> 31);
@@ -321,30 +317,29 @@ void DrawWeaponAmmoIndicator(uint32 slot)
         AllocateHudRectangle(x - 3, y - 1, 13, 4, 128, 128, 128, 0);
 }
 
-extern "C" void sub_8006D704(uint32 slot)
-{
-    FUNCTION_MARKER(0x8006D704, "SLUS_003.73");
-    DrawWeaponAmmoIndicator(slot);
-}
+
 
 void DrawGamePanel()
 {
-    uint32 timer, texture, text, value, quotient, flag, player, weapon, kind;
+    Player *hero = 0;
+    uint32 timer, text, value, quotient, flag, player, kind;
+    WeaponNode *weapon;
     uint32 x, y, percentage, width, product, height, green, index;
     sint32 count, maximum, numerator, sine;
     uint8 *packet;
+    const TextureFrame *texture;
     FUNCTION_MARKER(0x8006D91C, "SLUS_003.73");
     timer = r_u32(0x800FF758);
     if (timer)
     {
-        texture = r_u32(0x800FF75C);
+        texture = &GetTextureFrame(panel_group, 1);
         w_u32(0x800FF758, timer - 1);
-        packet = AllocateHudSprite((const uint8 *)psx_addr(texture + 8, 12));
+        packet = AllocateHudSprite(*texture);
         if (packet)
-            PlaceHudSprite(40, 27, packet, (const uint8 *)psx_addr(r_u32(0x800FF75C) + 8, 12));
+            PlaceHudSprite(40, 27, packet, GetTextureFrame(panel_group, 1));
         if (r_u32(0x800FF758))
         {
-            if (r_u32(0x800FF320))
+            if (GetCheatOptions().unlimited_lives)
                 text = r_u32(0x800A558C);
             else
             {
@@ -363,14 +358,15 @@ void DrawGamePanel()
     if (r_u32(0x800FF008))
         return;
     flag = r_u32(0x800FF304);
-    player = r_u32(0x800FF5A0);
+    hero = visual_lists.players ? static_cast<Player *>(visual_lists.players->owner) : 0;
+    player = hero ? NativeObjectGuestAddress(hero) : 0;
     if (flag)
     {
         SetHudTextScale(256);
         SetHudTextColor(128, 128, 128, 0);
         DrawStyledHudText(58, 50, (const char *)psx_addr(r_u32(0x800A556C), 1), 0, 0, 256);
     }
-    if (!r_u32(0x800FF324))
+    if (!GetCheatOptions().status_hud)
         return;
     count = (sint32)r_u32(player + 532);
     if (count >= 16)
@@ -378,9 +374,9 @@ void DrawGamePanel()
     x = 412;
     for (sint32 item = 0; item < count && item < 8; ++item)
     {
-        packet = AllocateHudSprite((const uint8 *)psx_addr(r_u32(0x800FF75C) + 80, 12));
+        packet = AllocateHudSprite(GetTextureFrame(panel_group, 10));
         if (packet)
-            PlaceScaledHudSprite(x, 25, packet, (const uint8 *)psx_addr(r_u32(0x800FF75C) + 80, 12));
+            PlaceScaledHudSprite(x, 25, packet, GetTextureFrame(panel_group, 10));
         x += 8;
     }
     if (count >= 9)
@@ -390,9 +386,9 @@ void DrawGamePanel()
         count -= 8;
         for (sint32 item = 0; item < count; ++item)
         {
-            packet = AllocateHudSprite((const uint8 *)psx_addr(r_u32(0x800FF75C) + 80, 12));
+            packet = AllocateHudSprite(GetTextureFrame(panel_group, 10));
             if (packet)
-                PlaceScaledHudSprite(x, y, packet, (const uint8 *)psx_addr(r_u32(0x800FF75C) + 80, 12));
+                PlaceScaledHudSprite(x, y, packet, GetTextureFrame(panel_group, 10));
             y += 5;
         }
     }
@@ -403,29 +399,30 @@ void DrawGamePanel()
     DrawWeaponAmmoIndicator(5);
     DrawWeaponAmmoIndicator(6);
     DrawWeaponAmmoIndicator(7);
-    packet = AllocateHudSprite((const uint8 *)psx_addr(r_u32(0x800FF75C), 12));
+    packet = AllocateHudSprite(GetTextureFrame(panel_group, 0));
     if (packet)
     {
-        PlaceScaledHudSprite(436, 46, packet, (const uint8 *)psx_addr(r_u32(0x800FF75C), 12));
+        PlaceScaledHudSprite(436, 46, packet, GetTextureFrame(panel_group, 0));
         packet[6] = 90;
         packet[5] = 90;
         packet[4] = 90;
     }
-    player = r_u32(0x800FF5A0);
+    hero = visual_lists.players ? static_cast<Player *>(visual_lists.players->owner) : 0;
+    player = hero ? NativeObjectGuestAddress(hero) : 0;
     if (player)
     {
-        weapon = r_u32(player + r_u32(player + 644) * 4 + 612);
-        kind = r_u32(weapon + 4);
-        texture = r_u32(0x800FF75C);
+        weapon = hero ? hero->weapons[hero->sel_weapon] : 0;
+        kind = weapon ? weapon->type : 0;
+        texture = &GetTextureFrame(panel_group, 0);
         switch (kind)
         {
-            case 1: texture += 72; break;
-            case 2: texture += 24; break;
-            case 3: texture += 40; break;
-            case 4: texture += 48; break;
-            case 5: texture += 32; break;
-            case 6: texture += 64; break;
-            case 7: texture += 56; break;
+            case 1: texture = &GetTextureFrame(panel_group, 9); break;
+            case 2: texture = &GetTextureFrame(panel_group, 3); break;
+            case 3: texture = &GetTextureFrame(panel_group, 5); break;
+            case 4: texture = &GetTextureFrame(panel_group, 6); break;
+            case 5: texture = &GetTextureFrame(panel_group, 4); break;
+            case 6: texture = &GetTextureFrame(panel_group, 8); break;
+            case 7: texture = &GetTextureFrame(panel_group, 7); break;
             case 8:
                 texture = 0;
                 AllocateHudRectangle(425, 39, 22, 14, 40, 40, 40, 0);
@@ -435,9 +432,9 @@ void DrawGamePanel()
         }
         if (texture)
         {
-            packet = AllocateHudSprite((const uint8 *)psx_addr(texture, 12));
+            packet = AllocateHudSprite(*texture);
             if (packet)
-                PlaceScaledHudSprite(436, 46, packet, (const uint8 *)psx_addr(texture, 12));
+                PlaceScaledHudSprite(436, 46, packet, *texture);
         }
     }
     // TODO Establish the original invariant requiring a player here
@@ -459,7 +456,7 @@ void DrawGamePanel()
         product = (percentage - 60) * 350;
         value = (uint32)((sint32)product / 40);
         index = ((value + 50) * r_u32(0x800FF2F0)) & 4095;
-        sine = (sint16)r_u16(0x800F863C + index * 4);
+        sine = rsin(index);
         product = (uint32)sine * (uint32)sine;
         green = (uint32)((sint32)product >> 16);
         if ((sint32)green >= 256)
@@ -469,17 +466,17 @@ void DrawGamePanel()
     }
     else
         QueueHudGradientRectangle(389, 16, 40, 6, 255, 255, 0, 255, 0, 0, 0);
-    weapon = r_u32(player + r_u32(player + 644) * 4 + 612);
+    weapon = hero ? hero->weapons[hero->sel_weapon] : 0;
     if (weapon)
     {
-        if (r_u32(weapon + 4) == 8)
+        if (weapon->type == 8)
         {
             y = 25;
             height = 50;
         }
         else
         {
-            value = 1000 - r_u32(weapon + 56);
+            value = 1000 - weapon->ammo;
             height = (uint32)((sint32)value / 20);
             AllocateHudRectangle(474, 25, 10, height, 0, 0, 0, 0);
             y = height + 25;
@@ -490,11 +487,7 @@ void DrawGamePanel()
     DrawTrackedObjectHealth();
 }
 
-extern "C" void sub_8006D91C(void)
-{
-    FUNCTION_MARKER(0x8006D91C, "SLUS_003.73");
-    DrawGamePanel();
-}
+
 
 static uint32 DrawPauseMenuText(uint32 x, uint32 y, uint32 text, uint32 filter, uint32 color, uint32 scale)
 {
@@ -532,13 +525,13 @@ uint32 DrawPauseMenuDisplay(void)
     uint32 v13;
     sint32 v14;
     char v15[104];
-    if (r_u32(0x800FF33C))
+    if (GetCheatOptions().debug_panel)
         /* MIPS 800168B0..800168C0 stores zero for all four stack arguments */
         sub_8006D1C0(19, 190, 194, 42, 0, 0, 0, 0);
     if (r_u32(0x800FF008))
     {
         nullsub_19();
-        sub_8001A8E8();
+        ::UpdateHudTextGlowCurve();
     }
     SetHudTextAlignment(0);
     if ((r_u32(0x800FF81C) && ((r_u32(0x800FF64C) & 0x20) != 0)))
@@ -547,11 +540,11 @@ uint32 DrawPauseMenuDisplay(void)
         SetHudTextScale(256);
         DrawPauseMenuText(256, 35, r_u32((0x800A556C + (0) * 4)), 0, 0, 256);
     }
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (player && (sint16)r_u16(player + 218) <= 0 && r_u32(0x800FF874) == 1)
     {
-        if (!sub_8002E13C())
-            sub_8002E148(951706923, 64, 64, 127);
+        if (!::HasMenuBuffers())
+            ::CreateMenuBuffers(951706923, 64, 64, 127);
         SetHudTextColor(128, 128, 128, 0);
         SetHudTextScale(384);
         label = r_u32(0x800A54E8);
@@ -583,15 +576,15 @@ uint32 DrawPauseMenuDisplay(void)
             }
             phase = r_u32(0x800FF010);
             {
-                uint32 cosine = (uint32)(sint32)(sint16)r_u16(0x800F863E + (phase & 4095) * 4);
+                uint32 cosine = (uint32)rcos(phase & 4095);
                 uint32 product = r_u32(0x800FF00C) * cosine;
                 v2 = r_u32(0x800FF084);
                 if ((sint32)product < 0)
                     product += 4095;
-                w_u32((uint32)v2 + 12, (uint32)((sint32)product >> 12) + 256);
+                MenuWindow::Attach(v2).pos[0] = (uint32)((sint32)product >> 12) + 256;
             }
             MenuWindow::Attach((uint32)v2).Draw();
-            if (r_u32(0x800FF33C))
+            if (GetCheatOptions().debug_panel)
                 return DrawMenuRightHint();
             else
                 return DrawMenuCenteredHint();
@@ -612,7 +605,7 @@ uint32 DrawPauseMenuDisplay(void)
             SetHudTextColor(149, 20, 20, 0);
             DrawPauseMenuText(256, 95, r_u32((0x800A559C + (0) * 4)), 0, 0, 256);
             v3 = r_u32(0x800FF024);
-            w_u32((uint32)v3 + 16, 135);
+            MenuWindow::Attach(v3).pos[1] = 135;
             return MenuWindow::Attach((uint32)v3).Draw();
 
         case 4:
@@ -669,7 +662,7 @@ uint32 DrawPauseMenuDisplay(void)
             SetHudTextColor(149, 20, 20, 0);
             DrawPauseMenuText(256, 103, r_u32((0x800A5550 + (0) * 4)), 0, 0, 256);
             v8 = r_u32(0x800FF024);
-            w_u32((uint32)v8 + 16, 143);
+            MenuWindow::Attach(v8).pos[1] = 143;
             MenuWindow::Attach((uint32)v8).Draw();
             DrawMenuCenteredHint();
         LABEL_31:
@@ -782,7 +775,7 @@ uint32 DrawPauseMenuDisplay(void)
             DrawPauseMenuText(256, 87, r_u32((0x800A5690 + (0) * 4)), 0, 0, 256);
             DrawPauseMenuText(256, 113, r_u32(0x800A5694), 0, 0, 256);
             v3 = r_u32(0x800FF024);
-            w_u32((uint32)v3 + 16, 148);
+            MenuWindow::Attach(v3).pos[1] = 148;
             return MenuWindow::Attach((uint32)v3).Draw();
 
         case 20:
@@ -832,16 +825,8 @@ uint32 DrawPauseMenuDisplay(void)
     return result;
 }
 
-extern "C" uint32 sub_8001664C(void)
-{
-    FUNCTION_MARKER(0x8001664C, "SLUS_003.73");
-    return DrawPauseMenuHeading();
-}
-extern "C" uint32 sub_80016884(void)
-{
-    FUNCTION_MARKER(0x80016884, "SLUS_003.73");
-    return DrawPauseMenuDisplay();
-}
+
+
 
 uint32 SetMenuRedText(void)
 {
@@ -863,10 +848,10 @@ uint32 DrawMenuLeftHint(void)
     SetHudTextColor(149, 20, 20, 0);
     DrawPauseMenuText(92, 210, r_u32(0x800A5574), 0, 0, 256);
     SetHudTextAlignment(0);
-    uint8 *packet = AllocateHudSprite((const uint8 *)psx_addr(r_u32(0x800FF01C) + 8, 8));
+    uint8 *packet = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 1));
     uint32 result = packet ? GuestMemoryAddress(packet) : 0;
     if (packet)
-        result = PlaceScaledHudSprite(64, 211, packet, (const uint8 *)psx_addr(r_u32(0x800FF01C) + 8, 8));
+        result = PlaceScaledHudSprite(64, 211, packet, GetTextureFrame(GetButtonResourceGroup(), 1));
     SetHudTextScale(256);
     return result;
 }
@@ -879,10 +864,10 @@ uint32 DrawMenuRightHint(void)
     SetHudTextColor(149, 20, 20, 0);
     DrawPauseMenuText(348, 210, r_u32(0x800A5578), 0, 0, 256);
     SetHudTextAlignment(0);
-    uint8 *packet = AllocateHudSprite((const uint8 *)psx_addr(r_u32(0x800FF01C), 8));
+    uint8 *packet = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
     uint32 result = packet ? GuestMemoryAddress(packet) : 0;
     if (packet)
-        result = PlaceScaledHudSprite(320, 211, packet, (const uint8 *)psx_addr(r_u32(0x800FF01C), 8));
+        result = PlaceScaledHudSprite(320, 211, packet, GetTextureFrame(GetButtonResourceGroup(), 0));
     SetHudTextScale(256);
     return result;
 }
@@ -901,42 +886,18 @@ uint32 DrawMenuCenteredHint(void)
     SetHudTextScale(256);
     SetHudTextColor(149, 20, 20, 0);
     DrawPauseMenuText(227, 213, r_u32(0x800A5578), 0, 0, 256);
-    uint8 *packet = AllocateHudSprite((const uint8 *)psx_addr(r_u32(0x800FF01C), 8));
+    uint8 *packet = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
     if (packet)
-        return PlaceScaledHudSprite(199, 214, packet, (const uint8 *)psx_addr(r_u32(0x800FF01C), 8));
+        return PlaceScaledHudSprite(199, 214, packet, GetTextureFrame(GetButtonResourceGroup(), 0));
     return 0;
 }
 
-extern "C" uint32 sub_800151D0(void)
-{
-    FUNCTION_MARKER(0x800151D0, "SLUS_003.73");
-    return SetMenuRedText();
-}
-extern "C" uint32 sub_800151FC(void)
-{
-    FUNCTION_MARKER(0x800151FC, "SLUS_003.73");
-    return SetMenuGreenText();
-}
-extern "C" uint32 sub_800166AC(void)
-{
-    FUNCTION_MARKER(0x800166AC, "SLUS_003.73");
-    return DrawMenuLeftHint();
-}
-extern "C" uint32 sub_80016744(void)
-{
-    FUNCTION_MARKER(0x80016744, "SLUS_003.73");
-    return DrawMenuRightHint();
-}
-extern "C" uint32 sub_800167D8(void)
-{
-    FUNCTION_MARKER(0x800167D8, "SLUS_003.73");
-    return DrawMenuHints();
-}
-extern "C" uint32 sub_80016800(void)
-{
-    FUNCTION_MARKER(0x80016800, "SLUS_003.73");
-    return DrawMenuCenteredHint();
-}
+
+
+
+
+
+
 
 uint32 BlurMenuBuffers(void)
 {
@@ -988,11 +949,7 @@ uint32 BlurMenuBuffers(void)
     return xport_draft_host_sub_800885A4_p1((const sint16 *)psx_addr(0x800FF240, 8), selected);
 }
 
-extern "C" uint32 sub_8002E2E8(void)
-{
-    FUNCTION_MARKER(0x8002E2E8, "SLUS_003.73");
-    return BlurMenuBuffers();
-}
+
 
 uint32 SeedMenuFire(uint32 sparks)
 {
@@ -1039,11 +996,7 @@ uint32 SeedMenuFire(uint32 sparks)
     return result;
 }
 
-extern "C" uint32 sub_8002E4D8(uint32 sparks)
-{
-    FUNCTION_MARKER(0x8002E4D8, "SLUS_003.73");
-    return SeedMenuFire(sparks);
-}
+
 
 uint32 HasMenuBuffers()
 {
@@ -1057,14 +1010,14 @@ uint32 CreateMenuBuffers(uint32 resource, uint32 width, uint32 height, uint32 mo
     uint32 result = HasMenuBuffers();
     if (result)
         return result;
-    uint32 texture = FindModelResourceEntry(resource);
+    const TextureResource &texture = GetTextureResource(resource);
     width &= 65535;
     height &= 65535;
-    uint32 page = r_u16(texture + 6);
+    uint32 page = texture.tpage;
     uint32 pixel_shift = (2 - ((page & 384) >> 7)) & 31;
-    uint32 texture_x = r_u8(texture);
+    uint32 texture_x = texture.uv[0].u;
     w_u16(0x800FF240, ((page & 15) << 6) + (texture_x >> pixel_shift));
-    uint32 texture_y = r_u8(texture + 1);
+    uint32 texture_y = texture.uv[0].v;
     w_u16(0x800FF244, width >> 1);
     w_u16(0x800FF23A, width);
     w_u16(0x800FF246, height);
@@ -1092,16 +1045,8 @@ uint32 CreateMenuBuffers(uint32 resource, uint32 width, uint32 height, uint32 mo
     return 0;
 }
 
-extern "C" uint32 sub_8002E13C(void)
-{
-    FUNCTION_MARKER(0x8002E13C, "SLUS_003.73");
-    return HasMenuBuffers();
-}
-extern "C" uint32 sub_8002E148(uint32 resource, uint32 width, uint32 height, uint32 mode)
-{
-    FUNCTION_MARKER(0x8002E148, "SLUS_003.73");
-    return CreateMenuBuffers(resource, width, height, mode);
-}
+
+
 
 uint32 SetMenuDarkRedText()
 {
@@ -1109,11 +1054,7 @@ uint32 SetMenuDarkRedText()
     return SetHudTextColor(149, 20, 20, 0);
 }
 
-extern "C" uint32 sub_80011594(void)
-{
-    FUNCTION_MARKER(0x80011594, "SLUS_003.73");
-    return SetMenuDarkRedText();
-}
+
 
 
 const char *ReadMenuButtonLabel(uint32 button)
@@ -1274,9 +1215,5 @@ uint32 DrawMenuVolumeSlider(MenuWindow &menu)
     return packet ? GuestMemoryAddress(packet) : 0;
 }
 
-extern "C" uint32 sub_800115C0(uint32 menu)
-{
-    FUNCTION_MARKER(0x800115C0, "SLUS_003.73");
-    return DrawMenuVolumeSlider(MenuWindow::Attach(menu));
-}
+
 

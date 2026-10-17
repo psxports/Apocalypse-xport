@@ -1,3 +1,4 @@
+#include "game_sdk_bindings.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -7,231 +8,232 @@ extern "C"
 #include "model_resources.h"
 #include "resource_io.h"
 #include "game_heap.h"
+#include <stdlib.h>
+
+template <uint32 count> struct PaletteSlotPool
+{
+    PalettePosition pos;
+    uint8 available[count];
+};
+
+static PaletteSlotPool<148> small_pal_slots;
+static PaletteSlotPool<82> large_pal_slots;
+// Packed CLUT colors cross the 32-bit PsyQ upload boundary
+static uint32 fire_pal[128];
+
+const PalettePosition &GetLargePalettePos()
+{
+    return large_pal_slots.pos;
+}
+
+template <uint32 count> static uint32 AllocatePaletteSlot(PaletteSlotPool<count> &pool)
+{
+    uint32 slot = 0;
+    while (slot < count && !pool.available[slot])
+        ++slot;
+    if (slot == count)
+    {
+        GameDiagnostic("CLUT palette slots exhausted\n");
+        abort();
+    }
+    pool.available[slot] = 0;
+    return slot;
+}
+
+template <uint32 count> static void ReleasePaletteSlot(PaletteSlotPool<count> &pool, uint32 slot)
+{
+    if (slot >= count)
+    {
+        GameDiagnostic("Invalid CLUT palette slot %u\n", slot);
+        abort();
+    }
+    pool.available[slot] = 1;
+}
 
 uint32 InitializePaletteResources()
 {
-    uint32 palette[512];
-    sint16 rectangle[4];
-    uint32 cursor, source, target, color, red, green, blue, packed;
+    uint32 pal[512];
+    uint32 src, color, r, g, b, packed;
     FUNCTION_MARKER(0x80069320, "SLUS_003.73");
-    AllocateModelTextureRectangle(0xFFFFFFFF, 16, 148, (uint32 *)psx_addr(0x800FF68C, 4), (uint32 *)psx_addr(0x800FF690, 4), 16, 0, 0);
-    AllocateModelTextureRectangle(0xFFFFFFFF, 256, 82, (uint32 *)psx_addr(0x800FF694, 4), (uint32 *)psx_addr(0x800FF698, 4), 16, 0, 0);
-    cursor = 0x80100590 + 147;
-    for (uint32 index = 0; index < 148; ++index, --cursor)
-        w_u8(cursor, 1);
-    w_u8(0x80100630, 0);
-    for (uint32 index = 1; index < 82; ++index)
-        w_u8(0x80100630 + index, 1);
-    sub_8006B04C(0x800FF684);
-    xport_draft_host_sub_8006B234_p1(palette);
+    AllocateModelTextureRectangle(0xFFFFFFFF, 16, 148, &small_pal_slots.pos.x, &small_pal_slots.pos.y, 16, 0, 0);
+    AllocateModelTextureRectangle(0xFFFFFFFF, 256, 82, &large_pal_slots.pos.x, &large_pal_slots.pos.y, 16, 0, 0);
+    for (uint32 i = 0; i < 148; ++i)
+        small_pal_slots.available[i] = 1;
+    large_pal_slots.available[0] = 0;
+    for (uint32 i = 1; i < 82; ++i)
+        large_pal_slots.available[i] = 1;
+    const uint32 read_bytes = LookupResource("ct.pal");
+    // The conversion reads 256 RGB words after the six-word header
+    if (read_bytes > sizeof(pal) || GetResourceFileSize("ct.pal") < (6 + 256) * sizeof(uint32))
+    {
+        GameDiagnostic("Invalid ct.pal resource size\n");
+        abort();
+    }
+    BeginResourceRead((void *)pal);
     WaitForResourceRead();
     for (uint32 row = 0; row < 16; ++row)
     {
-        source = 6 + (15 - row) * 16;
-        target = 0x801003AE + (row << 5);
-        for (uint32 column = 0; column < 16; ++column, ++source, target -= 2)
+        src = 6 + (15 - row) * 16;
+        for (uint32 col = 0; col < 16; ++col, ++src)
         {
-            color = palette[source];
-            red = (color & 255) >> 3;
-            green = (color >> 11) & 31;
-            blue = (color >> 19) & 31;
-            if (red == 31 && !green && blue == 31)
+            color = pal[src];
+            r = (color & 255) >> 3;
+            g = (color >> 11) & 31;
+            b = (color >> 19) & 31;
+            if (r == 31 && !g && b == 31)
                 packed = 0;
             else
-                packed = 0x8000 | red | (green << 5) | (blue << 10);
-            w_u16(target, packed);
+                packed = 0x8000 | r | (g << 5) | (b << 10);
+            const uint32 dst = row * 8 + ((15 - col) >> 1);
+            if (col & 1)
+                fire_pal[dst] |= packed;
+            else
+                fire_pal[dst] = packed << 16;
         }
     }
-    rectangle[0] = (sint16)r_u16(0x800FF694);
-    rectangle[1] = (sint16)r_u16(0x800FF698);
-    rectangle[2] = 256;
-    rectangle[3] = 1;
-    return xport_draft_host_sub_800885A4_p1(rectangle, 0x80100390);
+    PSX_RECT img_rect;
+    img_rect.x = (sint16)large_pal_slots.pos.x;
+    img_rect.y = (sint16)large_pal_slots.pos.y;
+    img_rect.w = 256;
+    img_rect.h = 1;
+    return LoadImagePSX(&img_rect, fire_pal);
 }
 
-uint32 AllocatePaletteResource(uint32 key)
+static PaletteResource *pal_resources;
+
+static PaletteResource *AllocatePaletteResource(uint32 key)
 {
-    uint32 entry, previous;
     FUNCTION_MARKER(0x800694EC, "SLUS_003.73");
-    entry = AllocateHeapBlock(24, 0, 1);
-    previous = r_u32(0x800FF680);
-    // TODO Establish allocator success invariant before adding a failure path
-    w_u32(entry + 20, 0);
-    w_u32(0x800FF680, entry);
-    w_u32(entry + 16, previous);
-    if (previous)
-        w_u32(previous + 20, entry);
-    w_u32(entry + 8, key);
-    w_u8(entry + 6, 0);
-    w_u16(entry + 4, 0);
-    return entry;
-}
-
-// TODO Establish receiver ownership before making this an instance method
-uint32 ReleasePaletteResource(uint32 entry)
-{
-    uint32 next, previous;
-    FUNCTION_MARKER(0x80069540, "SLUS_003.73");
-    next = r_u32(entry + 16);
-    if (next)
-        w_u32(next + 20, r_u32(entry + 20));
-    previous = r_u32(entry + 20);
-    if (previous)
-        w_u32(previous + 16, r_u32(entry + 16));
-    if (entry == r_u32(0x800FF680))
-        w_u32(0x800FF680, r_u32(entry + 16));
-    return ReleaseHeapBlock(entry);
-}
-
-uint32 FindPaletteResource(uint32 key)
-{
-    uint32 entry;
-    FUNCTION_MARKER(0x800695B4, "SLUS_003.73");
-    entry = r_u32(0x800FF680);
-    while (entry)
+    PaletteResource *pal = (PaletteResource *)malloc(sizeof(PaletteResource));
+    if (!pal)
     {
-        if (r_u32(entry + 8) == key)
-            return entry;
-        entry = r_u32(entry + 16);
+        GameDiagnostic("Cannot allocate palette resource\n");
+        abort();
     }
+    pal->prev = 0;
+    pal->next = pal_resources;
+    if (pal->next)
+        pal->next->prev = pal;
+    pal_resources = pal;
+    pal->key = key;
+    pal->clut = 0;
+    pal->slot = 0;
+    pal->flags = 0;
+    pal->loaded = 0;
+    pal->refs = 0;
+    return pal;
+}
+
+static void ReleasePaletteResource(PaletteResource *pal)
+{
+    FUNCTION_MARKER(0x80069540, "SLUS_003.73");
+    if (pal->next)
+        pal->next->prev = pal->prev;
+    if (pal->prev)
+        pal->prev->next = pal->next;
+    if (pal_resources == pal)
+        pal_resources = pal->next;
+    free(pal);
+}
+
+PaletteResource *FindPaletteResource(uint32 key)
+{
+    FUNCTION_MARKER(0x800695B4, "SLUS_003.73");
+    for (PaletteResource *pal = pal_resources; pal; pal = pal->next)
+        if (pal->key == key)
+            return pal;
     return 0;
 }
 
-uint32 ReleaseUnusedPaletteResources()
+void ReleaseUnusedPaletteResources()
 {
-    uint32 entry, next, result = 0x80100000;
     FUNCTION_MARKER(0x800695EC, "SLUS_003.73");
-    entry = r_u32(0x800FF680);
-    while (entry)
+    PaletteResource *pal = pal_resources;
+    while (pal)
     {
-        result = r_u16(entry + 4);
-        next = r_u32(entry + 16);
-        if (!result)
+        PaletteResource *next = pal->next;
+        if (!pal->refs)
         {
-            if (r_u8(entry + 3) & 1)
-                w_u8(0x80100590 + r_u8(entry + 2), 1);
-            if (r_u8(entry + 3) & 2)
-                w_u8(0x80100630 + r_u8(entry + 2), 1);
-            result = ReleasePaletteResource(entry);
+            if (pal->flags & 1)
+                ReleasePaletteSlot(small_pal_slots, pal->slot);
+            if (pal->flags & 2)
+                ReleasePaletteSlot(large_pal_slots, pal->slot);
+            ReleasePaletteResource(pal);
         }
-        entry = next;
+        pal = next;
     }
-    return result;
 }
 
-extern "C" uint32 sub_800694EC(uint32 key)
+void ResetPaletteResources()
 {
-    FUNCTION_MARKER(0x800694EC, "SLUS_003.73");
-    return AllocatePaletteResource(key);
-}
-extern "C" uint32 sub_80069540(uint32 entry, uint32 unused)
-{
-    FUNCTION_MARKER(0x80069540, "SLUS_003.73");
-    return ReleasePaletteResource(entry);
-}
-extern "C" uint32 sub_800695B4(uint32 key)
-{
-    FUNCTION_MARKER(0x800695B4, "SLUS_003.73");
-    return FindPaletteResource(key);
-}
-extern "C" uint32 sub_800695EC(void)
-{
-    FUNCTION_MARKER(0x800695EC, "SLUS_003.73");
-    return ReleaseUnusedPaletteResources();
+    while (pal_resources)
+        ReleasePaletteResource(pal_resources);
 }
 
 uint32 AllocateSmallPaletteSlot()
 {
-    uint32 slot = 0;
     FUNCTION_MARKER(0x800696A8, "SLUS_003.73");
-    if (!r_u8(0x80100590))
-    {
-        slot = 1;
-        while (slot < 148)
-        {
-            if (r_u8(0x80100590 + slot))
-                break;
-            ++slot;
-        }
-    }
-    // TODO Original exhaustion writes slot 148 beyond the searched range
-    w_u8(0x80100590 + slot, 0);
-    return slot;
+    return AllocatePaletteSlot(small_pal_slots);
 }
 
 uint32 AllocateLargePaletteSlot()
 {
-    uint32 slot = 0;
     FUNCTION_MARKER(0x80069700, "SLUS_003.73");
-    if (!r_u8(0x80100630))
-    {
-        slot = 1;
-        while (slot < 82)
-        {
-            if (r_u8(0x80100630 + slot))
-                break;
-            ++slot;
-        }
-    }
-    // TODO Original exhaustion writes slot 82 beyond the searched range
-    w_u8(0x80100630 + slot, 0);
-    return slot;
+    return AllocatePaletteSlot(large_pal_slots);
 }
 
-uint32 LoadPaletteResource(uint32 key, uint32 colors, uint32 flags)
+PaletteResource *LoadPaletteResource(uint32 key, uint16 *colors, uint32 flags)
 {
-    uint32 entry, count, cursor, color, found = 0, x_address, y_address, y, x, slot;
-    sint16 rectangle[4];
+    uint32 count, color, found = 0, y, x, slot;
+    uint16 *cursor;
+    PSX_RECT img_rect;
     FUNCTION_MARKER(0x80069758, "SLUS_003.73");
-    entry = AllocatePaletteResource(key);
-    w_u8(entry + 3, flags);
-    rectangle[3] = 1;
+    PaletteResource *pal = AllocatePaletteResource(key);
+    pal->flags = (uint8)flags;
+    img_rect.h = 1;
     count = flags & 1 ? 16 : 256;
     cursor = colors;
-    for (uint32 index = 0; index < count; ++index, cursor += 2)
+    for (uint32 index = 0; index < count; ++index, ++cursor)
     {
-        color = r_u16(cursor);
+        color = xport_load_le16(cursor);
         if ((color & 0x7FFF) == 0x7C1F)
         {
             found = 1;
-            w_u16(cursor, 0);
+            xport_store_le16(cursor, 0);
         }
         else if (found || !color)
-            w_u16(cursor, color | 0x8000);
+            xport_store_le16(cursor, color | 0x8000);
     }
     if (!found)
     {
         cursor = colors;
-        for (uint32 index = 0; index < count; ++index, cursor += 2)
-            w_u16(cursor, r_u16(cursor) | 0x8000);
+        for (uint32 index = 0; index < count; ++index, ++cursor)
+            xport_store_le16(cursor, xport_load_le16(cursor) | 0x8000);
     }
     if (count == 16)
     {
         slot = AllocateSmallPaletteSlot();
-        w_u8(entry + 2, slot);
-        x_address = 0x800FF68C;
-        y_address = 0x800FF690;
+        pal->slot = (uint8)slot;
     }
     else
     {
         slot = AllocateLargePaletteSlot();
-        w_u8(entry + 2, slot);
-        x_address = 0x800FF694;
-        y_address = 0x800FF698;
+        pal->slot = (uint8)slot;
     }
-    x = r_u16(x_address);
-    y = r_u16(y_address);
-    rectangle[0] = (sint16)x;
-    slot = r_u8(entry + 2);
-    rectangle[1] = (sint16)(y + slot);
-    slot = r_u8(entry + 2);
+    const PalettePosition &pos = count == 16 ? small_pal_slots.pos : large_pal_slots.pos;
+    x = (uint16)pos.x;
+    y = (uint16)pos.y;
+    img_rect.x = (sint16)x;
+    slot = pal->slot;
+    img_rect.y = (sint16)(y + slot);
+    slot = pal->slot;
     y += slot;
-    x = r_u32(x_address);
-    w_u16(entry, (y << 6) | (((uint32)((sint32)x >> 4)) & 63));
-    rectangle[2] = (sint16)count;
-    xport_draft_host_sub_800885A4_p1(rectangle, colors);
-    w_u8(entry + 6, 1);
-    return entry;
+    x = pos.x;
+    pal->clut = (uint16)((y << 6) | (((uint32)((sint32)x >> 4)) & 63));
+    img_rect.w = (sint16)count;
+    LoadImagePSX(&img_rect, (uint32 *)colors);
+    pal->loaded = 1;
+    return pal;
 }
 
 extern "C" uint32 sub_800696A8(void)
@@ -239,19 +241,5 @@ extern "C" uint32 sub_800696A8(void)
     FUNCTION_MARKER(0x800696A8, "SLUS_003.73");
     return AllocateSmallPaletteSlot();
 }
-extern "C" uint32 sub_80069700(void)
-{
-    FUNCTION_MARKER(0x80069700, "SLUS_003.73");
-    return AllocateLargePaletteSlot();
-}
-extern "C" uint32 sub_80069758(uint32 key, uint32 colors, uint32 flags)
-{
-    FUNCTION_MARKER(0x80069758, "SLUS_003.73");
-    return LoadPaletteResource(key, colors, flags);
-}
 
-extern "C" uint32 sub_80069320(void)
-{
-    FUNCTION_MARKER(0x80069320, "SLUS_003.73");
-    return InitializePaletteResources();
-}
+

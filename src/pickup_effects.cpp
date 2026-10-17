@@ -1,3 +1,4 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -45,7 +46,7 @@ uint32 FlamethrowerPickupEffect::SetPosition(const uint32 *position)
     static const uint32 sizes[8] = {10, 30, 10, 35, 10, 35, 10, 30};
     static const uint32 color_offsets[12] = {12, 13, 14, 20, 21, 22, 156, 157, 158, 164, 165, 166};
     FUNCTION_MARKER(0x80031588, "SLUS_003.73");
-    value = r_u16(r_u32(0x800FF904) + 18);
+    value = r_u16(visual_lists.cameras + 18);
     angles[0] = 0;
     angles[2] = 0;
     angles[1] = (uint16)(value + 1024);
@@ -110,7 +111,7 @@ uint32 RipLaserPickupEffect::SetPosition(const uint32 *position)
         BeamSegments::Attach(r_u32(object + 72)).SetColors(64, 32, 128);
         BeamSegments::Attach(r_u32(object + 72)).SetSize(25);
     }
-    value = r_u16(r_u32(0x800FF904) + 18);
+    value = r_u16(visual_lists.cameras + 18);
     angles[0] = 0;
     angles[2] = 0;
     angles[1] = (uint16)(value + 1024);
@@ -209,27 +210,9 @@ PulseLaserPickupEffect::PulseLaserPickupEffect() : PickupEffect()
     w_u32(object + 68, 0x800A1A28);
 }
 
-extern "C" uint32 sub_800314CC(uint32 object)
-{
-    FUNCTION_MARKER(0x800314CC, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(FlamethrowerPickupEffect));
-    new (dram_addr) FlamethrowerPickupEffect();
-    return object;
-}
-extern "C" uint32 sub_80031BA8(uint32 object)
-{
-    FUNCTION_MARKER(0x80031BA8, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(RipLaserPickupEffect));
-    new (dram_addr) RipLaserPickupEffect();
-    return object;
-}
-extern "C" uint32 sub_80031E10(uint32 object)
-{
-    FUNCTION_MARKER(0x80031E10, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(PulseLaserPickupEffect));
-    new (dram_addr) PulseLaserPickupEffect();
-    return object;
-}
+
+
+
 
 FlamethrowerPickupEffect &FlamethrowerPickupEffect::Attach(uint32 object)
 {
@@ -356,13 +339,7 @@ uint32 ParticleBeamPickupEffect::Destroy(uint32 reason)
     return (reason & 1) ? ReleaseEffectStorage(object) : 0;
 }
 
-extern "C" uint32 sub_8003188C(uint32 object)
-{
-    FUNCTION_MARKER(0x8003188C, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(ParticleBeamPickupEffect));
-    new (dram_addr) ParticleBeamPickupEffect();
-    return object;
-}
+
 
 extern "C" uint32 sub_800318C0(uint32 object, uint32 reason)
 {
@@ -397,7 +374,7 @@ uint32 ParticleBeamPickupEffect::SetPosition(const uint32 *position)
         BeamSegments::Attach(r_u32(object + 76)).SetColors(185, 185, 185);
     }
     uint16 angles[4];
-    uint32 yaw = r_u16(r_u32(0x800FF904) + 18);
+    uint32 yaw = r_u16(visual_lists.cameras + 18);
     angles[0] = 0;
     angles[2] = 0;
     angles[1] = (uint16)(yaw + 1024);
@@ -449,7 +426,7 @@ uint32 ParticleBeamPickupEffect::SetPosition(const uint32 *position)
     }
     BeamSegments::Attach(r_u32(object + 72)).SetSize(15);
     uint32 phase = (1200 * r_u32(0x800FF2F0)) & 0x3FF0;
-    sint32 sine = (sint16)r_u16(0x800F863C + phase);
+    sint32 sine = rsin((phase) >> 2);
     child = r_u32(object + 72);
     uint32 product = 5 * (uint32)sine;
     uint32 buffer = r_u32(child + 80);

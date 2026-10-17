@@ -1,3 +1,5 @@
+#include "game_sdk_bindings.h"
+#include <stdlib.h>
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -16,27 +18,70 @@ static const uint32 effect_list_heads[13] =
     0x800FF458
 };
 
-uint32 InitializeEffectResources()
+static const TextureGroup *effect_groups[15];
+static const TextureGroup *button_group;
+static TextureResource *shadow_tex;
+static const char *const effect_group_names[15] =
 {
-    uint32 index, name, resource;
+    "ExpFire", "Fireball", "Fire", "Font", "Fontsmll", "Shadow", "Rock", "Smoke",
+    "Panel", "ExpAct", "orbit", "Ribbon", "firetile", "smtile", "firecycl"
+};
+
+void ForgetEffectTexture(const TextureGroup *grp)
+{
+    for (uint32 i = 0; i < 15; ++i)
+        if (effect_groups[i] == grp)
+            effect_groups[i] = 0;
+    if (button_group == grp)
+        button_group = 0;
+}
+
+void ForgetEffectTexture(const TextureResource *tex)
+{
+    if (shadow_tex == tex)
+        shadow_tex = 0;
+}
+
+void ClearEffectResourceBindings()
+{
+    for (uint32 i = 0; i < 15; ++i)
+        effect_groups[i] = 0;
+    button_group = 0;
+    shadow_tex = 0;
+}
+
+const TextureGroup *GetEffectResourceGroup(uint32 resource)
+{
+    if (resource >= 15)
+    {
+        GameDiagnostic("Invalid effect resource group %u\n", resource);
+        abort();
+    }
+    return effect_groups[resource];
+}
+
+const TextureGroup *GetButtonResourceGroup()
+{
+    return button_group;
+}
+
+const TextureResource *GetShadowTexture()
+{
+    return shadow_tex;
+}
+
+void InitializeEffectResources()
+{
     FUNCTION_MARKER(0x80032A0C, "SLUS_003.73");
     w_u32(0x800FF3A8, 0);
-    for (index = 0; index < 13; ++index)
-        w_u32(effect_list_heads[index], 0);
-    // Preserve the existing native GetTPage and SetDrawTPage packet adaptation
+    for (uint32 i = 0; i < 13; ++i)
+        w_u32(effect_list_heads[i], 0);
     w_u8(0x800FF46B, 1);
     w_u32(0x800FF46C, 0xE1000620);
-    for (index = 0; index < 15; ++index)
-    {
-        name = r_u32(0x800A67CC + index * 4);
-        resource = FindModelTextureGroup(name);
-        w_u32(0x800A6808 + index * 4, resource);
-    }
-    resource = FindModelTextureGroup(0x800FF40C);
-    w_u32(0x800FF01C, resource);
-    resource = FindModelResourceEntry(0x2A3B2550);
-    w_u32(0x800FF408, resource);
-    return resource;
+    for (uint32 i = 0; i < 15; ++i)
+        effect_groups[i] = FindModelTextureGroup(effect_group_names[i]);
+    button_group = FindModelTextureGroup("Buttons");
+    shadow_tex = FindModelResourceEntry(0x2A3B2550);
 }
 
 void DestroyTransientEffectList(uint32 object)
@@ -124,42 +169,18 @@ uint32 ReleaseEffectStorage(uint32 object)
     return ReleaseHeapBlock(object);
 }
 
-extern "C" uint32 sub_80032A0C(void)
-{
-    FUNCTION_MARKER(0x80032A0C, "SLUS_003.73");
-    return InitializeEffectResources();
-}
-extern "C" void sub_80032AF4(uint32 object)
-{
-    FUNCTION_MARKER(0x80032AF4, "SLUS_003.73");
-    DestroyTransientEffectList(object);
-}
-extern "C" void sub_80032B64(void)
-{
-    FUNCTION_MARKER(0x80032B64, "SLUS_003.73");
-    DestroyTransientEffects();
-}
-extern "C" void sub_80032C18(uint32 object)
-{
-    FUNCTION_MARKER(0x80032C18, "SLUS_003.73");
-    DestroyFinishedEffectList(object);
-}
-extern "C" void sub_80032C88(void)
-{
-    FUNCTION_MARKER(0x80032C88, "SLUS_003.73");
-    DestroyFinishedEffects();
-}
+
+
+
+
+
 
 extern "C" uint32 sub_80032DC0(uint32 size)
 {
     FUNCTION_MARKER(0x80032DC0, "SLUS_003.73");
     return AllocateEffectStorage(size);
 }
-extern "C" uint32 sub_80032E30(uint32 object)
-{
-    FUNCTION_MARKER(0x80032E30, "SLUS_003.73");
-    return ReleaseEffectStorage(object);
-}
+
 
 void UpdateEffectList(uint32 head)
 {
@@ -192,17 +213,9 @@ void UpdateEffects(void)
         UpdateEffectList(r_u32(heads[index]));
 }
 
-extern "C" void sub_80037258(uint32 head)
-{
-    FUNCTION_MARKER(0x80037258, "SLUS_003.73");
-    UpdateEffectList(head);
-}
 
-extern "C" void sub_800372B8(void)
-{
-    FUNCTION_MARKER(0x800372B8, "SLUS_003.73");
-    UpdateEffects();
-}
+
+
 
 
 void DestroyEffectsByIdentifier(uint32 identifier)
@@ -224,8 +237,4 @@ void DestroyEffectsByIdentifier(uint32 identifier)
     }
 }
 
-extern "C" void sub_8001F718(uint32 identifier)
-{
-    FUNCTION_MARKER(0x8001F718, "SLUS_003.73");
-    DestroyEffectsByIdentifier(identifier);
-}
+

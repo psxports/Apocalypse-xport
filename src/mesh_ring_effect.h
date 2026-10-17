@@ -2,6 +2,7 @@
 #define MESH_RING_EFFECT_H
 
 #include "effect_object.h"
+#include "texture_resources.h"
 
 // TODO Recover the original name for the 0x800A1398 ring mesh family
 class MeshRingEffect : public RenderableEffect
@@ -16,6 +17,9 @@ public:
     uint32 SetColors(uint32 red, uint32 green, uint32 blue);
     uint32 SetGeometry(const uint32 *position, uint32 radius, uint32 expansion);
     static MeshRingEffect &Attach(uint32 object);
+
+private:
+    TextureResource *tex;
 };
 
 #endif

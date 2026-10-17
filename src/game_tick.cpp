@@ -1,3 +1,4 @@
+#include "cheat_input.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -42,22 +43,22 @@ uint32 AdvanceGameTick(void)
     ResetHudTextQueue();
     PollPadPackets();
     if (r_u32(0x800FF008) || r_u32(0x800FF300))
-        UpdateVisualObjects((uint32 *)psx_addr(0x800FF904, 4));
+        UpdateVisualObjects(visual_lists.cameras);
     else
     {
         UpdateScreenFlash();
         ResetExplosionQueue();
-        ClearObjectActivationFlags(r_u32(0x800FF4E8));
-        ClearObjectActivationFlags(r_u32(0x800FF5DC));
+        ClearObjectActivationFlags(visual_lists.actors);
+        ClearObjectActivationFlags(visual_lists.solids);
         ClearScriptTouches();
-        UpdateVisualObjects((uint32 *)psx_addr(0x800FF5A0, 4));
+        UpdateVisualObjects(visual_lists.players);
         ReleaseUntouchedScripts();
         UpdateEffects();
-        UpdateVisualObjects((uint32 *)psx_addr(0x800FF204, 4));
-        UpdateVisualObjects((uint32 *)psx_addr(0x800FF220, 4));
-        UpdateVisualObjects((uint32 *)psx_addr(0x800FF5DC, 4));
-        UpdateVisualObjects((uint32 *)psx_addr(0x800FF8A0, 4));
-        UpdateVisualObjects((uint32 *)psx_addr(0x800FF4E8, 4));
+        UpdateVisualObjects(visual_lists.pickups);
+        UpdateVisualObjects(visual_lists.projectiles);
+        UpdateVisualObjects(visual_lists.solids);
+        UpdateVisualObjects(visual_lists.registry);
+        UpdateVisualObjects(visual_lists.actors);
         RestoreNearbyObjects();
         RestoreNearbySuspendedObjects();
         DestroyFinishedEffects();
@@ -66,7 +67,7 @@ uint32 AdvanceGameTick(void)
     DrawDebugPanel();
     UpdatePauseMenu();
     UpdateAnimatedHudText();
-    result = r_u32(0x800FF340);
+    result = GetCheatOptions().suspend_resource_loading;
     if (!result)
     {
         ProcessModelBankLoadQueue();
@@ -75,8 +76,4 @@ uint32 AdvanceGameTick(void)
     return result;
 }
 
-extern "C" uint32 sub_8002FF90(void)
-{
-    FUNCTION_MARKER(0x8002FF90, "SLUS_003.73");
-    return AdvanceGameTick();
-}
+

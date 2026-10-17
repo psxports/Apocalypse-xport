@@ -3,6 +3,9 @@
 
 #include "psx.h"
 
-uint32 PrepareLevelLoadingScreen(const char *name, uint32 image);
+void InitializeLevelLoadEstimates();
+void ResetLevelLoadDisplayState();
+uint32 DrawLevelLoadProgress();
+uint32 PrepareLevelLoadingScreen(const char *name, const char *image);
 
 #endif

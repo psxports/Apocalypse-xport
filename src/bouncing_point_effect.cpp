@@ -14,6 +14,7 @@ extern "C"
 
 BouncingPointEffect::BouncingPointEffect(const uint32 *position, const uint16 *angles) : PointSegments(1)
 {
+    CollisionRay &shared_ray = GetSharedCollisionRay();
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 direction[3], point[3], probe[3], child, random, value;
     uint16 rotation[3];
@@ -48,17 +49,17 @@ BouncingPointEffect::BouncingPointEffect(const uint32 *position, const uint16 *a
     w_u32(object + 40, value - 40960);
     BuildDirectionVector(probe, 145, rotation);
     AddVectors(probe, position);
-    w_u32(0x800ED638, probe[0]);
-    w_u32(0x800ED63C, probe[1]);
-    w_u32(0x800ED648, probe[1]);
-    w_u32(0x800ED640, probe[2]);
-    w_u32(0x800ED644, probe[0]);
-    w_u32(0x800ED64C, probe[2]);
-    w_u32(0x800ED648, probe[1] + 4096000);
-    InitializeCollisionRay((uint8 *)psx_addr(0x800ED638, 140));
-    QueryCollisionRay((uint8 *)psx_addr(0x800ED638, 140), 1);
-    if (r_u32(0x800ED6A0))
-        value = r_u32(0x800ED6A8);
+    shared_ray.pos[0][0] = (probe[0]);
+    shared_ray.pos[0][1] = (probe[1]);
+    shared_ray.pos[1][1] = (probe[1]);
+    shared_ray.pos[0][2] = (probe[2]);
+    shared_ray.pos[1][0] = (probe[0]);
+    shared_ray.pos[1][2] = (probe[2]);
+    shared_ray.pos[1][1] = (probe[1] + 4096000);
+    InitializeCollisionRay(shared_ray);
+    QueryCollisionRay(shared_ray, 1);
+    if (shared_ray.hit.GetObject())
+        value = shared_ray.hit_pos[1];
     else
         value = 0x7FFFFFFF;
     w_u32(object + 108, value);
@@ -139,13 +140,7 @@ BouncingPointEffect &BouncingPointEffect::Attach(uint32 object)
     return *static_cast<BouncingPointEffect *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_8002374C(uint32 object, uint32 position, uint32 angles)
-{
-    FUNCTION_MARKER(0x8002374C, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(BouncingPointEffect));
-    new (dram_addr) BouncingPointEffect((const uint32 *)psx_addr(position, 12), (const uint16 *)psx_addr(angles, 6));
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_projectile_construct_2374C(uint32 object, uint32 position, const sint16 angles[3])
 {

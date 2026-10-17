@@ -2,6 +2,9 @@
 #define PROJECTILE_OSCILLATING_H
 
 #include "effect_object.h"
+#include "model_instance.h"
+
+struct ModelPolygon;
 
 class OscillatingProjectile : public EffectController
 {
@@ -12,6 +15,8 @@ public:
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Update();
 
+private:
+    ModelReference impact;
 };
 
 #endif

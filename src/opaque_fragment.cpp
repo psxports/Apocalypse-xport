@@ -160,11 +160,7 @@ extern "C" uint32 xport_draft_host_sub_80036D48_p23(uint32 object, const void *p
     return object;
 }
 
-extern "C" uint32 sub_80036D48(uint32 object, uint32 position, uint32 velocity, uint32 floor, uint32 red, uint32 green, uint32 blue, uint32 extent_x, uint32 extent_y, uint32 extent_z)
-{
-    FUNCTION_MARKER(0x80036D48, "SLUS_003.73");
-    return xport_draft_host_sub_80036D48_p23(object, psx_addr(position, 12), psx_addr(velocity, 12), floor, red, green, blue, extent_x, extent_y, extent_z);
-}
+
 
 extern "C" uint32 sub_80036F98(uint32 object, uint32 reason)
 {

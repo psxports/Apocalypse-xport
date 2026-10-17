@@ -22,7 +22,7 @@ public:
     uint32 SetJumpDestination(const uint32 *position);
     uint32 TrackTarget(uint32 target);
     uint32 SetFacingPoint(const uint32 *position);
-    uint32 ClearFacing();
+    uint16 *ClearFacing();
     uint32 SetBoneFacingPoint(const uint32 *position);
     uint32 ClearBoneFacing();
     // Native ABI routes slot72 through SetScriptParameters to preserve its result

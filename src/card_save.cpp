@@ -115,21 +115,9 @@ uint32 DrainCardEvents(void)
     return TestEvent(r_u32(0x800FEEE0));
 }
 
-extern "C" uint32 sub_800102C0(void)
-{
-    FUNCTION_MARKER(0x800102C0, "SLUS_003.73");
-    return InitializeCardSaveHeader();
-}
-extern "C" uint32 sub_80010530(void)
-{
-    FUNCTION_MARKER(0x80010530, "SLUS_003.73");
-    return QueryCardSaveFile();
-}
-extern "C" uint32 sub_80010938(void)
-{
-    FUNCTION_MARKER(0x80010938, "SLUS_003.73");
-    return DrainCardEvents();
-}
+
+
+
 
 uint32 PollCardEvents(void)
 {
@@ -254,26 +242,10 @@ uint32 UpdateCardStatus(uint32 port, uint32 slot)
 #endif
 }
 
-extern "C" uint32 sub_8001081C(void)
-{
-    FUNCTION_MARKER(0x8001081C, "SLUS_003.73");
-    return PollCardEvents();
-}
-extern "C" uint32 sub_80010980(void)
-{
-    FUNCTION_MARKER(0x80010980, "SLUS_003.73");
-    return WaitForCardHardwareEvent();
-}
-extern "C" uint32 sub_800109F0(void)
-{
-    FUNCTION_MARKER(0x800109F0, "SLUS_003.73");
-    return DrainCardHardwareEvents();
-}
-extern "C" uint32 sub_80010AC8(uint32 port, uint32 slot)
-{
-    FUNCTION_MARKER(0x80010AC8, "SLUS_003.73");
-    return UpdateCardStatus(port, slot);
-}
+
+
+
+
 
 // TODO Bind the remaining file/directory services without fake card success
 static sint32 WriteCardFile(sint32 descriptor, uint32 buffer, uint32 size)
@@ -399,18 +371,6 @@ uint32 FormatCard(uint32 port, uint32 slot)
     return event;
 }
 
-extern "C" uint32 sub_800103E4(void)
-{
-    FUNCTION_MARKER(0x800103E4, "SLUS_003.73");
-    return WriteCardSaveFile();
-}
-extern "C" uint32 sub_80010A38(uint32 port, uint32 slot)
-{
-    FUNCTION_MARKER(0x80010A38, "SLUS_003.73");
-    return GetFreeCardBlocks(port, slot);
-}
-extern "C" uint32 sub_80010CBC(uint32 port, uint32 slot)
-{
-    FUNCTION_MARKER(0x80010CBC, "SLUS_003.73");
-    return FormatCard(port, slot);
-}
+
+
+

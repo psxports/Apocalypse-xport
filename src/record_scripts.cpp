@@ -1,3 +1,4 @@
+#include "visual_object.h"
 #include "angle_math.h"
 extern "C"
 {
@@ -5,6 +6,7 @@ extern "C"
 #include "draft_first_adapters.h"
 }
 #include "record_scripts.h"
+#include "game_string.h"
 #include "record_commands.h"
 #include "record_data.h"
 #include "record_factory.h"
@@ -58,16 +60,8 @@ uint32 ActivateResourceScript(uint32 resource)
     return 0;
 }
 
-extern "C" uint32 sub_80063C54(uint32 index)
-{
-    FUNCTION_MARKER(0x80063C54, "SLUS_003.73");
-    return FindScriptRecord(index);
-}
-extern "C" uint32 sub_80063D3C(uint32 resource)
-{
-    FUNCTION_MARKER(0x80063D3C, "SLUS_003.73");
-    return ActivateResourceScript(resource);
-}
+
+
 
 void ClearScriptTouches()
 {
@@ -99,21 +93,12 @@ void ReleaseUntouchedScripts()
     }
 }
 
-extern "C" uint32 sub_80063CC4(void)
-{
-    FUNCTION_MARKER(0x80063CC4, "SLUS_003.73");
-    ClearScriptTouches();
-    return 0;
-}
+
 
 // The frame caller discards the original incidental return register
-extern "C" void sub_80063CF0(void)
-{
-    FUNCTION_MARKER(0x80063CF0, "SLUS_003.73");
-    ReleaseUntouchedScripts();
-}
 
-uint32 SelectStartRecord(uint32 name)
+
+uint32 SelectStartRecord(const char *name)
 {
     uint32 index = 0, table, descriptor, payload, position[3], matched;
     FUNCTION_MARKER(0x80063DD4, "SLUS_003.73");
@@ -125,7 +110,7 @@ uint32 SelectStartRecord(uint32 name)
         if ((sint16)r_u16(descriptor) == 8)
         {
             payload = ReadRecordPosition(position, index);
-            matched = sub_80067724(payload + 6, name);
+            matched = NamesEqualIgnoringCase((const char *)psx_addr(payload + 6, 1), name);
             if (matched)
             {
                 w_u32(0x800FF620, index);
@@ -137,12 +122,17 @@ uint32 SelectStartRecord(uint32 name)
     return index << 2;
 }
 
+uint32 SelectStartRecord(uint32 name)
+{
+    return SelectStartRecord((const char *)psx_addr(name, 1));
+}
+
 uint32 ApplyStartRecord()
 {
     uint32 position[3], payload, player, cursor;
     FUNCTION_MARKER(0x80063E7C, "SLUS_003.73");
     payload = ReadRecordPosition(position, r_u32(0x800FF620));
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     w_u32(player + 4, position[0]);
     w_u32(player + 8, position[1]);
     w_u32(player + 12, position[2]);
@@ -157,16 +147,8 @@ uint32 ApplyStartRecord()
     return ResetPanelDisplayTimer();
 }
 
-extern "C" uint32 sub_80063DD4(uint32 name)
-{
-    FUNCTION_MARKER(0x80063DD4, "SLUS_003.73");
-    return SelectStartRecord(name);
-}
-extern "C" uint32 sub_80063E7C(void)
-{
-    FUNCTION_MARKER(0x80063E7C, "SLUS_003.73");
-    return ApplyStartRecord();
-}
+
+
 
 void UnloadLevelRecords()
 {
@@ -264,16 +246,8 @@ uint32 LoadLevelRecords(uint32 basename)
     return InitializeLevelRecords();
 }
 
-extern "C" void sub_80063F20(void)
-{
-    FUNCTION_MARKER(0x80063F20, "SLUS_003.73");
-    UnloadLevelRecords();
-}
-extern "C" uint32 sub_80063F4C(uint32 basename)
-{
-    FUNCTION_MARKER(0x80063F4C, "SLUS_003.73");
-    return LoadLevelRecords(basename);
-}
+
+
 
 uint32 RegisterResourceScript(uint32 resource, uint32 index, uint32 script)
 {
@@ -320,13 +294,5 @@ uint32 ClearResourceScripts()
     return result;
 }
 
-extern "C" uint32 sub_80063B5C(uint32 resource, uint32 index, uint32 script)
-{
-    FUNCTION_MARKER(0x80063B5C, "SLUS_003.73");
-    return RegisterResourceScript(resource, index, script);
-}
-extern "C" uint32 sub_80063BF0(void)
-{
-    FUNCTION_MARKER(0x80063BF0, "SLUS_003.73");
-    return ClearResourceScripts();
-}
+
+

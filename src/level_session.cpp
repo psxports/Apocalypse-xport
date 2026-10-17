@@ -1,3 +1,7 @@
+#include "visual_object.h"
+#include "cheat_input.h"
+#include "level_catalogue.h"
+#include "game_string.h"
 #include "game_sdk_bindings.h"
 #include "debug_finish_repro.h"
 #include "game_random.h"
@@ -35,7 +39,8 @@ uint32 sub_8008BF9C(uint32 format, uint32 value);
 
 uint32 LoadLevelFromPlayerSave(uint32 record)
 {
-    uint32 entry, name, context, bank_name, sequence_name, player, camera;
+    uint32 name, player, camera;
+    const LevelEntry *entry;
     uint32 health, lives, minimum, active_camera;
     FUNCTION_MARKER(0x80018C30, "SLUS_003.73");
 #if defined(_DEBUG)
@@ -45,20 +50,21 @@ uint32 LoadLevelFromPlayerSave(uint32 record)
     w_u32(0x800FF83C, record + 4);
     SetRandomSeed(0x12A6CC58);
     name = r_u32(0x800FF83C);
-    entry = FindLevelEntry(name);
+    entry = FindLevelEntry((const char *)psx_addr(name, 1));
+    if (!entry)
+    {
+        GameDiagnostic("Unknown level in player save\n");
+        abort();
+    }
     name = r_u32(0x800FF83C);
-    // TODO Preserve the original context read before the missing-level check
-    context = r_u32(entry + 16);
-    PrepareLevelLoadingScreen((const char *)psx_addr(name, 1), context);
+    PrepareLevelLoadingScreen((const char *)psx_addr(name, 1), entry->loading_image);
     if (entry)
     {
         StopMusicPlayback();
         ReleaseAudioSession();
         ReleaseLevelSoundBank();
-        bank_name = r_u32(entry + 12);
-        LoadLevelSoundBank(bank_name);
-        sequence_name = r_u32(entry + 8);
-        LoadAudioSequence(sequence_name);
+        LoadLevelSoundBank(entry->sound_bank);
+        LoadAudioSequence(entry->music);
     }
     SetResourceReadOption(2000);
     name = r_u32(0x800FF83C);
@@ -91,7 +97,7 @@ uint32 LoadLevelFromPlayerSave(uint32 record)
     ApplyStartRecord();
     CaptureCurrentPlayerSave();
     ResetPanelDisplayTimer();
-    active_camera = r_u32(0x800FF904);
+    active_camera = visual_lists.cameras;
     w_u32(active_camera + 564, 3);
     w_u8(0x800A72B8, 1);
     w_u8(0x800A72B9, 0);
@@ -104,15 +110,12 @@ uint32 LoadLevelFromPlayerSave(uint32 record)
     return 0x800C6310;
 }
 
-extern "C" uint32 sub_80018C30(uint32 record)
-{
-    FUNCTION_MARKER(0x80018C30, "SLUS_003.73");
-    return LoadLevelFromPlayerSave(record);
-}
+
 
 uint32 CompleteLevel(uint32 completed)
 {
-    uint32 owner = r_u32(0x800FF5A0), descriptor, value, state, target;
+    uint32 owner = visual_lists.players, value, state, target;
+    const LevelEntry *entry, *next_level;
     uint32 bonus = 0, count, denominator, numerator, name;
     FUNCTION_MARKER(0x800174A8, "SLUS_003.73");
     w_u32(0x800FF008, 1);
@@ -123,15 +126,20 @@ uint32 CompleteLevel(uint32 completed)
     sub_80070288(0, 1);
     w_u32(0x800FF758, 0);
     CaptureCurrentPlayerSave();
-    descriptor = FindLevelEntry(r_u32(0x800FF83C)) + 24;
-    value = r_u32(descriptor);
-    if (!r_u8(value))
+    entry = FindLevelEntry((const char *)psx_addr(r_u32(0x800FF83C), 1));
+    if (!entry)
+    {
+        GameDiagnostic("Unknown completed level\n");
+        abort();
+    }
+    next_level = NextLevelEntry(entry);
+    if (!next_level)
     {
         w_u32(0x800A53D4, 0);
         w_u32(0x800FF2EC, 3);
         return 3;
     }
-    sub_80067808(r_u32(descriptor + 4), 0x800A53D8);
+    CopyGameString(next_level->name, (char *)psx_addr(0x800A53D8, 1));
     value = r_u32(0x800A0578);
     w_u8(0x800A53E1, 0);
     w_u32(0x800FF040, completed);
@@ -206,11 +214,7 @@ uint32 CompleteLevel(uint32 completed)
     return 5;
 }
 
-extern "C" uint32 sub_800174A8(uint32 completed)
-{
-    FUNCTION_MARKER(0x800174A8, "SLUS_003.73");
-    return CompleteLevel(completed);
-}
+
 
 void ReleaseLevelLoadResources()
 {
@@ -220,28 +224,10 @@ void ReleaseLevelLoadResources()
     ReleaseScriptHeap();
 }
 
-uint32 QueueSelectedLevelResources()
-{
-    FUNCTION_MARKER(0x80011B34, "SLUS_003.73");
-    uint32 selection = r_u32(0x800FEFF0);
-    uint32 name = r_u32(0x800A5374 + (selection << 5));
-    QueueModelBankLoad(name, 0);
-    selection = r_u32(0x800FEFF0);
-    name = r_u32(0x800A5378 + (selection << 5));
-    QueueModelBankLoad(name, 1);
-    return AllocateScriptHeap(250000);
-}
 
-extern "C" void sub_80011B04(void)
-{
-    FUNCTION_MARKER(0x80011B04, "SLUS_003.73");
-    ReleaseLevelLoadResources();
-}
-extern "C" uint32 sub_80011B34(void)
-{
-    FUNCTION_MARKER(0x80011B34, "SLUS_003.73");
-    return QueueSelectedLevelResources();
-}
+
+
+
 
 void RunGameSession()
 {
@@ -249,7 +235,8 @@ void RunGameSession()
     uint32 state;
     uint32 source;
     uint32 destination;
-    uint32 pointer;
+    uint32 test_level;
+    const LevelEntry *entry;
     uint32 word0, word1, word2, word3;
     uint32 index;
     uint32 object;
@@ -277,7 +264,7 @@ restart:
     {
         if (state == 0)
         {
-            if (sub_80067724(0x800A5460, r_u32(0x800A5258)) != 0)
+            if (NamesEqualIgnoringCase((const char *)psx_addr(0x800A5460, 1), GetLevelEntry(0)->name))
                 PlayMovie(2);
             goto load_default;
         }
@@ -306,19 +293,19 @@ restart:
         w_u32(destination, word0);
         w_u32(destination + 4, word1);
         w_u32(destination + 8, word2);
-        pointer = 0x800A5254;
+        test_level = 0;
         for (;;)
         {
-            if (r_u8(r_u32(pointer + 4)) == 0)
-                pointer = 0x800A5254;
+            if (test_level >= GetLevelCount())
+                test_level = 0;
             ResetScene(0);
-            if (pointer == 0x800A5254)
+            if (test_level == 0)
             {
                 sub_8008BF9C(0x800A19D4, r_u32(0x800FF748));
                 sub_8008BF9C(0x800A19F0, r_u32(0x800FF74C));
             }
             index = 0;
-            sub_80067808(r_u32(pointer + 4), 0x800A5460);
+            CopyGameString(GetLevelEntry(test_level)->name, (char *)psx_addr(0x800A5460, 1));
             w_u8(0x800A5469, 0);
             LoadLevelFromPlayerSave(0x800A545C);
             while ((sint32)index < (sint32)r_u32(0x800FF628))
@@ -355,7 +342,7 @@ restart:
                 }
                 ++index;
             }
-            pointer += 0x18;
+            ++test_level;
         }
     }
     if (state != 3)
@@ -448,7 +435,7 @@ frame:
             count = r_u32(0x800FF874);
             if (count != 0)
             {
-                if (r_u32(0x800FF320) == 0)
+                if (GetCheatOptions().unlimited_lives == 0)
                 {
                     w_u32(0x800FF874, count - 1);
                     count = r_u32(0x800FF874);
@@ -478,8 +465,13 @@ frame:
             goto restart;
         case 3:
             ResetScene(0);
-            resource = sub_80018948(r_u32(0x800FF83C));
-            PlayMovie(r_u8(resource + 0x14));
+            entry = FindLevelEntry((const char *)psx_addr(r_u32(0x800FF83C), 1));
+            if (!entry)
+            {
+                GameDiagnostic("Unknown level for completion movie\n");
+                abort();
+            }
+            PlayMovie(entry->completion_movie);
             if (r_u32(0x800A53D4) == 0)
             {
                 refresh = 1;
@@ -550,61 +542,11 @@ extern "C" void sub_80030D74(void)
 }
 
 
-void ResetLevelLoadDisplayState()
-{
-    FUNCTION_MARKER(0x80016554, "SLUS_003.73");
-    w_u32(0x800FF050, 0);
-}
-
-extern "C" void sub_80016554(void)
-{
-    FUNCTION_MARKER(0x80016554, "SLUS_003.73");
-    ResetLevelLoadDisplayState();
-}
 
 
-uint32 DrawLevelLoadProgress()
-{
-    union
-    {
-        uint32 words[2];
-        sint16 values[4];
-    } rectangle;
-    uint32 result, value, increment, maximum;
-    FUNCTION_MARKER(0x80016560, "SLUS_003.73");
-    result = r_u32(0x800FF050);
-    if (!result)
-        return result;
-    if (r_u32(0x800FF700))
-    {
-        w_u32(0x800FF074, 1);
-        return 1;
-    }
-    if (!r_u32(0x800FF074))
-        return 0x80100000;
-    value = r_u32(0x800FF054);
-    increment = r_u32(0x800FF6FC);
-    maximum = r_u32(0x800FF058);
-    rectangle.words[0] = r_u32(0x800FF078);
-    rectangle.words[1] = r_u32(0x800FF07C);
-    value += increment;
-    w_u32(0x800FF054, value);
-    if (maximum && maximum >= value)
-    {
-        rectangle.values[2] = (sint16)((296 * value) / maximum);
-        result = xport_draft_host_sub_8008847C_p1(rectangle.values, 150, 0, 0);
-    }
-    else
-    {
-        rectangle.values[2] = 296;
-        result = xport_draft_host_sub_8008847C_p1(rectangle.values, 0, 0, 255);
-    }
-    w_u32(0x800FF074, 0);
-    return result;
-}
 
-extern "C" uint32 sub_80016560(void)
-{
-    FUNCTION_MARKER(0x80016560, "SLUS_003.73");
-    return DrawLevelLoadProgress();
-}
+
+
+
+
+

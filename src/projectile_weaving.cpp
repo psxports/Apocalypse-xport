@@ -1,3 +1,6 @@
+#include "visual_object.h"
+#include "object_damage.h"
+#include "model_projection.h"
 #include "model_resources.h"
 #include "effect_lifecycle.h"
 #include "game_random.h"
@@ -19,7 +22,7 @@ extern "C"
 #include <new>
 #include <string.h>
 
-WeavingProjectile::WeavingProjectile(const uint32 *position, const sint16 *angles, uint32 reverse, uint32 trail_segments, uint32 speed, uint32 owner_pointer, const uint32 *additional_vector)
+WeavingProjectile::WeavingProjectile(const uint32 *position, const sint16 *angles, uint32 reverse, uint32 trail_segments, uint32 speed, ModelInstance **owner_pointer, const uint32 *additional_vector)
     : ProjectileBase()
 {
     const uint32 object = NativeObjectGuestAddress(this);
@@ -30,12 +33,12 @@ WeavingProjectile::WeavingProjectile(const uint32 *position, const sint16 *angle
     value = r_u8(0x800FF645);
     w_u32(object + 68, 0x800A16A8);
     value = FindModelResourceIndex(0x350E968C, value);
-    w_u16(object + 22, value);
-    AddToList((uint32 *)psx_addr(0x800FF220, 4));
-    w_u16(object + 58, 60);
-    w_u32(object + 312, 1);
-    w_u16(object + 308, 300);
-    w_u32(object + 436, trail_segments);
+    this->model.model_idx = value;
+    AddToList(visual_lists.projectiles);
+    this->kind = 60;
+    projectile.damage_kind = (uint32)(1);
+    projectile.damage = (uint16)(300);
+    weaving.trail_segments = (uint32)(trail_segments);
     if (guest_angles)
     {
         packed = ReadAnglesWord(guest_angles);
@@ -48,52 +51,52 @@ WeavingProjectile::WeavingProjectile(const uint32 *position, const sint16 *angle
         tail = tail_half;
     }
     // Allocated objects have word alignment for the original SWL/SWR pair
-    w_u32(object + 16, packed);
-    w_u32(object + 16, packed);
-    w_u16(object + 20, tail);
-    BuildDirectionVector((uint32 *)psx_addr(object + 104, 12), speed, (const uint16 *)psx_addr(object + 16, 4));
-    AddVectors((uint32 *)psx_addr(object + 104, 12), additional_vector);
-    SubtractVectors(coordinates, position, (const uint32 *)psx_addr(object + 104, 12));
-    w_u32(object + 4, coordinates[0]);
-    w_u32(object + 8, coordinates[1]);
-    w_u32(object + 12, coordinates[2]);
-    w_u32(object + 304, owner_pointer);
-    w_u32(object + 300, 75);
+    this->model.SetAnglesXY(packed);
+    this->model.SetAnglesXY(packed);
+    this->model.angles[2] = tail;
+    BuildDirectionVector((uint32 *)motion.velocity, speed, (const uint16 *)this->model.angles);
+    AddVectors((uint32 *)motion.velocity, additional_vector);
+    SubtractVectors(coordinates, position, (const uint32 *)motion.velocity);
+    this->model.pos[0] = coordinates[0];
+    this->model.pos[1] = coordinates[1];
+    this->model.pos[2] = coordinates[2];
+    projectile.owner_list = owner_pointer;
+    projectile.lifetime = (uint32)(75);
     PrepareTrajectory(speed);
-    w_u8(object + 131, 31);
-    w_u8(object + 130, 31);
-    w_u8(object + 129, 31);
-    w_u8(object + 144, 1);
-    w_u8(object + 145, 1);
-    w_u8(object + 146, 1);
-    w_u16(object + 136, reverse ? (uint32)-400 : 400);
+    motion.drag[2] = 31;
+    motion.drag[1] = 31;
+    motion.drag[0] = 31;
+    motion.angular_drag[0] = 1;
+    motion.angular_drag[1] = 1;
+    motion.angular_drag[2] = 1;
+    motion.angular_velocity[2] = reverse ? (uint32)-400 : 400;
     w_u32(0x800FF3AC, 0);
     child = AllocateEffectStorage(104);
     if (child)
     {
         void *dram_addr = AllocateNativeObjectStorage(child, sizeof(RingEffect));
-        new (dram_addr) RingEffect((const uint32 *)psx_addr(object + 4, 12), 32, 32, 128, 128, 128, 16, 16, 64);
+        new (dram_addr) RingEffect((const uint32 *)this->model.pos, 32, 32, 128, 128, 128, 16, 16, 64);
     }
-    w_u32(object + 316, child);
+    projectile.glow_object = (uint32)(child);
     w_u8(child + 66, 1);
-    w_u32(object + 320, (uint32)-70);
+    projectile.glow_distance = (uint32)((uint32)-70);
     SyncChild();
-    packed = ReadAnglesWord(object + 16);
-    tail = r_u16(object + 20);
+    packed = (this->model.angles[0] | ((uint32)this->model.angles[1] << 16));
+    tail = this->model.angles[2];
     rotation[0] = (uint16)packed;
     rotation[1] = (uint16)(packed >> 16);
     rotation[2] = (uint16)tail;
     w_u32(0x800FF3AC, 1);
     rotation[1] = (rotation[1] + 1024) & 4095;
-    BuildDirectionVector((uint32 *)psx_addr(object + 380, 12), 8, rotation);
-    value = r_u16(object + 18);
+    BuildDirectionVector((uint32 *)weaving.axis[0], 8, rotation);
+    value = this->model.angles[1];
     rotation[0] = (rotation[0] + 1024) & 4095;
     rotation[1] = (uint16)value;
-    BuildDirectionVector((uint32 *)psx_addr(object + 392, 12), 8, rotation);
+    BuildDirectionVector((uint32 *)weaving.axis[1], 8, rotation);
     value = RandomRange(4096);
-    w_u32(object + 428, value);
+    weaving.phase[0] = (uint32)(value);
     value = RandomRange(4096);
-    w_u32(object + 432, value);
+    weaving.phase[1] = (uint32)(value);
     PlayPositionedSound(15, position, 0);
 }
 
@@ -102,116 +105,98 @@ uint32 WeavingProjectile::Destroy(uint32 reason)
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8002C8F8, "SLUS_003.73");
     w_u32(object + 68, 0x800A16A8);
-    RemoveFromList((uint32 *)psx_addr(0x800FF220, 4));
+    RemoveFromList(visual_lists.projectiles);
     uint32 result = ProjectileBase::Destroy(0);
     return (reason & 1) ? ReleaseObjectStorage(object) : result;
 }
 
 uint32 WeavingProjectile::Update()
 {
+    const ModelProjectionConfig &proj_cfg = GetModelProjectionConfig();
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 before[3], scaled[3], offset[3], difference[3];
-    uint32 age, phase, wave, divisor, effect, hit, list, table, receiver, target, damage, kind, limit, distance;
+    uint32 age, phase, wave, divisor, effect, damage, kind, limit, distance;
+    ModelInstance *receiver;
+    ModelInstance *hit;
+    ModelInstance **list;
     FUNCTION_MARKER(0x8002C95C, "SLUS_003.73");
-    before[0] = r_u32(object + 4);
-    before[1] = r_u32(object + 8);
-    before[2] = r_u32(object + 12);
-    SubtractVectors((uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 404, 12));
-    SubtractVectors((uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 416, 12));
-    AddVectors((uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 104, 12));
-    age = r_u32(object + 296);
-    phase = r_u32(object + 428);
-    wave = (uint32)(sint32)(sint16)r_u16(0x800F863C + ((500 * age + phase) & 4095) * 4);
-    MultiplyVector(scaled, (const uint32 *)psx_addr(object + 380, 12), &wave);
+    before[0] = this->model.pos[0];
+    before[1] = this->model.pos[1];
+    before[2] = this->model.pos[2];
+    SubtractVectors((uint32 *)this->model.pos, (const uint32 *)weaving.offset[0]);
+    SubtractVectors((uint32 *)this->model.pos, (const uint32 *)weaving.offset[1]);
+    AddVectors((uint32 *)this->model.pos, (const uint32 *)motion.velocity);
+    age = projectile.age;
+    phase = weaving.phase[0];
+    wave = (uint32)rsin((500 * age + phase) & 4095);
+    MultiplyVector(scaled, (const uint32 *)weaving.axis[0], &wave);
     divisor = 4096;
     DivideVector(offset, scaled, &divisor);
-    w_u32(object + 404, offset[0]);
-    w_u32(object + 408, offset[1]);
-    w_u32(object + 412, offset[2]);
-    age = r_u32(object + 296);
-    phase = r_u32(object + 432);
-    wave = (uint32)(sint32)(sint16)r_u16(0x800F863C + ((300 * age + phase) & 4095) * 4);
-    MultiplyVector(scaled, (const uint32 *)psx_addr(object + 392, 12), &wave);
+    weaving.offset[0][0] = (uint32)(offset[0]);
+    weaving.offset[0][1] = (uint32)(offset[1]);
+    weaving.offset[0][2] = (uint32)(offset[2]);
+    age = projectile.age;
+    phase = weaving.phase[1];
+    wave = (uint32)rsin((300 * age + phase) & 4095);
+    MultiplyVector(scaled, (const uint32 *)weaving.axis[1], &wave);
     divisor = 4096;
     DivideVector(offset, scaled, &divisor);
-    w_u32(object + 416, offset[0]);
-    w_u32(object + 420, offset[1]);
-    w_u32(object + 424, offset[2]);
-    AddVectors((uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 404, 12));
-    AddVectors((uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 416, 12));
+    weaving.offset[1][0] = (uint32)(offset[0]);
+    weaving.offset[1][1] = (uint32)(offset[1]);
+    weaving.offset[1][2] = (uint32)(offset[2]);
+    AddVectors((uint32 *)this->model.pos, (const uint32 *)weaving.offset[0]);
+    AddVectors((uint32 *)this->model.pos, (const uint32 *)weaving.offset[1]);
     SyncChild();
-    if (!r_u32(object + 296))
+    if (!projectile.age)
     {
         w_u32(0x800FF3AC, 0);
         effect = AllocateEffectStorage(100);
         if (effect)
         {
-            uint32 segments = r_u32(object + 436);
+            uint32 segments = weaving.trail_segments;
             void *dram_addr = AllocateNativeObjectStorage(effect, sizeof(RibbonTrail));
-            new (dram_addr) RibbonTrail((const uint32 *)psx_addr(object + 324, 12), segments, 128, 128, 128);
+            new (dram_addr) RibbonTrail((const uint32 *)projectile.glow_pos, segments, 128, 128, 128);
         }
-        w_u32(object + 336, effect);
+        projectile.trail_object = (uint32)(effect);
         w_u8(effect + 66, 1);
         w_u32(0x800FF3AC, 1);
     }
-    effect = r_u32(object + 336);
-    SpriteTrail::Attach(effect).SetPosition((const uint32 *)psx_addr(object + 324, 12));
-    list = r_u32(object + 304);
-    hit = TraceSegmentCollision(before, (const uint32 *)psx_addr(object + 4, 12), r_u32(list));
+    effect = projectile.trail_object;
+    SpriteTrail::Attach(effect).SetPosition((const uint32 *)projectile.glow_pos);
+    list = projectile.owner_list;
+    hit = TraceSegmentCollision(before, (const uint32 *)this->model.pos, *list);
     if (hit)
     {
-        damage = r_u16(object + 308);
-        table = r_u32(hit + 68);
-        kind = r_u32(object + 312);
-        receiver = hit + (uint32)(sint32)(sint16)r_u16(table + 48);
-        target = r_u32(table + 52);
-        apocalypse_object_virtual52_native(target, receiver, damage, (const sint32 *)psx_addr(0x800A71CC, 12), kind);
-        CallAction(64);
+        damage = projectile.damage;
+        kind = projectile.damage_kind;
+        receiver = hit;
+        static_cast<VisualObject *>(receiver->owner)->Damage(damage, (const sint32 *)psx_addr(0x800A71CC, 12), kind);
+        Explode();
     }
-    age = r_u32(object + 296);
-    limit = r_u32(object + 300);
+    age = projectile.age;
+    limit = projectile.lifetime;
     ++age;
-    w_u32(object + 296, age);
+    projectile.age = (uint32)(age);
     if ((sint32)limit < (sint32)age)
-        CallAction(64);
-    SubtractVectors(difference, (const uint32 *)psx_addr(r_u32(0x800FF904) + 4, 12), (const uint32 *)psx_addr(object + 4, 12));
+        Explode();
+    SubtractVectors(difference, (const uint32 *)psx_addr(visual_lists.cameras + 4, 12), (const uint32 *)this->model.pos);
     distance = MeasureSquaredVectorLength(difference);
-    limit = r_u32(0x800FFAC8);
+    limit = proj_cfg.far_depth;
     if ((sint32)(limit * limit) < (sint32)distance)
-        return CallAction(16);
+        return Finish();
     return 0;
 }
 
-uint32 WeavingProjectile::CallAction(uint32 slot)
-{
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 table = r_u32(object + 68);
-    uint32 receiver = object + (uint32)(sint32)(sint16)r_u16(table + slot);
-    uint32 target = r_u32(table + slot + 4);
-    if (target == 0x8002BFFC)
-        return ProjectileBase::Attach(receiver).ProjectileBase::Explode();
-    return xport_draft_guest_call1(target, receiver);
-}
+
 
 WeavingProjectile &WeavingProjectile::Attach(uint32 object)
 {
     return *static_cast<WeavingProjectile *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_8002C66C(uint32 object, uint32 position, uint32 angles, uint32 reverse, uint32 trail_segments, uint32 speed, uint32 owner_pointer, uint32 additional_vector)
-{
-    FUNCTION_MARKER(0x8002C66C, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(WeavingProjectile));
-    new (dram_addr) WeavingProjectile((const uint32 *)psx_addr(position, 12), (const sint16 *)psx_addr(angles, 6), reverse, trail_segments, speed, owner_pointer, (const uint32 *)psx_addr(additional_vector, 12));
-    return object;
-}
 
-extern "C" uint32 apocalypse_chopper_projectile_native(uint32 object, const uint32 position[3], const uint16 angles[3], uint32 reverse, uint32 trail_segments, uint32 speed, uint32 owner_pointer, uint32 additional_vector)
-{
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(WeavingProjectile));
-    new (dram_addr) WeavingProjectile(position, (const sint16 *)angles, reverse, trail_segments, speed, owner_pointer, (const uint32 *)psx_addr(additional_vector, 12));
-    return object;
-}
+
+
 
 extern "C" uint32 sub_8002C8F8(uint32 object, uint32 reason)
 {

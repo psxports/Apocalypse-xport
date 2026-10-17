@@ -1,3 +1,4 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -124,12 +125,12 @@ TraversalRail::TraversalRail(const uint32 *data, uint32 index) : VisualObject()
     FUNCTION_MARKER(0x80018E74, "SLUS_003.73");
     w_u32(object + 68, 0x800A07C0);
     value = ReadPathRecordWord(data, 0);
-    w_u32(object + 4, value << 12);
+    this->model.pos[0] = value << 12;
     value = ReadPathRecordWord(data, 1);
-    w_u32(object + 8, value << 12);
+    this->model.pos[1] = value << 12;
     value = ReadPathRecordWord(data, 2);
-    w_u16(object + 214, index);
-    w_u32(object + 12, value << 12);
+    this->record_idx = index;
+    this->model.pos[2] = value << 12;
     cursor = sub_80066088(index);
     sub_8006613C(object + 296, r_u16(cursor + 2));
     Initialize();
@@ -142,49 +143,49 @@ uint32 TraversalRail::Initialize()
     sint32 count;
     uint32 direction[3], normal[3], difference[3];
     FUNCTION_MARKER(0x80018F90, "SLUS_003.73");
-    flags = r_u16(object);
-    secondary_flags = r_u16(object + 78);
-    w_u16(object, flags | 1);
-    w_u16(object + 78, secondary_flags & 0xFFEF);
-    sub_80062A38(object, 0x800FF4E8);
+    flags = this->model.flags;
+    secondary_flags = this->lifecycle_flags;
+    this->model.flags = flags | 1;
+    this->lifecycle_flags = secondary_flags & 0xFFEF;
+    AddToList(visual_lists.actors);
     left = r_u32(object + 304);
-    right = r_u32(object + 12);
+    right = this->model.pos[2];
     x = r_u32(object + 296);
-    z = r_u32(object + 4);
+    z = this->model.pos[0];
     angle = 1024 - (uint32)ratan2((sint32)(left - right), (sint32)(x - z));
     left = r_u32(object + 296);
-    right = r_u32(object + 4);
+    right = this->model.pos[0];
     w_u16(object + 320, angle & 4095);
     direction[0] = (uint32)((sint32)(left - right) >> 12);
     left = r_u32(object + 300);
-    right = r_u32(object + 8);
+    right = this->model.pos[1];
     direction[1] = (uint32)((sint32)(left - right) >> 12);
     left = r_u32(object + 304);
-    right = r_u32(object + 12);
+    right = this->model.pos[2];
     direction[2] = (uint32)((sint32)(left - right) >> 12);
-    xport_draft_host_sub_800872BC_p12(direction, normal);
+    NormalizeShortVector(direction, normal);
     w_u32(object + 308, normal[0]);
     w_u32(object + 312, normal[1]);
     w_u32(object + 316, normal[2]);
-    left = r_u32(object + 4);
+    left = this->model.pos[0];
     right = r_u32(object + 296);
     upper = right;
     if ((sint32)left < (sint32)right)
         w_u32(object + 324, left);
     else
     {
-        upper = r_u32(object + 4);
+        upper = this->model.pos[0];
         w_u32(object + 324, right);
     }
     w_u32(object + 328, upper);
-    left = r_u32(object + 12);
+    left = this->model.pos[2];
     right = r_u32(object + 304);
     upper = right;
     if ((sint32)left < (sint32)right)
         w_u32(object + 332, left);
     else
     {
-        upper = r_u32(object + 12);
+        upper = this->model.pos[2];
         w_u32(object + 332, right);
     }
     w_u32(object + 336, upper);
@@ -209,10 +210,10 @@ uint32 TraversalRail::Initialize()
         new (dram_addr) SegmentEffect((uint32)count);
     }
     w_u32(object + 344, effect);
-    SegmentEffect::Attach(effect).SetEndpoints((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 296, 12));
+    SegmentEffect::Attach(effect).SetEndpoints((const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 296, 12));
     w_u8(r_u32(object + 344) + 66, 1);
     SegmentEffect::Attach(r_u32(object + 344)).Enable();
-    w_u16(object + 58, 400);
+    this->kind = 400;
     return 400;
 }
 
@@ -222,7 +223,7 @@ uint32 TraversalRail::Destroy(uint32 reason)
     uint32 child, table, receiver, target;
     FUNCTION_MARKER(0x8001919C, "SLUS_003.73");
     w_u32(object + 68, 0x800A07C0);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     child = r_u32(object + 344);
     if (child)
     {
@@ -277,7 +278,7 @@ uint32 TraversalRail::Update()
     uint32 camera, distance, color, effect, storage, index, offset, player, lower, coordinate, upper, result;
     uint32 collision[4];
     FUNCTION_MARKER(0x800193F8, "SLUS_003.73");
-    camera = r_u32(0x800FF904);
+    camera = visual_lists.cameras;
     distance = sub_8006696C(object + 4, camera + 4);
     color = GetTraversalRailBrightness(distance);
     effect = r_u32(object + 344);
@@ -292,7 +293,7 @@ uint32 TraversalRail::Update()
         do
         {
             storage = r_u32(effect + 76);
-            camera = r_u32(0x800FF904);
+            camera = visual_lists.cameras;
             distance = sub_8006696C(storage + offset, camera + 4);
             color = GetTraversalRailBrightness(distance);
             storage = r_u32(r_u32(object + 344) + 76) + offset;
@@ -305,7 +306,7 @@ uint32 TraversalRail::Update()
             offset += 16;
         } while (result);
     }
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     lower = r_u32(object + 324);
     coordinate = r_u32(player + 4);
     result = (sint32)lower < (sint32)coordinate;
@@ -328,7 +329,7 @@ uint32 TraversalRail::Update()
     if (result)
         return result;
     result = xport_draft_host_sub_8007C398_p3(object + 4, object + 296, collision, player, 0);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (result == player)
         w_u32(result + 512, object);
     return result;
@@ -355,7 +356,7 @@ FlexibleTraversalRail::FlexibleTraversalRail(const uint32 *data, uint32 index)
         offset += 6;
     }
     w_u32(object + 352, 0);
-    w_u16(object + 58, 401);
+    this->kind = 401;
 }
 
 uint32 FlexibleTraversalRail::Destroy(uint32 reason)
@@ -378,7 +379,7 @@ uint32 FlexibleTraversalRail::Update()
     uint32 difference[3], step[3], position[3];
     uint16 neighbor[3], delta[3], adjusted[3];
     FUNCTION_MARKER(0x800198A4, "SLUS_003.73");
-    camera = r_u32(0x800FF904);
+    camera = visual_lists.cameras;
     distance = sub_8006696C(object + 4, camera + 4);
     color = GetTraversalRailBrightness(distance);
     effect = r_u32(object + 344);
@@ -393,7 +394,7 @@ uint32 FlexibleTraversalRail::Update()
         do
         {
             storage = r_u32(effect + 76);
-            camera = r_u32(0x800FF904);
+            camera = visual_lists.cameras;
             distance = sub_8006696C(storage + offset, camera + 4);
             color = GetTraversalRailBrightness(distance);
             storage = r_u32(r_u32(object + 344) + 76) + offset;
@@ -437,13 +438,13 @@ uint32 FlexibleTraversalRail::Update()
         }
         xport_draft_host_sub_8006C3AC_p1(difference, object + 296, object + 4);
         xport_draft_host_sub_8006C4EC_p123(step, difference, &count);
-        position[0] = r_u32(object + 4);
-        position[1] = r_u32(object + 8);
-        position[2] = r_u32(object + 12);
+        position[0] = this->model.pos[0];
+        position[1] = this->model.pos[1];
+        position[2] = this->model.pos[2];
         effect = r_u32(object + 344);
-        x = r_u32(object + 4);
-        y = r_u32(object + 8);
-        z = r_u32(object + 12);
+        x = this->model.pos[0];
+        y = this->model.pos[1];
+        z = this->model.pos[2];
         w_u32(effect + 80, x);
         w_u32(effect + 84, y);
         w_u32(effect + 88, z);
@@ -474,7 +475,7 @@ uint32 FlexibleTraversalRail::Update()
         bank = r_u32(object + 352);
         w_u32(object + 352, bank ^ 1);
     }
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     lower = r_u32(object + 324);
     coordinate = r_u32(player + 4);
     result = (sint32)lower < (sint32)coordinate;
@@ -497,25 +498,15 @@ uint32 FlexibleTraversalRail::Update()
     if (result)
         return result;
     result = xport_draft_host_sub_8007C398_p3(object + 4, object + 296, collision, player, 0);
-    player = r_u32(0x800FF5A0);
+    player = visual_lists.players;
     if (result == player)
         w_u32(result + 512, object);
     return result;
 }
 
-extern "C" uint32 sub_80018E74(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x80018E74, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(TraversalRail));
-    new (dram_addr) TraversalRail((const uint32 *)psx_addr(data, 12), index);
-    return object;
-}
 
-extern "C" uint32 sub_80018F90(uint32 object)
-{
-    FUNCTION_MARKER(0x80018F90, "SLUS_003.73");
-    return TraversalRail::Attach(object).TraversalRail::Initialize();
-}
+
+
 
 extern "C" uint32 sub_8001919C(uint32 object, uint32 reason)
 {
@@ -529,13 +520,7 @@ extern "C" uint32 sub_800193F8(uint32 object)
     return TraversalRail::Attach(object).TraversalRail::Update();
 }
 
-extern "C" uint32 sub_800196D4(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x800196D4, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(FlexibleTraversalRail));
-    new (dram_addr) FlexibleTraversalRail((const uint32 *)psx_addr(data, 12), index);
-    return object;
-}
+
 
 extern "C" uint32 sub_80019788(uint32 object, uint32 reason)
 {
@@ -549,22 +534,14 @@ extern "C" uint32 sub_800198A4(uint32 object)
     return FlexibleTraversalRail::Attach(object).FlexibleTraversalRail::Update();
 }
 
-extern "C" uint32 sub_8001922C(uint32 record, uint32 position, uint32 scale, uint32 output)
-{
-    FUNCTION_MARKER(0x8001922C, "SLUS_003.73");
-    return AdvanceMovementConstraint(record, position, scale, output, 0);
-}
+
 
 extern "C" uint32 apocalypse_movement_1922C_native(uint32 record, uint32 position, uint32 scale, uint32 output[3])
 {
     return AdvanceMovementConstraint(record, position, scale, 0, output);
 }
 
-extern "C" uint32 sub_80019318(uint32 record, uint32 position, uint32 output)
-{
-    FUNCTION_MARKER(0x80019318, "SLUS_003.73");
-    return ProjectMovementConstraint(record, position, output, 0);
-}
+
 
 extern "C" uint32 apocalypse_movement_19318_native(uint32 record, uint32 position, uint32 output[3])
 {

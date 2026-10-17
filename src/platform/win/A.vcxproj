@@ -31,6 +31,9 @@
     <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
+  </ImportGroup>
   <PropertyGroup>
     </PropertyGroup>
   <PropertyGroup>
@@ -215,7 +218,18 @@
       <ForcedIncludeFiles />
     </ClCompile>
   </ItemGroup>
+  <ItemGroup Label="XportTemplateSync">
+    <MASM Include="..\..\..\..\xport\src\platform\win\xcrt_x86.asm">
+      <ExcludedFromBuild Condition="'$(XcrtEnabled)'!='true' or '$(Platform)'!='Win32'">true</ExcludedFromBuild>
+    </MASM>
+    <MASM Include="..\..\..\..\xport\src\platform\win\xcrt_x64.asm">
+      <ExcludedFromBuild Condition="'$(XcrtEnabled)'!='true' or '$(Platform)'!='x64'">true</ExcludedFromBuild>
+    </MASM>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
+  </ImportGroup>
   <ItemGroup>
     <ClCompile Include="..\..\game_main.cpp">
       <CompileAs>CompileAsCpp</CompileAs>
@@ -566,6 +580,7 @@
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
     <ClInclude Include="..\..\main_menu.h" />
+    <ClCompile Include="..\..\model_render_view.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
     <ClCompile Include="..\..\model_render.cpp">
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
@@ -627,6 +642,7 @@
     <ClCompile Include="..\..\visual_registry.cpp">
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
+    <ClInclude Include="..\..\cheat_input.h" />
     <ClCompile Include="..\..\cheat_input.cpp">
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
@@ -704,6 +720,33 @@
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
     <ClCompile Include="..\..\hud_sprites.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\model_materials.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\model_geometry.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\texture_resources.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\model_keys.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\model_hierarchy.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\model_attachment_data.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\model_animation_data.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\model_grid.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\model_vram.cpp">
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
     <ClCompile Include="..\..\model_resources.cpp">
@@ -790,6 +833,13 @@
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
     <ClInclude Include="..\..\startup_resources.h" />
+    <ClCompile Include="..\..\level_catalogue.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <ClInclude Include="..\..\level_catalogue.h" />
+    <ClCompile Include="..\..\startup_image.cpp">
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
     <ClCompile Include="..\..\movie_lifecycle.cpp">
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
@@ -837,7 +887,6 @@
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
     <ClInclude Include="..\..\menu_window.h" />
-    <ClInclude Include="..\..\animation.h" />
     <ClCompile Include="..\..\..\..\xport\src\psx_seq.c" />
     <ClCompile Include="..\..\debug_finish_repro.cpp">
       <CompileAs>CompileAsCpp</CompileAs>
@@ -866,4 +915,10 @@
     <ClInclude Include="..\..\..\..\xport\src\platform\win\xcrt.h" />
     <ClInclude Include="..\..\..\..\xport\src\xport_trace.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\object.h" />
+  </ItemGroup>
+  <Target Name="RejectNativeRefactoringLockstep" BeforeTargets="PrepareForBuild" Condition="'$(LockstepDebug)'=='true'">
+    <Error Text="Native refactoring is outside lockstep; use the preserved decomp baseline" />
+  </Target>
 </Project>

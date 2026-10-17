@@ -1,92 +1,188 @@
 #include "loading_screen.h"
+#include "startup_resources.h"
+#include "resource_io.h"
 #include "game_string.h"
-extern "C"
+#include "game_sdk_bindings.h"
+#include <stdlib.h>
+#include <string.h>
+
+struct LevelLoadEstimate
 {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-uint32 sub_80088B28(uint32 environment);
+    const char *name;
+    uint32 bytes;
+};
+
+struct LevelLoading
+{
+    LevelLoadEstimate *estimates;
+    char *names;
+    uint32 count;
+    uint32 completed;
+    uint32 maximum;
+    bool active;
+    bool pending;
+};
+
+static LevelLoading level_loading;
+
+static bool DecodeLevelLoadEstimates(const uint8 *data, uint32 bytes)
+{
+    uint32 pos = 0, count = 0, name_bytes = 0;
+    while (pos < bytes && data[pos])
+    {
+        uint32 begin = pos;
+        while (pos < bytes && data[pos])
+            ++pos;
+        if (pos == bytes || pos > 0x7FFFFFFC)
+            return false;
+        name_bytes += pos - begin + 1;
+        // Original counts begin at the aligned name terminator
+        pos = (pos + 3) & ~3;
+        for (;;)
+        {
+            if (pos > bytes || bytes - pos < 4)
+                return false;
+            uint32 size = xport_load_le32(data + pos);
+            pos += 4;
+            if (size == 0xFFFFFFFF)
+                break;
+        }
+        ++count;
+    }
+    if (pos == bytes || !count)
+        return false;
+    LevelLoadEstimate *estimates = (LevelLoadEstimate *)calloc(count, sizeof(*estimates));
+    char *names = (char *)malloc(name_bytes);
+    if (!estimates || !names)
+    {
+        free(estimates);
+        free(names);
+        return false;
+    }
+    pos = 0;
+    char *name = names;
+    for (uint32 idx = 0; idx < count; ++idx)
+    {
+        uint32 begin = pos;
+        while (data[pos])
+            ++pos;
+        uint32 len = pos - begin + 1;
+        memcpy(name, data + begin, len);
+        estimates[idx].name = name;
+        name += len;
+        pos = (pos + 3) & ~3;
+        uint32 size = xport_load_le32(data + pos);
+        pos += 4;
+        while (size != 0xFFFFFFFF)
+        {
+            estimates[idx].bytes += size;
+            size = xport_load_le32(data + pos);
+            pos += 4;
+        }
+    }
+    free(level_loading.estimates);
+    free(level_loading.names);
+    level_loading.estimates = estimates;
+    level_loading.names = names;
+    level_loading.count = count;
+    return true;
 }
 
-// Native rectangle view preserves the two ordered original word loads
-static void ReadLoadingRectangle(uint32 rectangle[2], uint32 address)
+void InitializeLevelLoadEstimates()
 {
-    rectangle[0] = r_u32(address);
-    rectangle[1] = r_u32(address + 4);
+    uint32 bytes = LookupResource("sizes.dat");
+    uint8 *data = (uint8 *)malloc(bytes);
+    if (!data)
+        abort();
+    BeginResourceRead((void *)data);
+    WaitForResourceRead();
+    bool valid = DecodeLevelLoadEstimates(data, bytes);
+    free(data);
+    if (!valid)
+    {
+        GameDiagnostic("Invalid level load estimates\n");
+        abort();
+    }
 }
 
-uint32 PrepareLevelLoadingScreen(const char *name, uint32 image)
+uint32 PrepareLevelLoadingScreen(const char *name, const char *image)
 {
     FUNCTION_MARKER(0x80016354, "SLUS_003.73");
-    uint32 rectangle[2];
-    sub_80088B28(0x800C636C);
-    ReadLoadingRectangle(rectangle, 0x800FF05C);
-    xport_draft_host_sub_8008847C_p1((const sint16 *)rectangle, 0, 0, 0);
-    sub_8001024C(0, image, 240);
-    ReadLoadingRectangle(rectangle, 0x800FF064);
-    xport_draft_host_sub_8008847C_p1((const sint16 *)rectangle, 100, 0, 0);
-    ReadLoadingRectangle(rectangle, 0x800FF06C);
-    xport_draft_host_sub_8008847C_p1((const sint16 *)rectangle, 0, 0, 0);
-    uint32 cursor = r_u32(0x800FF004);
-    w_u32(0x800FF050, 1);
-    w_u32(0x800FF058, 0);
-    uint32 result;
-    for (;;)
+    // Display environment remains a renderer boundary until the UI migration
+    PutDispEnv((DISPENV *)psx_addr(0x800C636C, sizeof(DISPENV)));
+    PSX_RECT rect = {0, 0, 512, 512};
+    ClearImage(&rect, 0, 0, 0);
+    LoadStartupImage(0, image, 240);
+    rect.x = 106;
+    rect.y = 200;
+    rect.w = 300;
+    rect.h = 12;
+    ClearImage(&rect, 100, 0, 0);
+    rect.x = 108;
+    rect.y = 201;
+    rect.w = 296;
+    rect.h = 10;
+    ClearImage(&rect, 0, 0, 0);
+    level_loading.active = true;
+    level_loading.maximum = 0;
+    level_loading.completed = 0;
+    for (uint32 idx = 0; idx < level_loading.count; ++idx)
     {
-        result = r_u8(cursor);
-        if (!result)
-            break;
-        if (NamesEqualIgnoringCase((const char *)psx_addr(cursor, 1), name))
+        const LevelLoadEstimate *estimate = level_loading.estimates + idx;
+        if (NamesEqualIgnoringCase(estimate->name, name))
         {
-            if (r_u8(cursor))
-            {
-                ++cursor;
-                uint32 value;
-                do
-                {
-                    value = r_u8(cursor);
-                    ++cursor;
-                } while (value);
-                --cursor;
-            }
-            uint32 words = (cursor + 3) & 0xFFFFFFFC;
-            result = r_u32(words);
-            while (result != 0xFFFFFFFF)
-            {
-                uint32 total = r_u32(0x800FF058);
-                uint32 size = r_u32(words);
-                words += 4;
-                w_u32(0x800FF058, total + size);
-                result = r_u32(words);
-            }
-            break;
+            level_loading.maximum = estimate->bytes;
+            return 0xFFFFFFFF;
         }
-        uint32 value;
-        do
-        {
-            value = r_u8(cursor);
-            ++cursor;
-        } while (value);
-        --cursor;
-        uint32 words = (cursor + 3) & 0xFFFFFFFC;
-        value = r_u32(words);
-        if (value != 0xFFFFFFFF)
-        {
-            words += 4;
-            do
-            {
-                value = r_u32(words);
-                words += 4;
-            } while (value != 0xFFFFFFFF);
-            words -= 4;
-        }
-        cursor = words + 4;
     }
-    w_u32(0x800FF054, 0);
+    return 0;
+}
+
+void ResetLevelLoadDisplayState()
+{
+    FUNCTION_MARKER(0x80016554, "SLUS_003.73");
+    level_loading.active = false;
+}
+
+uint32 DrawLevelLoadProgress()
+{
+    FUNCTION_MARKER(0x80016560, "SLUS_003.73");
+    if (!level_loading.active)
+        return 0;
+    if (GetResourceReadPhase())
+    {
+        level_loading.pending = true;
+        return 1;
+    }
+    if (!level_loading.pending)
+        return 0x80100000;
+    level_loading.completed += GetResourceReadProgress();
+    PSX_RECT rect = {108, 201, 0, 10};
+    uint32 result;
+    if (level_loading.maximum && level_loading.maximum >= level_loading.completed)
+    {
+        rect.w = (sint16)((296 * level_loading.completed) / level_loading.maximum);
+        result = (uint32)ClearImage(&rect, 150, 0, 0);
+    }
+    else
+    {
+        rect.w = 296;
+        result = (uint32)ClearImage(&rect, 0, 0, 255);
+    }
+    level_loading.pending = false;
     return result;
 }
 
 extern "C" uint32 sub_80016354(uint32 name, uint32 image)
 {
     FUNCTION_MARKER(0x80016354, "SLUS_003.73");
-    return PrepareLevelLoadingScreen((const char *)psx_addr(name, 1), image);
+    return PrepareLevelLoadingScreen((const char *)psx_addr(name, 1), (const char *)psx_addr(image, 1));
+}
+
+
+
+extern "C" uint32 sub_80016560(void)
+{
+    FUNCTION_MARKER(0x80016560, "SLUS_003.73");
+    return DrawLevelLoadProgress();
 }

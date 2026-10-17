@@ -1,3 +1,4 @@
+#include "model_render_view.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -24,14 +25,13 @@ static uint32 ReadMeshRingPosition(const uint32 *position, uint32 axis)
 MeshRingEffect::MeshRingEffect(uint32 segments, uint32 resource) : RenderableEffect()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 buffer, count, cursor, index, entry, texture;
+    uint32 buffer, count, cursor, index, texture;
     FUNCTION_MARKER(0x80028FB8, "SLUS_003.73");
     w_u32(object + 68, 0x800A1398);
     buffer = AllocateHeapBlock(140 * segments, 0, 1);
     w_u32(object + 80, buffer);
     w_u32(object + 76, segments);
-    entry = FindModelResourceEntry(resource);
-    w_u32(object + 72, entry);
+    tex = &GetTextureResource(resource);
     count = r_u32(object + 76);
     buffer = r_u32(object + 80);
     index = 0;
@@ -42,19 +42,15 @@ MeshRingEffect::MeshRingEffect(uint32 segments, uint32 resource) : RenderableEff
         {
             w_u8(cursor + 29, 12);
             w_u8(cursor + 33, 62);
-            entry = r_u32(object + 72);
-            texture = r_u16(entry + 2);
+            texture = tex->clut;
             w_u16(cursor + 40, texture);
-            entry = r_u32(object + 72);
-            texture = r_u16(entry + 6);
+            texture = tex->tpage;
             w_u8(cursor - 23, 12);
             w_u8(cursor - 19, 62);
             w_u16(cursor + 52, texture);
-            entry = r_u32(object + 72);
-            texture = r_u16(entry + 2);
+            texture = tex->clut;
             w_u16(cursor - 12, texture);
-            entry = r_u32(object + 72);
-            texture = r_u16(entry + 6);
+            texture = tex->tpage;
             index += 1;
             w_u16(cursor, texture);
             count = r_u32(object + 76);
@@ -89,14 +85,13 @@ uint32 MeshRingEffect::Update()
 uint32 MeshRingEffect::SetTextureOffsets(uint32 u, uint32 v, uint32 repeats)
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 entry, count, buffer, step, cursor, index, next_u, middle_v, bottom_v, result;
+    uint32 count, buffer, step, cursor, index, next_u, middle_v, bottom_v, result;
     sint32 numerator, denominator;
     FUNCTION_MARKER(0x80029324, "SLUS_003.73");
-    entry = r_u32(object + 72);
     w_u32(object + 100, u);
     w_u32(object + 104, v);
-    u = r_u8(entry) + (u & 63);
-    v = r_u8(entry + 1) + (v & 63);
+    u = tex->uv[0].u + (u & 63);
+    v = tex->uv[0].v + (v & 63);
     count = r_u32(object + 76);
     numerator = (sint32)(repeats << 6);
     denominator = (sint32)count;
@@ -245,13 +240,7 @@ uint32 MeshRingEffect::SetGeometry(const uint32 *position, uint32 radius, uint32
     return 0;
 }
 
-extern "C" uint32 sub_80028FB8(uint32 object, uint32 segments, uint32 resource)
-{
-    FUNCTION_MARKER(0x80028FB8, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(MeshRingEffect));
-    new (dram_addr) MeshRingEffect(segments, resource);
-    return object;
-}
+
 
 extern "C" uint32 sub_800290F4(uint32 object, uint32 reason)
 {
@@ -259,17 +248,9 @@ extern "C" uint32 sub_800290F4(uint32 object, uint32 reason)
     return MeshRingEffect::Attach(object).MeshRingEffect::Destroy(reason);
 }
 
-extern "C" uint32 sub_80029324(uint32 object, uint32 u, uint32 v, uint32 repeats)
-{
-    FUNCTION_MARKER(0x80029324, "SLUS_003.73");
-    return MeshRingEffect::Attach(object).SetTextureOffsets(u, v, repeats);
-}
 
-extern "C" uint32 sub_800293D8(uint32 object, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x800293D8, "SLUS_003.73");
-    return MeshRingEffect::Attach(object).SetColors(red, green, blue);
-}
+
+
 
 extern "C" uint32 sub_80029198(uint32 object, uint32 position, uint32 radius, uint32 expansion)
 {
@@ -285,7 +266,7 @@ extern "C" uint32 apocalypse_ring_position_native(uint32 object, const uint32 po
 static sint32 ReadMeshRingCameraOffset(uint32 address, uint32 axis)
 {
     uint32 position = r_u32(address);
-    uint32 camera = r_u32(0x800ED520 + axis * 4);
+    uint32 camera = GetModelRenderView().pos[axis];
     return (sint32)((uint32)((sint32)position >> 12) - camera);
 }
 
@@ -435,9 +416,9 @@ uint32 MeshRingEffect::Render()
     }
 
     v15 = 1;
-    v53 = r_u8(r_u32(((uint32)((a1 + 72)))));
+    v53 = tex->uv[0].u;
     v16 = 528482350;
-    v17 = r_u8(((uint32)((r_u32(((uint32)((a1 + 72)))) + 1))));
+    v17 = tex->uv[0].v;
     v55 = 64;
     v56 = 64;
     v54 = v17;

@@ -9,7 +9,7 @@ public:
     Turret(const uint8 *record_data, uint32 index);
     static Turret &Attach(uint32 object);
     virtual uint32 Destroy(uint32 reason);
-    virtual void ResetWeapon();
+    virtual uint32 ReleaseResources();
     virtual uint32 Update();
     uint32 DetachAndDestroy();
     uint32 AttachOperator(uint32 operator_object);
@@ -21,7 +21,7 @@ private:
     uint32 Init();
     void Fire(uint32 fire);
     uint32 UpdateState();
-    uint32 Aim();
+    void Aim();
     uint32 SetTargetRecord(uint32 index);
     uint32 SetTargetObject(uint32 target);
     uint32 ClearTarget();

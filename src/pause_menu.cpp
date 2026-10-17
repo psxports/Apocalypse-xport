@@ -1,14 +1,14 @@
-#include "camera.h"
+#include "menu_saves.h"
+#include "scene_lifecycle.h"
+#include "cheat_input.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
 #include "draft_first_adapters.h"
 uint32 sub_800154E0(uint32 object, uint32 label);
-uint32 sub_80017760(void);
-uint32 sub_8001779C(uint32 object);
-uint32 sub_80076D6C(void);
 }
 #include "pause_menu.h"
+#include "record_scripts.h"
 #include "card_save.h"
 #include "menu_input.h"
 #include "menu_window.h"
@@ -89,7 +89,7 @@ void UpdatePauseMenu(void)
     if ((!r_u8(0x800EC138) || (r_u32(0x800FF080) != 1)))
     {
         ReadMenuInput(&confirm, &cancel, &acknowledge, &pause_pressed);
-        ClearCameraPresetFlags();
+        ClearCheatInputBuffer();
     }
     v2 = 0;
     if (r_u32(0x800FF080))
@@ -134,11 +134,11 @@ void UpdatePauseMenu(void)
                 w_u32(0x800FF084, pause_menu);
                 sub_80015474(pause_menu, ((sint32)(r_u32((0x800A554C + (0) * 4)))));
                 sub_80015474(r_u32(0x800FF084), ((sint32)(r_u32((0x800A5580 + (0) * 4)))));
-                if (!r_u32(0x800FF338))
+                if (!GetCheatOptions().level_skip)
                     sub_8001551C(r_u32(0x800FF084), ((sint32)(r_u32((0x800A5580 + (0) * 4)))));
                 sub_80015474(r_u32(0x800FF084), ((sint32)(r_u32((0x800A555C + (0) * 4)))));
                 sub_800152F8(r_u32(0x800FF084));
-                w_u32(((uint32)((r_u32(0x800FF084) + 16))), (r_u32(((uint32)((r_u32(0x800FF084) + 16)))) + (5)));
+                MenuWindow::Attach(r_u32(0x800FF084)).pos[1] = (MenuWindow::Attach(r_u32(0x800FF084)).pos[1] + (5));
                 if (!r_u32(0x800EC264))
                     goto LABEL_62;
                 w_u32(0x800FF080, 1);
@@ -153,7 +153,7 @@ void UpdatePauseMenu(void)
                 w_u32(0x800FF080, 4);
             if (r_u8(0x800EC138))
             {
-                if (sub_80076D6C())
+                if (UpdateCheatInput())
                 {
                     w_u32(0x800FF00C, 32);
                     w_u32(0x800FF010, 0);
@@ -161,7 +161,7 @@ void UpdatePauseMenu(void)
                 sub_80070100(0x800EC0F8);
                 goto LABEL_190;
             }
-            if (r_u32(0x800FF338))
+            if (GetCheatOptions().level_skip)
                 sub_800154E0(r_u32(0x800FF084), r_u32(0x800A5580));
             else
                 sub_8001551C(r_u32(0x800FF084), ((sint32)(r_u32((0x800A5580 + (0) * 4)))));
@@ -212,7 +212,7 @@ void UpdatePauseMenu(void)
                 level_index = 0;
                 level_name_cursor = 0x800A71FC;
                 w_u32(0x800FF088, level_menu);
-                w_u32(((uint32)((level_menu + 20))), 18);
+                MenuWindow::Attach(level_menu).spacing = 18;
                 while (level_index < (sint32)r_u32(0x800FF618))
                 {
                     prefix[0] = r_u8(r_u32(level_name_cursor));
@@ -230,7 +230,7 @@ void UpdatePauseMenu(void)
             MenuWindow::Attach(r_u32(0x800FF088)).Update();
             if (confirm)
             {
-                sub_80063DD4(r_u32(((uint32)(((r_u32(0x800FF088) + (28 * r_u8(((uint32)((r_u32(0x800FF088) + 6)))))) + 24)))));
+                SelectStartRecord(MenuWindow::Attach(r_u32(0x800FF088)).GetSelectedLabel());
                 if (r_u32(0x800FF088))
                     DestroyPauseMenuObject(r_u32(0x800FF088));
                 close_menu = 1;
@@ -390,7 +390,7 @@ void UpdatePauseMenu(void)
                     card_state = 12;
                     if (!operation_failed)
                     {
-                        sub_800664E4(1);
+                        ::WaitForGameFrames(1);
                         operation_failed = (sint32)GetFreeCardBlocks(0, 0) > 0;
                         card_state = 12;
                         if (!operation_failed)
@@ -406,8 +406,8 @@ void UpdatePauseMenu(void)
                             new (dram_addr) MenuWindow(256, 55, 0, 256, 192, 18);
                         }
                         w_u32(0x800FF028, card_menu);
-                        w_u8(((uint32)((card_menu + 9))), 1);
-                        sub_8001779C(r_u32(0x800FF028));
+                        MenuWindow::Attach(card_menu).numbered = 1;
+                        ::PopulateSaveSelectionMenu(r_u32(0x800FF028));
                     }
                 }
             }
@@ -435,7 +435,7 @@ void UpdatePauseMenu(void)
             if (cancel)
             {
                 PlaySoundEffect(19, 0x2000, 0);
-                sub_80017760();
+                ::EnterSaveSelectionMenu();
                 menu_to_destroy = r_u32(0x800FF028);
                 goto LABEL_121;
             }
@@ -443,7 +443,7 @@ void UpdatePauseMenu(void)
             if (confirm)
             {
                 PlaySoundEffect(23, 0x2000, 0);
-                if (r_u32(((uint32)((0x800A493C + (((136 * r_u8(((uint32)((r_u32(0x800FF028) + 6))))) + 512)) * 1)))))
+                if (r_u32(((uint32)((0x800A493C + (((136 * MenuWindow::Attach(r_u32(0x800FF028)).selected) + 512)) * 1)))))
                 {
                     confirmation_menu = r_u32(0x800FF024);
                     next_state = 13;
@@ -457,7 +457,7 @@ void UpdatePauseMenu(void)
                     save_source = 0x800A53D4;
                     w_u32(0x800A53D4, sub_80018B44(0x800A53D4));
                     v2 = (sint32)0x800A5454;
-                    save_destination = (0x800A493C + (((136 * r_u8(((uint32)((r_u32(0x800FF028) + 6))))) + 512)) * 1);
+                    save_destination = (0x800A493C + (((136 * MenuWindow::Attach(r_u32(0x800FF028)).selected) + 512)) * 1);
                     do
                     {
                         copy_first = r_u32(save_source);
@@ -491,7 +491,7 @@ void UpdatePauseMenu(void)
                     PlaySoundEffect(23, 0x2000, 0);
                     overwrite_source = 0x800A53D4;
                     w_u32(0x800A53D4, sub_80018B44(0x800A53D4));
-                    overwrite_destination = (0x800A493C + (((136 * r_u8(((uint32)((r_u32(0x800FF028) + 6))))) + 512)) * 1);
+                    overwrite_destination = (0x800A493C + (((136 * MenuWindow::Attach(r_u32(0x800FF028)).selected) + 512)) * 1);
                     do
                     {
                         copy_first = r_u32(overwrite_source);
@@ -648,7 +648,7 @@ void UpdatePauseMenu(void)
                 PlaySoundEffect(v2, 0x2000, 0);
 
             LABEL_86:
-                sub_80017760();
+                ::EnterSaveSelectionMenu();
             }
         LABEL_190:
             if (r_u32(0x800FF008))
@@ -656,11 +656,11 @@ void UpdatePauseMenu(void)
                 result = r_u32(0x800FF0AC);
                 v36 = 951648256;
                 if (!result)
-                    result = sub_8002E148(951706923, 64, 64, 127);
+                    result = ::CreateMenuBuffers(951706923, 64, 64, 127);
             }
             else
             {
-                result = sub_8002E13C();
+                result = ::HasMenuBuffers();
                 w_u32(0x800FF0AC, result);
             }
 
@@ -734,8 +734,4 @@ void UpdatePauseMenu(void)
     }
 }
 
-extern "C" void sub_80017914(void)
-{
-    FUNCTION_MARKER(0x80017914, "SLUS_003.73");
-    UpdatePauseMenu();
-}
+

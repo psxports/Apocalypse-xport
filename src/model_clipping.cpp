@@ -1,7 +1,94 @@
+#include "game_sdk_bindings.h"
+#include "model_clipping.h"
+#include <stdlib.h>
 extern "C" void xport_draft_gte_execute(unsigned int opcode);
 extern "C"
 {
 #include "draft_first_signatures.h"
+}
+
+struct ClippedPolygonNode
+{
+    ModelPolygon poly;
+    ClippedPolygonNode *next;
+};
+
+static ClippedPolygonNode *clipped_head;
+static ClippedPolygonNode *clipped_cursor;
+static uint32 clipped_pending;
+
+static ClippedPolygonNode *AllocateClippedPolygonNode()
+{
+    ClippedPolygonNode *node = (ClippedPolygonNode *)calloc(1, sizeof(ClippedPolygonNode));
+    if (!node)
+    {
+        GameDiagnostic("Cannot allocate clipped model polygon\n");
+        abort();
+    }
+    return node;
+}
+
+static ModelPolygon *GetQueuedModelPolygon()
+{
+    if (!clipped_head)
+        clipped_head = AllocateClippedPolygonNode();
+    if (!clipped_cursor)
+        clipped_cursor = clipped_head;
+    if (!clipped_cursor->next)
+        clipped_cursor->next = AllocateClippedPolygonNode();
+    clipped_cursor->poly.next = &clipped_cursor->next->poly;
+    return &clipped_cursor->poly;
+}
+
+static ModelPolygon *AdvanceModelPolygonQueue()
+{
+    clipped_cursor = clipped_cursor->next;
+    return GetQueuedModelPolygon();
+}
+
+void ResetModelPolygonQueue()
+{
+    clipped_cursor = clipped_head;
+    clipped_pending = 0;
+}
+
+void ReleaseModelPolygonQueue()
+{
+    while (clipped_head)
+    {
+        ClippedPolygonNode *next = clipped_head->next;
+        free(clipped_head);
+        clipped_head = next;
+    }
+    clipped_cursor = 0;
+    clipped_pending = 0;
+}
+
+const ModelPolygon *ReadQueuedModelPolygons(uint32 &count)
+{
+    count = clipped_pending;
+    clipped_pending = 0;
+    return clipped_head ? &clipped_head->poly : 0;
+}
+
+static void CopyClippedPolygonMetadata(const ModelPolygon &src, ModelPolygon &dst, bool triangle)
+{
+    dst.flags = (uint16)(triangle ? src.flags | 16 : src.flags & 0xFFEF);
+    dst.source_stride = src.source_stride;
+    dst.color = src.color;
+    dst.n = src.n;
+    dst.surface = src.surface;
+    dst.clut = src.clut;
+    dst.tpage = src.tpage;
+    dst.window = GetModelPolygonWindow(src);
+    dst.window_alias = 0;
+    if (dst.source_stride == 20 && (dst.flags & 32))
+    {
+        // The original short descriptor writes its window over the next color
+        dst.next->color = dst.window;
+        dst.window_alias = &dst.next->color;
+    }
+    ++clipped_pending;
 }
 
 static uint32 DivideClipCoordinate(uint32 numerator, uint32 denominator)
@@ -13,13 +100,13 @@ static uint32 DivideClipCoordinate(uint32 numerator, uint32 denominator)
     return (uint32)((sint32)numerator / (sint32)denominator);
 }
 
-static void InterpolateNearPlaneEdge(uint32 descriptor, NearPlaneClipContext *context, uint32 first_index, uint32 second_index, uint32 first_uv_offset, uint32 second_uv_offset)
+static void InterpolateNearPlaneEdge(const ModelPolygon *descriptor, NearPlaneClipContext *context, uint32 first_index, uint32 second_index, uint32 first_uv_offset, uint32 second_uv_offset)
 {
     uint32 uv0, uv1, first_address, second_address, first_xy, second_xy, first_z, second_z;
     uint32 first_depth, second_depth, plane, numerator, fraction, first_x, first_y, second_x, second_y;
     uint32 x, y, z, packed, destination, first_u, first_v, second_u, second_v;
-    uv0 = r_u16(descriptor + first_uv_offset);
-    uv1 = r_u16(descriptor + second_uv_offset);
+    uv0 = descriptor->uv[first_uv_offset].uv;
+    uv1 = descriptor->uv[second_uv_offset].uv;
     context->packed_uv = uv0 | (uv1 << 16);
     first_address = context->projection_buffer + context->vertex_offsets[first_index];
     first_xy = r_u32(first_address + 8000);
@@ -84,87 +171,49 @@ static void InterpolateNearPlaneEdge(uint32 descriptor, NearPlaneClipContext *co
     xport_draft_gte_execute(0x1A8003E);
 }
 
-void ClipModelEdge01(uint32 descriptor, NearPlaneClipContext *context)
+void ClipModelEdge01(const ModelPolygon *descriptor, NearPlaneClipContext *context)
 {
     FUNCTION_MARKER(0x80083BF4, "SLUS_003.73");
-    InterpolateNearPlaneEdge(descriptor, context, 0, 1, 20, 24);
+    InterpolateNearPlaneEdge(descriptor, context, 0, 1, 0, 1);
 }
 
-void ClipModelEdge12(uint32 descriptor, NearPlaneClipContext *context)
+void ClipModelEdge12(const ModelPolygon *descriptor, NearPlaneClipContext *context)
 {
     FUNCTION_MARKER(0x80083C0C, "SLUS_003.73");
-    InterpolateNearPlaneEdge(descriptor, context, 1, 2, 24, 28);
+    InterpolateNearPlaneEdge(descriptor, context, 1, 2, 1, 2);
 }
 
-void ClipModelEdge20(uint32 descriptor, NearPlaneClipContext *context)
+void ClipModelEdge20(const ModelPolygon *descriptor, NearPlaneClipContext *context)
 {
     FUNCTION_MARKER(0x80083C24, "SLUS_003.73");
-    InterpolateNearPlaneEdge(descriptor, context, 2, 0, 28, 20);
+    InterpolateNearPlaneEdge(descriptor, context, 2, 0, 2, 0);
 }
 
-void ClipModelEdge13(uint32 descriptor, NearPlaneClipContext *context)
+void ClipModelEdge13(const ModelPolygon *descriptor, NearPlaneClipContext *context)
 {
     FUNCTION_MARKER(0x80083C3C, "SLUS_003.73");
-    InterpolateNearPlaneEdge(descriptor, context, 1, 3, 24, 30);
+    InterpolateNearPlaneEdge(descriptor, context, 1, 3, 1, 3);
 }
 
-void ClipModelEdge32(uint32 descriptor, NearPlaneClipContext *context)
+void ClipModelEdge32(const ModelPolygon *descriptor, NearPlaneClipContext *context)
 {
     FUNCTION_MARKER(0x80083C54, "SLUS_003.73");
-    InterpolateNearPlaneEdge(descriptor, context, 3, 2, 30, 28);
+    InterpolateNearPlaneEdge(descriptor, context, 3, 2, 3, 2);
 }
 
-void QueueClippedTriangle(uint32 descriptor, NearPlaneClipContext *context)
+void QueueClippedTriangle(const ModelPolygon *descriptor, NearPlaneClipContext *context)
 {
-    uint32 flags, color, parameters, clut, page, window, destination, count;
     FUNCTION_MARKER(0x80083E54, "SLUS_003.73");
-    flags = r_u32(descriptor);
-    color = r_u32(descriptor + 12);
-    parameters = r_u32(descriptor + 16);
-    clut = (uint32)(sint32)(sint16)r_u16(descriptor + 22);
-    page = (uint32)(sint32)(sint16)r_u16(descriptor + 26);
-    window = r_u32(descriptor + 32);
-    destination = context->queued_descriptor;
-    w_u32(destination, flags | 16);
-    w_u32(destination + 12, color);
-    w_u32(destination + 16, parameters);
-    w_u16(destination + 22, clut);
-    w_u16(destination + 26, page);
-    w_u32(destination + 32, window);
-    count = r_u32(context->scratch_base + 500);
-    w_u32(context->scratch_base + 500, count + 1);
+    CopyClippedPolygonMetadata(*descriptor, *context->queued_descriptor, true);
 }
 
-extern "C" void sub_80083BF4(uint32 descriptor, NearPlaneClipContext *context)
-{
-    FUNCTION_MARKER(0x80083BF4, "SLUS_003.73");
-    ClipModelEdge01(descriptor, context);
-}
-extern "C" void sub_80083C0C(uint32 descriptor, NearPlaneClipContext *context)
-{
-    FUNCTION_MARKER(0x80083C0C, "SLUS_003.73");
-    ClipModelEdge12(descriptor, context);
-}
-extern "C" void sub_80083C24(uint32 descriptor, NearPlaneClipContext *context)
-{
-    FUNCTION_MARKER(0x80083C24, "SLUS_003.73");
-    ClipModelEdge20(descriptor, context);
-}
-extern "C" void sub_80083C3C(uint32 descriptor, NearPlaneClipContext *context)
-{
-    FUNCTION_MARKER(0x80083C3C, "SLUS_003.73");
-    ClipModelEdge13(descriptor, context);
-}
-extern "C" void sub_80083C54(uint32 descriptor, NearPlaneClipContext *context)
-{
-    FUNCTION_MARKER(0x80083C54, "SLUS_003.73");
-    ClipModelEdge32(descriptor, context);
-}
-extern "C" void sub_80083E54(uint32 descriptor, NearPlaneClipContext *context)
-{
-    FUNCTION_MARKER(0x80083E54, "SLUS_003.73");
-    QueueClippedTriangle(descriptor, context);
-}
+
+
+
+
+
+
+
 
 enum NearPlaneEdge
 {
@@ -175,7 +224,7 @@ enum NearPlaneEdge
     Edge32
 };
 
-static void InterpolateSelectedClipEdge(uint32 descriptor, NearPlaneClipContext *context, NearPlaneEdge edge)
+static void InterpolateSelectedClipEdge(const ModelPolygon *descriptor, NearPlaneClipContext *context, NearPlaneEdge edge)
 {
     switch (edge)
     {
@@ -187,56 +236,44 @@ static void InterpolateSelectedClipEdge(uint32 descriptor, NearPlaneClipContext 
     }
 }
 
-static void DuplicateClipTriangle(uint32 descriptor, NearPlaneClipContext *context, uint32 flags, uint32 marked, uint32 first, uint32 second, uint32 third, uint32 first_uv, uint32 second_uv, uint32 third_uv)
+static void DuplicateClipTriangle(const ModelPolygon *descriptor, NearPlaneClipContext *context, uint32 flags, uint32 marked, uint32 first, uint32 second, uint32 third, uint32 first_uv, uint32 second_uv, uint32 third_uv)
 {
-    uint32 address, value, destination, uv0, uv1, uv2;
+    uint32 address, value, uv0, uv1, uv2;
+    ModelPolygon *destination;
     address = context->projection_buffer + context->vertex_offsets[marked];
     value = r_u16(address + 6);
     w_u16(address + 6, (value & 0xFF7F) | 0x8000);
     QueueClippedTriangle(descriptor, context);
     destination = context->queued_descriptor;
-    w_u16(destination + 4, context->vertex_offsets[first]);
-    w_u16(destination + 6, context->vertex_offsets[second]);
-    w_u16(destination + 8, context->vertex_offsets[third]);
-    w_u16(destination + 10, context->vertex_offsets[third]);
-    uv0 = r_u16(descriptor + first_uv);
-    uv1 = r_u16(descriptor + second_uv);
-    uv2 = r_u16(descriptor + third_uv);
-    w_u16(destination + 20, uv0);
-    w_u16(destination + 24, uv1);
-    w_u16(destination + 28, uv2);
-    context->queued_descriptor += flags >> 16;
+    destination->v[0] = (uint16)(context->vertex_offsets[first]) >> 3;
+    destination->v[1] = (uint16)(context->vertex_offsets[second]) >> 3;
+    destination->v[2] = (uint16)(context->vertex_offsets[third]) >> 3;
+    destination->v[3] = (uint16)(context->vertex_offsets[third]) >> 3;
+    uv0 = descriptor->uv[first_uv].uv;
+    uv1 = descriptor->uv[second_uv].uv;
+    uv2 = descriptor->uv[third_uv].uv;
+    destination->uv[0].uv = (uint16)(uv0);
+    destination->uv[1].uv = (uint16)(uv1);
+    destination->uv[2].uv = (uint16)(uv2);
+    context->queued_descriptor = AdvanceModelPolygonQueue();
 }
 
-static void QueueClippedQuadMetadata(uint32 descriptor, NearPlaneClipContext *context)
+static void QueueClippedQuadMetadata(const ModelPolygon *descriptor, NearPlaneClipContext *context)
 {
-    uint32 flags, color, parameters, clut, page, window, destination, count;
-    flags = r_u32(descriptor);
-    color = r_u32(descriptor + 12);
-    parameters = r_u32(descriptor + 16);
-    clut = (uint32)(sint32)(sint16)r_u16(descriptor + 22);
-    page = (uint32)(sint32)(sint16)r_u16(descriptor + 26);
-    window = r_u32(descriptor + 32);
-    destination = context->queued_descriptor;
-    w_u32(destination, flags & 0xFFFFFFEF);
-    w_u32(destination + 12, color);
-    w_u32(destination + 16, parameters);
-    w_u16(destination + 22, clut);
-    w_u16(destination + 26, page);
-    w_u32(destination + 32, window);
-    count = r_u32(context->scratch_base + 500);
-    w_u32(context->scratch_base + 500, count + 1);
+    CopyClippedPolygonMetadata(*descriptor, *context->queued_descriptor, false);
 }
 
-void QueueNearPlanePolygon(uint32 descriptor, uint32 scratch, uint32 projection, uint32 flags, const uint32 offsets[4], const uint32 depths[4])
+
+void QueueNearPlanePolygon(const ModelPolygon *descriptor, uint32 scratch, uint32 projection, uint32 flags, const uint32 offsets[4], const uint32 depths[4])
 {
     NearPlaneClipContext context;
     NearPlaneEdge first_edge, second_edge;
     uint32 outside0, outside1, outside2, outside3, first_uv_high, kept0, kept1 = 0, triangle;
-    uint32 axis, destination, generated_offset, uv0, uv1, current_projection;
+    uint32 axis, generated_offset, uv0, uv1, current_projection;
+    ModelPolygon *destination;
     context.projection_buffer = projection;
     context.generated_vertex_cursor = r_u32(scratch + 468);
-    context.queued_descriptor = r_u32(scratch + 484);
+    context.queued_descriptor = GetQueuedModelPolygon();
     context.scratch_base = scratch;
     context.packed_uv = 0;
     for (axis = 0; axis < 4; ++axis)
@@ -283,13 +320,13 @@ void QueueNearPlanePolygon(uint32 descriptor, uint32 scratch, uint32 projection,
         outside3 = depths[3] & 0x800000;
         if (!outside0 && !outside1 && !outside2)
         {
-            DuplicateClipTriangle(descriptor, &context, flags, 0, 2, 0, 1, 28, 20, 24);
+            DuplicateClipTriangle(descriptor, &context, flags, 0, 2, 0, 1, 2, 0, 1);
             first_edge = Edge32; second_edge = Edge13;
             first_uv_high = 1; kept0 = 2; kept1 = 1;
         }
         else if (!outside0 && !outside1 && !outside3)
         {
-            DuplicateClipTriangle(descriptor, &context, flags, 1, 0, 1, 3, 20, 24, 30);
+            DuplicateClipTriangle(descriptor, &context, flags, 1, 0, 1, 3, 0, 1, 3);
             first_edge = Edge20; second_edge = Edge32;
             first_uv_high = 1; kept0 = 0; kept1 = 3;
         }
@@ -305,7 +342,7 @@ void QueueNearPlanePolygon(uint32 descriptor, uint32 scratch, uint32 projection,
         }
         else if (!outside0 && !outside3)
         {
-            DuplicateClipTriangle(descriptor, &context, flags, 2, 3, 2, 0, 30, 28, 20);
+            DuplicateClipTriangle(descriptor, &context, flags, 2, 3, 2, 0, 3, 2, 0);
             first_edge = Edge13; second_edge = Edge01;
             first_uv_high = 1; kept0 = 3; kept1 = 0;
         }
@@ -316,7 +353,7 @@ void QueueNearPlanePolygon(uint32 descriptor, uint32 scratch, uint32 projection,
         }
         else if (!outside1 && !outside2)
         {
-            DuplicateClipTriangle(descriptor, &context, flags, 3, 1, 3, 2, 24, 30, 28);
+            DuplicateClipTriangle(descriptor, &context, flags, 3, 1, 3, 2, 1, 3, 2);
             first_edge = Edge01; second_edge = Edge20;
             first_uv_high = 1; kept0 = 1; kept1 = 2;
         }
@@ -349,43 +386,40 @@ void QueueNearPlanePolygon(uint32 descriptor, uint32 scratch, uint32 projection,
     destination = context.queued_descriptor;
     InterpolateSelectedClipEdge(descriptor, &context, first_edge);
     uv0 = first_uv_high ? context.packed_uv >> 16 : context.packed_uv;
-    w_u16(destination + 20, uv0);
+    destination->uv[0].uv = (uint16)(uv0);
     InterpolateSelectedClipEdge(descriptor, &context, second_edge);
     if (!triangle)
-        w_u16(destination + 24, context.packed_uv);
+        destination->uv[1].uv = (uint16)(context.packed_uv);
     current_projection = r_u32(0x800FFAC0);
-    w_u16(destination + 4, context.vertex_offsets[kept0]);
+    destination->v[0] = (uint16)(context.vertex_offsets[kept0]) >> 3;
     if (triangle)
     {
         generated_offset = context.generated_vertex_cursor - current_projection - 16;
-        w_u16(destination + 6, generated_offset);
+        destination->v[1] = (uint16)(generated_offset) >> 3;
         generated_offset += 8;
-        w_u16(destination + 8, generated_offset);
-        w_u16(destination + 10, generated_offset);
+        destination->v[2] = (uint16)(generated_offset) >> 3;
+        destination->v[3] = (uint16)(generated_offset) >> 3;
         uv0 = xport_gte_read_data(20);
         uv1 = xport_gte_read_data(22);
-        w_u16(destination + 24, uv0);
-        w_u16(destination + 28, uv1);
+        destination->uv[1].uv = (uint16)(uv0);
+        destination->uv[2].uv = (uint16)(uv1);
         QueueClippedTriangle(descriptor, &context);
     }
     else
     {
-        w_u16(destination + 6, context.vertex_offsets[kept1]);
+        destination->v[1] = (uint16)(context.vertex_offsets[kept1]) >> 3;
         generated_offset = context.generated_vertex_cursor - current_projection - 16;
-        w_u16(destination + 8, generated_offset);
-        w_u16(destination + 10, generated_offset + 8);
+        destination->v[2] = (uint16)(generated_offset) >> 3;
+        destination->v[3] = (uint16)(generated_offset + 8) >> 3;
         uv0 = xport_gte_read_data(20);
         uv1 = xport_gte_read_data(22);
-        w_u16(destination + 28, uv0);
-        w_u16(destination + 30, uv1);
+        destination->uv[2].uv = (uint16)(uv0);
+        destination->uv[3].uv = (uint16)(uv1);
         QueueClippedQuadMetadata(descriptor, &context);
     }
-    context.queued_descriptor += flags >> 16;
+    context.queued_descriptor = AdvanceModelPolygonQueue();
     w_u32(scratch + 468, context.generated_vertex_cursor);
-    w_u32(scratch + 484, context.queued_descriptor);
+
 }
 
-extern "C" void apocalypse_model_nearplane_native(uint32 descriptor, uint32 scratch, uint32 projection, uint32 flags, const uint32 offsets[4], const uint32 depths[4])
-{
-    QueueNearPlanePolygon(descriptor, scratch, projection, flags, offsets, depths);
-}
+

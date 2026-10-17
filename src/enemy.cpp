@@ -1,3 +1,7 @@
+#include "visual_object.h"
+#include "cd_voice_event.h"
+#include "game_panel.h"
+#include "screen_flash.h"
 #include "game_sdk_bindings.h"
 extern "C"
 {
@@ -52,7 +56,7 @@ extern "C"
 
 // Native ABI lookup for the recovered single-inheritance enemy hierarchy
 
-// Original slots 32, 40 and the default slot 56 are empty callbacks
+// Original slot 32 and the default slot 56 are empty callbacks
 
 // Legacy callers supply an already adjusted guest receiver
 
@@ -152,15 +156,6 @@ void Enemy::Callback639A4()
     FUNCTION_MARKER(0x800639A4, "SLUS_003.73");
 }
 
-void Enemy::Callback6399C()
-{
-    FUNCTION_MARKER(0x8006399C, "SLUS_003.73");
-}
-
-void Enemy::ResetWeapon()
-{
-}
-
 void Enemy::SetParameters(uint32 command)
 {
     ReadParameters(command);
@@ -192,31 +187,7 @@ uint32 apocalypse_enemy_update_cpp(uint32 target, uint32 receiver)
     }
 }
 
-uint32 apocalypse_enemy_damage_cpp(uint32 target, uint32 receiver, uint32 damage, uint32 guest_vector, const sint32 *native_vector, uint32 kind)
-{
-    switch (target)
-    {
-        case 0x800422C0: return TheBeast::Attach(receiver).TheBeast::Damage(damage, 0, kind);
-        case 0x8003E354: return War::Attach(receiver).War::Damage(damage, 0, kind);
-        case 0x80048428: return Death::Attach(receiver).Death::Damage(damage, 0, kind);
-        case 0x80045B14: return Plague::Attach(receiver).Plague::Damage(damage, 0, kind);
-        case 0x8003C490: return ScriptedLevelObject::Attach(receiver).ScriptedLevelObject::Damage(damage, 0, kind);
-        case 0x8005A7B0: return FloatingHazard::Attach(receiver).FloatingHazard::Damage(damage, 0, kind);
-        case 0x8005AF98: return BallisticHazard::Attach(receiver).BallisticHazard::Damage(damage, 0, kind);
-        case 0x800736AC: return Croc::Attach(receiver).Croc::Damage(damage, 0, kind);
-        case 0x8004A25C: return Bat::Attach(receiver).Bat::Damage(damage, native_vector ? native_vector : (guest_vector ? (const sint32 *)psx_addr(guest_vector, 12) : 0), kind);
-        case 0x800747A8: return HoundRat::Attach(receiver).HoundRat::Damage(damage, 0, kind);
-        case 0x80075930: return MiniTank::Attach(receiver).MiniTank::Damage(damage, native_vector ? native_vector : (guest_vector ? (const sint32 *)psx_addr(guest_vector, 12) : 0), kind);
-        case 0x80058A14: return Turret::Attach(receiver).Turret::Damage(damage, 0, kind);
-        case 0x80056C50: return Tank::Attach(receiver).Tank::Damage(damage, 0, kind);
-        case 0x80054714: return Chopper::Attach(receiver).Chopper::Damage(damage, 0, kind);
-        case 0x800593CC: return HovrSwat::Attach(receiver).HovrSwat::Damage(damage, native_vector ? native_vector : (guest_vector ? (const sint32 *)psx_addr(guest_vector, 12) : 0), kind);
-        case 0x8004F5C8: return Swat::Attach(receiver).Swat::Damage(damage, native_vector ? native_vector : (guest_vector ? (const sint32 *)psx_addr(guest_vector, 12) : 0), kind);
-        default:
-            GameDiagnostic("TODO C++ enemy damage target %08X\n", target);
-            abort();
-    }
-}
+
 
 uint32 apocalypse_enemy_script_cpp(uint32 target, uint32 receiver, uint32 command, uint32 *result)
 {
@@ -396,7 +367,7 @@ Enemy::Enemy() : Character()
     FUNCTION_MARKER(0x8004B800, "SLUS_003.73");
     count = r_u32(0x800FF4D8);
     w_u32(object + 68, 0x800A2B18);
-    w_u16(object + 214, 65535);
+    this->record_idx = 65535;
     w_u16(object + 212, 128);
     w_u16(object + 392, 32);
     w_u16(object + 476, 0);
@@ -414,12 +385,12 @@ uint32 Enemy::Finish()
     if (!result)
     {
         ActivateLinkedRecords();
-        flags = r_u16(object + 78);
-        state = r_u16(object);
+        flags = this->lifecycle_flags;
+        state = this->model.flags;
         flags |= 64;
         state |= 1;
-        w_u16(object + 78, flags);
-        w_u16(object, state);
+        this->lifecycle_flags = flags;
+        this->model.flags = state;
         result = flags;
     }
     return result;
@@ -443,7 +414,7 @@ uint32 Enemy::ActivateLinkedRecords()
     FUNCTION_MARKER(0x8004B948, "SLUS_003.73");
     if (r_u8(object + 385))
         return 65535;
-    index = r_u16(object + 214);
+    index = this->record_idx;
     if (index == 65535)
         return 1;
     w_u8(object + 385, 1);
@@ -456,7 +427,7 @@ uint32 Enemy::IntegrateMotion()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8004B9A4, "SLUS_003.73");
-    uint32 vector = object + 104;
+    uint32 *vector = motion.velocity;
     uint32 packed = r_u32(0x800FF5E4);
     uint32 second = r_u32(0x800FF5E4);
     uint32 z = (uint32)(sint32)(sint16)r_u16(0x800FF5E8);
@@ -466,15 +437,15 @@ uint32 Enemy::IntegrateMotion()
     w_u32(object + 164, packed);
     w_u16(object + 168, z);
     w_u16(object + 216, 0);
-    AddVectors((uint32 *)psx_addr(vector, 12), (const uint32 *)psx_addr(object + 116, 12));
-    DampVector((uint32 *)psx_addr(vector, 12), (const uint8 *)psx_addr(object + 129, 3));
-    SnapSmallVector((uint32 *)psx_addr(vector, 12));
-    AddVectors((uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(vector, 12));
-    AddAngleVector((uint16 *)psx_addr(object + 16, 6), (const uint16 *)psx_addr(object + 132, 6));
-    NormalizeAngles((uint16 *)psx_addr(object + 16, 6));
-    AddAngleVector((uint16 *)psx_addr(object + 132, 6), (const uint16 *)psx_addr(object + 138, 6));
-    DampAngles((uint16 *)psx_addr(object + 132, 6), (const uint8 *)psx_addr(object + 144, 3));
-    return SnapSmallAngles((uint16 *)psx_addr(object + 132, 6));
+    AddVectors((uint32 *)vector, (const uint32 *)motion.acceleration);
+    DampVector((uint32 *)vector, (const uint8 *)motion.drag);
+    SnapSmallVector((uint32 *)vector);
+    AddVectors((uint32 *)this->model.pos, (const uint32 *)vector);
+    AddAngleVector((uint16 *)this->model.angles, (const uint16 *)motion.angular_velocity);
+    NormalizeAngles((uint16 *)this->model.angles);
+    AddAngleVector((uint16 *)motion.angular_velocity, (const uint16 *)motion.angular_acceleration);
+    DampAngles((uint16 *)motion.angular_velocity, (const uint8 *)motion.angular_drag);
+    return SnapSmallAngles((uint16 *)motion.angular_velocity);
 }
 
 uint32 Enemy::AllocateBehaviorTable(uint32 rows, uint32 columns)
@@ -702,10 +673,10 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
             SetAnimationRange(value, 0, 0xFFFFFFFF);
             return 1;
         case 0x4203:
-            w_u16(object, r_u16(object) & 0xFFFE);
+            this->model.flags = this->model.flags & 0xFFFE;
             return 1;
         case 0x4204:
-            w_u16(object, r_u16(object) | 1);
+            this->model.flags = this->model.flags | 1;
             return 1;
         case 0x4205:
             table = r_u32(object + 68);
@@ -714,9 +685,9 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
             apocalypse_object_virtual20(target, receiver);
             return 1;
         case 0x4226:
-            w_u32(object + 112, 0);
-            w_u32(object + 108, 0);
-            w_u32(object + 104, 0);
+            motion.velocity[2] = 0;
+            motion.velocity[1] = 0;
+            motion.velocity[0] = 0;
             return 1;
         case 0x4227:
             value = ReadEnemyCommandWord(object);
@@ -761,7 +732,7 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
             return 1;
         case 0x4291:
             value = ReadEnemyCommandWord(object);
-            PlayPositionedSound((sint16)value, (const uint32 *)psx_addr(object + 4, 12), 0);
+            PlayPositionedSound((sint16)value, (const uint32 *)this->model.pos, 0);
             return 1;
         case 0x4292:
             cursor = r_u32(object + 400);
@@ -770,7 +741,7 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
             w_u32(object + 400, cursor + 2);
             if ((sint32)second >= 200)
                 return 1;
-            SetParticleDirection((const sint16 *)psx_addr(object + 16, 6));
+            SetParticleDirection((const sint16 *)this->model.angles);
             angles[0] = 512;
             angles[1] = 4096;
             angles[2] = 0;
@@ -785,19 +756,19 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
                 if (created)
                 {
                     void *dram_addr = AllocateNativeObjectStorage(created, sizeof(FadingParticle));
-                    new (dram_addr) FadingParticle((const uint32 *)psx_addr(object + 4, 12), 32, 8192, 32);
+                    new (dram_addr) FadingParticle((const uint32 *)this->model.pos, 32, 8192, 32);
                 }
             }
             w_u32(0x800FF3AC, 1);
             return 1;
         case 0x4293:
             cursor = (r_u32(object + 400) + 3) & ~3;
-            sub_8002E600(r_u32(cursor));
+            ::PrepareMovieTexture(r_u32(cursor));
             w_u32(object + 400, cursor + 4);
             return 1;
         case 0x4294:
             sub_8002E6D8(object + 4);
-            table = GetRecordPayload(r_u16(object + 214));
+            table = GetRecordPayload(this->record_idx);
             cursor = table;
             for (i = 0; i < r_u16(table); ++i)
             {
@@ -806,14 +777,14 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
                 ReadRecordPosition(position, value);
                 sub_8002E6D8(object + 4);
             }
-            sub_8002EF68();
+            ::PrepareMoviePlaybackBuffers();
             return 1;
         case 0x4295:
             ResetMoviePlayback();
             return 1;
         case 0x4296:
             value = ReadEnemyCommandWord(object);
-            sub_8006A428();
+            ::RestoreMusicPlayback();
             return 1;
         case 0x4297:
             value = ReadEnemyCommandWord(object);
@@ -821,13 +792,13 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
             return 1;
         case 0x4298:
             value = ReadEnemyCommandValue(object);
-            created = r_u32(0x800FF904);
+            created = visual_lists.cameras;
             if (created)
                 Camera::Attach(created).ApplyExplosionShake(value == 0 ? 2 : value == 1 ? 1 : 0);
             return 1;
         case 0x4299:
             value = ReadEnemyCommandWord(object);
-            sub_8002EE7C(value & 0xFF);
+            ::SelectMovieRecord(value & 0xFF);
             return 1;
         case 0x429A:
         case 0x42A6:
@@ -838,9 +809,9 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
             }
             else
             {
-                position[0] = r_u32(object + 4);
-                position[1] = r_u32(object + 8);
-                position[2] = r_u32(object + 12);
+                position[0] = this->model.pos[0];
+                position[1] = this->model.pos[1];
+                position[2] = this->model.pos[2];
             }
             value = ReadEnemyCommandWord(object);
             if (value < 2)
@@ -868,7 +839,7 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
             count = r_u16(cursor + 6);
             cursor = r_u32(object + 400);
             created = r_u16(cursor + 8);
-            sub_8001BE78(value, second, third, count, 0, created);
+            ::SetScreenFlash(value, second, third, count, 0, created);
             w_u32(object + 400, r_u32(object + 400) + 10);
             return 1;
         case 0x429D:
@@ -876,7 +847,7 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
             sub_8002EF58();
             return 1;
         case 0x429E:
-            w_u32(0x800FF37C, r_u32(object + 8));
+            w_u32(0x800FF37C, this->model.pos[1]);
             return 1;
         case 0x42A0:
             value = ReadEnemyCommandValue(object);
@@ -903,7 +874,7 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
             w_u32(object + 400, cursor);
             second = r_u16(cursor);
             w_u32(object + 400, cursor + 2);
-            sub_8002FD2C(value, second);
+            ::SelectCdVoice(value, second);
             return 1;
         case 0x42A4:
             cursor = (r_u32(object + 400) + 3) & ~3;
@@ -914,7 +885,7 @@ uint32 Enemy::ExecuteCommand(uint32 opcode)
             w_u32(object + 400, cursor + 8);
             third = r_u16(cursor + 8);
             w_u32(object + 400, cursor + 10);
-            sub_8002E148(r_u32(cursor), value, second, third & 0xFF);
+            ::CreateMenuBuffers(r_u32(cursor), value, second, third & 0xFF);
             return 1;
         case 0x42A5:
             ReleaseMovieFrameBuffers();
@@ -983,10 +954,10 @@ uint32 Enemy::ReadParameters(uint32 command)
             return cursor + 4;
         case 8495:
             cursor = (r_u32(object + 400) + 3) & 0xFFFFFFFC;
-            bank = r_u8(object + 27);
+            bank = this->model.bank;
             value = r_u32(cursor);
             result = FindModelResourceIndex(value, bank);
-            w_u16(object + 22, result);
+            this->model.model_idx = result;
             w_u32(object + 400, cursor + 4);
             return result;
         case 8512:
@@ -999,9 +970,9 @@ uint32 Enemy::ReadParameters(uint32 command)
             cursor = r_u32(object + 400);
             value = r_u16(cursor);
             w_u32(object + 400, cursor + 2);
-            result = r_u16(object);
+            result = this->model.flags;
             result = value ? result | 8 : result & 0xFFF7;
-            w_u16(object, result);
+            this->model.flags = result;
             return result;
         case 8480:
             cursor = r_u32(object + 400);
@@ -1098,7 +1069,7 @@ uint32 Enemy::ResolveParameter(uint32 opcode)
             w_u32(object + 400, cursor + 2);
             return RandomRange(value);
         case 8490:
-            return r_u16(object + 214);
+            return this->record_idx;
         case 8491:
             cursor = r_u32(object + 400);
             value = r_u16(cursor);
@@ -1119,20 +1090,20 @@ uint32 Enemy::ResolveParameter(uint32 opcode)
         case 8494:
             return r_u16(object + 392);
         case 8498:
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             if (!player)
                 return 8191;
-            result = MeasureHorizontalDistance((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(player + 4, 12));
+            result = MeasureHorizontalDistance((const uint32 *)this->model.pos, (const uint32 *)psx_addr(player + 4, 12));
             return result < 8192 ? result : 8191;
         case 8499:
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             if (!player)
                 return 0;
             {
                 uint32 position[3];
-                position[0] = r_u32(object + 4);
-                position[1] = r_u32(object + 8);
-                position[2] = r_u32(object + 12);
+                position[0] = this->model.pos[0];
+                position[1] = this->model.pos[1];
+                position[2] = this->model.pos[2];
                 position[1] -= (uint32)(sint32)(sint16)r_u16(object + 458) << 12;
                 return IsSegmentVisible(position, (const uint32 *)psx_addr(player + 4, 12));
             }
@@ -1145,18 +1116,14 @@ uint32 Enemy::ResolveParameter(uint32 opcode)
         case 8528:
         case 8529:
         case 8530:
-            player = r_u32(0x800FF5A0);
+            player = visual_lists.players;
             return player ? (uint32)((sint32)r_u32(player + 4 + (opcode - 8528) * 4) >> 12) : 0;
         default:
             return 0;
     }
 }
 
-extern "C" uint32 sub_8004B800(uint32 object)
-{
-    FUNCTION_MARKER(0x8004B800, "SLUS_003.73");
-    return InitializeEnemyBase(object);
-}
+
 
 extern "C" uint32 sub_8004B9A4(uint32 object)
 {
@@ -1170,11 +1137,7 @@ extern "C" uint32 sub_8004BD04(uint32 object, uint32 rows, uint32 columns)
     return Enemy::Attach(object).Enemy::AllocateBehaviorTable(rows, columns);
 }
 
-extern "C" uint32 sub_8004BD94(uint32 object, uint32)
-{
-    FUNCTION_MARKER(0x8004BD94, "SLUS_003.73");
-    return Enemy::Attach(object).Enemy::FreeBehaviorTable();
-}
+
 
 extern "C" uint32 sub_8004BDCC(uint32 object, uint32 row, uint32 column, uint32 value)
 {
@@ -1212,11 +1175,7 @@ extern "C" uint32 sub_8004B914(uint32 object, uint32 damage)
     return ScaleDamageForDifficulty(damage);
 }
 
-extern "C" uint32 sub_8004CF78(uint32 object)
-{
-    FUNCTION_MARKER(0x8004CF78, "SLUS_003.73");
-    return Enemy::Attach(object).Enemy::ReadScriptValue();
-}
+
 
 extern "C" uint32 sub_8004CFDC(uint32 object, uint32 command)
 {
@@ -1224,11 +1183,7 @@ extern "C" uint32 sub_8004CFDC(uint32 object, uint32 command)
     return Enemy::Attach(object).Enemy::ReadParameters(command);
 }
 
-extern "C" uint32 sub_8004BE30(uint32 object)
-{
-    FUNCTION_MARKER(0x8004BE30, "SLUS_003.73");
-    return Enemy::Attach(object).Enemy::SkipConditionalBlock();
-}
+
 
 extern "C" uint32 sub_8004D2B4(uint32 object, uint32 opcode)
 {

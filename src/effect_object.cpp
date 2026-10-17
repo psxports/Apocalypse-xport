@@ -1,3 +1,4 @@
+#include "game_sdk_bindings.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -255,7 +256,7 @@ EffectController::EffectController() : EffectObject()
     AddToList((uint32 *)psx_addr(0x800FF434, 4));
 }
 
-TexturedEffect::TexturedEffect() : EffectObject()
+TexturedEffect::TexturedEffect() : EffectObject(), tex_group(0), tex_frame(0)
 {
     const uint32 object = NativeObjectGuestAddress(this);
     InitializeTexturedEffectFields(object);
@@ -433,35 +434,49 @@ uint32 TexturedEffect::SetColors(uint32 red, uint32 green, uint32 blue)
     return result;
 }
 
+TexturedEffect &TexturedEffect::Attach(uint32 object)
+{
+    return *static_cast<TexturedEffect *>(FindNativeObjectStorage(object));
+}
+
+const TextureFrame &TexturedEffect::GetTextureFrame() const
+{
+    return ::GetTextureFrame(tex_group, tex_frame);
+}
+
 uint32 TexturedEffect::SelectResource(const char *name)
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 data, count, current;
     FUNCTION_MARKER(0x80033354, "SLUS_003.73");
-    data = FindModelTextureGroup(name);
-    w_u32(object + 80, data);
-    count = r_u8(data - 4);
-    current = r_u32(object + 80);
+    tex_group = FindModelTextureGroup(name);
+    if (!tex_group)
+    {
+        GameDiagnostic("Missing effect texture group\n");
+        abort();
+    }
+    const uint32 count = (uint8)tex_group->count;
     w_u8(object + 90, 0);
     w_u8(object + 91, 0);
     w_u8(object + 89, count);
-    w_u32(object + 84, current);
+    tex_frame = 0;
     return count;
 }
 
 uint32 TexturedEffect::SelectResource(uint32 resource)
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 data, count, current;
     FUNCTION_MARKER(0x80033398, "SLUS_003.73");
-    data = r_u32(0x800A6808 + resource * 4);
-    w_u32(object + 80, data);
-    count = r_u8(data - 4);
-    current = r_u32(object + 80);
+    tex_group = GetEffectResourceGroup(resource);
+    if (!tex_group)
+    {
+        GameDiagnostic("Missing effect texture group %u\n", resource);
+        abort();
+    }
+    const uint32 count = (uint8)tex_group->count;
     w_u8(object + 90, 0);
     w_u8(object + 91, 0);
     w_u8(object + 89, count);
-    w_u32(object + 84, current);
+    tex_frame = 0;
     return count;
 }
 
@@ -469,13 +484,12 @@ uint32 TexturedEffect::SetFrame(uint32 frame)
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800333D0, "SLUS_003.73");
-    uint32 index, data, offset;
+    uint32 index, offset;
     w_u8(object + 90, frame);
     index = (uint32)(sint32)(sint8)r_u8(object + 90);
-    data = r_u32(object + 80);
     w_u8(object + 91, 0);
     offset = index << 3;
-    w_u32(object + 84, data + offset);
+    tex_frame = (sint8)r_u8(object + 90);
     return offset;
 }
 
@@ -483,7 +497,7 @@ uint32 TexturedEffect::AdvanceFrame()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800333F0, "SLUS_003.73");
-    uint32 frame, fraction, speed, phase, data, offset;
+    uint32 frame, fraction, speed, phase, offset;
     frame = (uint32)(sint32)(sint8)r_u8(object + 90);
     fraction = r_u8(object + 91);
     speed = r_u16(object + 92);
@@ -492,9 +506,8 @@ uint32 TexturedEffect::AdvanceFrame()
     w_u8(object + 90, phase >> 8);
     frame = (uint32)(sint32)(sint8)r_u8(object + 90);
     w_u8(object + 91, phase);
-    data = r_u32(object + 80);
     offset = frame << 3;
-    w_u32(object + 84, data + offset);
+    tex_frame = (sint8)r_u8(object + 90);
     return offset;
 }
 
@@ -502,7 +515,7 @@ uint32 TexturedEffect::AdvanceLoopingFrame()
 {
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80033430, "SLUS_003.73");
-    uint32 frame, fraction, speed, phase, count, data, offset;
+    uint32 frame, fraction, speed, phase, count, offset;
     frame = (uint32)(sint32)(sint8)r_u8(object + 90);
     fraction = r_u8(object + 91);
     speed = r_u16(object + 92);
@@ -515,9 +528,8 @@ uint32 TexturedEffect::AdvanceLoopingFrame()
     if ((sint32)frame >= (sint32)count)
         w_u8(object + 90, 0);
     frame = (uint32)(sint32)(sint8)r_u8(object + 90);
-    data = r_u32(object + 80);
     offset = frame << 3;
-    w_u32(object + 84, data + offset);
+    tex_frame = (sint8)r_u8(object + 90);
     return offset;
 }
 
@@ -528,8 +540,7 @@ uint32 TexturedEffect::RandomizeFrame()
     uint32 frame = RandomRange(r_u8(object + 89));
     w_u8(object + 90, frame);
     uint32 offset = (uint32)((sint32)(frame << 24) >> 21);
-    uint32 data = r_u32(object + 80);
-    w_u32(object + 84, data + offset);
+    tex_frame = (sint8)r_u8(object + 90);
     return offset;
 }
 
@@ -586,27 +597,11 @@ extern "C" uint32 sub_80033138(uint32 object, uint32 reason)
     return DestroyEffectControllerData(object, reason);
 }
 
-extern "C" void sub_8003334C(uint32 object, uint32 step)
-{
-    FUNCTION_MARKER(0x8003334C, "SLUS_003.73");
-    SetEffectColorStepData(object, step);
-}
 
-extern "C" uint32 sub_80033590(uint32 object, uint32 finish_when_empty)
-{
-    FUNCTION_MARKER(0x80033590, "SLUS_003.73");
-    return FadeEffectColorsData(object, finish_when_empty);
-}
 
-extern "C" uint32 sub_800332D0(uint32 object, uint32 intensity)
-{
-    FUNCTION_MARKER(0x800332D0, "SLUS_003.73");
-    uint32 color = r_u32(object + 76);
-    intensity &= 255;
-    color = (color & 0xFF000000) | (intensity << 16) | (intensity << 8) | intensity;
-    w_u32(object + 76, color);
-    return color;
-}
+
+
+
 
 extern "C" uint32 sub_80032ED8(uint32 object)
 {
@@ -615,13 +610,7 @@ extern "C" uint32 sub_80032ED8(uint32 object)
     return 1;
 }
 
-extern "C" uint32 sub_80034EF4(uint32 object)
-{
-    FUNCTION_MARKER(0x80034EF4, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(PrimitiveParticle));
-    new (dram_addr) PrimitiveParticle();
-    return object;
-}
+
 
 extern "C" uint32 sub_80034F38(uint32 object, uint32 reason)
 {
@@ -635,60 +624,16 @@ extern "C" uint32 sub_80032FB8(uint32 object, uint32 flags)
     return DestroyEffectObjectData(object, flags);
 }
 
-extern "C" uint32 sub_80032F7C(uint32 object)
-{
-    FUNCTION_MARKER(0x80032F7C, "SLUS_003.73");
-    return InitializeEffectObjectData(object);
-}
 
-extern "C" uint32 sub_80033398(uint32 a1, uint32 a2)
-{
-    FUNCTION_MARKER(0x80033398, "SLUS_003.73");
-    uint32 data = r_u32(0x800A6808 + 4 * a2), result, current;
-    w_u32(a1 + 80, data);
-    result = r_u8(data - 4);
-    current = r_u32(a1 + 80);
-    w_u8(a1 + 90, 0);
-    w_u8(a1 + 91, 0);
-    w_u8(a1 + 89, result);
-    w_u32(a1 + 84, current);
-    return result;
-}
 
-extern "C" uint32 sub_80033530(uint32 object, uint32 finish_when_empty)
-{
-    FUNCTION_MARKER(0x80033530, "SLUS_003.73");
-    sint32 signed_size;
-    uint32 size, step;
-    signed_size = (sint16)r_u16(object + 94);
-    size = r_u16(object + 94);
-    if (!signed_size)
-    {
-        if (finish_when_empty)
-            sub_80032ED8(object);
-        return 1;
-    }
-    step = r_u16(object + 74);
-    size -= step;
-    w_u16(object + 94, size);
-    if (size & 32768)
-        w_u16(object + 94, 0);
-    return 0;
-}
 
-extern "C" uint32 sub_80033240(uint32 a1, uint32 a2)
-{
-    FUNCTION_MARKER(0x80033240, "SLUS_003.73");
-    uint32 result = r_u8(a1 + 88) | a2;
-    w_u8(a1 + 88, result);
-    return result;
-}
 
-extern "C" void sub_80033288(uint32 a1, uint32 a2)
-{
-    FUNCTION_MARKER(0x80033288, "SLUS_003.73");
-    w_u16(a1 + 92, a2);
-}
+
+
+
+
+
+
 
 extern "C" void sub_80033290(uint32 a1, uint32 a2)
 {
@@ -717,92 +662,24 @@ extern "C" uint32 sub_800332FC(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
 extern "C" uint32 sub_80033354(uint32 object, uint32 name)
 {
     FUNCTION_MARKER(0x80033354, "SLUS_003.73");
-    uint32 data, count, current;
-    data = FindModelTextureGroup(name);
-    w_u32(object + 80, data);
-    count = r_u8(data - 4);
-    current = r_u32(object + 80);
-    w_u8(object + 90, 0);
-    w_u8(object + 91, 0);
-    w_u8(object + 89, count);
-    w_u32(object + 84, current);
-    return count;
+    return TexturedEffect::Attach(object).SelectResource((const char *)psx_addr(name, 1));
 }
 
-extern "C" uint32 sub_800333D0(uint32 object, uint32 frame)
-{
-    FUNCTION_MARKER(0x800333D0, "SLUS_003.73");
-    uint32 index, data, offset;
-    w_u8(object + 90, frame);
-    index = (uint32)(sint32)(sint8)r_u8(object + 90);
-    data = r_u32(object + 80);
-    w_u8(object + 91, 0);
-    offset = index << 3;
-    w_u32(object + 84, data + offset);
-    return offset;
-}
 
-extern "C" uint32 sub_800333F0(uint32 a1)
-{
-    FUNCTION_MARKER(0x800333F0, "SLUS_003.73");
-    uint32 high = (uint32)(sint32)(signed char)r_u8(a1 + 90);
-    uint32 sum = (high << 8) | r_u8(a1 + 91);
-    uint32 result;
-    sum += r_u16(a1 + 92);
-    w_u8(a1 + 90, sum >> 8);
-    result = (uint32)(sint32)(signed char)r_u8(a1 + 90) * 8;
-    w_u8(a1 + 91, sum);
-    w_u32(a1 + 84, r_u32(a1 + 80) + result);
-    return result;
-}
 
-extern "C" uint32 sub_80033430(uint32 object)
-{
-    FUNCTION_MARKER(0x80033430, "SLUS_003.73");
-    uint32 frame, fraction, speed, phase, count, data, offset;
-    frame = (uint32)(sint32)(sint8)r_u8(object + 90);
-    fraction = r_u8(object + 91);
-    speed = r_u16(object + 92);
-    phase = (frame << 8) | fraction;
-    phase += speed;
-    w_u8(object + 90, phase >> 8);
-    frame = (uint32)(sint32)(sint8)r_u8(object + 90);
-    count = r_u8(object + 89);
-    w_u8(object + 91, phase);
-    if ((sint32)frame >= (sint32)count)
-        w_u8(object + 90, 0);
-    frame = (uint32)(sint32)(sint8)r_u8(object + 90);
-    data = r_u32(object + 80);
-    offset = frame << 3;
-    w_u32(object + 84, data + offset);
-    return offset;
-}
 
-extern "C" uint32 sub_8003304C(uint32 object)
-{
-    FUNCTION_MARKER(0x8003304C, "SLUS_003.73");
-    InitializeEffectObjectData(object);
-    InitializeRenderableEffectFields(object);
-    sub_80032E50(object, 0x800FF458);
-    return object;
-}
 
-extern "C" uint32 sub_800330F4(uint32 object)
-{
-    FUNCTION_MARKER(0x800330F4, "SLUS_003.73");
-    InitializeEffectObjectData(object);
-    InitializeEffectControllerEffectFields(object);
-    sub_80032E50(object, 0x800FF434);
-    return object;
-}
 
-extern "C" uint32 sub_8003319C(uint32 object)
-{
-    FUNCTION_MARKER(0x8003319C, "SLUS_003.73");
-    InitializeEffectObjectData(object);
-    InitializeTexturedEffectFields(object);
-    return object;
-}
+
+
+
+
+
+
+
+
+
+
 
 extern "C" uint32 sub_800331EC(uint32 object, uint32 reason)
 {
@@ -810,14 +687,7 @@ extern "C" uint32 sub_800331EC(uint32 object, uint32 reason)
     return DestroyTexturedEffectData(object, reason);
 }
 
-extern "C" uint32 sub_80032824(uint32 object)
-{
-    FUNCTION_MARKER(0x80032824, "SLUS_003.73");
-    InitializeEffectObjectData(object);
-    InitializeLineEffectFields(object);
-    sub_80032E50(object, 0x800FF464);
-    return object;
-}
+
 
 extern "C" uint32 sub_80032880(uint32 object, uint32 reason)
 {
@@ -843,11 +713,4 @@ extern "C" uint32 sub_80032E7C(uint32 object, uint32 head)
     return RemoveEffectListData(object, (uint32 *)psx_addr(head, 4));
 }
 
-extern "C" uint32 sub_80032FFC(uint32 object)
-{
-    FUNCTION_MARKER(0x80032FFC, "SLUS_003.73");
-    AddVectors((uint32 *)psx_addr(object + 24, 12), (const uint32 *)psx_addr(object + 36, 12));
-    AddVectors((uint32 *)psx_addr(object + 36, 12), (const uint32 *)psx_addr(object + 48, 12));
-    DampVector((uint32 *)psx_addr(object + 36, 12), (const uint8 *)psx_addr(object + 60, 3));
-    return object + 36;
-}
+

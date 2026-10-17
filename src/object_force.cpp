@@ -1,3 +1,4 @@
+#include "visual_object.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
@@ -129,7 +130,7 @@ uint32 ObjectForce::ApplyDirectional(uint32 list)
                     result = (sint32)projection < (sint32)range;
                     if (result)
                     {
-                        if (current == r_u32(0x800FF5A0))
+                        if (current == visual_lists.players)
                             w_u32(current + 528, object);
                         strength = (uint32)(sint32)(sint16)r_u16(object + 10);
                         amount = (range - projection) * strength;
@@ -161,9 +162,9 @@ uint32 ObjectForce::ApplyDirectional(uint32 list)
                                 else
                                     product = (uint32)((sint32)product >> (range_shift & 31));
                             }
-                            velocity = r_u32(current + 104 + axis * 4);
+                            velocity = VisualObject::Attach(current).motion.velocity[axis];
                             result = velocity + product;
-                            w_u32(current + 104 + axis * 4, result);
+                            VisualObject::Attach(current).motion.velocity[axis] = result;
                         }
                     }
                 }
@@ -220,11 +221,11 @@ uint32 ObjectForce::ApplyRadial(uint32 list, uint32 directional)
                     for (axis = 0; axis < 3; ++axis)
                     {
                         product = normalized[axis] * amount;
-                        velocity = r_u32(current + 104 + axis * 4);
+                        velocity = VisualObject::Attach(current).motion.velocity[axis];
                         if (axis == 2)
-                            player = r_u32(0x800FF5A0);
+                            player = visual_lists.players;
                         result = velocity + (uint32)((sint32)product >> (range_shift & 31));
-                        w_u32(current + 104 + axis * 4, result);
+                        VisualObject::Attach(current).motion.velocity[axis] = result;
                     }
                     if (current == player)
                         w_u32(current + 528, object);
@@ -279,58 +280,20 @@ uint32 ObjectForce::Update()
     return result;
 }
 
-extern "C" uint32 sub_8003A154(uint32 object, uint32 mode, uint32 owner, uint32 first_list, uint32 second_list)
-{
-    FUNCTION_MARKER(0x8003A154, "SLUS_003.73");
-    void *storage = AllocateNativeObjectStorage(object, sizeof(ObjectForce));
-    new (storage) ObjectForce(mode, owner, first_list, second_list);
-    return object;
-}
+
 extern "C" uint32 sub_8003A188(uint32 object, uint32 reason)
 {
     FUNCTION_MARKER(0x8003A188, "SLUS_003.73");
     return ObjectForce::Attach(object).ObjectForce::Destroy(reason);
 }
-extern "C" void sub_8003A214(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x8003A214, "SLUS_003.73");
-    ObjectForce::Attach(object).SetPosition(position);
-}
-extern "C" void sub_8003A21C(uint32 object, uint32 strength, uint32 range_shift)
-{
-    FUNCTION_MARKER(0x8003A21C, "SLUS_003.73");
-    ObjectForce::Attach(object).SetStrength(strength, range_shift);
-}
-extern "C" uint32 sub_8003A228(uint32 object, uint32 angles)
-{
-    FUNCTION_MARKER(0x8003A228, "SLUS_003.73");
-    return ObjectForce::Attach(object).SetDirection((const uint16 *)psx_addr(angles, 4));
-}
-extern "C" uint32 sub_8003A274(uint32 object, uint32 radius)
-{
-    FUNCTION_MARKER(0x8003A274, "SLUS_003.73");
-    return ObjectForce::Attach(object).SetRadius(radius);
-}
-extern "C" uint32 sub_8003A288(uint32 object, uint32 list)
-{
-    FUNCTION_MARKER(0x8003A288, "SLUS_003.73");
-    return ObjectForce::Attach(object).ApplyDirectional(list);
-}
-extern "C" uint32 sub_8003A5CC(uint32 object, uint32 list)
-{
-    FUNCTION_MARKER(0x8003A5CC, "SLUS_003.73");
-    return ObjectForce::Attach(object).ApplyDirectionalRadial(list);
-}
-extern "C" uint32 sub_8003A76C(uint32 object, uint32 list)
-{
-    FUNCTION_MARKER(0x8003A76C, "SLUS_003.73");
-    return ObjectForce::Attach(object).ApplyOmnidirectional(list);
-}
-extern "C" uint32 sub_8003A8B0(uint32 object)
-{
-    FUNCTION_MARKER(0x8003A8B0, "SLUS_003.73");
-    return ObjectForce::Attach(object).Update();
-}
+
+
+
+
+
+
+
+
 
 void UpdateObjectForces(void)
 {
@@ -351,15 +314,11 @@ uint32 Force::Destroy(uint32 reason)
     FUNCTION_MARKER(0x8003A9EC, "SLUS_003.73");
     w_u32(object, 0x800A1DE0);
     if (reason & 1)
-        return sub_8002FF34(object);
+        return ::ReleaseWeaponStorage(object);
     return 0x800A1DE0;
 }
 
-extern "C" void sub_8003A9AC(void)
-{
-    FUNCTION_MARKER(0x8003A9AC, "SLUS_003.73");
-    UpdateObjectForces();
-}
+
 extern "C" uint32 sub_8003A9EC(uint32 object, uint32 reason)
 {
     FUNCTION_MARKER(0x8003A9EC, "SLUS_003.73");
@@ -377,7 +336,7 @@ ObjectForce &ObjectForce::Attach(uint32 object)
 }
 
 // Receiver ownership is unresolved; retain both explicit object arguments
-uint32 ApplyObjectContactImpulse(uint32 hero, uint32 object)
+uint32 *ApplyObjectContactImpulse(uint32 hero, uint32 object)
 {
     uint32 delta[3], shifted[3], product[3], quotient[3], impulse[3];
     uint32 shift = 12, distance;
@@ -390,12 +349,8 @@ uint32 ApplyObjectContactImpulse(uint32 hero, uint32 object)
     MultiplyScalarVector(product, (const uint32 *)psx_addr(object + 208, 4), shifted);
     DivideVector(quotient, product, &distance);
     ShiftVectorLeft(impulse, quotient, &shift);
-    AddVectors((uint32 *)psx_addr(hero + 104, 12), impulse);
-    return hero + 104;
+    AddVectors((uint32 *)VisualObject::Attach(hero).motion.velocity, impulse);
+    return VisualObject::Attach(hero).motion.velocity;
 }
 
-extern "C" uint32 sub_80062C50(uint32 hero, uint32 object)
-{
-    FUNCTION_MARKER(0x80062C50, "SLUS_003.73");
-    return ApplyObjectContactImpulse(hero, object);
-}
+

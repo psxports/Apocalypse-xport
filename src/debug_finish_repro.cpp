@@ -1,3 +1,4 @@
+#include "visual_object.h"
 #include "game_sdk_bindings.h"
 #include "debug_finish_repro.h"
 
@@ -60,8 +61,8 @@ void DebugRestoreFinishMenu()
     fclose(file);
     uint32 saved_player = ReadFinishReproWord(memory, 0x800FF5A0);
     uint32 saved_camera = ReadFinishReproWord(memory, 0x800FF904);
-    uint32 player = r_u32(0x800FF5A0);
-    uint32 camera = r_u32(0x800FF904);
+    uint32 player = visual_lists.players;
+    uint32 camera = visual_lists.cameras;
     for (uint32 axis = 4; axis <= 12; axis += 4)
     {
         w_u32(player + axis, ReadFinishReproWord(memory, saved_player + axis));

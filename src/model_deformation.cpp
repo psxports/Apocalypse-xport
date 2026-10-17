@@ -24,8 +24,4 @@ uint32 ApplyRandomModelOffset(uint32 object, uint32 range)
     return 64;
 }
 
-extern "C" uint32 sub_800197DC(uint32 object, uint32 range)
-{
-    FUNCTION_MARKER(0x800197DC, "SLUS_003.73");
-    return ApplyRandomModelOffset(object, range);
-}
+

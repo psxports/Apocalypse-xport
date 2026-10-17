@@ -7,10 +7,7 @@ extern "C"
 }
 
 void RunGameSession();
-void ResetLevelLoadDisplayState();
-uint32 DrawLevelLoadProgress();
 void ReleaseLevelLoadResources();
-uint32 QueueSelectedLevelResources();
 uint32 LoadLevelFromPlayerSave(uint32 record);
 
 uint32 CompleteLevel(uint32 completed);

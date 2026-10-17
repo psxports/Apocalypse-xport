@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "object_damage.h"
 #include "game_sdk_bindings.h"
 extern "C" {
 #include "draft_first_signatures.h"
@@ -40,11 +42,11 @@ Items::Items(const uint8 *data, uint32 index) : VisualObject()
     SetModelBank((const char *)psx_addr(0x800FF574, 1));
     value = r_u8(0x800FF645);
     value = FindModelResourceIndex(0x717FB6B2, value);
-    w_u16(object + 22, value);
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
+    this->model.model_idx = value;
+    AddToList(visual_lists.actors);
     w_u16(object + 212, 64);
     w_u16(object + 218, 20);
-    w_u16(object + 58, 204);
+    this->kind = 204;
     if (!GuestMemoryAddress(data))
     {
         // TODO Bind native item records before storing their persistent cursor
@@ -59,7 +61,7 @@ Items::Items(const uint8 *data, uint32 index) : VisualObject()
     w_u16(object + 312, 256);
     w_u16(object + 314, 16);
     w_u16(object + 316, 360);
-    w_u16(object + 214, index);
+    this->record_idx = index;
     w_u16(object + 308, 20);
     w_u16(object + 318, 128);
     for (;;)
@@ -84,14 +86,14 @@ Items::Items(const uint8 *data, uint32 index) : VisualObject()
         x = r_u32(0x800A6844);
         y = r_u32(0x800A6848);
         z = r_u32(0x800A684C);
-        w_u32(object + 116, x);
-        w_u32(object + 120, y);
-        w_u32(object + 124, z);
+        motion.acceleration[0] = x;
+        motion.acceleration[1] = y;
+        motion.acceleration[2] = z;
         child = AllocateEffectStorage(176);
         if (child)
         {
             void *dram_addr = AllocateNativeObjectStorage(child, sizeof(OscillatingRing));
-            new (dram_addr) OscillatingRing((const uint32 *)psx_addr(object + 4, 12), 64, 32, 64, 32, 96, 32, 32, 64, 0);
+            new (dram_addr) OscillatingRing((const uint32 *)this->model.pos, 64, 32, 64, 32, 96, 32, 32, 64, 0);
         }
         w_u32(object + 324, child);
         w_u8(child + 66, 1);
@@ -109,29 +111,29 @@ Items::Items(const uint32 *position, uint32 first, uint32 second, uint32 value31
     SetModelBank((const char *)psx_addr(0x800FF574, 1));
     bank = r_u8(0x800FF645);
     value = FindModelResourceIndex(0x717FB6B2, bank);
-    w_u16(object + 22, value);
-    AddToList((uint32 *)psx_addr(0x800FF4E8, 4));
+    this->model.model_idx = value;
+    AddToList(visual_lists.actors);
     w_u16(object + 212, 64);
     w_u16(object + 218, 20);
-    w_u16(object + 58, 204);
+    this->kind = 204;
     random_x = RandomRange(128) - 64;
     random_y = RandomRange(128) - 64;
     random_z = RandomRange(128) - 64;
-    w_u16(object + 132, random_x);
-    w_u16(object + 134, random_y);
-    w_u16(object + 136, random_z);
+    motion.angular_velocity[0] = random_x;
+    motion.angular_velocity[1] = random_y;
+    motion.angular_velocity[2] = random_z;
     x = ReadItemsPositionWord(position, 0);
     y = ReadItemsPositionWord(position, 1);
     z = ReadItemsPositionWord(position, 2);
-    w_u32(object + 240, x);
-    w_u32(object + 244, y);
-    w_u32(object + 248, z);
-    x = r_u32(object + 240);
-    y = r_u32(object + 244);
-    z = r_u32(object + 248);
-    w_u32(object + 4, x);
-    w_u32(object + 8, y);
-    w_u32(object + 12, z);
+    pos_history.saved[0] = x;
+    pos_history.saved[1] = y;
+    pos_history.saved[2] = z;
+    x = pos_history.saved[0];
+    y = pos_history.saved[1];
+    z = pos_history.saved[2];
+    this->model.pos[0] = x;
+    this->model.pos[1] = y;
+    this->model.pos[2] = z;
     w_u16(object + 308, first);
     w_u16(object + 312, value312);
     w_u16(object + 314, value314);
@@ -148,17 +150,17 @@ Items::Items(const uint32 *position, uint32 first, uint32 second, uint32 value31
         x = r_u32(0x800A6844);
         y = r_u32(0x800A6848);
         z = r_u32(0x800A684C);
-        w_u32(object + 116, x);
-        w_u32(object + 120, y);
-        w_u32(object + 124, z);
+        motion.acceleration[0] = x;
+        motion.acceleration[1] = y;
+        motion.acceleration[2] = z;
         w_u16(object + 306, 0);
         w_u8(object + 304, 0);
         EnableShadow();
         value = r_u16(0x800EC530);
         w_u16(object + 204, value << 1);
-        x = r_u32(object + 4);
-        y = r_u32(object + 8);
-        z = r_u32(object + 12);
+        x = this->model.pos[0];
+        y = this->model.pos[1];
+        z = this->model.pos[2];
         w_u32(object + 184, x);
         w_u32(object + 188, y);
         w_u32(object + 192, z);
@@ -172,7 +174,7 @@ uint32 Items::Destroy(uint32 reason)
     uint32 child, table, receiver, target;
     FUNCTION_MARKER(0x8005B7D4, "SLUS_003.73");
     w_u32(object + 68, 0x800A2870);
-    RemoveFromList((uint32 *)psx_addr(0x800FF4E8, 4));
+    RemoveFromList(visual_lists.actors);
     child = r_u32(object + 324);
     if (child)
     {
@@ -185,7 +187,7 @@ uint32 Items::Destroy(uint32 reason)
     return (reason & 1) ? ReleaseObjectStorage(object) : 0;
 }
 
-uint32 Items::Damage(uint32 damage)
+uint32 Items::Damage(uint32 damage, const sint32 *, uint32)
 {
     const uint32 object = NativeObjectGuestAddress(this);
     sint32 health = (sint16)r_u16(object + 218);
@@ -202,6 +204,7 @@ uint32 Items::Damage(uint32 damage)
 
 uint32 Items::Update()
 {
+    uint32 trig_angle;
     const uint32 object = NativeObjectGuestAddress(this);
     uint32 timer, child, value, ground, phase, hero, table, target, receiver, damage;
     uint32 result, flags, scale, remaining;
@@ -224,33 +227,33 @@ uint32 Items::Update()
             }
         }
     }
-    AddAngleVector((uint16 *)psx_addr(object + 16, 6), (const uint16 *)psx_addr(object + 132, 6));
+    AddAngleVector((uint16 *)this->model.angles, (const uint16 *)motion.angular_velocity);
     if (!r_u8(object + 304))
     {
-        if ((sint32)r_u32(object + 108) <= 0)
+        if ((sint32)motion.velocity[1] <= 0)
         {
-            AddVectors((uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 104, 12));
-            AddVectors((uint32 *)psx_addr(object + 104, 12), (const uint32 *)psx_addr(object + 116, 12));
+            AddVectors((uint32 *)this->model.pos, (const uint32 *)motion.velocity);
+            AddVectors((uint32 *)motion.velocity, (const uint32 *)motion.acceleration);
         }
         else
         {
-            value = r_u32(object + 8);
+            value = this->model.pos[1];
             ground = r_u32(object + 296);
             if ((sint32)value < (sint32)ground)
             {
-                AddVectors((uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 104, 12));
-                AddVectors((uint32 *)psx_addr(object + 104, 12), (const uint32 *)psx_addr(object + 116, 12));
-                value = r_u32(object + 8);
+                AddVectors((uint32 *)this->model.pos, (const uint32 *)motion.velocity);
+                AddVectors((uint32 *)motion.velocity, (const uint32 *)motion.acceleration);
+                value = this->model.pos[1];
                 ground = r_u32(object + 296);
                 if ((sint32)value >= (sint32)ground)
                 {
                     w_u8(object + 304, 1);
-                    w_u32(object + 112, 0);
-                    w_u32(object + 108, 0);
-                    w_u32(object + 104, 0);
-                    w_u32(object + 124, 0);
-                    w_u32(object + 120, 0);
-                    w_u32(object + 116, 0);
+                    motion.velocity[2] = 0;
+                    motion.velocity[1] = 0;
+                    motion.velocity[0] = 0;
+                    motion.acceleration[2] = 0;
+                    motion.acceleration[1] = 0;
+                    motion.acceleration[0] = 0;
                 }
             }
         }
@@ -260,17 +263,17 @@ uint32 Items::Update()
         flags = 1;
     if (flags)
     {
-        value = 0x800F863C + 4 * (r_u16(object + 306) & 0xFFF);
+        trig_angle = r_u16(object + 306) & 0xFFF;
         phase = r_u16(object + 306);
-        sine = (sint16)r_u16(value);
+        sine = rsin(trig_angle);
         ground = r_u32(object + 296);
         value = ground + ((uint32)sine << 6);
         w_u16(object + 306, phase + 64);
-        w_u32(object + 8, value);
+        this->model.pos[1] = value;
     }
     value = r_u32(object + 188);
-    height = (sint32)(value - r_u32(object + 8)) >> 12;
-    hero = r_u32(0x800FF5A0);
+    height = (sint32)(value - this->model.pos[1]) >> 12;
+    hero = visual_lists.players;
     w_u16(object + 202, (uint32)height);
     if (hero)
     {
@@ -282,16 +285,16 @@ uint32 Items::Update()
         distance = 65535;
     if (r_u32(object + 300))
     {
-        flags = r_u16(object);
-        scale = r_u16(object + 38);
-        w_u16(object, flags | 512);
-        value = r_u16(object + 36);
-        w_u16(object + 38, scale + 380);
+        flags = this->model.flags;
+        scale = this->model.scale[1];
+        this->model.flags = flags | 512;
+        value = this->model.scale[0];
+        this->model.scale[1] = scale + 380;
         remaining = r_u32(object + 300) - 1;
-        w_u16(object + 36, value + 380);
-        result = r_u16(object + 40) + 380;
+        this->model.scale[0] = value + 380;
+        result = this->model.scale[2] + 380;
         w_u32(object + 300, remaining);
-        w_u16(object + 40, result);
+        this->model.scale[2] = result;
         if (!remaining)
             goto explode;
     }
@@ -310,18 +313,16 @@ uint32 Items::Update()
         }
     }
     child = r_u32(object + 324);
-    return child ? OscillatingRing::Attach(child).SetPosition((const uint32 *)psx_addr(object + 4, 12)) : result;
+    return child ? OscillatingRing::Attach(child).SetPosition((const uint32 *)this->model.pos) : result;
 explode:
-    SpawnExplosionRing((const uint32 *)psx_addr(object + 4, 12), 128, 255, 128, 0, 4, 1, 100);
-    PlayPositionedSound(24, (const uint32 *)psx_addr(object + 4, 12), 4);
+    SpawnExplosionRing((const uint32 *)this->model.pos, 128, 255, 128, 0, 4, 1, 100);
+    PlayPositionedSound(24, (const uint32 *)this->model.pos, 4);
     if (distance < (sint32)r_u16(object + 310))
     {
-        hero = r_u32(0x800FF5A0);
-        table = r_u32(hero + 68);
+        hero = visual_lists.players;
         damage = r_u16(object + 308);
-        receiver = hero + (uint32)(sint32)(sint16)r_u16(table + 48);
-        target = r_u32(table + 52);
-        apocalypse_object_virtual52(target, receiver, damage, 0x800A71CC, 0);
+        receiver = hero;
+        ApplyObjectDamage(receiver, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
     }
     table = r_u32(object + 68);
     receiver = object + (uint32)(sint32)(sint16)r_u16(table + 16);
@@ -365,7 +366,7 @@ uint32 sub_8005B7D4(uint32 object, uint32 reason)
 uint32 sub_8005B864(uint32 object, uint32 damage)
 {
     FUNCTION_MARKER(0x8005B864, "SLUS_003.73");
-    return Items::Attach(object).Items::Damage(damage);
+    return Items::Attach(object).Items::Damage(damage, 0, 0);
 }
 
 uint32 sub_8005B890(uint32 object)

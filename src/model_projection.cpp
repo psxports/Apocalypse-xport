@@ -1,5 +1,7 @@
+#include "model_render_view.h"
 #include "game_sdk_bindings.h"
 #include "model_render.h"
+#include "effect_lifecycle.h"
 #include "model_projection.h"
 #include "native_object_storage.h"
 extern "C"
@@ -11,64 +13,49 @@ extern "C"
 #include <stdio.h>
 #include <stdlib.h>
 
+static ModelProjectionConfig model_projection_cfg;
+
+const ModelProjectionConfig &GetModelProjectionConfig()
+{
+    return model_projection_cfg;
+}
+
 static uint32 ReadOffsetTranslationWord(const sint32 *translation, uint32 offset);
 
-uint32 ProjectOffsetScratchVertices(uint32 vertices, uint32 count, const sint32 position[3])
+uint32 ProjectOffsetScratchVertices(const SVECTOR *vertices, uint32 count, const sint32 position[3])
 {
-    uint32 offset_x, offset_y, offset_z, offset_xy, first, second, screen, depth, result, output;
     FUNCTION_MARKER(0x800810F0, "SLUS_003.73");
-    offset_x = ReadOffsetTranslationWord(position, 0);
-    offset_y = ReadOffsetTranslationWord(position, 4);
-    offset_xy = (offset_x & 65535) | (offset_y << 16);
-    offset_z = ReadOffsetTranslationWord(position, 8);
+    if (!count)
+        return 0x60000000;
+    const uint32 x = ReadOffsetTranslationWord(position, 0);
+    const uint32 y = ReadOffsetTranslationWord(position, 4);
+    const uint32 xy = (x & 65535) | (y << 16);
+    const uint32 z = ReadOffsetTranslationWord(position, 8);
+    uint32 result = 0x60006000, output = 0x1F800000;
     xport_gte_write_control(5, 0);
     xport_gte_write_control(6, 0);
     xport_gte_write_control(7, 0);
-    first = r_u32(vertices);
-    second = r_u32(vertices + 4);
-    xport_gte_write_data(0, first + offset_xy);
-    xport_gte_write_data(1, second + offset_z);
-    result = 0x60000000;
-    if (!count)
-        return result;
-    xport_gte_execute(0x180001);
-    vertices += 8;
-    first = r_u32(vertices);
-    second = r_u32(vertices + 4);
-    first += offset_xy;
-    second += offset_z;
-    result = 0x60006000;
-    output = 0x1F800000;
-    do
+    for (uint32 i = 0; i < count; ++i)
     {
-        screen = xport_gte_read_data(14);
-        depth = xport_gte_read_data(11);
-        xport_gte_write_data(0, first);
-        xport_gte_write_data(1, second);
-        vertices += 8;
-        --count;
+        xport_gte_write_data(0, xport_load_le32(vertices + i) + xy);
+        xport_gte_write_data(1, xport_load_le32((const uint8 *)(vertices + i) + 4) + z);
         xport_gte_execute(0x180001);
-        first = r_u32(vertices);
-        screen = (screen & 0xBFFFBFFF) | ~((screen - 0x00F00200) | 0xBFFFBFFF);
-        w_u32(output, screen);
-        second = r_u32(vertices + 4);
+        uint32 scr = xport_gte_read_data(14);
+        const uint32 depth = xport_gte_read_data(11);
+        scr = (scr & 0xBFFFBFFF) | ~((scr - 0x00F00200) | 0xBFFFBFFF);
+        w_u32(output, scr);
         w_u16(output + 6, depth);
-        result &= screen;
-        first += offset_xy;
-        second += offset_z;
+        result &= scr;
         output += 8;
-    } while (count);
+    }
     return result;
 }
 
-extern "C" uint32 sub_800810F0(uint32 vertices, uint32 count, uint32 position)
-{
-    FUNCTION_MARKER(0x800810F0, "SLUS_003.73");
-    return ProjectOffsetScratchVertices(vertices, count, (const sint32 *)psx_addr(position, 12));
-}
-extern "C" uint32 apocalypse_project_offset_scratch_native(uint32 vertices, uint32 count, const void *position) { return ProjectOffsetScratchVertices(vertices, count, (const sint32 *)position); }
 
-uint32 ProjectModelScratchVertices(uint32 vertices, uint32 count)
+
+
+
+uint32 ProjectModelScratchVertices(const SVECTOR *vertices, uint32 count)
 {
     uint32 result = 0x60000000, output = 0x1F800000, saved, first, second, screen, depth, address;
     FUNCTION_MARKER(0x800811BC, "SLUS_003.73");
@@ -78,8 +65,8 @@ uint32 ProjectModelScratchVertices(uint32 vertices, uint32 count)
     saved = r_u32(0x800FFB18);
     do
     {
-        first = r_u32(vertices);
-        second = r_u32(vertices + 4);
+        first = xport_load_le32(vertices);
+        second = xport_load_le32((const uint8 *)vertices + 4);
         xport_gte_write_data(0, first);
         xport_gte_write_data(1, second);
         xport_gte_execute(0x180001);
@@ -104,7 +91,7 @@ uint32 ProjectModelScratchVertices(uint32 vertices, uint32 count)
         w_u32(output, screen);
         w_u16(output + 6, depth);
         result &= screen;
-        vertices += 8;
+        ++vertices;
         --count;
         output += 8;
     } while (count);
@@ -112,7 +99,7 @@ uint32 ProjectModelScratchVertices(uint32 vertices, uint32 count)
     return result;
 }
 
-uint32 ProjectModelClippedVertices(uint32 vertices, uint32 count)
+uint32 ProjectModelClippedVertices(const SVECTOR *vertices, uint32 count)
 {
     uint32 bounds, first_bound, second_bound, near_bound, output, first, second, screen, depth, flags, result;
     sint32 x, y;
@@ -128,17 +115,17 @@ uint32 ProjectModelClippedVertices(uint32 vertices, uint32 count)
     near_bound = r_u32(bounds + 8) & 65535;
     result = 65535;
     output = r_u32(0x800FFAC0);
-    first = r_u32(vertices);
-    second = r_u32(vertices + 4);
+    first = xport_load_le32(vertices);
+    second = xport_load_le32((const uint8 *)vertices + 4);
     do
     {
         xport_gte_write_data(0, first);
         xport_gte_write_data(1, second);
-        vertices += 8;
+        ++vertices;
         --count;
         xport_gte_execute(0x180001);
-        first = r_u32(vertices);
-        second = r_u32(vertices + 4);
+        first = count ? xport_load_le32(vertices) : 0;
+        second = count ? xport_load_le32((const uint8 *)vertices + 4) : 0;
         screen = xport_gte_read_data(14);
         depth = xport_gte_read_data(11);
         w_u32(output + 4, 32767);
@@ -160,26 +147,19 @@ uint32 ProjectModelClippedVertices(uint32 vertices, uint32 count)
     return result;
 }
 
-extern "C" uint32 sub_800811BC(uint32 vertices, uint32 count)
-{
-    FUNCTION_MARKER(0x800811BC, "SLUS_003.73");
-    return ProjectModelScratchVertices(vertices, count);
-}
-extern "C" uint32 sub_8008131C(uint32 vertices, uint32 count)
-{
-    FUNCTION_MARKER(0x8008131C, "SLUS_003.73");
-    return ProjectModelClippedVertices(vertices, count);
-}
+
+
 
 uint32 UpdateProjectedVertexDepthFlags(uint32 count)
 {
-    uint32 camera, output, input, first, second, value;
+    ModelRenderView *camera;
+    uint32 output, input, first, second, value;
     FUNCTION_MARKER(0x8008128C, "SLUS_003.73");
-    camera = r_u32(0x800FFB0C);
+    camera = &GetConfiguredModelRenderView();
     output = r_u32(0x800FFAC0);
     input = r_u32(0x800FFAC4);
-    first = r_u32(camera + 56);
-    second = r_u32(camera + 60);
+    first = ReadModelRenderMatrixWord(camera->rotation, 1);
+    second = ReadModelRenderMatrixWord(camera->rotation, 2);
     value = (uint32)(sint32)(sint16)r_u16(0x800FFB16);
     xport_gte_write_control(1, first);
     xport_gte_write_control(2, second);
@@ -210,10 +190,11 @@ static uint32 ReadReflectionWord(const uint32 *input, uint32 index)
     return value;
 }
 
-uint32 GenerateModelReflectionCoordinates(const uint32 *matrix, const uint32 *position, uint32 output, uint32 model)
+uint32 GenerateModelReflectionCoordinates(const uint32 *matrix, const uint32 *position, uint32 output, const ModelGeometry &model)
 {
     uint32 controls[6], rotation[5], index, first, second, third, product;
-    uint32 vertices, normals, count, uv_base, translated_xy, translated_z, delta_xy, delta_z;
+    const SVECTOR *vertices, *normals;
+    uint32 count, uv_base, translated_xy, translated_z, delta_xy, delta_z;
     uint32 normal_xy, normal_z, reflected_xy, reflected_z, screen, uv, combined_uv;
     FUNCTION_MARKER(0x80081458, "SLUS_003.73");
     for (index = 0; index < 3; ++index)
@@ -261,21 +242,21 @@ uint32 GenerateModelReflectionCoordinates(const uint32 *matrix, const uint32 *po
     xport_gte_write_data(11, third);
     uv_base = r_u32(0x800FFB2C);
     xport_gte_execute(0x4BE012);
-    count = r_u32(model + 4);
-    vertices = model + 32;
-    normals = vertices + count * 8;
+    count = model.vertex_count;
+    vertices = model.vertices;
+    normals = model.normals;
     translated_xy = xport_gte_read_data(25) & 65535;
     translated_xy |= xport_gte_read_data(26) << 16;
     translated_z = xport_gte_read_data(27);
     xport_gte_write_control(10, 4096);
     xport_gte_write_control(11, 0);
     xport_gte_write_control(12, 4096);
-    do
+    while (count)
     {
-        second = r_u32(vertices + 4);
-        first = r_u32(vertices);
-        normal_xy = r_u32(normals);
-        normal_z = r_u32(normals + 4);
+        second = xport_load_le32((const uint8 *)vertices + 4);
+        first = xport_load_le32(vertices);
+        normal_xy = xport_load_le32(normals);
+        normal_z = xport_load_le32((const uint8 *)normals + 4);
         delta_xy = translated_xy - first;
         delta_z = (translated_z - second) & 65535;
         xport_gte_write_control(8, delta_xy);
@@ -303,11 +284,11 @@ uint32 GenerateModelReflectionCoordinates(const uint32 *matrix, const uint32 *po
             abort();
         }
         w_u32(output + 4, combined_uv);
-        vertices += 8;
-        normals += 8;
+        ++vertices;
+        ++normals;
         output += 8;
         --count;
-    } while (count);
+    }
     for (index = 0; index < 6; ++index)
         controls[index] = r_u32(0x1F800000 + index * 4);
     for (index = 0; index < 3; ++index)
@@ -325,21 +306,9 @@ uint32 GenerateModelReflectionCoordinates(const uint32 *matrix, const uint32 *po
     return 0x1F800000;
 }
 
-extern "C" uint32 sub_8008128C(uint32 count)
-{
-    FUNCTION_MARKER(0x8008128C, "SLUS_003.73");
-    return UpdateProjectedVertexDepthFlags(count);
-}
-extern "C" uint32 sub_80081458(uint32 matrix, uint32 position, uint32 output, uint32 model)
-{
-    FUNCTION_MARKER(0x80081458, "SLUS_003.73");
-    return GenerateModelReflectionCoordinates((const uint32 *)psx_addr(matrix, 20), (const uint32 *)psx_addr(position, 12), output, model);
-}
-extern "C" uint32 xport_draft_host_sub_80081458_p12(const void *matrix, void *position, uint32 output, uint32 model)
-{
-    FUNCTION_MARKER(0x80081458, "SLUS_003.73");
-    return GenerateModelReflectionCoordinates((const uint32 *)matrix, (const uint32 *)position, output, model);
-}
+
+
+
 
 
 static uint32 ReadOffsetTranslationWord(const sint32 *translation, uint32 offset)
@@ -371,13 +340,14 @@ static uint32 DivideOffsetProjectionScalar(uint32 numerator, uint32 denominator)
     return (uint32)(signed_numerator / signed_denominator);
 }
 
-uint32 ProjectOffsetModelVertices(uint32 vertices, uint32 count, const sint32 translation[3])
+uint32 ProjectOffsetModelVertices(const SVECTOR *vertices, uint32 count, const sint32 translation[3])
 {
     sint32 bounds[6], depth, x, y;
     uint32 bounds_source, bound_word, aggregate = 0xFFFF;
     uint32 translate_x, translate_y, translate_z, projected, transformed;
     uint32 packed_xy, input_depth, flags, screen, next_xy, next_depth;
-    uint32 final_value, references, output, projected_base, pair, interpolation;
+    uint32 final_value, output, projected_base, pair, interpolation;
+    const SVECTOR *references;
     uint32 first, second, first_screen, second_screen, length;
     uint32 delta_x, delta_y, normalized_x, normalized_y, generated_xy;
     sint32 origin_x, origin_y;
@@ -402,22 +372,22 @@ uint32 ProjectOffsetModelVertices(uint32 vertices, uint32 count, const sint32 tr
     xport_gte_write_control(7, 0);
     projected = r_u32(0x800FFAC0);
     transformed = r_u32(0x800FFAC4);
-    packed_xy = r_u32(vertices);
-    input_depth = r_u32(vertices + 4) + translate_z;
+    packed_xy = xport_load_le32(vertices);
+    input_depth = xport_load_le32((const uint8 *)vertices + 4) + translate_z;
     packed_xy = ((packed_xy + translate_x) & 0xFFFF) | (((uint32)((sint32)packed_xy >> 16) + translate_y) << 16);
     for (;;)
     {
         xport_gte_write_data(0, packed_xy);
         xport_gte_write_data(1, input_depth);
-        flags = r_u16(vertices + 6);
-        vertices += 8;
+        flags = (uint16)vertices->pad;
+        ++vertices;
         --count;
         xport_gte_execute(0x180001);
         if (flags & 0x10)
             break;
         /* Original loop fetches the following vertex before storing this result */
-        next_xy = r_u32(vertices);
-        next_depth = r_u32(vertices + 4) + translate_z;
+        next_xy = count ? xport_load_le32(vertices) : 0;
+        next_depth = count ? xport_load_le32((const uint8 *)vertices + 4) + translate_z : 0;
         next_xy = ((next_xy + translate_x) & 0xFFFF) | (((uint32)((sint32)next_xy >> 16) + translate_y) << 16);
         x = (sint32)xport_gte_read_data(9);
         y = (sint32)xport_gte_read_data(10);
@@ -442,7 +412,7 @@ uint32 ProjectOffsetModelVertices(uint32 vertices, uint32 count, const sint32 tr
             return aggregate;
         }
     }
-    vertices -= 8;
+    --vertices;
     ++count;
     xport_gte_write_control(0, 0x28F5);
     xport_gte_write_control(1, 0);
@@ -456,8 +426,8 @@ uint32 ProjectOffsetModelVertices(uint32 vertices, uint32 count, const sint32 tr
     projected_base = r_u32(0x800FFAC0);
     do
     {
-        pair = r_u32(references);
-        interpolation = r_u32(references + 4);
+        pair = xport_load_le32(references);
+        interpolation = xport_load_le32((const uint8 *)references + 4);
         first = projected_base + (pair & 0xFFFF);
         first_screen = r_u32(first);
         depth = (sint16)r_u32(first + 4);
@@ -493,7 +463,7 @@ uint32 ProjectOffsetModelVertices(uint32 vertices, uint32 count, const sint32 tr
         aggregate &= flags;
         w_u32(output, ((uint32)x & 0xFFFF) | ((uint32)y << 16));
         w_u32(output + 4, (flags << 16) | ((uint32)depth & 0xFFFF));
-        references += 8;
+        ++references;
         output += 8;
         --count;
         final_value = length;
@@ -506,12 +476,8 @@ uint32 ProjectOffsetModelVertices(uint32 vertices, uint32 count, const sint32 tr
     return aggregate;
 }
 
-extern "C" uint32 sub_800809B0(uint32 vertices, uint32 count, uint32 translation)
-{
-    FUNCTION_MARKER(0x800809B0, "SLUS_003.73");
-    return ProjectOffsetModelVertices(vertices, count, count ? (const sint32 *)psx_addr(translation, 12) : 0);
-}
-extern "C" uint32 apocalypse_transform_geometry_vertices(uint32 vertices, uint32 count, const sint32 translation[3]) { return ProjectOffsetModelVertices(vertices, count, translation); }
+
+
 
 
 uint32 ProjectWorldPoint(const uint32 *position, uint32 *screen)
@@ -519,13 +485,13 @@ uint32 ProjectWorldPoint(const uint32 *position, uint32 *screen)
     uint32 raw, offset, x, y, z, output;
     FUNCTION_MARKER(0x80025248, "SLUS_003.73");
     raw = ReadOffsetTranslationWord((const sint32 *)position, 0);
-    offset = r_u32(0x800ED520);
+    offset = GetModelRenderView().pos[0];
     x = (uint32)((sint32)raw >> 12) - offset;
     raw = ReadOffsetTranslationWord((const sint32 *)position, 4);
-    offset = r_u32(0x800ED524);
+    offset = GetModelRenderView().pos[1];
     y = (uint32)((sint32)raw >> 12) - offset;
     raw = ReadOffsetTranslationWord((const sint32 *)position, 8);
-    offset = r_u32(0x800ED528);
+    offset = GetModelRenderView().pos[2];
     z = (uint32)((sint32)raw >> 12) - offset;
     xport_gte_write_data(0, (x & 0xFFFF) | (y << 16));
     xport_gte_write_data(1, z);
@@ -539,28 +505,26 @@ uint32 ProjectWorldPoint(const uint32 *position, uint32 *screen)
     return xport_gte_read_data(27);
 }
 
-extern "C" uint32 sub_80025248(uint32 position, uint32 screen_output)
-{
-    FUNCTION_MARKER(0x80025248, "SLUS_003.73");
-    return ProjectWorldPoint((const uint32 *)psx_addr(position, 12), (uint32 *)psx_addr(screen_output, 4));
-}
 
-void GenerateModelNormalColors(uint32 vertices, uint32 count)
+
+void GenerateModelNormalColors(const SVECTOR *vertices, uint32 count)
 {
     FUNCTION_MARKER(0x80081794, "SLUS_003.73");
     uint32 output = 0x800F3E70, first, second, x, y, z;
+    if (!count)
+        return;
     xport_gte_write_data(6, 0xFFFFFF);
-    first = r_u32(vertices);
-    second = r_u32(vertices + 4);
+    first = xport_load_le32(vertices);
+    second = xport_load_le32((const uint8 *)vertices + 4);
     do
     {
         xport_gte_write_data(0, first);
         xport_gte_write_data(1, second);
-        vertices += 8;
+        ++vertices;
         --count;
         xport_gte_execute(0x108041B);
-        first = r_u32(vertices);
-        second = r_u32(vertices + 4);
+        first = count ? xport_load_le32(vertices) : 0;
+        second = count ? xport_load_le32((const uint8 *)vertices + 4) : 0;
         x = xport_gte_read_data(9);
         y = xport_gte_read_data(10);
         z = xport_gte_read_data(11);
@@ -570,11 +534,7 @@ void GenerateModelNormalColors(uint32 vertices, uint32 count)
     } while ((sint32)count > 0);
 }
 
-extern "C" void sub_80081794(uint32 vertices, uint32 count)
-{
-    FUNCTION_MARKER(0x80081794, "SLUS_003.73");
-    GenerateModelNormalColors(vertices, count);
-}
+
 
 static void LoadProjectionEffectIr(const sint16 v[3])
 {
@@ -639,19 +599,19 @@ static void LoadProjectionEffectVertex(uint32 slot, const sint16 c[3], const sin
     xport_gte_write_data(slot + 1, (uint16)z);
 }
 
-void RenderModelProjectionEffect(uint32 model, const uint32 *matrix32, uint32 vector, uint32 position, uint32 direction, uint32 color)
+void RenderModelProjectionEffect(const ModelGeometry &model, const uint32 *matrix32, uint32 vector, uint32 position, uint32 direction, uint32 color)
 {
     FUNCTION_MARKER(0x8007A8F8, "SLUS_003.73");
     MATRIX forward, inverse, diagonal, projection;
     sint16 center[3], extent[3], normal[3], cross[3], axis[3] = {0, 0, 0};
     sint16 basis1[3], basis2[3], coefficients[3], projected[3], edge1[3], edge2[3], dir[3];
-    uint32 i, packed, squares[3], scale, packet, depth, screens, texture, bucket, header;
+    uint32 i, packed, squares[3], scale, packet, depth, screens, bucket, header;
     sint32 average, numerator, distance;
     sint16 length;
     uint32 bounds[3];
-    bounds[0] = r_u32(model + 20);
-    bounds[1] = r_u32(model + 24);
-    bounds[2] = r_u32(model + 28);
+    bounds[0] = ((uint16)model.bounds[0].max | ((uint32)(uint16)model.bounds[0].min << 16));
+    bounds[1] = ((uint16)model.bounds[1].max | ((uint32)(uint16)model.bounds[1].min << 16));
+    bounds[2] = ((uint16)model.bounds[2].max | ((uint32)(uint16)model.bounds[2].min << 16));
     for (i = 0; i < 3; ++i)
     {
         sint32 low = (sint32)(bounds[i] & 65535);
@@ -660,9 +620,9 @@ void RenderModelProjectionEffect(uint32 model, const uint32 *matrix32, uint32 ve
         extent[i] = (sint16)((half * (i == 1 ? 11 : 5)) >> (i == 1 ? 3 : 2));
     }
     center[0] = (sint16)(((sint32)(bounds[0] & 65535) + (sint16)(bounds[0] >> 16)) >> 1);
-    packed = r_u32(model + 24);
+    packed = ((uint16)model.bounds[1].max | ((uint32)(uint16)model.bounds[1].min << 16));
     center[1] = (sint16)(((sint32)(packed & 65535) + (sint16)(packed >> 16)) >> 1);
-    packed = r_u32(model + 28);
+    packed = ((uint16)model.bounds[2].max | ((uint32)(uint16)model.bounds[2].min << 16));
     center[2] = (sint16)(((sint32)(packed & 65535) + (sint16)(packed >> 16)) >> 1);
     LoadProjectionEffectIr(center);
     {
@@ -748,9 +708,9 @@ void RenderModelProjectionEffect(uint32 model, const uint32 *matrix32, uint32 ve
     StoreProjectionEffectIr(coefficients);
     if (coefficients[0] > 0)
         return;
-    uint32 camera = r_u32(0x800FFB0C);
+    ModelRenderView *camera = &GetConfiguredModelRenderView();
     for (i = 0; i < 3; ++i)
-        center[i] = (sint16)((uint32)(sint32)center[i] - r_u16(camera + 4 + 4 * i));
+        center[i] = (sint16)((uint32)(sint32)center[i] - ((uint32)(uint16)camera->pos[i]));
     LoadProjectionEffectIr(dir);
     ScaleProjectionEffectVector(center, (uint32)DivideProjectionEffectScalar((sint32)((uint32)(sint32)coefficients[0] << 12), distance));
     StoreProjectionEffectIr(projected);
@@ -760,7 +720,7 @@ void RenderModelProjectionEffect(uint32 model, const uint32 *matrix32, uint32 ve
     LoadProjectionEffectIr(dir);
     ScaleProjectionEffectVector(basis2, (uint32)DivideProjectionEffectScalar((sint32)(0 - ((uint32)(sint32)coefficients[2] << 12)), distance));
     StoreProjectionEffectIr(edge2);
-    SetRotMatrix((MATRIX *)psx_addr(r_u32(0x800FFB0C) + 116, 20));
+    SetRotMatrix((MATRIX *)&GetConfiguredModelRenderView().projection);
     for (i = 0; i < 3; ++i)
         xport_gte_write_control(5 + i, 0);
     LoadProjectionEffectVertex(0, projected, edge1, edge2, -1, -1);
@@ -800,25 +760,22 @@ void RenderModelProjectionEffect(uint32 model, const uint32 *matrix32, uint32 ve
     w_u8(packet + 4, color);
     w_u8(packet + 5, color >> 8);
     w_u8(packet + 6, color >> 16);
-    texture = r_u32(0x800FF408);
-    w_u8(packet + 12, r_u8(texture));
-    texture = r_u32(0x800FF408);
-    w_u8(packet + 13, r_u8(texture + 1));
-    texture = r_u32(0x800FF408);
-    w_u8(packet + 20, r_u8(texture + 4) - 1);
-    texture = r_u32(0x800FF408);
-    w_u8(packet + 21, r_u8(texture + 5));
-    texture = r_u32(0x800FF408);
-    w_u8(packet + 28, r_u8(texture + 8));
-    texture = r_u32(0x800FF408);
-    w_u8(packet + 29, r_u8(texture + 9) - 1);
-    texture = r_u32(0x800FF408);
-    w_u8(packet + 36, r_u8(texture + 10) - 1);
-    texture = r_u32(0x800FF408);
-    w_u8(packet + 37, r_u8(texture + 11) - 1);
-    texture = r_u32(0x800FF408);
-    w_u16(packet + 14, r_u16(texture + 2));
-    uint32 page = r_u16(texture + 6);
+    const TextureResource *tex = GetShadowTexture();
+    if (!tex)
+    {
+        GameDiagnostic("Missing projection shadow texture\n");
+        abort();
+    }
+    w_u8(packet + 12, tex->uv[0].u);
+    w_u8(packet + 13, tex->uv[0].v);
+    w_u8(packet + 20, tex->uv[1].u - 1);
+    w_u8(packet + 21, tex->uv[1].v);
+    w_u8(packet + 28, tex->uv[2].u);
+    w_u8(packet + 29, tex->uv[2].v - 1);
+    w_u8(packet + 36, tex->uv[3].u - 1);
+    w_u8(packet + 37, tex->uv[3].v - 1);
+    w_u16(packet + 14, tex->clut);
+    uint32 page = tex->tpage;
     uint32 packet_header = r_u32(packet);
     w_u16(packet + 22, (page & 0xFF9F) | 0x40);
     bucket = r_u32(0x800FF660) + 4 * depth + 112;
@@ -827,16 +784,9 @@ void RenderModelProjectionEffect(uint32 model, const uint32 *matrix32, uint32 ve
     w_u32(bucket, (r_u32(bucket) & 0xFF000000) | (packet & 0xFFFFFF));
 }
 
-extern "C" void sub_8007A8F8(uint32 model, uint32 matrix, uint32 vector, uint32 position, uint32 direction, uint32 color)
-{
-    FUNCTION_MARKER(0x8007A8F8, "SLUS_003.73");
-    RenderModelProjectionEffect(model, (const uint32 *)psx_addr(matrix, 32), vector, position, direction, color);
-}
 
-extern "C" void apocalypse_model_effect_native(uint32 model, const void *matrix, uint32 vector, uint32 position, uint32 direction, uint32 color)
-{
-    RenderModelProjectionEffect(model, (const uint32 *)matrix, vector, position, direction, color);
-}
+
+
 
 uint32 MeasureProjectionIrLength()
 {
@@ -886,28 +836,16 @@ void TransformProjectionIr(const uint32 *matrix)
     xport_gte_execute(0x486012);
 }
 
-extern "C" uint32 sub_80085D14(void)
-{
-    FUNCTION_MARKER(0x80085D14, "SLUS_003.73");
-    return MeasureProjectionIrLength();
-}
-extern "C" uint32 sub_80085D64(void)
-{
-    FUNCTION_MARKER(0x80085D64, "SLUS_003.73");
-    return NormalizeProjectionIr();
-}
+
+
 extern "C" void sub_80085D30(uint32 input)
 {
     FUNCTION_MARKER(0x80085D30, "SLUS_003.73");
     CrossProjectionIr((const uint32 *)psx_addr(input, 8));
 }
-extern "C" void sub_80085CD4(uint32 input)
-{
-    FUNCTION_MARKER(0x80085CD4, "SLUS_003.73");
-    TransformProjectionIr((const uint32 *)psx_addr(input, 20));
-}
 
-uint32 ProjectModelReferenceVertices(uint32 input, uint32 count)
+
+uint32 ProjectModelReferenceVertices(const SVECTOR *input, uint32 count)
 {
     FUNCTION_MARKER(0x80080EF4, "SLUS_003.73");
     uint32 bounds, bx, by, bz, output, vectors, reference, cache, packed, tagged;
@@ -922,14 +860,14 @@ uint32 ProjectModelReferenceVertices(uint32 input, uint32 count)
     vectors = r_u32(0x800FFAC4);
     reference = output + 7992;
     cache = r_u32(0x800FFB18);
-    packed = r_u32(input);
-    tagged = r_u32(input + 4);
+    packed = xport_load_le32(input);
+    tagged = xport_load_le32((const uint8 *)input + 4);
     do
     {
         uint32 tag = tagged >> 16;
         xport_gte_write_data(0, packed);
         xport_gte_write_data(1, tagged);
-        input += 8;
+        ++input;
         --count;
         xport_gte_execute(0x180001);
         if (tag & 2)
@@ -941,15 +879,15 @@ uint32 ProjectModelReferenceVertices(uint32 input, uint32 count)
             w_u32(output + 4, depth_flags);
             w_u32(vectors, irxy);
             common &= depth_flags >> 16;
-            packed = r_u32(input);
-            tagged = r_u32(input + 4);
+            packed = count ? xport_load_le32(input) : 0;
+            tagged = count ? xport_load_le32((const uint8 *)input + 4) : 0;
         }
         else
         {
             uint32 irxy, xy, flags, depth_flags;
             sint32 x, y, depth;
-            packed = r_u32(input);
-            tagged = r_u32(input + 4);
+            packed = count ? xport_load_le32(input) : 0;
+            tagged = count ? xport_load_le32((const uint8 *)input + 4) : 0;
             uint32 ir_x = xport_gte_read_data(9);
             uint32 ir_y = xport_gte_read_data(10);
             depth = (sint32)xport_gte_read_data(11);
@@ -992,27 +930,20 @@ void LoadPackedProjectionIr(uint32 geometry)
     xport_gte_write_data(11, depth);
 }
 
-extern "C" uint32 sub_80080EF4(uint32 input, uint32 count)
-{
-    FUNCTION_MARKER(0x80080EF4, "SLUS_003.73");
-    return ProjectModelReferenceVertices(input, count);
-}
-extern "C" void sub_800821E0(uint32 geometry)
-{
-    FUNCTION_MARKER(0x800821E0, "SLUS_003.73");
-    LoadPackedProjectionIr(geometry);
-}
+
+
 
 uint32 ProjectAndClipWorldLine(uint32 line)
 {
-    uint32 camera = r_u32(0x800FFB0C), camera_position[3], first[3], second[3];
+    ModelRenderView *camera = &GetConfiguredModelRenderView();
+    uint32 camera_position[3], first[3], second[3];
     uint32 first_xy, second_xy, first_flags, second_flags, packed, z, carrier, result, axis;
-    uint32 planes[6], rotation[5], low = 0, high = 4096, mask, cursor;
+    uint32 rotation[5], low = 0, high = 4096, mask, cursor;
     sint32 dx, dy;
     FUNCTION_MARKER(0x800850A4, "SLUS_003.73");
-    camera_position[0] = r_u32(camera + 4);
-    camera_position[1] = r_u32(camera + 8);
-    camera_position[2] = r_u32(camera + 12);
+    camera_position[0] = camera->pos[0];
+    camera_position[1] = camera->pos[1];
+    camera_position[2] = camera->pos[2];
     packed = ((uint32)((sint32)r_u32(line) >> 12) - camera_position[0]) & 0xFFFF;
     packed |= ((uint32)((sint32)r_u32(line + 4) >> 12) - camera_position[1]) << 16;
     z = (uint32)((sint32)r_u32(line + 8) >> 12) - camera_position[2];
@@ -1066,28 +997,7 @@ uint32 ProjectAndClipWorldLine(uint32 line)
     xport_gte_write_data(1, first[2]);
     xport_gte_write_data(2, (second[0] & 0xFFFF) | (second[1] << 16));
     xport_gte_write_data(3, second[2]);
-    for (axis = 0; axis < 5; ++axis)
-        planes[axis] = r_u32(0x800F25D0 + axis * 4);
-    planes[5] = r_u16(0x800F25E4);
-    xport_gte_write_control(8, planes[0]);
-    xport_gte_write_control(9, (planes[2] << 16) | (planes[1] & 0xFFFF));
-    xport_gte_write_control(10, (planes[2] >> 16) | (planes[3] << 16));
-    xport_gte_write_control(11, planes[4]);
-    xport_gte_write_control(12, planes[5]);
-    xport_gte_write_control(13, (uint32)((sint32)planes[1] >> 16));
-    xport_gte_write_control(14, (uint32)((sint32)planes[3] >> 16));
-    xport_gte_write_control(15, 0);
-    planes[0] = r_u32(0x800F25E8);
-    planes[1] = r_u16(0x800F25EC);
-    planes[2] = r_u32(0x800F2600);
-    planes[3] = r_u16(0x800F2604);
-    planes[4] = r_u32(0x800F2608);
-    planes[5] = r_u16(0x800F260C);
-    xport_gte_write_control(16, planes[0]);
-    xport_gte_write_control(17, (planes[2] << 16) | planes[1]);
-    xport_gte_write_control(18, (planes[2] >> 16) | (planes[3] << 16));
-    xport_gte_write_control(19, planes[4]);
-    xport_gte_write_control(20, planes[5]);
+    LoadModelLineClipMatrices();
     xport_gte_execute(0x4A2412);
     first_flags = (xport_draft_gte_control_read(31) >> 19) & 0x38;
     for (axis = 0; axis < 3; ++axis)
@@ -1159,11 +1069,7 @@ uint32 ProjectAndClipWorldLine(uint32 line)
     return (sint32)(result - 4096) < 0 ? result : 4095;
 }
 
-extern "C" uint32 sub_800850A4(uint32 line)
-{
-    FUNCTION_MARKER(0x800850A4, "SLUS_003.73");
-    return ProjectAndClipWorldLine(line);
-}
+
 
 void TransformPackedMatrixForProjection(uint32 input, uint32 output)
 {
@@ -1197,11 +1103,7 @@ void TransformPackedMatrixForProjection(uint32 input, uint32 output)
     w_u32(output + 16, values[2][2]);
 }
 
-extern "C" void sub_800855B4(uint32 input, uint32 output)
-{
-    FUNCTION_MARKER(0x800855B4, "SLUS_003.73");
-    TransformPackedMatrixForProjection(input, output);
-}
+
 
 void ScaleProjectionIr(uint32 scale)
 {
@@ -1225,35 +1127,26 @@ void AccumulateProjectionVector(uint32 vector, uint32 scale)
     xport_draft_gte_execute(0x1A8003E);
 }
 
-extern "C" void sub_80085DBC(uint32 scale)
-{
-    FUNCTION_MARKER(0x80085DBC, "SLUS_003.73");
-    ScaleProjectionIr(scale);
-}
-extern "C" void sub_80085DD8(uint32 vector, uint32 scale)
-{
-    FUNCTION_MARKER(0x80085DD8, "SLUS_003.73");
-    AccumulateProjectionVector(vector, scale);
-}
+
+
 
 uint32 ConfigureProjectionDepth(uint32 limit, uint32 base, uint32 extent)
 {
     FUNCTION_MARKER(0x8007D76C, "SLUS_003.73");
-    uint32 x = r_u32(0x800FFADC);
+    uint32 x = model_projection_cfg.scr[0];
     uint32 square_x = x * x;
-    uint32 y = r_u32(0x800FFAE0);
+    uint32 y = model_projection_cfg.scr[1];
     uint32 square_y = y * y;
-    uint32 z = r_u32(0x800FFAE4);
+    uint32 z = model_projection_cfg.scr[2];
     uint32 square_z = z * z;
-    w_u32(0x800FFAE8, limit);
-    w_u32(0x800FFACC, base);
+    model_projection_cfg.near_depth = limit;
+    model_projection_cfg.fog_start = base;
     uint32 end = base + extent;
-    w_u32(0x800FFAC8, end);
-    w_u32(0x800FFAEC, end);
+    model_projection_cfg.far_depth = end;
     uint32 root = SquareRoot0(square_x + square_y + square_z);
-    end = r_u32(0x800FFAC8);
+    end = model_projection_cfg.far_depth;
     uint32 product = end * root;
-    uint32 divisor = r_u32(0x800FFAE4);
+    uint32 divisor = model_projection_cfg.scr[2];
     uint32 quotient;
     if (!divisor)
         quotient = (sint32)product < 0 ? 1 : 0xFFFFFFFF;
@@ -1261,15 +1154,15 @@ uint32 ConfigureProjectionDepth(uint32 limit, uint32 base, uint32 extent)
         quotient = product;
     else
         quotient = (uint32)((sint32)product / (sint32)divisor);
-    w_u32(0x800FFAD8, quotient);
+    model_projection_cfg.max_distance = quotient;
     uint32 result = extent < 4096;
-    w_u32(0x800FFAD4, 0);
+    model_projection_cfg.fog_shift = 0;
     if (extent < 4096)
     {
         do
         {
-            uint32 shift = r_u32(0x800FFAD4) + 1;
-            w_u32(0x800FFAD4, shift);
+            uint32 shift = model_projection_cfg.fog_shift + 1;
+            model_projection_cfg.fog_shift = shift;
             result = extent < (4096 >> (shift & 31));
         } while (result);
     }
@@ -1278,8 +1171,8 @@ uint32 ConfigureProjectionDepth(uint32 limit, uint32 base, uint32 extent)
         // TODO Original shift cycle cannot reach extents above 80000000
         do
         {
-            uint32 shift = r_u32(0x800FFAD4) - 1;
-            w_u32(0x800FFAD4, shift);
+            uint32 shift = model_projection_cfg.fog_shift - 1;
+            model_projection_cfg.fog_shift = shift;
             result = ((uint32)4096 << ((0 - shift) & 31)) < extent;
         } while (result);
     }
@@ -1289,20 +1182,11 @@ uint32 ConfigureProjectionDepth(uint32 limit, uint32 base, uint32 extent)
 void SetProjectionScreenParameters(uint32 x, uint32 y, uint32 depth)
 {
     FUNCTION_MARKER(0x8007D8C0, "SLUS_003.73");
-    w_u32(0x800FFADC, x);
-    w_u32(0x800FFAE0, y);
-    w_u32(0x800FFAE4, depth);
-    w_u32(0x800FFAFC, 0);
+    model_projection_cfg.scr[0] = x;
+    model_projection_cfg.scr[1] = y;
+    model_projection_cfg.scr[2] = depth;
 }
 
-extern "C" uint32 sub_8007D76C(uint32 limit, uint32 base, uint32 extent)
-{
-    FUNCTION_MARKER(0x8007D76C, "SLUS_003.73");
-    return ConfigureProjectionDepth(limit, base, extent);
-}
 
-extern "C" void sub_8007D8C0(uint32 x, uint32 y, uint32 depth)
-{
-    FUNCTION_MARKER(0x8007D8C0, "SLUS_003.73");
-    SetProjectionScreenParameters(x, y, depth);
-}
+
+

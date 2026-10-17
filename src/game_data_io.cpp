@@ -152,20 +152,6 @@ bool InitializeDataCd()
     return true;
 }
 
-uint32 LoadDataResourceDirectory()
-{
-    const char *path = "DATA/CD.HED";
-    size_t size, read_size;
-    if (!xport_file_size(path, &size) || !size || size > 0x80104590 - 0x801007A8)
-        FailDataRead(path);
-    uint32 rounded = ((uint32)size + 2047) & ~2047;
-    void *destination = psx_addr(0x801007A8, rounded);
-    memset(destination, 0, rounded);
-    if (!xport_file_read(path, destination, size, &read_size) || read_size != size)
-        FailDataRead(path);
-    return 0;
-}
-
 bool ReadDataResource(void *destination, uint32 offset, uint32 bytes)
 {
     FILE *file = xport_fopen("DATA/CD.WAD", "rb");

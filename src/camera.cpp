@@ -1,3 +1,5 @@
+#include "model_render_view.h"
+#include "visual_object.h"
 #include "game_sdk_bindings.h"
 #include "quaternion_math.h"
 extern "C"
@@ -7,6 +9,7 @@ extern "C"
 }
 #include <string.h>
 #include "camera.h"
+#include "vector_distance.h"
 #include "game_heap.h"
 #include "native_object_storage.h"
 #include "game_object_allocation.h"
@@ -38,6 +41,57 @@ uint32 sub_80077274(sint16 first, sint16 second);
 
 // Native adapter preserves the defined caller result when a list is empty
 
+struct CameraTransition
+{
+    uint32 val;
+    uint32 count;
+    uint32 delta;
+};
+
+struct CameraTrackingHistory
+{
+    uint32 angles_initialized;
+    uint32 distance_initialized;
+    uint16 angles[3];
+    uint32 distance;
+};
+
+struct CameraTuning
+{
+    uint32 view_offset[3];
+    uint32 pitch;
+    uint32 radius;
+    CameraTransition orbit_distance;
+    CameraTransition orbit_height;
+    CameraTransition target_lateral;
+    CameraTransition target_height;
+    CameraTransition target_forward;
+    uint32 restore_quat;
+    uint32 manual_mode;
+    uint32 saved_proj_distance;
+    uint32 tracking_button_pressed;
+    uint32 tracking_button_released;
+    uint32 vertical_offset;
+    uint32 vertical_ticks;
+    CameraTrackingHistory tracking[2];
+    uint32 saved[6];
+    uint16 shake_frequency[3];
+    uint8 shake_decay[3];
+    uint16 shake_amplitude[3][3];
+    uint32 yaw_delta;
+    uint32 yaw_count;
+    uint32 yaw_target;
+    uint32 prev_pos[3];
+    uint32 reset_vectors[15][3];
+};
+
+static CameraTuning camera_tuning = {
+    {0, 0, 0}, 300, 1200,
+    {720, 0, 0}, {(uint32)-212, 0, 0},
+    {0, 0, 0}, {(uint32)-32, 0, 0}, {0, 0, 0},
+    0, 0, 256
+};
+
 static uint32 DivideCameraWord(uint32 numerator, uint32 denominator)
 {
     if (!denominator)
@@ -61,10 +115,11 @@ Camera &Camera::Attach(uint32 object)
     return *static_cast<Camera *>(FindNativeObjectStorage(object));
 }
 
-static void StoreTrackingAngles(uint32 destination, const sint16 angles[4])
+static void StoreTrackingAngles(uint16 destination[3], const sint16 angles[4])
 {
-    w_u32(destination, (uint32)(uint16)angles[0] | ((uint32)(uint16)angles[1] << 16));
-    w_u16(destination + 4, (uint16)angles[2]);
+    destination[0] = (uint16)angles[0];
+    destination[1] = (uint16)angles[1];
+    destination[2] = (uint16)angles[2];
 }
 
 static void TurnTrackingCamera(uint32 camera, sint32 delta, sint32 distance, int fine_turn)
@@ -196,14 +251,14 @@ static void RotateCameraVector(MATRIX *matrix, const uint32 input[3], uint32 out
         output[axis] = low_mac[axis] + (high_mac[axis] << 3);
 }
 
-static uint32 ReadCameraCollisionAngle(uint32 record[35], sint16 strength, uint32 reverse)
+static uint32 ReadCameraCollisionAngle(CollisionRay &record, sint16 strength, uint32 reverse)
 {
     uint32 numerator, ratio, product;
-    sint32 divisor = (sint32)record[17];
+    sint32 divisor = (sint32)record.len;
     if (!divisor)
-        record[17] = 1;
-    divisor = (sint32)record[17];
-    numerator = (record[17] - record[16]) << 12;
+        record.len = 1;
+    divisor = (sint32)record.len;
+    numerator = (record.len - record.distance) << 12;
     if (numerator == 0x80000000 && divisor == -1)
         ratio = numerator;
     else
@@ -235,58 +290,49 @@ static sint16 ReadCameraOscillation(uint32 object, uint32 amplitude_offset, uint
     uint32 time = r_u32(0x800FF2F0);
     uint32 phase = frequency * time;
     uint32 amplitude = (uint32)(sint32)(sint16)r_u16(object + amplitude_offset);
-    uint32 sine = (uint32)(sint32)(sint16)r_u16(0x800F863C + (phase & 4095) * 4);
+    uint32 sine = (uint32)rsin(phase & 4095);
     sint32 product = (sint32)(amplitude * sine);
     if (product < 0)
         product = (sint32)((uint32)product + 4095);
     return (sint16)((sint32)((uint32)product << 4) >> 16);
 }
 
-static void AdjustCameraDebugValue(uint32 button, uint32 address, uint32 subtract)
+static void AdjustCameraDebugValue(uint32 button, uint32 &val, uint32 subtract)
 {
     if (r_u8(button))
     {
         uint32 step = r_u8(0x800EC364) ? 32 : 8;
-        uint32 value = r_u32(address);
-        w_u32(address, subtract ? value - step : value + step);
+        uint32 value = val;
+        val = subtract ? value - step : value + step;
     }
 }
 
-static void AdvanceCameraGlobalTransition(uint32 count_address, uint32 value_address, uint32 delta_address)
+static void AdvanceCameraGlobalTransition(CameraTransition &transition)
 {
-    uint32 count = r_u32(count_address);
+    uint32 count = transition.count;
     if (count)
     {
         --count;
-        uint32 value = r_u32(value_address);
-        uint32 delta = r_u32(delta_address);
-        w_u32(count_address, count);
-        w_u32(value_address, value + delta);
+        uint32 value = transition.val;
+        uint32 delta = transition.delta;
+        transition.count = count;
+        transition.val = value + delta;
     }
 }
 
-static uint32 MarkShakeList(uint32 list, uint32 result)
+static uint32 MarkShakeList(ModelInstance *list, uint32 result)
 {
     while (list)
     {
-        result = r_u16(list + 76) | 2;
-        w_u16(list + 76, result);
-        list = r_u32(list + 28);
+        VisualObject &object = *static_cast<VisualObject *>(list->owner);
+        result = object.activation_flags | 2;
+        object.activation_flags = result;
+        list = list->next;
     }
     return result;
 }
 
-uint32 ClearCameraPresetFlags()
-{
-    FUNCTION_MARKER(0x80076D44, "SLUS_003.73");
-    uint32 cursor = 0x801028B7;
-    for (sint32 index = 15; index >= 0; --index)
-    {
-        w_u8(cursor, 0);
-        --cursor;
-    }
-    return cursor;
-}
+
 
 Camera::Camera(const VisualObject &target) : VisualObject()
 {
@@ -321,16 +367,16 @@ Camera::Camera(const VisualObject &target) : VisualObject()
     source = r_u32(object + 336);
     x = r_u32(source + 4); y = r_u32(source + 8); z = r_u32(source + 12);
     w_u32(object + 344, x); w_u32(object + 348, y); w_u32(object + 352, z);
-    w_u16(object + 58, 99);
+    this->kind = 99;
     w_u32(object + 368, 0);
-    w_u16(object, 1);
+    this->model.flags = 1;
     PrepareView();
-    AddToList((uint32 *)psx_addr(0x800FF904, 4));
+    AddToList(visual_lists.cameras);
     w_u32(object + 564, 7);
     count = r_u32(0x800FF900);
-    flags = r_u16(object + 78);
+    flags = this->lifecycle_flags;
     w_u16(object + 212, 0);
-    w_u16(object + 78, flags & 0xFFFD);
+    this->lifecycle_flags = flags & 0xFFFD;
     w_u32(0x800FF900, count + 1);
 }
 
@@ -339,7 +385,7 @@ uint32 Camera::Destroy(uint32 reason)
     uint32 result;
     FUNCTION_MARKER(0x8007741C, "SLUS_003.73");
     w_u32(NativeObjectGuestAddress(this) + 68, 0x800A3DA4);
-    RemoveFromList((uint32 *)psx_addr(0x800FF904, 4));
+    RemoveFromList(visual_lists.cameras);
     w_u32(0x800FF900, r_u32(0x800FF900) - 1);
     result = VisualObject::Destroy(0);
     if (reason & 1)
@@ -384,29 +430,30 @@ extern "C" uint32 sub_800774BC(uint32, uint32 list)
 {
     FUNCTION_MARKER(0x800774BC, "SLUS_003.73");
     // TODO Empty standalone calls have no defined original return input
-    return MarkShakeList(list, 0);
+    return MarkShakeList(list ? &VisualObject::Attach(list).model : 0, 0);
 }
 
 uint32 Camera::ApplyExplosionShake(uint32 kind)
 {
     const uint32 camera = NativeObjectGuestAddress(this);
     uint32 result = kind == 1 ? 1 : 2;
-    uint32 preset, byte0, byte1, byte2;
+    const uint16 *preset;
+    uint32 byte0, byte1, byte2;
     FUNCTION_MARKER(0x800774EC, "SLUS_003.73");
     if (kind <= 2)
     {
-        preset = kind == 0 ? 0x800FFCF8 : kind == 1 ? 0x800FFCF0 : 0x800FFCE8;
-        CopyAngleVector((uint16 *)psx_addr(camera + 548, 6), (const uint16 *)psx_addr(preset, 6));
-        byte0 = r_u8(0x800FFCE0);
-        byte1 = r_u8(0x800FFCE1);
-        byte2 = r_u8(0x800FFCE2);
+        preset = camera_tuning.shake_amplitude[kind == 0 ? 2 : kind == 1 ? 1 : 0];
+        CopyAngleVector((uint16 *)psx_addr(camera + 548, 6), preset);
+        byte0 = ((uint32)(uint8)camera_tuning.shake_decay[0]);
+        byte1 = ((uint32)(uint8)camera_tuning.shake_decay[1]);
+        byte2 = ((uint32)(uint8)camera_tuning.shake_decay[2]);
         w_u8(camera + 554, byte0);
         w_u8(camera + 555, byte1);
         w_u8(camera + 556, byte2);
-        CopyAngleVector((uint16 *)psx_addr(camera + 558, 6), (const uint16 *)psx_addr(0x800FFCD8, 6));
+        CopyAngleVector((uint16 *)psx_addr(camera + 558, 6), camera_tuning.shake_frequency);
     }
-    result = MarkShakeList(r_u32(0x800FF4E8), result);
-    return MarkShakeList(r_u32(0x800FF5DC), result);
+    result = MarkShakeList(visual_lists.actors, result);
+    return MarkShakeList(visual_lists.solids, result);
 }
 
 uint32 Camera::SetModePreset(uint32 mode)
@@ -429,25 +476,22 @@ uint32 Camera::SetModePreset(uint32 mode)
     return result;
 }
 
-uint32 Camera::PrepareView()
+MATRIX *Camera::PrepareView()
 {
     uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z, offset_x, offset_y, offset_z;
     FUNCTION_MARKER(0x80077680, "SLUS_003.73");
-    x = r_u32(object + 4);
-    offset_x = r_u32(0x800ED510);
-    w_u32(0x800ED520, (uint32)((sint32)(x + offset_x) >> 12));
-    y = r_u32(object + 8);
-    offset_y = r_u32(0x800ED514);
-    w_u32(0x800ED524, (uint32)((sint32)(y + offset_y) >> 12));
-    z = r_u32(object + 12);
-    offset_z = r_u32(0x800ED518);
-    w_u32(0x800ED528, (uint32)((sint32)(z + offset_z) >> 12));
-    w_u32(0x800ED530, (uint32)((sint32)(r_u32(object + 344) + offset_x) >> 12));
-    w_u32(0x800ED534, (uint32)((sint32)(r_u32(object + 348) + offset_y) >> 12));
-    w_u32(0x800ED538, (uint32)((sint32)(r_u32(object + 352) + offset_z) >> 12));
-    ConvertQuaternionToMatrix((const uint32 *)psx_addr(object + 428, 16), (MATRIX *)psx_addr(0x800ED550, 32));
-    return sub_800878AC(0x800ED550, 0x800ED520);
+    x = this->model.pos[0];
+    offset_x = camera_tuning.view_offset[0];
+    GetModelRenderView().pos[0] = (uint32)((sint32)(x + offset_x) >> 12);
+    y = this->model.pos[1];
+    offset_y = camera_tuning.view_offset[1];
+    GetModelRenderView().pos[1] = (uint32)((sint32)(y + offset_y) >> 12);
+    z = this->model.pos[2];
+    offset_z = camera_tuning.view_offset[2];
+    GetModelRenderView().pos[2] = (uint32)((sint32)(z + offset_z) >> 12);
+    ConvertQuaternionToMatrix((const uint32 *)psx_addr(object + 428, 16), (MATRIX *)&GetModelRenderView().rotation);
+    return SetModelRenderViewTranslation(GetModelRenderView());
 }
 
 uint32 Camera::ResolveCollisions()
@@ -456,19 +500,20 @@ uint32 Camera::ResolveCollisions()
     FUNCTION_MARKER(0x80077748, "SLUS_003.73");
     MATRIX matrix;
     uint32 previous[3], input[3], transformed[3], lateral[3], opposite[3], forward[3];
-    uint32 target[3], difference[3], collision[35];
+    uint32 target[3], difference[3];
+    CollisionRay collision;
     uint32 q[4], rotated[4], pitch_rotation[4], yaw_rotation[4], combined[4], old_q[4], desired_q[4];
     sint16 first_angles[4], second_angles[4];
     sint32 distance;
     uint32 result, angle, index, target_object, radius;
     uint32 paused = r_u32(0x800FF008);
     uint32 target_initialized = 0;
-    previous[0] = r_u32(object + 4);
-    previous[1] = r_u32(object + 8);
-    previous[2] = r_u32(object + 12);
+    previous[0] = this->model.pos[0];
+    previous[1] = this->model.pos[1];
+    previous[2] = this->model.pos[2];
     if (!paused)
     {
-        radius = r_u32(0x800FF8FC);
+        radius = camera_tuning.radius;
         for (index = 0; index < 4; ++index)
             q[index] = r_u32(object + 428 + 4 * index);
         for (index = 0; index < 4; ++index)
@@ -501,7 +546,7 @@ uint32 Camera::ResolveCollisions()
             distance = -1;
         if (distance == -1 || distance > 0)
         {
-            input[0] = 0 - ((distance == -1 ? r_u32(0x800FF8FC) : r_u32(object + 536)) << 12);
+            input[0] = 0 - ((distance == -1 ? camera_tuning.radius : r_u32(object + 536)) << 12);
             input[1] = 0;
             input[2] = 0;
             RotateCameraVector(&matrix, input, lateral);
@@ -513,27 +558,27 @@ uint32 Camera::ResolveCollisions()
         target[1] = r_u32(object + 312) + transformed[1];
         target[2] = r_u32(object + 316) + transformed[2];
         target_initialized = 1;
-        w_u32(0x801028C8, target[0]);
-        w_u32(0x801028CC, target[1]);
-        w_u32(0x801028D0, target[2]);
+        camera_tuning.prev_pos[0] = target[0];
+        camera_tuning.prev_pos[1] = target[1];
+        camera_tuning.prev_pos[2] = target[2];
         SubtractVectors(difference, target, previous);
         if (r_u32(object + 536))
         {
             for (index = 0; index < 2; ++index)
             {
                 uint32 *offset = index ? opposite : lateral;
-                collision[0] = r_u32(object + 308);
-                collision[1] = r_u32(object + 312);
-                collision[2] = r_u32(object + 316);
-                collision[3] = r_u32(object + 308) + offset[0];
-                collision[4] = r_u32(object + 312);
-                collision[5] = r_u32(object + 316) + offset[2];
-                InitializeCollisionRay((uint8 *)collision);
-                ((uint8 *)collision)[136] = 0;
+                collision.pos[0][0] = r_u32(object + 308);
+                collision.pos[0][1] = r_u32(object + 312);
+                collision.pos[0][2] = r_u32(object + 316);
+                collision.pos[1][0] = r_u32(object + 308) + offset[0];
+                collision.pos[1][1] = r_u32(object + 312);
+                collision.pos[1][2] = r_u32(object + 316) + offset[2];
+                InitializeCollisionRay(collision);
+                collision.triggers = 0;
                 w_u32(0x800FF96C, 1);
-                QueryCollisionRay((uint8 *)collision, 1);
+                QueryCollisionRay(collision, 1);
                 w_u32(0x800FF96C, 0);
-                if (collision[26])
+                if (collision.hit.GetObject())
                 {
                     angle = ReadCameraCollisionAngle(collision, (sint16)r_u16(object + 544), index);
                     BuildYawQuaternion(q, angle);
@@ -543,18 +588,18 @@ uint32 Camera::ResolveCollisions()
         }
         if (r_u32(object + 540))
         {
-            collision[0] = r_u32(object + 308);
-            collision[1] = r_u32(object + 312);
-            collision[2] = r_u32(object + 316);
-            collision[3] = r_u32(object + 308) + (forward[0] << 1);
-            collision[4] = r_u32(object + 312);
-            collision[5] = r_u32(object + 316) + (forward[2] << 1);
-            InitializeCollisionRay((uint8 *)collision);
-            ((uint8 *)collision)[136] = 0;
+            collision.pos[0][0] = r_u32(object + 308);
+            collision.pos[0][1] = r_u32(object + 312);
+            collision.pos[0][2] = r_u32(object + 316);
+            collision.pos[1][0] = r_u32(object + 308) + (forward[0] << 1);
+            collision.pos[1][1] = r_u32(object + 312);
+            collision.pos[1][2] = r_u32(object + 316) + (forward[2] << 1);
+            InitializeCollisionRay(collision);
+            collision.triggers = 0;
             w_u32(0x800FF96C, 1);
-            QueryCollisionRay((uint8 *)collision, 1);
+            QueryCollisionRay(collision, 1);
             w_u32(0x800FF96C, 0);
-            if (collision[26])
+            if (collision.hit.GetObject())
             {
                 angle = ReadCameraCollisionAngle(collision, (sint16)r_u16(object + 546), 0);
                 BuildPitchQuaternion(q, angle);
@@ -567,17 +612,17 @@ uint32 Camera::ResolveCollisions()
     InterpolateQuaternion((uint32 *)psx_addr(object + 460, 16), (const uint32 *)psx_addr(object + 444, 16), 1023, (uint32 *)psx_addr(object + 428, 16));
     input[0] = 0;
     input[1] = 0;
-    input[2] = 0 - (r_u32(0x800FF8FC) << 12);
+    input[2] = 0 - (camera_tuning.radius << 12);
     BuildCameraQuaternionMatrix(object + 428, &matrix);
     RotateCameraVector(&matrix, input, transformed);
-    w_u32(object + 4, r_u32(object + 308) + transformed[0]);
-    w_u32(object + 8, r_u32(object + 312) + transformed[1]);
-    w_u32(object + 12, r_u32(object + 316) + transformed[2]);
-    SubtractVectors(difference, (const uint32 *)psx_addr(object + 4, 12), previous);
+    this->model.pos[0] = r_u32(object + 308) + transformed[0];
+    this->model.pos[1] = r_u32(object + 312) + transformed[1];
+    this->model.pos[2] = r_u32(object + 316) + transformed[2];
+    SubtractVectors(difference, (const uint32 *)this->model.pos, previous);
     result = r_u32(0x800FF008);
-    w_u32(object + 104, difference[0]);
-    w_u32(object + 108, difference[1]);
-    w_u32(object + 112, difference[2]);
+    motion.velocity[0] = difference[0];
+    motion.velocity[1] = difference[1];
+    motion.velocity[2] = difference[2];
     if (!result)
     {
         target_object = r_u32(object + 296);
@@ -598,8 +643,8 @@ uint32 Camera::ResolveCollisions()
                 q[index] = r_u32(object + 428 + 4 * index);
             for (index = 0; index < 4; ++index)
                 w_u32(object + 476 + 4 * index, q[index]);
-            CalculateDirectionAngles((uint16 *)first_angles, (const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 308, 12));
-            CalculateDirectionAngles((uint16 *)second_angles, (const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(r_u32(0x800FF4EC) + 4, 12));
+            CalculateDirectionAngles((uint16 *)first_angles, (const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 308, 12));
+            CalculateDirectionAngles((uint16 *)second_angles, (const uint32 *)this->model.pos, (const uint32 *)psx_addr(r_u32(0x800FF4EC) + 4, 12));
             BuildYawQuaternion(yaw_rotation, (uint32)(sint32)(sint16)(4096 - angle));
             MultiplyQuaternions(combined, yaw_rotation, (const uint32 *)psx_addr(object + 428, 16));
             BuildPitchQuaternion(pitch_rotation, ((uint32)(uint16)second_angles[0] - (uint32)(uint16)first_angles[0]) & 0xFFF);
@@ -716,26 +761,26 @@ uint32 Camera::SetYawTransition(uint32 a2, uint32 a3)
     {
         v4 = ((sint16)(r_u16(((uint32)((a1 + 494))))));
         v5 = result;
-        w_u32(0x800FFD1C, result);
+        camera_tuning.yaw_target = result;
         if ((v4 >= result))
         {
             result = (result < v4);
             if ((v5 < v4))
             {
                 v8 = ((sint16)(r_u16(((uint32)((a1 + 494))))));
-                w_u32(0x800FFD18, a3);
+                camera_tuning.yaw_count = a3;
                 if (((v8 - v5) < 2049))
                     v7 = (v5 - v8);
                 else
                     v7 = ((v5 + 4096) - v8);
                 goto LABEL_4;
             }
-            w_u32(0x800FFD14, 0);
-            w_u32(0x800FFD18, 0);
+            camera_tuning.yaw_delta = 0;
+            camera_tuning.yaw_count = 0;
         }
         else
         {
-            w_u32(0x800FFD18, a3);
+            camera_tuning.yaw_count = a3;
             v6 = (result - v4);
             v7 = ((result - v4) - 4096);
             if ((v6 >= 2049))
@@ -743,17 +788,17 @@ uint32 Camera::SetYawTransition(uint32 a2, uint32 a3)
             LABEL_4:
                 result = (v7 / (sint32)a3);
 
-                w_u32(0x800FFD14, result);
+                camera_tuning.yaw_delta = result;
                 return result;
             }
             result = (v6 / (sint32)a3);
-            w_u32(0x800FFD14, result);
+            camera_tuning.yaw_delta = result;
         }
     }
     else
     {
         w_u16(((uint32)((a1 + 494))), result);
-        w_u32(0x800FFD18, 0);
+        camera_tuning.yaw_count = 0;
     }
     return result;
 }
@@ -765,15 +810,15 @@ uint32 SetCameraOrbitDistanceTransition(uint32 target, uint32 frames)
     FUNCTION_MARKER(0x800785D8, "SLUS_003.73");
     if (count)
     {
-        result = (uint32)((sint32)(value - r_u32(0x800FF908)) / (sint32)count);
-        w_u32(0x800FF90C, count);
-        w_u32(0x800FFD0C, result);
+        result = (uint32)((sint32)(value - camera_tuning.orbit_distance.val) / (sint32)count);
+        camera_tuning.orbit_distance.count = count;
+        camera_tuning.orbit_distance.delta = result;
     }
     else
     {
         result = value;
-        w_u32(0x800FF908, value);
-        w_u32(0x800FF90C, 0);
+        camera_tuning.orbit_distance.val = value;
+        camera_tuning.orbit_distance.count = 0;
     }
     return result;
 }
@@ -785,15 +830,15 @@ uint32 SetCameraOrbitHeightTransition(uint32 target, uint32 frames)
     FUNCTION_MARKER(0x80078618, "SLUS_003.73");
     if (count)
     {
-        result = (uint32)((sint32)(value - r_u32(0x800FF910)) / (sint32)count);
-        w_u32(0x800FF914, count);
-        w_u32(0x800FFD10, result);
+        result = (uint32)((sint32)(value - camera_tuning.orbit_height.val) / (sint32)count);
+        camera_tuning.orbit_height.count = count;
+        camera_tuning.orbit_height.delta = result;
     }
     else
     {
         result = value;
-        w_u32(0x800FF910, value);
-        w_u32(0x800FF914, 0);
+        camera_tuning.orbit_height.val = value;
+        camera_tuning.orbit_height.count = 0;
     }
     return result;
 }
@@ -805,15 +850,15 @@ uint32 SetCameraTargetLateralOffsetTransition(uint32 target, uint32 frames)
     FUNCTION_MARKER(0x8007865C, "SLUS_003.73");
     if (count)
     {
-        result = (uint32)((sint32)(value - r_u32(0x800FF918)) / (sint32)count);
-        w_u32(0x800FF91C, count);
-        w_u32(0x800FFD20, result);
+        result = (uint32)((sint32)(value - camera_tuning.target_lateral.val) / (sint32)count);
+        camera_tuning.target_lateral.count = count;
+        camera_tuning.target_lateral.delta = result;
     }
     else
     {
         result = value;
-        w_u32(0x800FF918, value);
-        w_u32(0x800FF91C, 0);
+        camera_tuning.target_lateral.val = value;
+        camera_tuning.target_lateral.count = 0;
     }
     return result;
 }
@@ -825,15 +870,15 @@ uint32 SetCameraTargetHeightOffsetTransition(uint32 target, uint32 frames)
     FUNCTION_MARKER(0x800786A0, "SLUS_003.73");
     if (count)
     {
-        result = (uint32)((sint32)(value - r_u32(0x800FF920)) / (sint32)count);
-        w_u32(0x800FF924, count);
-        w_u32(0x800FFD24, result);
+        result = (uint32)((sint32)(value - camera_tuning.target_height.val) / (sint32)count);
+        camera_tuning.target_height.count = count;
+        camera_tuning.target_height.delta = result;
     }
     else
     {
         result = value;
-        w_u32(0x800FF920, value);
-        w_u32(0x800FF924, 0);
+        camera_tuning.target_height.val = value;
+        camera_tuning.target_height.count = 0;
     }
     return result;
 }
@@ -845,15 +890,15 @@ uint32 SetCameraTargetForwardOffsetTransition(uint32 target, uint32 frames)
     FUNCTION_MARKER(0x800786E4, "SLUS_003.73");
     if (count)
     {
-        result = (uint32)((sint32)(value - r_u32(0x800FF928)) / (sint32)count);
-        w_u32(0x800FF92C, count);
-        w_u32(0x800FFD28, result);
+        result = (uint32)((sint32)(value - camera_tuning.target_forward.val) / (sint32)count);
+        camera_tuning.target_forward.count = count;
+        camera_tuning.target_forward.delta = result;
     }
     else
     {
         result = value;
-        w_u32(0x800FF928, value);
-        w_u32(0x800FF92C, 0);
+        camera_tuning.target_forward.val = value;
+        camera_tuning.target_forward.count = 0;
     }
     return result;
 }
@@ -885,8 +930,9 @@ uint32 Camera::GetProjDistance()
 
 uint32 Camera::Update()
 {
+    uint32 trig_angle;
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 result, x, y, z, count, target, value, yaw, timer, table, first, second, radius;
+    uint32 result, x, y, z, count, target, value, yaw, timer, first, second, radius;
     uint32 saved[7], matrices[5][4], matrix[4], shake_word, shake_tail, magnitude, rate;
     uint32 mode_button, record_button, toggle_button, modifier, basic_button, held;
     sint32 angle, vertical, oscillation_count;
@@ -894,12 +940,12 @@ uint32 Camera::Update()
     result = r_u32(0x800FF008);
     if (result)
         return result;
-    x = r_u32(object + 4);
-    y = r_u32(object + 8);
-    z = r_u32(object + 12);
-    w_u32(0x801028C8, x);
-    w_u32(0x801028CC, y);
-    w_u32(0x801028D0, z);
+    x = this->model.pos[0];
+    y = this->model.pos[1];
+    z = this->model.pos[2];
+    camera_tuning.prev_pos[0] = x;
+    camera_tuning.prev_pos[1] = y;
+    camera_tuning.prev_pos[2] = z;
     value = r_u32(object + 576);
     count = r_u32(object + 332);
     w_u32(object + 576, value + 1);
@@ -952,12 +998,12 @@ uint32 Camera::Update()
         ClampTargetToSegment();
     if (r_u8(0x800EC1E8))
     {
-        if (r_u32(0x800FF944))
-            w_u32(0x800FF940, 1);
-        w_u32(0x800FF944, 0);
+        if (camera_tuning.tracking_button_released)
+            camera_tuning.tracking_button_pressed = 1;
+        camera_tuning.tracking_button_released = 0;
     }
     else
-        w_u32(0x800FF944, 1);
+        camera_tuning.tracking_button_released = 1;
     mode_button = r_u8(0x800EC2D5);
     if (mode_button)
     {
@@ -972,28 +1018,28 @@ uint32 Camera::Update()
                 held = r_u8(0x800EC1E8);
                 if (held & modifier & basic_button)
                 {
-                    value = r_u32(0x800FF934);
+                    value = camera_tuning.manual_mode;
                     w_u8(0x800EC2D5, 0);
                     w_u8(0x800EC2E5, 0);
                     value ^= 1;
-                    w_u32(0x800FF934, value);
+                    camera_tuning.manual_mode = value;
                     w_u32(0x800FF300, value);
                     if (value)
                     {
-                        saved[0] = r_u32(0x800FF918);
-                        saved[1] = r_u32(0x800FF920);
-                        saved[2] = r_u32(0x800FF928);
-                        saved[3] = r_u32(0x800FF908);
-                        saved[4] = r_u32(0x800FF910);
+                        saved[0] = camera_tuning.target_lateral.val;
+                        saved[1] = camera_tuning.target_height.val;
+                        saved[2] = camera_tuning.target_forward.val;
+                        saved[3] = camera_tuning.orbit_distance.val;
+                        saved[4] = camera_tuning.orbit_height.val;
                         saved[5] = (uint32)(sint32)(sint16)r_u16(object + 494);
                         saved[6] = r_u32(object + 372);
-                        w_u32(0x800FFCA0, saved[0]);
-                        w_u32(0x800FFCA4, saved[1]);
-                        w_u32(0x800FFCA8, saved[2]);
-                        w_u32(0x800FFCAC, saved[3]);
-                        w_u32(0x800FFCB0, saved[4]);
-                        w_u32(0x800FFCB4, saved[5]);
-                        w_u32(0x800FF93C, saved[6]);
+                        camera_tuning.saved[0] = saved[0];
+                        camera_tuning.saved[1] = saved[1];
+                        camera_tuning.saved[2] = saved[2];
+                        camera_tuning.saved[3] = saved[3];
+                        camera_tuning.saved[4] = saved[4];
+                        camera_tuning.saved[5] = saved[5];
+                        camera_tuning.saved_proj_distance = saved[6];
                     }
                     else
                         goto AdvanceTransitions;
@@ -1001,22 +1047,22 @@ uint32 Camera::Update()
             }
         }
     }
-    if (r_u32(0x800FF934))
+    if (camera_tuning.manual_mode)
     {
         if (r_u8(0x800EC354))
         {
-            saved[0] = r_u32(0x800FFCA0);
-            saved[1] = r_u32(0x800FFCA4);
-            saved[2] = r_u32(0x800FFCA8);
-            saved[3] = r_u32(0x800FFCAC);
-            saved[4] = r_u32(0x800FFCB0);
-            saved[5] = r_u16(0x800FFCB4);
-            saved[6] = r_u32(0x800FF93C);
-            w_u32(0x800FF918, saved[0]);
-            w_u32(0x800FF920, saved[1]);
-            w_u32(0x800FF928, saved[2]);
-            w_u32(0x800FF908, saved[3]);
-            w_u32(0x800FF910, saved[4]);
+            saved[0] = camera_tuning.saved[0];
+            saved[1] = camera_tuning.saved[1];
+            saved[2] = camera_tuning.saved[2];
+            saved[3] = camera_tuning.saved[3];
+            saved[4] = camera_tuning.saved[4];
+            saved[5] = ((uint32)(uint16)camera_tuning.saved[5]);
+            saved[6] = camera_tuning.saved_proj_distance;
+            camera_tuning.target_lateral.val = saved[0];
+            camera_tuning.target_height.val = saved[1];
+            camera_tuning.target_forward.val = saved[2];
+            camera_tuning.orbit_distance.val = saved[3];
+            camera_tuning.orbit_height.val = saved[4];
             w_u16(object + 494, saved[5]);
             w_u32(object + 372, saved[6]);
         }
@@ -1026,16 +1072,16 @@ uint32 Camera::Update()
             w_u32(object + 372, r_u32(object + 372) + 1);
         if (r_u8(0x800EC0F8))
             w_u32(object + 372, 256);
-        AdjustCameraDebugValue(0x800EC2F4, 0x800FF918, 1);
-        AdjustCameraDebugValue(0x800EC304, 0x800FF918, 0);
-        AdjustCameraDebugValue(0x800EC314, 0x800FF928, 0);
-        AdjustCameraDebugValue(0x800EC324, 0x800FF928, 1);
-        AdjustCameraDebugValue(0x800EC2B4, 0x800FF920, 1);
-        AdjustCameraDebugValue(0x800EC2C4, 0x800FF920, 0);
-        AdjustCameraDebugValue(0x800EC2D4, 0x800FF910, 1);
-        AdjustCameraDebugValue(0x800EC2E4, 0x800FF910, 0);
-        AdjustCameraDebugValue(0x800EC274, 0x800FF908, 1);
-        AdjustCameraDebugValue(0x800EC2A4, 0x800FF908, 0);
+        AdjustCameraDebugValue(0x800EC2F4, camera_tuning.target_lateral.val, 1);
+        AdjustCameraDebugValue(0x800EC304, camera_tuning.target_lateral.val, 0);
+        AdjustCameraDebugValue(0x800EC314, camera_tuning.target_forward.val, 0);
+        AdjustCameraDebugValue(0x800EC324, camera_tuning.target_forward.val, 1);
+        AdjustCameraDebugValue(0x800EC2B4, camera_tuning.target_height.val, 1);
+        AdjustCameraDebugValue(0x800EC2C4, camera_tuning.target_height.val, 0);
+        AdjustCameraDebugValue(0x800EC2D4, camera_tuning.orbit_height.val, 1);
+        AdjustCameraDebugValue(0x800EC2E4, camera_tuning.orbit_height.val, 0);
+        AdjustCameraDebugValue(0x800EC274, camera_tuning.orbit_distance.val, 1);
+        AdjustCameraDebugValue(0x800EC2A4, camera_tuning.orbit_distance.val, 0);
         if (r_u8(0x800EC284))
         {
             value = r_u8(0x800EC364);
@@ -1050,89 +1096,89 @@ uint32 Camera::Update()
         }
     }
 AdvanceTransitions:
-    AdvanceCameraGlobalTransition(0x800FF90C, 0x800FF908, 0x800FFD0C);
-    AdvanceCameraGlobalTransition(0x800FF914, 0x800FF910, 0x800FFD10);
-    timer = r_u32(0x800FFD18);
+    AdvanceCameraGlobalTransition(camera_tuning.orbit_distance);
+    AdvanceCameraGlobalTransition(camera_tuning.orbit_height);
+    timer = camera_tuning.yaw_count;
     if (timer)
     {
         --timer;
-        w_u32(0x800FFD18, timer);
+        camera_tuning.yaw_count = timer;
         if (timer)
         {
             yaw = r_u16(object + 494);
-            value = r_u16(0x800FFD14);
+            value = ((uint32)(uint16)camera_tuning.yaw_delta);
             yaw = (yaw + value) & 4095;
         }
         else
-            yaw = r_u16(0x800FFD1C);
+            yaw = ((uint32)(uint16)camera_tuning.yaw_target);
         w_u16(object + 494, yaw);
     }
-    AdvanceCameraGlobalTransition(0x800FF91C, 0x800FF918, 0x800FFD20);
-    AdvanceCameraGlobalTransition(0x800FF924, 0x800FF920, 0x800FFD24);
-    AdvanceCameraGlobalTransition(0x800FF92C, 0x800FF928, 0x800FFD28);
-    value = r_u32(0x800FF908);
+    AdvanceCameraGlobalTransition(camera_tuning.target_lateral);
+    AdvanceCameraGlobalTransition(camera_tuning.target_height);
+    AdvanceCameraGlobalTransition(camera_tuning.target_forward);
+    value = camera_tuning.orbit_distance.val;
     first = value * value;
-    value = r_u32(0x800FF910);
+    value = camera_tuning.orbit_height.val;
     second = value * value;
     radius = SquareRoot0(first + second);
-    x = r_u32(0x800FF910);
-    y = r_u32(0x800FF908);
-    w_u32(0x800FF8FC, radius);
+    x = camera_tuning.orbit_height.val;
+    y = camera_tuning.orbit_distance.val;
+    camera_tuning.radius = radius;
     angle = ratan2(x, y);
-    value = r_u32(0x800FF920);
-    w_u32(0x800ED514, value << 12);
+    value = camera_tuning.target_height.val;
+    camera_tuning.view_offset[1] = value << 12;
     yaw = r_u16(object + 494);
-    x = r_u32(0x800FF918);
-    table = 0x800F863C + (yaw & 4095) * 4;
-    first = x * (uint32)(sint32)(sint16)r_u16(table + 2);
-    z = r_u32(0x800FF928);
-    second = z * (uint32)(sint32)(sint16)r_u16(table);
-    w_u32(0x800ED510, 0 - first - second);
+    x = camera_tuning.target_lateral.val;
+    trig_angle = yaw & 4095;
+    first = x * (uint32)rcos(trig_angle);
+    z = camera_tuning.target_forward.val;
+    second = z * (uint32)rsin(trig_angle);
+    camera_tuning.view_offset[0] = 0 - first - second;
     yaw = r_u16(object + 494);
-    table = 0x800F863C + (yaw & 4095) * 4;
-    first = x * (uint32)(sint32)(sint16)r_u16(table);
-    second = z * (uint32)(sint32)(sint16)r_u16(table + 2);
-    w_u32(0x800FF8F8, 0 - (uint32)angle);
-    w_u32(0x800ED518, first - second);
+    trig_angle = yaw & 4095;
+    first = x * (uint32)rsin(trig_angle);
+    second = z * (uint32)rcos(trig_angle);
+    camera_tuning.pitch = 0 - (uint32)angle;
+    camera_tuning.view_offset[2] = first - second;
     sub_80066B8C(object + 16, object + 4, object + 344);
     target = r_u32(object + 296);
     if (r_u16(target + 570) && (sint16)r_u16(object + 414) && !r_u32(object + 332))
     {
-        vertical = (sint32)r_u32(target + 108);
-        value = r_u32(0x800FF94C);
+        vertical = (sint32)VisualObject::Attach(target).motion.velocity[1];
+        value = camera_tuning.vertical_ticks;
         oscillation_count = (sint32)(vertical < 0 ? value + 1 : value - 1);
-        w_u32(0x800FF94C, (uint32)oscillation_count);
+        camera_tuning.vertical_ticks = (uint32)oscillation_count;
         target = r_u32(object + 296);
-        value = r_u32(target + 108);
+        value = VisualObject::Attach(target).motion.velocity[1];
         magnitude = (uint32)(sint32)(sint16)r_u16(object + 414);
         first = (uint32)((sint32)(0 - value) >> 12) * magnitude;
-        value = r_u32(0x800FF948);
-        count = r_u32(0x800FF94C);
+        value = camera_tuning.vertical_offset;
+        count = camera_tuning.vertical_ticks;
         value += first;
-        w_u32(0x800FF948, value);
+        camera_tuning.vertical_offset = value;
         if ((sint32)count > 0)
             w_u32(object + 312, r_u32(object + 312) + value);
     }
     else
     {
-        w_u32(0x800FF948, 0);
-        w_u32(0x800FF94C, 0);
+        camera_tuning.vertical_offset = 0;
+        camera_tuning.vertical_ticks = 0;
     }
     magnitude = (uint32)(sint32)(sint16)r_u16(object + 412);
     if (magnitude)
     {
         target = r_u32(object + 296);
-        if ((sint32)r_u32(target + 108) < 0)
-            w_u32(0x800FF8F8, r_u32(0x800FF8F8) - magnitude);
+        if ((sint32)VisualObject::Attach(target).motion.velocity[1] < 0)
+            camera_tuning.pitch = camera_tuning.pitch - magnitude;
         target = r_u32(object + 296);
-        if ((sint32)r_u32(target + 108) > 0)
+        if ((sint32)VisualObject::Attach(target).motion.velocity[1] > 0)
         {
             magnitude = r_u16(object + 412);
-            value = r_u32(0x800FF8F8);
+            value = camera_tuning.pitch;
             magnitude = (uint32)((sint32)(magnitude << 16) >> 17);
-            w_u32(0x800FF8F8, value - magnitude);
+            camera_tuning.pitch = value - magnitude;
         }
-        w_u32(0x800FF8F8, r_u32(0x800FF8F8) & 4095);
+        camera_tuning.pitch = camera_tuning.pitch & 4095;
     }
     switch (r_u32(object + 564))
     {
@@ -1140,16 +1186,16 @@ AdvanceTransitions:
         case 3:
         case 7:
         case 15:
-            w_u32(0x800FF930, 0);
+            camera_tuning.restore_quat = 0;
             BuildView();
             break;
         case 18:
         case 19:
-            w_u32(0x800FF930, 1);
+            camera_tuning.restore_quat = 1;
             UpdatePlayerRelativeTracking();
             break;
         case 20:
-            w_u32(0x800FF930, 1);
+            camera_tuning.restore_quat = 1;
             UpdateFixedOriginTracking();
             break;
     }
@@ -1192,7 +1238,7 @@ AdvanceTransitions:
             w_u16(object + 552, 0);
     }
     PrepareView();
-    result = r_u32(0x800FF930);
+    result = camera_tuning.restore_quat;
     if (result)
     {
         x = r_u32(object + 476);
@@ -1209,17 +1255,18 @@ AdvanceTransitions:
 
 uint32 Camera::BuildView()
 {
+    uint32 trig_angle;
     const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800793C8, "SLUS_003.73");
-    uint32 offset[3] = {0, 0, r_u32(0x800FF8FC) << 12};
+    uint32 offset[3] = {0, 0, camera_tuning.radius << 12};
     uint32 up[3] = {0, 0x1F4000, 0}, translated[3], forward[3], normal_up[3];
     uint32 rotation = r_u32(object + 492);
     rotation = r_u32(object + 492);
     uint32 roll = r_u16(object + 496);
-    uint32 steps[4], pass, step, i, x, y, z, sine, cosine, table, sum;
+    uint32 steps[4], pass, step, i, x, y, z, sine, cosine, sum;
     sint32 divisor;
     sint16 matrix[9];
-    steps[0] = r_u32(0x800FF8F8) & 0xFFF;
+    steps[0] = camera_tuning.pitch & 0xFFF;
     steps[1] = (rotation >> 16) & 0xFFF;
     steps[2] = rotation & 0xFFF;
     steps[3] = roll & 0xFFF;
@@ -1227,12 +1274,12 @@ uint32 Camera::BuildView()
     {
         uint32 *vector = pass ? up : offset;
         if (pass)
-            steps[0] = r_u32(0x800FF8F8) & 4095;
+            steps[0] = camera_tuning.pitch & 4095;
         for (step = 0; step < 4; ++step)
         {
-            table = 0x800F863C + steps[step] * 4;
-            sine = (uint32)(sint32)(sint16)r_u16(table);
-            cosine = (uint32)(sint32)(sint16)r_u16(table + 2);
+            trig_angle = steps[step];
+            sine = (uint32)rsin(trig_angle);
+            cosine = (uint32)rcos(trig_angle);
             x = (uint32)((sint32)vector[0] >> 12);
             y = (uint32)((sint32)vector[1] >> 12);
             z = (uint32)((sint32)vector[2] >> 12);
@@ -1322,8 +1369,11 @@ uint32 Camera::UpdatePlayerRelativeTracking()
 {
     const uint32 camera = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80079DC8, "SLUS_003.73");
-    uint32 target, original_target, origin, history, initialized, distance = 0, target_distance;
+    uint32 target, original_target, distance = 0, target_distance;
     uint32 angle, table_index, product, magnitude, scale, previous, value;
+    const uint32 *origin;
+    uint16 *history;
+    uint32 *initialized;
     int distance_initialized = 0;
     sint32 delta;
     sint16 direction[4], target_angles[4], turn[4], position_angles[4], final_target_angles[4];
@@ -1335,29 +1385,29 @@ uint32 Camera::UpdatePlayerRelativeTracking()
     }
     target = r_u32(0x800FF4EC);
     w_u32(camera + 336, original_target);
-    w_u32(0x800ED510, 0);
-    w_u32(0x800ED514, (uint32)-368640);
-    w_u32(0x800ED518, 0);
+    camera_tuning.view_offset[0] = 0;
+    camera_tuning.view_offset[1] = (uint32)-368640;
+    camera_tuning.view_offset[2] = 0;
     if (target)
     {
         distance = sub_8006696C(camera + 308, target + 4);
         distance_initialized = 1;
     }
-    origin = camera + 4;
-    xport_draft_host_sub_80066B8C_p1(direction, camera + 308, origin);
-    xport_draft_host_sub_80066B8C_p1(target_angles, r_u32(0x800FF4EC) + 4, origin);
-    history = 0x800FFCB8;
-    initialized = 0x800FF954;
-    if (!r_u32(initialized))
+    origin = (const uint32 *)this->model.pos;
+    CalculateDirectionAngles((uint16 *)direction, (const uint32 *)psx_addr(camera + 308, 12), origin);
+    CalculateDirectionAngles((uint16 *)target_angles, (const uint32 *)psx_addr(r_u32(0x800FF4EC) + 4, 12), origin);
+    history = camera_tuning.tracking[0].angles;
+    initialized = &camera_tuning.tracking[0].angles_initialized;
+    if (!*initialized)
     {
-        w_u32(initialized, 1);
+        *initialized = 1;
         StoreTrackingAngles(history, target_angles);
     }
-    delta = (sint16)sub_80077274((sint16)r_u16(history + 2), target_angles[1]);
+    delta = (sint16)sub_80077274((sint16)((uint32)history[1]), target_angles[1]);
     target = r_u32(0x800FF4EC);
-    angle = r_u16(history + 2);
+    angle = ((uint32)history[1]);
     target_angles[1] = (sint16)((angle + (uint32)(delta >> 1) + 4096) & 4095);
-    target_distance = sub_8006696C(target + 4, origin);
+    target_distance = MeasurePositionDistance((const uint32 *)psx_addr(target + 4, 12), origin);
     target = r_u32(0x800FF4EC);
     if (target)
     {
@@ -1371,33 +1421,33 @@ uint32 Camera::UpdatePlayerRelativeTracking()
         }
         TurnTrackingCamera(camera, delta, (sint32)distance, 1);
     }
-    xport_draft_host_sub_80066B8C_p1(position_angles, camera + 308, origin);
-    xport_draft_host_sub_80066B8C_p1(final_target_angles, r_u32(0x800FF4EC) + 4, origin);
+    CalculateDirectionAngles((uint16 *)position_angles, (const uint32 *)psx_addr(camera + 308, 12), origin);
+    CalculateDirectionAngles((uint16 *)final_target_angles, (const uint32 *)psx_addr(r_u32(0x800FF4EC) + 4, 12), origin);
     table_index = ((uint32)(uint16)position_angles[1] - (uint32)(uint16)final_target_angles[1]) & 4095;
     angle = r_u16(camera + 494);
     table_index += ((uint32)(uint16)target_angles[1] - angle) & 4095;
     table_index &= 4095;
-    value = (uint32)(sint32)(sint16)r_u16(0x800F863C + table_index * 4);
+    value = (uint32)rsin(table_index);
     product = value * target_distance;
     magnitude = (uint32)((sint32)product >> 12);
     value = (uint32)((sint32)product >> 31);
     magnitude = (magnitude ^ value) - value;
     scale = (uint32)((sint32)(magnitude * 6553) >> 12);
-    if (!r_u32(0x800FF958))
+    if (!camera_tuning.tracking[0].distance_initialized)
     {
-        w_u32(0x800FF958, 1);
-        w_u32(0x800FFCC0, scale);
+        camera_tuning.tracking[0].distance_initialized = 1;
+        camera_tuning.tracking[0].distance = scale;
     }
-    previous = r_u32(0x800FFCC0);
+    previous = camera_tuning.tracking[0].distance;
     value = (uint32)((sint32)(scale + previous) >> 1);
-    w_u32(0x800FF8FC, value);
+    camera_tuning.radius = value;
     if ((sint32)value < 1700)
-        w_u32(0x800FF8FC, 1700);
-    value = r_u32(0x800FF8FC);
+        camera_tuning.radius = 1700;
+    value = camera_tuning.radius;
     if ((sint32)value >= 3001)
-        w_u32(0x800FF8FC, 3000);
-    w_u32(0x800FF8F8, 130);
-    w_u32(0x800FFCC0, scale);
+        camera_tuning.radius = 3000;
+    camera_tuning.pitch = 130;
+    camera_tuning.tracking[0].distance = scale;
     StoreTrackingAngles(history, target_angles);
     return BuildView();
 }
@@ -1406,8 +1456,11 @@ uint32 Camera::UpdateFixedOriginTracking()
 {
     const uint32 camera = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8007A1A8, "SLUS_003.73");
-    uint32 target, original_target, origin, history, initialized, distance = 0, target_distance;
+    uint32 target, original_target, distance = 0, target_distance;
     uint32 angle, table_index, product, magnitude, scale, previous, value;
+    const uint32 *origin;
+    uint16 *history;
+    uint32 *initialized;
     int distance_initialized = 0;
     sint32 delta;
     sint16 direction[4], target_angles[4], turn[4], position_angles[4], final_target_angles[4];
@@ -1419,29 +1472,29 @@ uint32 Camera::UpdateFixedOriginTracking()
     }
     target = r_u32(0x800FF4EC);
     w_u32(camera + 336, original_target);
-    w_u32(0x800ED510, 0);
-    w_u32(0x800ED514, (uint32)-368640);
-    w_u32(0x800ED518, 0);
+    camera_tuning.view_offset[0] = 0;
+    camera_tuning.view_offset[1] = (uint32)-368640;
+    camera_tuning.view_offset[2] = 0;
     if (target)
     {
         distance = sub_8006696C(camera + 308, target + 4);
         distance_initialized = 1;
     }
-    origin = 0x801028C8;
-    xport_draft_host_sub_80066B8C_p1(direction, camera + 308, origin);
-    xport_draft_host_sub_80066B8C_p1(target_angles, r_u32(0x800FF4EC) + 4, origin);
-    history = 0x800FFCC8;
-    initialized = 0x800FF95C;
-    if (!r_u32(initialized))
+    origin = camera_tuning.prev_pos;
+    CalculateDirectionAngles((uint16 *)direction, (const uint32 *)psx_addr(camera + 308, 12), origin);
+    CalculateDirectionAngles((uint16 *)target_angles, (const uint32 *)psx_addr(r_u32(0x800FF4EC) + 4, 12), origin);
+    history = camera_tuning.tracking[1].angles;
+    initialized = &camera_tuning.tracking[1].angles_initialized;
+    if (!*initialized)
     {
-        w_u32(initialized, 1);
+        *initialized = 1;
         StoreTrackingAngles(history, target_angles);
     }
-    delta = (sint16)sub_80077274((sint16)r_u16(history + 2), target_angles[1]);
+    delta = (sint16)sub_80077274((sint16)((uint32)history[1]), target_angles[1]);
     target = r_u32(0x800FF4EC);
-    angle = r_u16(history + 2);
+    angle = ((uint32)history[1]);
     target_angles[1] = (sint16)((angle + (uint32)(delta >> 1) + 4096) & 4095);
-    target_distance = sub_8006696C(target + 4, origin);
+    target_distance = MeasurePositionDistance((const uint32 *)psx_addr(target + 4, 12), origin);
     target = r_u32(0x800FF4EC);
     if (target)
     {
@@ -1455,90 +1508,89 @@ uint32 Camera::UpdateFixedOriginTracking()
         }
         TurnTrackingCamera(camera, delta, (sint32)distance, 0);
     }
-    xport_draft_host_sub_80066B8C_p1(position_angles, camera + 308, origin);
-    xport_draft_host_sub_80066B8C_p1(final_target_angles, r_u32(0x800FF4EC) + 4, origin);
-    if (!r_u32(0x800FF960))
+    CalculateDirectionAngles((uint16 *)position_angles, (const uint32 *)psx_addr(camera + 308, 12), origin);
+    CalculateDirectionAngles((uint16 *)final_target_angles, (const uint32 *)psx_addr(r_u32(0x800FF4EC) + 4, 12), origin);
+    if (!camera_tuning.tracking[1].distance_initialized)
     {
-        previous = r_u32(0x800FF8FC);
-        w_u32(0x800FF960, 1);
-        w_u32(0x800FFCD0, previous);
+        previous = camera_tuning.radius;
+        camera_tuning.tracking[1].distance_initialized = 1;
+        camera_tuning.tracking[1].distance = previous;
     }
-    previous = r_u32(0x800FFCD0);
-    w_u32(0x800FF8F8, 100);
+    previous = camera_tuning.tracking[1].distance;
+    camera_tuning.pitch = 100;
     StoreTrackingAngles(history, target_angles);
     value = (uint32)((sint32)(previous + 1700) >> 1);
-    w_u32(0x800FF8FC, value);
-    w_u32(0x800FFCD0, value);
+    camera_tuning.radius = value;
+    camera_tuning.tracking[1].distance = value;
     return BuildView();
 }
 
-uint32 ResetCameraPresetData()
+void ResetCameraDefaults()
 {
     FUNCTION_MARKER(0x8007A5FC, "SLUS_003.73");
-    w_u32(0x801029B8, 0x00000000);
-    w_u32(0x801029BC, 0xFFE70000);
-    w_u32(0x801029C0, 0x00000000);
-    w_u32(0x801029A8, 0x00000000);
-    w_u32(0x801029AC, 0xFFF9C000);
-    w_u32(0x801029B0, 0x00000000);
-    w_u32(0x80102998, 0x00000000);
-    w_u32(0x8010299C, 0xFFF60000);
-    w_u32(0x801029A0, 0xFFC4A000);
-    w_u32(0x80102988, 0x00000000);
-    w_u32(0x8010298C, 0xFFF9C000);
-    w_u32(0x80102990, 0x00000000);
-    w_u32(0x80102978, 0x00000000);
-    w_u32(0x8010297C, 0xFFF6A000);
-    w_u32(0x80102980, 0x0028A000);
-    w_u32(0x80102968, 0x00000000);
-    w_u32(0x8010296C, 0xFFF9C000);
-    w_u32(0x80102970, 0x00000000);
-    w_u32(0x80102958, 0x00000000);
-    w_u32(0x8010295C, 0xFFBB4000);
-    w_u32(0x80102960, 0x00514000);
-    w_u32(0x80102948, 0x00000000);
-    w_u32(0x8010294C, 0xFFF9C000);
-    w_u32(0x80102950, 0xFFCE0000);
-    w_u32(0x80102938, 0x00000000);
-    w_u32(0x8010293C, 0xFF736000);
-    w_u32(0x80102940, 0x00190000);
-    w_u32(0x80102928, 0x00000000);
-    w_u32(0x8010292C, 0xFFF9C000);
-    w_u32(0x80102930, 0xFFED4000);
-    w_u32(0x80102918, 0x00000000);
-    w_u32(0x8010291C, 0xFFF1F000);
-    w_u32(0x80102920, 0x00320000);
-    w_u32(0x80102908, 0x00000000);
-    w_u32(0x8010290C, 0xFFE7A000);
-    w_u32(0x80102910, 0x00320000);
-    w_u32(0x801028F8, 0x00000000);
-    w_u32(0x801028FC, 0x00064000);
-    w_u32(0x80102900, 0xF92A0000);
-    w_u32(0x801028E8, 0x00000000);
-    w_u32(0x801028EC, 0xFFF9C000);
-    w_u32(0x801028F0, 0x00000000);
-    w_u16(0x800FFCFC, 0x0032);
-    w_u16(0x800FFCF4, 0x001E);
-    w_u8(0x800FFCE0, 0x03);
-    w_u8(0x800FFCE2, 0x03);
-    w_u16(0x800FFCD8, 0x0258);
-    w_u16(0x800FFCDC, 0x0258);
-    w_u32(0x801028D8, 0x00000000);
-    w_u16(0x800FFCF8, 0x0019);
-    w_u16(0x800FFCFA, 0x0000);
-    w_u16(0x800FFCF0, 0x0000);
-    w_u16(0x800FFCF2, 0x0000);
-    w_u16(0x800FFCE8, 0x0000);
-    w_u16(0x800FFCEA, 0x0000);
-    w_u16(0x800FFCEC, 0x0019);
-    w_u8(0x800FFCE1, 0x00);
-    w_u16(0x800FFCDA, 0x0000);
-    w_u32(0x801028DC, 0xFFF92000);
-    w_u32(0x801028E0, 0x00000000);
-    w_u32(0x800ED510, 0x00000000);
-    w_u32(0x800ED514, 0xFFFA6000);
-    w_u32(0x800ED518, 0x00000000);
-    return 0x800ED510;
+    camera_tuning.reset_vectors[14][0] = 0x00000000;
+    camera_tuning.reset_vectors[14][1] = 0xFFE70000;
+    camera_tuning.reset_vectors[14][2] = 0x00000000;
+    camera_tuning.reset_vectors[13][0] = 0x00000000;
+    camera_tuning.reset_vectors[13][1] = 0xFFF9C000;
+    camera_tuning.reset_vectors[13][2] = 0x00000000;
+    camera_tuning.reset_vectors[12][0] = 0x00000000;
+    camera_tuning.reset_vectors[12][1] = 0xFFF60000;
+    camera_tuning.reset_vectors[12][2] = 0xFFC4A000;
+    camera_tuning.reset_vectors[11][0] = 0x00000000;
+    camera_tuning.reset_vectors[11][1] = 0xFFF9C000;
+    camera_tuning.reset_vectors[11][2] = 0x00000000;
+    camera_tuning.reset_vectors[10][0] = 0x00000000;
+    camera_tuning.reset_vectors[10][1] = 0xFFF6A000;
+    camera_tuning.reset_vectors[10][2] = 0x0028A000;
+    camera_tuning.reset_vectors[9][0] = 0x00000000;
+    camera_tuning.reset_vectors[9][1] = 0xFFF9C000;
+    camera_tuning.reset_vectors[9][2] = 0x00000000;
+    camera_tuning.reset_vectors[8][0] = 0x00000000;
+    camera_tuning.reset_vectors[8][1] = 0xFFBB4000;
+    camera_tuning.reset_vectors[8][2] = 0x00514000;
+    camera_tuning.reset_vectors[7][0] = 0x00000000;
+    camera_tuning.reset_vectors[7][1] = 0xFFF9C000;
+    camera_tuning.reset_vectors[7][2] = 0xFFCE0000;
+    camera_tuning.reset_vectors[6][0] = 0x00000000;
+    camera_tuning.reset_vectors[6][1] = 0xFF736000;
+    camera_tuning.reset_vectors[6][2] = 0x00190000;
+    camera_tuning.reset_vectors[5][0] = 0x00000000;
+    camera_tuning.reset_vectors[5][1] = 0xFFF9C000;
+    camera_tuning.reset_vectors[5][2] = 0xFFED4000;
+    camera_tuning.reset_vectors[4][0] = 0x00000000;
+    camera_tuning.reset_vectors[4][1] = 0xFFF1F000;
+    camera_tuning.reset_vectors[4][2] = 0x00320000;
+    camera_tuning.reset_vectors[3][0] = 0x00000000;
+    camera_tuning.reset_vectors[3][1] = 0xFFE7A000;
+    camera_tuning.reset_vectors[3][2] = 0x00320000;
+    camera_tuning.reset_vectors[2][0] = 0x00000000;
+    camera_tuning.reset_vectors[2][1] = 0x00064000;
+    camera_tuning.reset_vectors[2][2] = 0xF92A0000;
+    camera_tuning.reset_vectors[1][0] = 0x00000000;
+    camera_tuning.reset_vectors[1][1] = 0xFFF9C000;
+    camera_tuning.reset_vectors[1][2] = 0x00000000;
+    camera_tuning.shake_amplitude[2][2] = (uint16)(0x0032);
+    camera_tuning.shake_amplitude[1][2] = (uint16)(0x001E);
+    camera_tuning.shake_decay[0] = (uint8)(0x03);
+    camera_tuning.shake_decay[2] = (uint8)(0x03);
+    camera_tuning.shake_frequency[0] = (uint16)(0x0258);
+    camera_tuning.shake_frequency[2] = (uint16)(0x0258);
+    camera_tuning.reset_vectors[0][0] = 0x00000000;
+    camera_tuning.shake_amplitude[2][0] = (uint16)(0x0019);
+    camera_tuning.shake_amplitude[2][1] = (uint16)(0x0000);
+    camera_tuning.shake_amplitude[1][0] = (uint16)(0x0000);
+    camera_tuning.shake_amplitude[1][1] = (uint16)(0x0000);
+    camera_tuning.shake_amplitude[0][0] = (uint16)(0x0000);
+    camera_tuning.shake_amplitude[0][1] = (uint16)(0x0000);
+    camera_tuning.shake_amplitude[0][2] = (uint16)(0x0019);
+    camera_tuning.shake_decay[1] = (uint8)(0x00);
+    camera_tuning.shake_frequency[1] = (uint16)(0x0000);
+    camera_tuning.reset_vectors[0][1] = 0xFFF92000;
+    camera_tuning.reset_vectors[0][2] = 0x00000000;
+    camera_tuning.view_offset[0] = 0x00000000;
+    camera_tuning.view_offset[1] = 0xFFFA6000;
+    camera_tuning.view_offset[2] = 0x00000000;
 }
 
 extern "C" void sub_8007823C(uint32 camera)
@@ -1565,11 +1617,7 @@ extern "C" uint32 sub_80077624(uint32 camera, uint32 mode)
     return Camera::Attach(camera).SetModePreset(mode);
 }
 
-extern "C" uint32 sub_80078178(uint32 camera, uint32 position, uint32 frames)
-{
-    FUNCTION_MARKER(0x80078178, "SLUS_003.73");
-    return Camera::Attach(camera).SetTargetTransition(psx_addr(position, 12), frames);
-}
+
 
 extern "C" uint32 xport_draft_host_sub_80078178_p2(uint32 camera, const void *position, uint32 frames)
 {
@@ -1577,11 +1625,7 @@ extern "C" uint32 xport_draft_host_sub_80078178_p2(uint32 camera, const void *po
     return Camera::Attach(camera).SetTargetTransition(position, frames);
 }
 
-extern "C" uint32 sub_80078310(uint32 camera)
-{
-    FUNCTION_MARKER(0x80078310, "SLUS_003.73");
-    return Camera::Attach(camera).ClampTargetToSegment();
-}
+
 
 extern "C" uint32 sub_80078728(uint32 camera, uint32 target, uint32 frames)
 {
@@ -1621,47 +1665,19 @@ extern "C" uint32 sub_8007741C(uint32 object, uint32 reason)
     return Camera::Attach(object).Camera::Destroy(reason);
 }
 
-extern "C" uint32 sub_80077680(uint32 object)
-{
-    FUNCTION_MARKER(0x80077680, "SLUS_003.73");
-    return Camera::Attach(object).PrepareView();
-}
 
-extern "C" uint32 sub_80079DC8(uint32 camera)
-{
-    FUNCTION_MARKER(0x80079DC8, "SLUS_003.73");
-    return Camera::Attach(camera).UpdatePlayerRelativeTracking();
-}
 
-extern "C" uint32 sub_8007A1A8(uint32 camera)
-{
-    FUNCTION_MARKER(0x8007A1A8, "SLUS_003.73");
-    return Camera::Attach(camera).UpdateFixedOriginTracking();
-}
 
-extern "C" uint32 sub_8007A5FC(void)
-{
-    FUNCTION_MARKER(0x8007A5FC, "SLUS_003.73");
-    return ResetCameraPresetData();
-}
 
-extern "C" uint32 sub_80076D44(void)
-{
-    FUNCTION_MARKER(0x80076D44, "SLUS_003.73");
-    return ClearCameraPresetFlags();
-}
 
-extern "C" uint32 sub_80078760(uint32 object)
-{
-    FUNCTION_MARKER(0x80078760, "SLUS_003.73");
-    return Camera::Attach(object).GetProjDistance();
-}
 
-extern "C" uint32 sub_80077748(uint32 object)
-{
-    FUNCTION_MARKER(0x80077748, "SLUS_003.73");
-    return Camera::Attach(object).ResolveCollisions();
-}
+
+
+
+
+
+
+
 
 extern "C" uint32 sub_8007876C(uint32 object)
 {
@@ -1669,11 +1685,7 @@ extern "C" uint32 sub_8007876C(uint32 object)
     return Camera::Attach(object).Camera::Update();
 }
 
-extern "C" uint32 sub_800793C8(uint32 object)
-{
-    FUNCTION_MARKER(0x800793C8, "SLUS_003.73");
-    return Camera::Attach(object).BuildView();
-}
+
 
 extern "C" uint32 sub_8007851C(uint32 object, uint32 target, uint32 frames)
 {

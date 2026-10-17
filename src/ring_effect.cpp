@@ -328,77 +328,29 @@ RingEffect &RingEffect::Attach(uint32 object)
     return *static_cast<RingEffect *>(FindNativeObjectStorage(object));
 }
 
-extern "C" uint32 sub_80034598(uint32 object, uint32 segments, uint32 rows)
-{
-    FUNCTION_MARKER(0x80034598, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(RingEffect));
-    new (dram_addr) RingEffect(segments, rows);
-    return object;
-}
 
-extern "C" uint32 sub_80034918(uint32 object, uint32 value)
-{
-    FUNCTION_MARKER(0x80034918, "SLUS_003.73");
-    return RingEffect::Attach(object).SetOddRadii(value);
-}
-extern "C" uint32 sub_80034958(uint32 object, uint32 value)
-{
-    FUNCTION_MARKER(0x80034958, "SLUS_003.73");
-    return RingEffect::Attach(object).SetEvenRadii(value);
-}
+
+
+
 extern "C" uint32 sub_80034994(uint32 object, uint32 value)
 {
     FUNCTION_MARKER(0x80034994, "SLUS_003.73");
     return RingEffect::Attach(object).SetRadii(value);
 }
-extern "C" uint32 sub_800349D0(uint32 object, uint32 row, uint32 value)
-{
-    FUNCTION_MARKER(0x800349D0, "SLUS_003.73");
-    return RingEffect::Attach(object).SetRowExtent(row, value);
-}
-extern "C" uint32 sub_80034A18(uint32 a1, uint32 a2, uint32 a3, uint32 a4)
-{
-    FUNCTION_MARKER(0x80034A18, "SLUS_003.73");
-    return RingEffect::Attach(a1).SetCenterColor(a2, a3, a4);
-}
-extern "C" uint32 sub_80034A44(uint32 object, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x80034A44, "SLUS_003.73");
-    return RingEffect::Attach(object).SetRingColors(red, green, blue);
-}
-extern "C" uint32 sub_80034A9C(uint32 object, uint32 row, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x80034A9C, "SLUS_003.73");
-    return RingEffect::Attach(object).SetRowColors(row, red, green, blue);
-}
-extern "C" uint32 sub_80034B08(uint32 a1, uint32 a2, uint32 a3, uint32 a4, uint32 a5)
-{
-    FUNCTION_MARKER(0x80034B08, "SLUS_003.73");
-    return RingEffect::Attach(a1).SetColumnColors(a2, a3, a4, a5);
-}
-extern "C" uint32 sub_80034B7C(uint32 a1, uint32 a2)
-{
-    FUNCTION_MARKER(0x80034B7C, "SLUS_003.73");
-    return RingEffect::Attach(a1).FadeCenter(a2);
-}
-extern "C" uint32 sub_80034B9C(uint32 a1, uint32 a2)
-{
-    FUNCTION_MARKER(0x80034B9C, "SLUS_003.73");
-    return RingEffect::Attach(a1).FadeRing(a2);
-}
+
+
+
+
+
+
+
 extern "C" uint32 sub_800348A8(uint32 a1, uint32 a2)
 {
     FUNCTION_MARKER(0x800348A8, "SLUS_003.73");
     return RingEffect::Attach(a1).RingEffect::Destroy(a2);
 }
 
-extern "C" uint32 sub_800346A8(uint32 object, uint32 position, uint32 radius, uint32 extent, uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue)
-{
-    FUNCTION_MARKER(0x800346A8, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(RingEffect));
-    new (dram_addr) RingEffect((const uint32 *)psx_addr(position, 12), radius, extent, red, green, blue, tail_red, tail_green, tail_blue);
-    return object;
-}
+
 
 extern "C" uint32 apocalypse_ring_effect_native(uint32 object, const void *position, uint32 radius, uint32 extent, uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue)
 {
@@ -437,8 +389,4 @@ uint32 SpawnProjectileRingTrail(const uint32 *position, uint32 red, uint32 green
     return object;
 }
 
-extern "C" uint32 sub_8002557C(uint32 position, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x8002557C, "SLUS_003.73");
-    return SpawnProjectileRingTrail((const uint32 *)psx_addr(position, 12), red, green, blue);
-}
+

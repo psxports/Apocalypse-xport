@@ -1,11 +1,13 @@
+#include "model_materials.h"
+#include "model_geometry.h"
 extern "C"
 {
 #include "draft_first_signatures.h"
 }
 
-void EmitScratchModelPackets(uint32 descriptor, uint32 count)
+void EmitScratchModelPackets(const ModelPolygon *descriptor, uint32 count)
 {
-    uint32 ordering, colors, packet, limit, indices0, indices1, addresses[4], screen[4];
+    uint32 ordering, packet, limit, indices0, indices1, addresses[4], screen[4];
     uint32 flags, index, depth, value, fog, shift, color_indices, color, opcode, length;
     uint32 uv0, uv1, uv2, destination, previous, extra, next;
     sint32 winding, current_depth;
@@ -14,12 +16,12 @@ void EmitScratchModelPackets(uint32 descriptor, uint32 count)
         return;
     ordering = r_u32(0x800FFB30);
     packet = r_u32(0x800FF668) & 0xFFFFFF;
-    colors = r_u32(0x800FFB04);
+    const ModelPalette *colors = GetCurrentModelPalette();
     limit = r_u32(0x800FF374) - 100;
     do
     {
-        indices0 = r_u32(descriptor + 4);
-        indices1 = r_u32(descriptor + 8);
+        indices0 = (((uint32)descriptor->v[0] << 3) | ((uint32)descriptor->v[1] << 19));
+        indices1 = (((uint32)descriptor->v[2] << 3) | ((uint32)descriptor->v[3] << 19));
         addresses[0] = 0x1F800000 + (indices0 & 65535);
         addresses[1] = 0x1F800000 + (indices0 >> 16);
         addresses[2] = 0x1F800000 + (indices1 & 65535);
@@ -32,7 +34,7 @@ void EmitScratchModelPackets(uint32 descriptor, uint32 count)
         xport_gte_write_data(14, screen[2]);
         xport_gte_execute(0x1400006);
         screen[3] = r_u32(addresses[3]);
-        flags = r_u32(descriptor);
+        flags = (((uint32)descriptor->source_stride << 16) | descriptor->flags);
         if (!(screen[0] & screen[1] & screen[2] & screen[3] & 0x60006000))
         {
             winding = (sint32)xport_gte_read_data(24);
@@ -75,23 +77,23 @@ Visible:
                     xport_gte_write_data(8, fog);
                     if (flags & 0x800)
                     {
-                        color_indices = r_u32(descriptor + 12);
-                        xport_gte_write_data(20, r_u32(colors + ((color_indices << 2) & 0x3FC)));
-                        xport_gte_write_data(21, r_u32(colors + ((color_indices >> 6) & 0x3FC)));
-                        xport_gte_write_data(22, r_u32(colors + ((color_indices >> 14) & 0x3FC)));
+                        color_indices = descriptor->color;
+                        xport_gte_write_data(20, ReadModelPaletteColor(colors, ((color_indices << 2) & 0x3FC) >> 2));
+                        xport_gte_write_data(21, ReadModelPaletteColor(colors, ((color_indices >> 6) & 0x3FC) >> 2));
+                        xport_gte_write_data(22, ReadModelPaletteColor(colors, ((color_indices >> 14) & 0x3FC) >> 2));
                         xport_gte_execute(0xF8002A);
                         if (flags & 1)
                         {
                             w_u32(packet + 20, screen[1]);
                             w_u32(packet + 32, screen[2]);
-                            uv0 = r_u32(descriptor + 20);
-                            uv1 = r_u32(descriptor + 24);
-                            uv2 = r_u32(descriptor + 28);
+                            uv0 = PackModelPolygonUv(*descriptor, 0);
+                            uv1 = PackModelPolygonUv(*descriptor, 1);
+                            uv2 = PackModelPolygonUv(*descriptor, 2);
                             uv1 |= (flags & 0x180) << 14;
                             w_u32(packet + 12, uv0);
                             w_u32(packet + 24, uv1);
                             w_u32(packet + 36, uv2);
-                            xport_gte_write_data(6, r_u32(colors + ((color_indices >> 22) & 0x3FC)));
+                            xport_gte_write_data(6, ReadModelPaletteColor(colors, ((color_indices >> 22) & 0x3FC) >> 2));
                             color = xport_gte_read_data(20);
                             w_u32(packet + 16, xport_gte_read_data(21));
                             w_u32(packet + 28, xport_gte_read_data(22));
@@ -114,7 +116,7 @@ Visible:
                         {
                             w_u32(packet + 16, screen[1]);
                             w_u32(packet + 24, screen[2]);
-                            xport_gte_write_data(6, r_u32(colors + ((color_indices >> 22) & 0x3FC)));
+                            xport_gte_write_data(6, ReadModelPaletteColor(colors, ((color_indices >> 22) & 0x3FC) >> 2));
                             color = xport_gte_read_data(20);
                             w_u32(packet + 12, xport_gte_read_data(21));
                             w_u32(packet + 20, xport_gte_read_data(22));
@@ -135,13 +137,13 @@ Visible:
                     }
                     else
                     {
-                        xport_gte_write_data(6, r_u32(descriptor + 12));
+                        xport_gte_write_data(6, descriptor->color);
                         xport_gte_execute(0x780010);
                         if (flags & 1)
                         {
-                            uv0 = r_u32(descriptor + 20);
-                            uv1 = r_u32(descriptor + 24);
-                            uv2 = r_u32(descriptor + 28);
+                            uv0 = PackModelPolygonUv(*descriptor, 0);
+                            uv1 = PackModelPolygonUv(*descriptor, 1);
+                            uv2 = PackModelPolygonUv(*descriptor, 2);
                             w_u32(packet + 16, screen[1]);
                             w_u32(packet + 24, screen[2]);
                             w_u32(packet + 12, uv0);
@@ -192,7 +194,7 @@ Visible:
                     if (flags & 32)
                     {
                         length += 0x03000000;
-                        extra = r_u32(descriptor + 32);
+                        extra = GetModelPolygonWindow(*descriptor);
                         w_u32(packet, previous | length);
                         next = packet + (length >> 22) + 4;
                         w_u32(destination, next);
@@ -221,14 +223,10 @@ Visible:
                 }
             }
         }
-        descriptor += flags >> 16;
+        descriptor = descriptor->next;
         --count;
     } while (count);
     w_u32(0x800FF668, packet);
 }
 
-extern "C" void sub_80083F38(uint32 descriptor, uint32 unused_attributes, uint32 count)
-{
-    FUNCTION_MARKER(0x80083F38, "SLUS_003.73");
-    EmitScratchModelPackets(descriptor, count);
-}
+

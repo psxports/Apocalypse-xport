@@ -1,3 +1,5 @@
+#include "visual_object.h"
+#include "model_resources.h"
 #include "object_collision_events.h"
 #include "vector_distance.h"
 extern "C"
@@ -37,13 +39,23 @@ ProjectileBase::ProjectileBase() : VisualObject()
     w_u32(object + 68, 0x800A16F0);
     w_u32(0x800FF224, count + 1);
     SetModelBank((const char *)psx_addr(0x800FF228, 1));
-    w_u16(object + 36, 2048);
-    w_u16(object + 38, 2048);
-    w_u16(object + 40, 2048);
-    flags = r_u16(object);
-    misc = r_u16(object + 78);
-    w_u16(object, flags | 512);
-    w_u16(object + 78, misc & 0xFFFD);
+    this->model.scale[0] = 2048;
+    this->model.scale[1] = 2048;
+    this->model.scale[2] = 2048;
+    flags = this->model.flags;
+    misc = this->lifecycle_flags;
+    this->model.flags = flags | 512;
+    this->lifecycle_flags = misc & 0xFFFD;
+}
+
+void ProjectileBase::SetDamage(uint32 damage)
+{
+    projectile.damage = (uint16)damage;
+}
+
+void ProjectileBase::SetBlastRadius(uint32 radius)
+{
+    projectile.radius = (uint16)radius;
 }
 
 uint32 ProjectileBase::Destroy(uint32 reason)
@@ -54,7 +66,7 @@ uint32 ProjectileBase::Destroy(uint32 reason)
     FUNCTION_MARKER(0x8002BD74, "SLUS_003.73");
     w_u32(object + 68, 0x800A16F0);
     count = r_u32(0x800FF224);
-    child = r_u32(object + 316);
+    child = projectile.glow_object;
     w_u32(0x800FF224, count - 1);
     if (child)
     {
@@ -63,11 +75,11 @@ uint32 ProjectileBase::Destroy(uint32 reason)
         target = r_u32(table + 12);
         apocalypse_object_cleanup(target, child + (uint32)adjustment, 3);
     }
-    effect = r_u32(object + 336);
+    effect = projectile.trail_object;
     if (effect)
     {
         w_u8(effect + 66, 0);
-        effect = r_u32(object + 336);
+        effect = projectile.trail_object;
         w_u32(effect + 96, 1);
     }
     VisualObject::Destroy(0);
@@ -79,95 +91,91 @@ uint32 ProjectileBase::Destroy(uint32 reason)
 
 void ProjectileBase::PrepareTrajectory(uint32 scale)
 {
+    CollisionRay &shared_ray = GetSharedCollisionRay();
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 product[3], before[3], after[3], metadata[2];
-    uint32 x, y, z, node, value, distance;
+    uint32 product[3], before[3], after[3];
+    ModelInstance *node;
+    uint32 x, y, z, value, distance;
     FUNCTION_MARKER(0x8002BE20, "SLUS_003.73");
-    MultiplyVector(product, (const uint32 *)psx_addr(object + 104, 12), (const uint32 *)psx_addr(object + 300, 4));
-    AddVectors(before, (const uint32 *)psx_addr(object + 4, 12), product);
-    BuildDirectionVector(product, 100, (const uint16 *)psx_addr(object + 16, 6));
-    SubtractVectors(after, (const uint32 *)psx_addr(object + 4, 12), product);
+    MultiplyVector(product, (const uint32 *)motion.velocity, (const uint32 *)&projectile.lifetime);
+    AddVectors(before, (const uint32 *)this->model.pos, product);
+    BuildDirectionVector(product, 100, (const uint16 *)this->model.angles);
+    SubtractVectors(after, (const uint32 *)this->model.pos, product);
     x = after[0];
     y = after[1];
     z = after[2];
-    w_u32(0x800ED638, x);
-    w_u32(0x800ED63C, y);
-    w_u32(0x800ED640, z);
-    w_u32(0x800ED644, before[0]);
-    w_u32(0x800ED648, before[1]);
-    w_u32(0x800ED64C, before[2]);
-    InitializeCollisionRay((uint8 *)psx_addr(0x800ED638, 140));
+    shared_ray.pos[0][0] = (x);
+    shared_ray.pos[0][1] = (y);
+    shared_ray.pos[0][2] = (z);
+    shared_ray.pos[1][0] = (before[0]);
+    shared_ray.pos[1][1] = (before[1]);
+    shared_ray.pos[1][2] = (before[2]);
+    InitializeCollisionRay(shared_ray);
     w_u32(0x800FF974, 1);
-    QueryCollisionRay((uint8 *)psx_addr(0x800ED638, 140), 0);
+    QueryCollisionRay(shared_ray, 0);
     w_u32(0x800FF974, 0);
-    w_u8(object + 364, 0);
-    node = r_u32(0x800ED6A0);
+    projectile.impact.dynamic = (uint8)(0);
+    node = shared_ray.hit.GetObject();
     if (!node)
         return;
-    w_u32(object + 340, 1);
-    distance = r_u32(0x800ED678);
+    projectile.impact.pending = (uint32)(1);
+    distance = shared_ray.distance;
     value = (sint32)distance < 101 ? 0 : DivideProjectileTrace(distance - 100, scale);
-    w_u32(object + 300, value);
-    node = r_u32(0x800ED6A0);
-    w_u32(object + 344, node);
-    value = r_u32(0x800ED6B8);
-    w_u32(object + 348, value);
-    value = r_u32(0x800ED6A4);
-    w_u32(object + 352, value);
-    value = r_u32(0x800ED6A8);
-    w_u32(object + 356, value);
-    value = r_u32(0x800ED6AC);
-    w_u32(object + 360, value);
-    value = r_u16(0x800ED6B0);
+    projectile.lifetime = (uint32)(value);
+    node = shared_ray.hit.GetObject();
+    projectile.impact.hit = shared_ray.hit;
+    value = shared_ray.hit_pos[0];
+    projectile.impact.pos[0] = (uint32)(value);
+    value = shared_ray.hit_pos[1];
+    projectile.impact.pos[1] = (uint32)(value);
+    value = shared_ray.hit_pos[2];
+    projectile.impact.pos[2] = (uint32)(value);
+    value = (uint16)shared_ray.n.vx;
     w_u16(object + 164, value);
-    value = r_u16(0x800ED6B2);
+    value = (uint16)shared_ray.n.vy;
     w_u16(object + 166, value);
-    value = r_u16(0x800ED6B4);
-    node = r_u32(object + 344);
+    value = (uint16)shared_ray.n.vz;
+    node = projectile.impact.hit.GetObject();
     w_u16(object + 168, value);
-    if (!(r_u16(node) & 16))
+    if (!(node->flags & 16))
         return;
-    w_u8(object + 364, 1);
-    MakeObjectReference(metadata, node);
-    w_u32(object + 368, metadata[0]);
-    w_u32(object + 372, metadata[1]);
+    projectile.impact.dynamic = (uint8)(1);
+
 }
 
 uint32 ProjectileBase::Explode()
 {
     const uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, player, distance, radius, damage, table, target, kind;
-    sint32 adjustment, vector[3];
+    ModelInstance *player;
+    uint32 child, distance, radius, damage, kind;
+    sint32 vector[3];
     FUNCTION_MARKER(0x8002BFFC, "SLUS_003.73");
-    if (r_u32(object + 304) == 0x800FF5A0)
+    if (projectile.owner_list == &visual_lists.players)
     {
         child = AllocateEffectStorage(120);
         if (child)
         {
             void *dram_addr = AllocateNativeObjectStorage(child, sizeof(ExplosionRing));
             new (dram_addr) ExplosionRing();
-            ExplosionRing::Attach(child).SetGeometry((const uint32 *)psx_addr(object + 4, 12), 0, 0);
+            ExplosionRing::Attach(child).SetGeometry((const uint32 *)this->model.pos, 0, 0);
             w_u16(child + 10, 16);
             w_u16(child + 118, 16);
             w_u16(child + 116, 32);
         }
-        player = r_u32(0x800FF5A0);
+        player = visual_lists.players;
         if (player)
         {
-            distance = MeasureEuclideanDistance((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(player + 4, 12));
-            radius = r_u16(object + 310);
+            distance = MeasureEuclideanDistance((const uint32 *)this->model.pos, player->pos);
+            radius = projectile.radius;
             if ((sint32)distance < (sint32)radius)
             {
-                damage = r_u16(object + 308) * distance;
+                damage = projectile.damage * distance;
                 if (!radius)
                     damage = (sint32)damage < 0 ? 1 : (uint32)-1;
                 else
                     damage = (uint32)((sint32)damage / (sint32)radius);
-                player = r_u32(0x800FF5A0);
-                table = r_u32(player + 68);
-                adjustment = (sint16)r_u16(table + 48);
-                target = r_u32(table + 52);
-                apocalypse_object_virtual52_native(target, player + (uint32)adjustment, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+                player = visual_lists.players;
+                static_cast<VisualObject *>(player->owner)->Damage(damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
             }
         }
     }
@@ -177,40 +185,33 @@ uint32 ProjectileBase::Explode()
         if (child)
         {
             void *dram_addr = AllocateNativeObjectStorage(child, sizeof(LaunchExplosionEffect));
-            new (dram_addr) LaunchExplosionEffect((const uint32 *)psx_addr(object + 4, 12));
+            new (dram_addr) LaunchExplosionEffect((const uint32 *)this->model.pos);
         }
-        kind = r_u32(object + 312);
-        QueueExplosion((const uint32 *)psx_addr(object + 4, 12), kind, 512, 32, 256);
+        kind = projectile.damage_kind;
+        QueueExplosion((const uint32 *)this->model.pos, kind, 512, 32, 256);
     }
-    if (r_u32(object + 340))
+    if (projectile.impact.pending)
     {
-        if (r_u8(object + 364))
+        if (projectile.impact.dynamic)
         {
-            child = ResolveHeapReference((uint32 *)psx_addr(object + 368, 8));
-            if (child)
+            ModelInstance *target = projectile.impact.hit.GetObject();
+            if (target)
             {
                 vector[0] = -(sint32)(sint16)r_u16(object + 164);
                 vector[1] = -(sint32)(sint16)r_u16(object + 166);
                 vector[2] = -(sint32)(sint16)r_u16(object + 168);
-                table = r_u32(child + 68);
-                damage = r_u16(object + 308);
-                adjustment = (sint16)r_u16(table + 48);
-                target = r_u32(table + 52);
-                apocalypse_object_virtual52_native(target, child + (uint32)adjustment, damage, vector, 1);
+                damage = projectile.damage;
+                static_cast<VisualObject *>(target->owner)->Damage(damage, vector, 1);
             }
         }
         else
         {
-            child = r_u32(object + 344);
-            target = r_u32(object + 348);
-            damage = r_u16(object + 308);
-            DamageLevelObject(child, target, (sint32)damage);
+            ModelInstance *target = projectile.impact.hit.GetObject();
+            damage = projectile.damage;
+            DamageLevelObject(target, projectile.impact.hit.GetPolygon(), (sint32)damage);
         }
     }
-    table = r_u32(object + 68);
-    adjustment = (sint16)r_u16(table + 16);
-    target = r_u32(table + 20);
-    return xport_draft_guest_call1(target, object + (uint32)adjustment);
+    return Finish();
 }
 
 uint32 ProjectileBase::SyncChild()
@@ -218,147 +219,139 @@ uint32 ProjectileBase::SyncChild()
     uint32 object = NativeObjectGuestAddress(this);
     uint32 child;
     FUNCTION_MARKER(0x8002C250, "SLUS_003.73");
-    BuildDirectionVector((uint32 *)psx_addr(object + 324, 12), r_u32(object + 320), (const uint16 *)psx_addr(object + 16, 6));
-    AddVectors((uint32 *)psx_addr(object + 324, 12), (const uint32 *)psx_addr(object + 4, 12));
-    child = r_u32(object + 316);
-    return RingEffect::Attach(child).SetPosition((const uint32 *)psx_addr(object + 324, 12));
+    BuildDirectionVector((uint32 *)projectile.glow_pos, projectile.glow_distance, (const uint16 *)this->model.angles);
+    AddVectors((uint32 *)projectile.glow_pos, (const uint32 *)this->model.pos);
+    child = projectile.glow_object;
+    return RingEffect::Attach(child).SetPosition((const uint32 *)projectile.glow_pos);
 }
 
 uint32 ProjectileBase::AdvanceMotion()
 {
+    CollisionRay &shared_ray = GetSharedCollisionRay();
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 x, y, z, value, hit, table, target, damage, kind, receiver;
+    uint32 x, y, z, value, damage, kind;
+    ModelInstance *hit;
     uint32 x_sum, y_sum, x_shift, y_shift, y_word;
-    sint32 adjustment, x_signed, y_signed;
+    sint32 x_signed, y_signed;
     FUNCTION_MARKER(0x8002C2A4, "SLUS_003.73");
-    x = r_u32(object + 4);
-    y = r_u32(object + 8);
-    z = r_u32(object + 12);
-    w_u32(object + 228, x);
-    w_u32(object + 232, y);
-    w_u32(object + 236, z);
-    AddVectors((uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(object + 104, 12));
+    x = this->model.pos[0];
+    y = this->model.pos[1];
+    z = this->model.pos[2];
+    pos_history.prev[0] = x;
+    pos_history.prev[1] = y;
+    pos_history.prev[2] = z;
+    AddVectors((uint32 *)this->model.pos, (const uint32 *)motion.velocity);
     if (r_u16(object + 148))
     {
-        value = r_u32(object + 228);
-        w_u32(0x800ED638, value);
-        value = r_u32(object + 232);
-        w_u32(0x800ED63C, value);
-        value = r_u32(object + 236);
-        w_u32(0x800ED640, value);
-        value = r_u32(object + 4);
-        w_u32(0x800ED644, value);
-        value = r_u32(object + 8);
-        w_u32(0x800ED648, value);
-        value = r_u32(object + 12);
-        w_u32(0x800ED64C, value);
-        InitializeCollisionRay((uint8 *)psx_addr(0x800ED638, 140));
+        value = pos_history.prev[0];
+        shared_ray.pos[0][0] = (value);
+        value = pos_history.prev[1];
+        shared_ray.pos[0][1] = (value);
+        value = pos_history.prev[2];
+        shared_ray.pos[0][2] = (value);
+        value = this->model.pos[0];
+        shared_ray.pos[1][0] = (value);
+        value = this->model.pos[1];
+        shared_ray.pos[1][1] = (value);
+        value = this->model.pos[2];
+        shared_ray.pos[1][2] = (value);
+        InitializeCollisionRay(shared_ray);
         w_u32(0x800FF974, 1);
-        QueryCollisionRay((uint8 *)psx_addr(0x800ED638, 140), 1);
-        hit = r_u32(0x800ED6A0);
+        QueryCollisionRay(shared_ray, 1);
+        hit = shared_ray.hit.GetObject();
         w_u32(0x800FF974, 0);
         if (hit)
         {
-            if (r_u16(hit) & 0x10)
+            if (hit->flags & 0x10)
             {
-                table = r_u32(hit + 68);
-                damage = r_u16(object + 308);
-                kind = r_u32(object + 312);
-                adjustment = (sint16)r_u16(table + 48);
-                target = r_u32(table + 52);
-                receiver = hit + (uint32)adjustment;
-                apocalypse_object_virtual52_native(target, receiver, damage, (const sint32 *)psx_addr(0x800A71CC, 12), kind);
+                damage = projectile.damage;
+                kind = projectile.damage_kind;
+                static_cast<VisualObject *>(hit->owner)->Damage(damage, (const sint32 *)psx_addr(0x800A71CC, 12), kind);
             }
             else
             {
-                target = r_u32(0x800ED6B8);
-                damage = r_u16(object + 308);
-                DamageLevelObject(hit, target, (sint32)damage);
+                damage = projectile.damage;
+                DamageLevelObject(hit, shared_ray.hit.GetPolygon(), (sint32)damage);
             }
-            table = r_u32(object + 68);
-            adjustment = (sint16)r_u16(table + 64);
-            target = r_u32(table + 68);
-            receiver = object + (uint32)adjustment;
-            if (target == 0x8002D2F0)
-                sub_8002D2F0(receiver);
-            else
-                xport_draft_guest_call1(target, receiver);
+            Explode();
         }
     }
-    AddAngleVector((uint16 *)psx_addr(object + 16, 6), (const uint16 *)psx_addr(object + 132, 6));
-    NormalizeAngles((uint16 *)psx_addr(object + 16, 6));
-    x = r_u16(object + 132);
-    x_shift = r_u16(object + 138);
-    y = r_u16(object + 134);
-    y_shift = r_u16(object + 140);
+    AddAngleVector((uint16 *)this->model.angles, (const uint16 *)motion.angular_velocity);
+    NormalizeAngles((uint16 *)this->model.angles);
+    x = motion.angular_velocity[0];
+    x_shift = motion.angular_acceleration[0];
+    y = motion.angular_velocity[1];
+    y_shift = motion.angular_acceleration[1];
     x_sum = x + x_shift;
     y_sum = y + y_shift;
-    w_u16(object + 132, x_sum);
-    w_u16(object + 134, y_sum);
-    x_signed = (sint16)r_u16(object + 132);
-    x_shift = r_u8(object + 144) & 31;
-    y_signed = (sint16)r_u16(object + 134);
-    y_shift = r_u8(object + 145) & 31;
-    w_u16(object + 132, x_sum - (uint32)(x_signed >> x_shift));
-    y_word = r_u16(object + 134);
-    w_u16(object + 134, y_word - (uint32)(y_signed >> y_shift));
-    return SnapSmallAngles((uint16 *)psx_addr(object + 132, 6));
+    motion.angular_velocity[0] = x_sum;
+    motion.angular_velocity[1] = y_sum;
+    x_signed = (sint16)motion.angular_velocity[0];
+    x_shift = motion.angular_drag[0] & 31;
+    y_signed = (sint16)motion.angular_velocity[1];
+    y_shift = motion.angular_drag[1] & 31;
+    motion.angular_velocity[0] = x_sum - (uint32)(x_signed >> x_shift);
+    y_word = motion.angular_velocity[1];
+    motion.angular_velocity[1] = y_word - (uint32)(y_signed >> y_shift);
+    return SnapSmallAngles((uint16 *)motion.angular_velocity);
 }
 
-void ProjectileBase::ApplyBlast(uint32 list, uint32 radius, uint32 impulse, uint32 kind)
+void ProjectileBase::ApplyBlast(ModelInstance *list, uint32 radius, uint32 impulse, uint32 kind)
 {
     uint32 object = NativeObjectGuestAddress(this);
     uint32 delta[3], product[3], vector[3], distance, damage, reduction;
     FUNCTION_MARKER(0x8002C460, "SLUS_003.73");
     while (list)
     {
-        SubtractVectors(delta, (const uint32 *)psx_addr(list + 4, 12), (const uint32 *)psx_addr(object + 4, 12));
+        SubtractVectors(delta, list->pos, (const uint32 *)this->model.pos);
         distance = MeasureVectorLength(delta);
         if ((sint32)radius >= (sint32)distance)
         {
-            damage = r_u16(object + 308);
+            damage = projectile.damage;
             reduction = DivideProjectileTrace((damage >> 1) * distance, radius);
             damage -= reduction;
             MultiplyScalarVector(product, &impulse, delta);
             DivideVector(vector, product, &distance);
-            ApplyObjectDamage(list, damage, (const sint32 *)vector, kind);
+            static_cast<VisualObject *>(list->owner)->Damage(damage, (const sint32 *)vector, kind);
         }
-        list = r_u32(list + 28);
+        list = list->next;
     }
 }
 
 void ProjectileBase::DamageNearbyObjects(uint32 radius)
 {
     uint32 object = NativeObjectGuestAddress(this);
-    uint32 list, bound, x, z, delta, position[3], damage;
+    ModelBorrow borrow;
+    ModelInstance *list;
+    uint32 bound, x, z, delta, position[3], damage;
     FUNCTION_MARKER(0x8002C56C, "SLUS_003.73");
-    list = r_u32(0x800FF794);
+    list = GetModelSceneObjects();
     bound = radius << 12;
     while (list)
     {
-        x = r_u32(list + 4);
-        delta = x - r_u32(object + 4);
+        x = list->pos[0];
+        delta = x - this->model.pos[0];
         if ((sint32)delta < 0)
             delta = 0 - delta;
         if ((sint32)delta < (sint32)bound)
         {
-            z = r_u32(list + 12);
-            delta = z - r_u32(object + 12);
+            z = list->pos[2];
+            delta = z - this->model.pos[2];
             if ((sint32)delta < 0)
                 delta = 0 - delta;
             if ((sint32)delta < (sint32)bound)
             {
-                position[1] = r_u32(list + 8);
+                position[1] = list->pos[1];
                 position[0] = x;
                 position[2] = z;
-                if ((sint32)MeasurePositionDistance((const uint32 *)psx_addr(object + 4, 12), position) < (sint32)radius)
+                if ((sint32)MeasurePositionDistance((const uint32 *)this->model.pos, position) < (sint32)radius)
                 {
-                    damage = r_u16(object + 308);
+                    damage = projectile.damage;
                     DamageLevelObject(list, 0, (sint32)damage);
                 }
             }
         }
-        list = r_u32(list + 28);
+        list = list->next;
     }
 }
 
@@ -366,10 +359,10 @@ uint32 ProjectileBase::SetTrailColor(uint32 kind, uint32 red, uint32 green, uint
 {
     uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8002C654, "SLUS_003.73");
-    w_u8(object + 376, red);
-    w_u8(object + 377, green);
-    w_u8(object + 379, kind);
-    w_u8(object + 378, blue);
+    projectile.trail_rgb[0] = (uint8)(red);
+    projectile.trail_rgb[1] = (uint8)(green);
+    projectile.trail_kind = (uint8)(kind);
+    projectile.trail_rgb[2] = (uint8)(blue);
     return blue;
 }
 
@@ -391,13 +384,7 @@ uint32 SetProjectileTrailColor(uint32 object, uint32 kind, uint32 red, uint32 gr
     return ProjectileBase::Attach(object).SetTrailColor(kind, red, green, blue);
 }
 
-extern "C" uint32 sub_8002BCF8(uint32 object)
-{
-    FUNCTION_MARKER(0x8002BCF8, "SLUS_003.73");
-    void *storage = AllocateNativeObjectStorage(object, sizeof(ProjectileBase));
-    new (storage) ProjectileBase();
-    return object;
-}
+
 
 extern "C" uint32 sub_8002BD74(uint32 object, uint32 reason)
 {
@@ -405,34 +392,14 @@ extern "C" uint32 sub_8002BD74(uint32 object, uint32 reason)
     return ProjectileBase::Attach(object).ProjectileBase::Destroy(reason);
 }
 
-extern "C" void sub_8002BE20(uint32 object, uint32 scale)
-{
-    FUNCTION_MARKER(0x8002BE20, "SLUS_003.73");
-    ProjectileBase::Attach(object).PrepareTrajectory(scale);
-}
 
-extern "C" void sub_8002C460(uint32 object, uint32 list, uint32 radius, uint32 impulse, uint32 kind)
-{
-    FUNCTION_MARKER(0x8002C460, "SLUS_003.73");
-    ProjectileBase::Attach(object).ApplyBlast(list, radius, impulse, kind);
-}
-extern "C" void sub_8002C56C(uint32 object, uint32 radius)
-{
-    FUNCTION_MARKER(0x8002C56C, "SLUS_003.73");
-    ProjectileBase::Attach(object).DamageNearbyObjects(radius);
-}
 
-extern "C" uint32 sub_8002C250(uint32 object)
-{
-    FUNCTION_MARKER(0x8002C250, "SLUS_003.73");
-    return ProjectileBase::Attach(object).SyncChild();
-}
 
-extern "C" uint32 sub_8002C2A4(uint32 object)
-{
-    FUNCTION_MARKER(0x8002C2A4, "SLUS_003.73");
-    return ProjectileBase::Attach(object).AdvanceMotion();
-}
+
+
+
+
+
 
 extern "C" uint32 sub_8002BFFC(uint32 object)
 {
