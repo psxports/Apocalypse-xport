@@ -1,133 +1,73 @@
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include <stdlib.h>
+
 #include "effect_segments.h"
-#include "game_heap.h"
 #include "effect_lifecycle.h"
 #include "vector_arithmetic.h"
-#include "native_object_storage.h"
-#include <new>
-#include <string.h>
+#include "game_diagnostics.h"
 
-// Native input bridge for the original word-pointer loads
-static uint32 ReadSegmentEndpointWord(const uint32 *position, uint32 axis)
+SegmentEffect::SegmentEffect(uint32 count) : EffectObject(), point_count(count), points(0), forced_depth(0)
 {
-    uint32 address = GuestMemoryAddress(position), value;
-    if (address)
-        return r_u32(address + axis * 4);
-    memcpy(&value, (const uint8 *)position + axis * 4, 4);
-    return value;
+    FUNCTION_MARKER(0x800322F4, "SLUS_003.73");
+    if (count > 0x7FFFFFFF || count > 0xFFFFFFFF / 16 || count > (size_t)-1 / sizeof(*points))
+    {
+        GameDiagnostic("Invalid segment count %u\n", count);
+        abort();
+    }
+    if (count)
+    {
+        points = (EffectPoint *)malloc((size_t)count * sizeof(*points));
+        if (!points)
+        {
+            GameDiagnostic("Segment allocation failed\n");
+            abort();
+        }
+    }
+    for (uint32 i = 0; i < count; ++i)
+    {
+        points[i].rgbc.rgbc = 0x50FFFFFF;
+        for (uint32 axis = 0; axis < 3; ++axis)
+            points[i].pos.words[axis] = 0;
+    }
+    origin.words[0] = origin.words[1] = origin.words[2] = 0;
+    AddToList(effect_lists.segments);
+    rgbc.rgbc = 0x50FFFFFF;
 }
 
-SegmentEffect::SegmentEffect(uint32 count) : EffectObject()
+SegmentEffect::~SegmentEffect()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 storage, index, destination, x, y, z;
-    FUNCTION_MARKER(0x800322F4, "SLUS_003.73");
-    w_u32(object + 68, 0x800A1B38);
-    storage = AllocateHeapBlock(count * 16, 0, 1);
-    w_u32(object + 76, storage);
-    for (index = 0; (sint32)index < (sint32)count; ++index)
-    {
-        w_u32(r_u32(object + 76) + index * 16 + 12, 0x50FFFFFF);
-        destination = r_u32(object + 76) + index * 16;
-        x = r_u32(0x800A71CC);
-        y = r_u32(0x800A71D0);
-        z = r_u32(0x800A71D4);
-        w_u32(destination, x);
-        w_u32(destination + 4, y);
-        w_u32(destination + 8, z);
-    }
-    w_u32(object + 72, count);
-    AddToList((uint32 *)psx_addr(0x800FF460, 4));
-    w_u8(object + 92, 255);
-    w_u8(object + 93, 255);
-    w_u8(object + 94, 255);
-    w_u8(object + 95, 80);
+    free(points);
 }
 
 uint32 SegmentEffect::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 storage, result;
     FUNCTION_MARKER(0x800323CC, "SLUS_003.73");
-    storage = r_u32(object + 76);
-    w_u32(object + 68, 0x800A1B38);
-    ReleaseHeapBlock(storage);
-    RemoveFromList((uint32 *)psx_addr(0x800FF460, 4));
-    result = EffectObject::Destroy(0);
-    if (reason & 1)
-        result = ReleaseEffectStorage(object);
-    return result;
+    free(points);
+    points = 0;
+    RemoveFromList(effect_lists.segments);
+    uint32 result = EffectObject::Destroy(0);
+    return reason & 1 ? ReleaseEffectStorage(this) : result;
 }
 
-uint32 SegmentEffect::Enable()
+void SegmentEffect::Enable()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 index, destination, result;
     FUNCTION_MARKER(0x8003243C, "SLUS_003.73");
-    for (index = 0; (sint32)index < (sint32)r_u32(object + 72); ++index)
-    {
-        destination = r_u32(object + 76) + index * 16 + 15;
-        result = r_u8(destination) | 2;
-        w_u8(destination, result);
-    }
-    result = r_u8(object + 95) | 2;
-    w_u8(object + 95, result);
-    return result;
+    for (uint32 i = 0; i < point_count; ++i)
+        points[i].rgbc.code |= 2;
+    rgbc.code |= 2;
 }
 
-uint32 SegmentEffect::SetEndpoints(const uint32 *origin, const uint32 *target)
+void SegmentEffect::SetEndpoints(const uint32 *src, const uint32 *target)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 position[3], difference[3], step[3];
-    uint32 x, y, z, result, index, destination;
     FUNCTION_MARKER(0x800324D4, "SLUS_003.73");
-    position[0] = ReadSegmentEndpointWord(origin, 0);
-    position[1] = ReadSegmentEndpointWord(origin, 1);
-    position[2] = ReadSegmentEndpointWord(origin, 2);
-    SubtractVectors(difference, target, origin);
-    DivideVector(step, difference, (const uint32 *)psx_addr(object + 72, 4));
-    x = ReadSegmentEndpointWord(origin, 0);
-    y = ReadSegmentEndpointWord(origin, 1);
-    z = ReadSegmentEndpointWord(origin, 2);
-    w_u32(object + 80, x);
-    w_u32(object + 84, y);
-    w_u32(object + 88, z);
-    result = r_u32(object + 72);
-    index = 0;
-    if ((sint32)result > 0)
+    Vector3 pos = {{{(sint32)src[0], (sint32)src[1], (sint32)src[2]}}};
+    Vector3 delta, step;
+    SubtractVectors(delta.words, target, src);
+    DivideVector(step.words, delta.words, point_count);
+    for (uint32 axis = 0; axis < 3; ++axis)
+        origin.words[axis] = src[axis];
+    for (uint32 i = 0; i < point_count; ++i)
     {
-        do
-        {
-            AddVectors(position, step);
-            destination = r_u32(object + 76) + index * 16;
-            w_u32(destination, position[0]);
-            w_u32(destination + 4, position[1]);
-            w_u32(destination + 8, position[2]);
-            result = r_u32(object + 72);
-            ++index;
-            result = (sint32)index < (sint32)result;
-        } while (result);
+        AddVectors(pos.words, step.words);
+        points[i].pos = pos;
     }
-    return result;
-}
-
-
-
-extern "C" uint32 sub_800323CC(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x800323CC, "SLUS_003.73");
-    return SegmentEffect::Attach(object).SegmentEffect::Destroy(reason);
-}
-
-
-
-
-
-SegmentEffect &SegmentEffect::Attach(uint32 object)
-{
-    return *static_cast<SegmentEffect *>(FindNativeObjectStorage(object));
 }

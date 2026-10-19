@@ -3,15 +3,21 @@
 
 #include "effect_object.h"
 
+class MeshRingEffect;
+
 class WarImpact : public EffectController
 {
 public:
     WarImpact(const uint32 *position);
-    virtual ~WarImpact() {}
-    static WarImpact &Attach(uint32 object);
+    virtual ~WarImpact();
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
 
+private:
+    uint16 age;
+    ObjectReference<MeshRingEffect> ring;
+    uint32 radius;
+    uint32 phase;
 };
 
 #endif

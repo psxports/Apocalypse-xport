@@ -2,16 +2,28 @@
 #define OPAQUE_FRAGMENT_H
 
 #include "effect_object.h"
+#include "vector3.h"
 
 // TODO Recover the original name for the untextured fragment owner
 class OpaqueFragment : public EffectObject
 {
 public:
-    OpaqueFragment(const uint32 *position, const uint32 *velocity, uint32 floor, uint32 red, uint32 green, uint32 blue, uint32 extent_x, uint32 extent_y, uint32 extent_z);
-    virtual ~OpaqueFragment() {}
-    static OpaqueFragment &Attach(uint32 object);
+    uint16 bounce_count;
+    uint16 lifetime;
+    Vector3 vertices[3];
+    sint32 floor_y;
+    RGBC base_color;
+    RGBC draw_color;
+    uint8 fade_step;
+
+    OpaqueFragment(const Vector3 &position, const Vector3 &velocity, uint32 floor, uint32 red, uint32 green, uint32 blue, uint32 extent_x, uint32 extent_y, uint32 extent_z);
+
+    virtual ~OpaqueFragment()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
 };
 
 #endif

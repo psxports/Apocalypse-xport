@@ -1,18 +1,129 @@
-#include "game_sdk_bindings.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-}
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "scene_lifecycle.h"
+#include "game_pad_poll.h"
+
+#include "game_diagnostics.h"
+
 #include "menu_window.h"
 #include "game_string.h"
 #include "hud_text.h"
 #include "audio_session.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "native_object_storage.h"
-#include "game_heap.h"
-#include <new>
+
+namespace MenuText
+{
+const char autotest[] = "Autotest";
+const char build_date[] = "Oct 13 1998";
+const char main_menu[] = "main menu";
+const char game_over[] = "game over";
+const char press_start[] = "Press start";
+const char continue_game[] = "Continue";
+const char save_game_prompt[] = "Save game ?";
+const char save_game[] = "Save game";
+const char please_reinsert[] = "Please reinsert";
+const char controller[] = "controller";
+const char select_level[] = "select level";
+const char skip_to_restart[] = "skip to restart";
+const char press_any_button[] = "press any button";
+const char really_quit[] = "really quit ?";
+const char really_reset_to_defaults[] = "really reset to defaults ?";
+const char return_to_options_menu[] = "return to options menu";
+const char fx_level[] = "fx level";
+const char music_level[] = "music level";
+const char voice_level[] = "voice level";
+const char read_error[] = "read error";
+const char new_game[] = "new game";
+const char load_game[] = "load game";
+const char difficulty[] = "difficulty";
+const char controller_config[] = "controller config";
+const char misc_options[] = "misc options";
+const char return_to_main_menu[] = "return to main menu";
+const char view_credits[] = "view credits";
+const char music_credits[] = "music credits";
+const char view_intro[] = "view intro";
+const char reset_to_defaults[] = "reset to defaults";
+const char center_screen[] = "center screen";
+const char calibrate_analog_controller[] = "calibrate analog controller";
+const char vibration_settings[] = "vibration settings";
+const char return_to_controller_config[] = "return to controller config";
+const char use_the_directional[] = "Use the directional";
+const char buttons_to_center[] = "buttons to center";
+const char the_screen[] = "the screen";
+const char move_the_left_stick[] = "Move the left stick";
+const char and_right_stick_to_all[] = "and right stick to all";
+const char four_corners_then_press[] = "four corners then press";
+const char the_x_button[] = "the x button";
+const char center_both_the_left_stick[] = "center both the left stick";
+const char and_the_right_stick_then[] = "and the right stick then";
+const char press_the_x_button[] = "press the X button";
+const char weapon_select[] = "weapon select";
+const char please_insert_a_memory[] = "Please insert a memory";
+const char card_in_memory_card[] = "card in memory card";
+const char slot_1_or_press_any[] = "slot 1 or press any";
+const char button_to_cancel[] = "button to cancel";
+const char the_memory_card_in[] = "The memory card in";
+const char memory_card_slot_1_is[] = "memory card slot 1 is";
+const char unformatted_press[] = "unformatted. Press";
+const char any_button_to_cancel[] = "any button to cancel.";
+const char unformatted_do_you[] = "unformatted. Do you";
+const char want_to_format_it[] = "want to format it ?";
+const char formatting_memory_card[] = "formatting memory card";
+const char do_not_remove[] = "do not remove";
+const char memory_card[] = "memory card";
+const char checking_memory_card[] = "checking memory card";
+const char your_memory_card_in[] = "your memory card in";
+const char memory_card_slot_1_is_full[] = "memory card slot 1 is full";
+const char insert_a_memory_card_with[] = "insert a memory card with";
+const char at_least_1_free_block_or_delete[] = "at least 1 free block or delete";
+const char a_block_using_the_console[] = "a block using the console";
+const char internal_memory_card_manager[] = "internal memory card manager";
+const char okay_to_overwrite[] = "Okay to overwrite";
+const char previously_saved_game[] = "previously saved game";
+const char in_this_save_slot[] = "in this save slot ?";
+const char now_saving_data[] = "Now Saving data";
+const char attempt_to_write_to[] = "attempt to write to";
+const char memory_card_failed[] = "memory card failed !";
+const char format_failed[] = "format failed !";
+const char try_again_or_insert[] = "try again or insert";
+const char a_new_memory_card[] = "a new memory card";
+const char format_completed[] = "format completed";
+const char save_completed[] = "save completed";
+const char memory_card_contains[] = "memory card contains";
+const char no_apocalypse_game_save[] = "no apocalypse game save";
+const char to_cancel[] = "to cancel";
+const char smart_bomb[] = "Smart Bomb";
+const char empty[] = "";
+const char paused[] = "Paused";
+const char kill_percent[] = "Kill %";
+const char quit[] = "Quit";
+const char demo[] = "Demo";
+const char go_back[] = "go back";
+const char select[] = "select";
+const char accept[] = "accept";
+const char cancel[] = "cancel";
+const char infinite_lives[] = "inf";
+const char yes[] = "yes";
+const char no[] = "no";
+const char test[] = "test";
+const char cycle[] = "cycle";
+const char l2[] = "l2";
+const char r2[] = "r2";
+const char l1[] = "l1";
+const char r1[] = "r1";
+const char options[] = "options";
+const char sound[] = "sound";
+const char none[] = "none";
+const char some[] = "some";
+const char full[] = "full";
+const char easy[] = "easy";
+const char normal[] = "normal";
+const char hard[] = "hard";
+const char crouch[] = "crouch";
+const char jump[] = "jump";
+const char empty_slot[] = "Empty";
+} // namespace MenuText
 
 static uint32 menu_repeat;
 
@@ -24,10 +135,8 @@ void ResetMenuRepeat()
 MenuWindow::MenuWindow(uint32 x, uint32 y, uint32 mode, uint32 selected_scale, uint32 unselected_scale, uint32 spacing)
 {
     FUNCTION_MARKER(0x80015228, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    w_u32(object, 0x800A05C4);
-    this->pos[0] = x;
-    this->pos[1] = y;
+    this->scr_pos[0] = x;
+    this->scr_pos[1] = y;
     this->alignment = mode;
     this->spacing = spacing;
     this->has_arrows = 0;
@@ -57,19 +166,18 @@ MenuWindow::MenuWindow(uint32 x, uint32 y, uint32 mode, uint32 selected_scale, u
     ResetSelection();
 }
 
-MenuWindow &MenuWindow::Attach(uint32 object)
+MenuWindow::~MenuWindow()
 {
-    return *static_cast<MenuWindow *>(FindNativeObjectStorage(object));
+    for (uint32 index = 0; index < 15; ++index)
+        free(items[index].owned_label);
 }
 
 uint32 MenuWindow::Destroy(uint32 reason)
 {
     FUNCTION_MARKER(0x800152C4, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    w_u32(object, 0x800A05D4);
     if (reason & 1)
-        return ReleaseHeapBlock(object);
-    return 0x800A05D4;
+        ReleaseStorage();
+    return 0;
 }
 
 uint32 MenuWindow::CenterVertical(void)
@@ -89,7 +197,7 @@ uint32 MenuWindow::CenterVertical(void)
     uint32 spacing = this->spacing;
     uint32 span = (enabled - 1) * spacing + height;
     uint32 result = (uint32)((sint32)(240 - span) / 2);
-    this->pos[1] = result;
+    this->scr_pos[1] = result;
     return result;
 }
 
@@ -118,43 +226,7 @@ uint32 MenuWindow::ResetSelection(void)
     return ResetSelection(0);
 }
 
-extern "C" uint32 sub_80015228(uint32 object, uint32 x, uint32 y, uint32 mode, uint32 selected_scale, uint32 unselected_scale, uint32 spacing)
-{
-    FUNCTION_MARKER(0x80015228, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(MenuWindow));
-    new (dram_addr) MenuWindow(x, y, mode, selected_scale, unselected_scale, spacing);
-    return object;
-}
-
-extern "C" uint32 sub_800152C4(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x800152C4, "SLUS_003.73");
-    return MenuWindow::Attach(object).MenuWindow::Destroy(reason);
-}
-
-extern "C" uint32 sub_800152F8(uint32 object)
-{
-    FUNCTION_MARKER(0x800152F8, "SLUS_003.73");
-    return MenuWindow::Attach(object).CenterVertical();
-}
-
-extern "C" uint32 sub_80015374(uint32 object, uint32 selected)
-{
-    FUNCTION_MARKER(0x80015374, "SLUS_003.73");
-    return MenuWindow::Attach(object).ResetSelection(selected);
-}
-
-extern "C" uint32 sub_800153D8(uint32 object)
-{
-    FUNCTION_MARKER(0x800153D8, "SLUS_003.73");
-    return MenuWindow::Attach(object).ResetSelection();
-}
-
 // Native adapter for nullable original label pointers
-static const char *MapMenuItemLabel(uint32 label)
-{
-    return label ? (const char *)psx_addr(label, 1) : 0;
-}
 
 const char *MenuWindow::GetItemLabel(uint32 idx) const
 {
@@ -207,6 +279,23 @@ uint32 MenuWindow::AddItem(const char *label)
     return result;
 }
 
+uint32 MenuWindow::AddOwnedItem(const char *label)
+{
+    uint32 index = count;
+    uint32 result = AddItem(label);
+    size_t length = strlen(label);
+    char *copy = (char *)malloc(length + 1);
+    if (!copy)
+    {
+        GameDiagnostic("Cannot allocate menu label\n");
+        abort();
+    }
+    memcpy(copy, label, length + 1);
+    items[index].owned_label = copy;
+    items[index].label = copy;
+    return result;
+}
+
 uint32 MenuWindow::EnableItem(const char *label)
 {
     FUNCTION_MARKER(0x800154E0, "SLUS_003.73");
@@ -238,66 +327,11 @@ uint32 MenuWindow::IsSelected(const char *label)
     return NamesEqualIgnoringCase(label, GetItemLabel(selected));
 }
 
-extern "C" uint32 sub_800153F8(uint32 object, uint32 label)
-{
-    FUNCTION_MARKER(0x800153F8, "SLUS_003.73");
-    return MenuWindow::Attach(object).FindItem(MapMenuItemLabel(label));
-}
-
-extern "C" uint32 sub_80015474(uint32 object, uint32 label)
-{
-    FUNCTION_MARKER(0x80015474, "SLUS_003.73");
-    return MenuWindow::Attach(object).AddItem(MapMenuItemLabel(label));
-}
-
-extern "C" uint32 sub_800154E0(uint32 object, uint32 label)
-{
-    FUNCTION_MARKER(0x800154E0, "SLUS_003.73");
-    return MenuWindow::Attach(object).EnableItem(MapMenuItemLabel(label));
-}
-
-extern "C" uint32 sub_8001551C(uint32 object, uint32 label)
-{
-    FUNCTION_MARKER(0x8001551C, "SLUS_003.73");
-    return MenuWindow::Attach(object).DisableItem(MapMenuItemLabel(label));
-}
-
-extern "C" uint32 sub_80015590(uint32 object, uint32 label, uint32 height)
-{
-    FUNCTION_MARKER(0x80015590, "SLUS_003.73");
-    return MenuWindow::Attach(object).SetItemHeight(MapMenuItemLabel(label), height);
-}
-
-extern "C" uint32 sub_800155D4(uint32 object, uint32 label)
-{
-    FUNCTION_MARKER(0x800155D4, "SLUS_003.73");
-    return MenuWindow::Attach(object).IsSelected(MapMenuItemLabel(label));
-}
-
-static uint32 ReadMenuPositionOutput(const uint32 *output)
-{
-    uint32 address = GuestMemoryAddress(output);
-    if (address)
-        return r_u32(address);
-    uint32 value;
-    memcpy(&value, output, 4);
-    return value;
-}
-
-static void StoreMenuPositionOutput(uint32 *output, uint32 value)
-{
-    uint32 address = GuestMemoryAddress(output);
-    if (address)
-        w_u32(address, value);
-    else
-        memcpy(output, &value, 4);
-}
-
 uint32 MenuWindow::GetItemPosition(const char *label, uint32 *x, uint32 *y)
 {
     FUNCTION_MARKER(0x80015614, "SLUS_003.73");
-    StoreMenuPositionOutput(x, this->pos[0]);
-    StoreMenuPositionOutput(y, this->pos[1]);
+    *x = this->scr_pos[0];
+    *y = this->scr_pos[1];
     uint32 result = this->count;
     if (!result)
         return result;
@@ -308,14 +342,14 @@ uint32 MenuWindow::GetItemPosition(const char *label, uint32 *x, uint32 *y)
         if (row->enabled)
         {
             uint32 height = row->height;
-            uint32 position = ReadMenuPositionOutput(y);
-            StoreMenuPositionOutput(y, position + height);
+            uint32 position = *y;
+            *y = position + height;
             result = NamesEqualIgnoringCase(label, GetItemLabel(index));
             if (result)
                 return result;
-            position = ReadMenuPositionOutput(y);
+            position = *y;
             uint32 spacing = this->spacing;
-            StoreMenuPositionOutput(y, position + spacing);
+            *y = position + spacing;
         }
         uint32 count = this->count;
         ++index;
@@ -323,14 +357,6 @@ uint32 MenuWindow::GetItemPosition(const char *label, uint32 *x, uint32 *y)
         ++row;
     } while (result);
     return result;
-}
-
-
-
-extern "C" uint32 xport_draft_host_sub_80015614_p34(uint32 object, uint32 label, void *x, void *y)
-{
-    FUNCTION_MARKER(0x80015614, "SLUS_003.73");
-    return MenuWindow::Attach(object).GetItemPosition(MapMenuItemLabel(label), (uint32 *)x, (uint32 *)y);
 }
 
 uint32 MenuWindow::Draw(void)
@@ -343,28 +369,27 @@ uint32 MenuWindow::Draw(void)
     MenuItem *row;
     uint32 y;
     sint32 result;
-    short pulse;
-    short glow;
-    unsigned char fade;
+    sint16 pulse;
+    sint16 glow;
+    uint8 fade;
     const char *text;
     sint32 length;
     char *suffix;
     sint32 text_scale;
     sint32 width;
     uint32 arrow_offset;
-    uint32 left_arrow;
-    uint32 right_arrow;
-    short left_center;
-    short left_edge;
-    short right_center;
-    short right_edge;
-    uint32 ordering_table;
-    uint32 link;
+    uint8 *left_arrow;
+    uint8 *right_arrow;
+    sint16 left_center;
+    sint16 left_edge;
+    sint16 right_center;
+    sint16 right_edge;
+    uint32 *ordering_table;
     char numbered_label[104];
     index = 0;
     SetHudTextAlignment(this->alignment);
     row = this->items;
-    y = this->pos[1];
+    y = this->scr_pos[1];
     while (1)
     {
         result = (index < this->count);
@@ -374,7 +399,7 @@ uint32 MenuWindow::Draw(void)
         enabled = row->enabled;
         y += row_height;
         if (!enabled)
-            goto LABEL_37;
+            goto NextRow;
         if (((sint16)row->scale > 0))
         {
             if ((index == this->selected))
@@ -388,7 +413,7 @@ uint32 MenuWindow::Draw(void)
                 pulse = (sint16)(pulse_bits - 16);
                 if (current_pulse < 129)
                 {
-                LABEL_9:
+                WrapSelectedPulse:
                     if (((sint16)row->pulse < 128))
                         row->pulse = 255;
                 }
@@ -398,7 +423,7 @@ uint32 MenuWindow::Draw(void)
                     if ((pulse < 128))
                     {
                         row->pulse = 128;
-                        goto LABEL_9;
+                        goto WrapSelectedPulse;
                     }
                 }
                 current_glow = (sint16)row->glow;
@@ -439,7 +464,7 @@ uint32 MenuWindow::Draw(void)
             SetHudTextDepth(unselected_scale >= current_scale);
             numbered = this->numbered;
             text = GetItemLabel(index);
-            if (numbered && !NamesEqualIgnoringCase(text, MapMenuItemLabel(r_u32(0x800A5660))))
+            if (numbered && !NamesEqualIgnoringCase(text, MenuText::empty_slot))
             {
                 length = (sint32)strlen(text);
                 text = numbered_label;
@@ -463,62 +488,55 @@ uint32 MenuWindow::Draw(void)
             SetHudTextScale(text_scale);
             draw_color = (uint32)(sint32)(sint16)row->pulse;
             draw_glow = (uint32)(sint32)(sint16)row->glow;
-            width = (sint32)DrawStyledHudText(this->pos[0], y, text, 0, draw_color, draw_glow);
+            width = (sint32)DrawStyledHudText(this->scr_pos[0], y, text, 0, draw_color, draw_glow);
             if (((this->has_arrows && (index == this->arrow_item)) && !(this->alignment)))
             {
                 current_scale = (sint16)row->scale;
                 arrow_offset = (uint32)((sint32)((uint32)width * (uint32)current_scale) / 512) + (uint32)((sint32)((uint32)current_scale * 14) / 256);
-                left_arrow = r_u32(0x800FF668);
-                right_arrow = left_arrow + 20;
-                if (r_u32(0x800FF374) >= left_arrow + 40)
+                left_arrow = scene_render.cursor;
+                if (scene_render.limit - left_arrow >= (sint32)(2 * sizeof(POLY_F3)))
                 {
-                    w_u32(0x800FF668, left_arrow + 40);
-                    w_u8(((uint32)((left_arrow + 3))), 4);
-                    w_u8(((uint32)((left_arrow + 7))), 32);
-                    w_u8(((uint32)((right_arrow + 3))), 4);
-                    w_u8(((uint32)((right_arrow + 7))), 32);
-                    w_u8(left_arrow + 4, 255);
-                    w_u8(left_arrow + 5, 0);
-                    w_u8(((uint32)((left_arrow + 6))), 0);
-                    left_center = (uint16)this->pos[0];
-                    w_u16(((uint32)((left_arrow + 10))), y);
-                    w_u16(((uint32)((left_arrow + 8))), (left_center - arrow_offset));
-                    w_u16(((uint32)((left_arrow + 14))), (y - 6));
-                    left_edge = r_u16(((uint32)((left_arrow + 8))));
-                    w_u16(((uint32)((left_arrow + 18))), (y + 6));
+                    right_arrow = left_arrow + sizeof(POLY_F3);
+                    scene_render.cursor = left_arrow + 2 * sizeof(POLY_F3);
+                    POLY_F3 *left_poly = (POLY_F3 *)left_arrow;
+                    POLY_F3 *right_poly = (POLY_F3 *)right_arrow;
+                    setPolyF3(left_poly);
+                    setPolyF3(right_poly);
+                    setRGB0(left_poly, 255, 0, 0);
+                    left_center = (sint16)this->scr_pos[0];
+                    left_poly->p[0].y = y;
+                    left_poly->p[0].x = (uint32)left_center - arrow_offset;
+                    left_poly->p[1].y = y - 6;
+                    left_edge = left_poly->p[0].x;
+                    left_poly->p[2].y = y + 6;
                     left_edge -= 20;
-                    w_u16(((uint32)((left_arrow + 12))), left_edge);
-                    w_u16(((uint32)((left_arrow + 16))), left_edge);
-                    w_u8(right_arrow + 4, 255);
-                    w_u8(right_arrow + 5, 0);
-                    w_u8(((uint32)((right_arrow + 6))), 0);
-                    right_center = (uint16)this->pos[0];
-                    w_u16(((uint32)((right_arrow + 10))), y);
-                    w_u16(((uint32)((right_arrow + 8))), (right_center + arrow_offset));
-                    w_u16(((uint32)((right_arrow + 14))), (y - 6));
-                    right_edge = r_u16(((uint32)((right_arrow + 8))));
-                    ordering_table = r_u32(0x800FF660);
-                    w_u16(((uint32)((right_arrow + 18))), (y + 6));
+                    left_poly->p[1].x = left_edge;
+                    left_poly->p[2].x = left_edge;
+                    setRGB0(right_poly, 255, 0, 0);
+                    right_center = (sint16)this->scr_pos[0];
+                    right_poly->p[0].y = y;
+                    right_poly->p[0].x = (uint32)right_center + arrow_offset;
+                    right_poly->p[1].y = y - 6;
+                    right_edge = right_poly->p[0].x;
+                    ordering_table = scene_render.cur->ot;
+                    right_poly->p[2].y = y + 6;
                     right_edge += 20;
-                    w_u16(((uint32)((right_arrow + 12))), right_edge);
-                    w_u16(((uint32)((right_arrow + 16))), right_edge);
-                    w_u32(((uint32)(left_arrow)), ((r_u32(((uint32)(left_arrow))) & 0xFF000000) | (r_u32(((uint32)((ordering_table + 112)))) & 0xFFFFFF)));
-                    link = ((r_u32(((uint32)((ordering_table + 112)))) & 0xFF000000) | (left_arrow & 0xFFFFFF));
-                    w_u32(((uint32)((ordering_table + 112))), link);
-                    w_u32(((uint32)((left_arrow + 20))), ((r_u32(((uint32)((left_arrow + 20)))) & 0xFF000000) | (link & 0xFFFFFF)));
-                    w_u32(((uint32)((ordering_table + 112))), ((r_u32(((uint32)((ordering_table + 112)))) & 0xFF000000) | (right_arrow & 0xFFFFFF)));
+                    right_poly->p[1].x = right_edge;
+                    right_poly->p[2].x = right_edge;
+                    setaddr(left_poly, getaddr(ordering_table));
+                    setaddr(ordering_table, gpu_packet_link((uintptr_t)left_poly));
+                    setaddr(right_poly, getaddr(ordering_table));
+                    setaddr(ordering_table, gpu_packet_link((uintptr_t)right_poly));
                 }
             }
         }
         y += this->spacing;
-    LABEL_37:
+    NextRow:
         ++row;
 
         ++index;
     }
 }
-
-
 
 uint32 MenuWindow::Update(void)
 {
@@ -547,8 +565,8 @@ uint32 MenuWindow::Update(void)
         row = this->items + this->selected;
         row->scale = row->unselected_scale;
     }
-    previous = r_u8(0x800EC198);
-    next = previous ? 0 : r_u8(0x800EC1A8);
+    previous = game_pads[0].buttons[10].down;
+    next = previous ? 0 : game_pads[0].buttons[11].down;
     if (previous || next)
     {
         repeat = menu_repeat;
@@ -568,7 +586,7 @@ uint32 MenuWindow::Update(void)
                 row->target_scale = row->selected_scale;
                 PlaySoundEffect(26, 0x2000, 0);
             }
-            if (r_u8(0x800EC1A8))
+            if (game_pads[0].buttons[11].down)
             {
                 row = this->items + this->selected;
                 row->target_scale = row->unselected_scale;
@@ -629,10 +647,4 @@ uint32 MenuWindow::Update(void)
         if ((sint32)index >= (sint32)count)
             return 0;
     }
-}
-
-extern "C" uint32 sub_80015BA4(uint32 object)
-{
-    FUNCTION_MARKER(0x80015BA4, "SLUS_003.73");
-    return MenuWindow::Attach(object).Update();
 }

@@ -1,29 +1,48 @@
+#include <new>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "game_lighting.h"
+#include "game_tuning.h"
+#include "pickup_factory.h"
+#include "pickup.h"
+
+#include "world_gravity.h"
+
+#include "object_initializers.h"
+
+#include "effect_object.h"
+
+#include "camera.h"
+#include "player.h"
+
+#include "flamethrower.h"
+#include "weapon_nodes.h"
 #include "cd_voice_event.h"
 #include "enemy_list.h"
 #include "record_factory.h"
 #include "screen_flash.h"
 #include "visual_object.h"
 #include "angle_math.h"
+#include "vector_distance.h"
+#include "audio_session.h"
 #include "object_damage.h"
-#include "object_collision_events.h"
+#include "collision.h"
 #include "model_animation.h"
+#include "model_attachment.h"
 #include "game_random.h"
-#include "game_sdk_bindings.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
+
 #include "the_beast.h"
 #include "projectile_guided.h"
 #include "game_panel.h"
 #include "spawn_points.h"
-#include "native_object_storage.h"
+#include "glow_effect.h"
+#include "ring_effect.h"
 #include "game_heap.h"
 #include "game_object_allocation.h"
-#include <new>
-#include <stdio.h>
-#include <stdlib.h>
+#include "effect_lifecycle.h"
 
 // Native extraction of the original bone-vector and normalization call sequence
 
@@ -35,30 +54,20 @@ extern "C"
 
 // Native extractions of repeated blocks in the original behavior function
 
-#include "object_parameters.h"
 #include "record_data.h"
 #include "vector_arithmetic.h"
-#include <string.h>
 
-// Native input bridge for the original three target-word loads
-
-static void DestroyTheBeastChild(uint32 child, uint32 table_offset)
+// Original module tables retain shared script and shuffle lifetime
+struct BeastSpawnPoints
 {
-    uint32 table, target;
-    sint32 adjustment;
-    if (child)
-    {
-        table = r_u32(child + table_offset);
-        adjustment = (sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, child + (uint32)adjustment, 3);
-    }
-}
+    uint16 records[4];
+    uint16 groups[5][5];
+    uint16 beam_point;
+    uint16 extra_record;
+};
 
-TheBeast &TheBeast::Attach(uint32 object)
-{
-    return *static_cast<TheBeast *>(FindNativeObjectStorage(object));
-}
+static BeastSpawnPoints spawn_points = {0};
+static const uint8 voice_choices[3] = {5, 7, 8};
 
 static uint32 DivideBeastMovement(uint32 numerator, uint32 denominator)
 {
@@ -76,301 +85,227 @@ static uint32 ReadBeastPlanarDistance(const uint32 *left, const uint32 *right)
     z = left[2];
     other_z = right[2];
     z = (uint32)((sint32)(z - other_z) >> 12);
-    return sub_80085B54(x * x + z * z);
+    return LookupDistanceRoot(x * x + z * z);
 }
 
-static void InterpolateBeastAngles(uint32 current, const uint16 *desired, uint16 *delta, uint16 *acceleration, uint32 scale)
+static void ReadLightDirection(Character &object, uint32 bone, uint32 horizontal, ShortVector3 &direction)
 {
-    SVECTOR motion_cur, motion_target;
-    uint32 motion_cur_word, motion_cur_tail, motion_target_word, motion_target_tail;
-    uint32 packed = r_u32(current);
-    packed = r_u32(current);
-    uint32 tail = r_u16(current + 4);
-    uint32 desired_packed = desired[0] | ((uint32)desired[1] << 16);
-    uint32 desired_tail = desired[2];
-    motion_cur_word = packed;
-    motion_cur_tail = tail;
-    motion_target_word = desired_packed;
-    motion_target_tail = desired_tail;
-    motion_cur.vx = (sint16)motion_cur_word;
-    motion_cur.vy = (sint16)(motion_cur_word >> 16);
-    motion_cur.vz = (sint16)motion_cur_tail;
-    motion_cur.pad = (sint16)(motion_cur_tail >> 16);
-    motion_target.vx = (sint16)motion_target_word;
-    motion_target.vy = (sint16)(motion_target_word >> 16);
-    motion_target.vz = (sint16)motion_target_tail;
-    motion_target.pad = (sint16)(motion_target_tail >> 16);
-    UpdateAngleAcceleration(motion_cur, delta, acceleration, motion_target, scale);
-}
-
-static void FireBeastWeapon(uint32 weapon, const uint32 *position, const uint16 *angles)
-{
-    uint32 table = r_u32(weapon);
-    sint32 adjustment = (sint16)r_u16(table + 16);
-    uint32 target = r_u32(table + 20);
-    uint32 receiver = weapon + (uint32)adjustment;
-    if (target == 0x80027978)
-        apocalypse_beam_fire_27978(receiver, position, (const sint16 *)angles);
-    else if (target == 0x80024598)
-        apocalypse_beam_24598_native(receiver, position, angles);
-    else
-    {
-        GameDiagnostic("TODO TheBeast weapon fire target %08X\n", target);
-        abort();
-    }
-}
-
-static void DestroyBeastWeapon(uint32 weapon)
-{
-    uint32 table = r_u32(weapon);
-    sint32 adjustment = (sint16)r_u16(table + 8);
-    uint32 target = r_u32(table + 12);
-    apocalypse_object_cleanup(target, weapon + (uint32)adjustment, 3);
-}
-
-static void ReadTheBeastLightDirection(uint32 object, uint32 bone, uint32 horizontal, sint16 direction[3])
-{
-    uint32 vector[4], normalized[4], lane;
-    xport_draft_host_sub_8007CC10_p1(vector, object, bone);
+    uint32 lane;
+    Vector3 vector, normalized;
+    GetModelAttachment(vector.words, object, bone);
     for (lane = 0; lane < 3; ++lane)
-        vector[lane] -= r_u32(object + 4 + lane * 4);
+        vector.words[lane] -= object.model.pos.words[lane];
     if (horizontal)
-        vector[1] = 0;
-    xport_draft_host_sub_800666DC_p12(normalized, vector);
-    direction[0] = (sint16)normalized[0];
-    direction[1] = horizontal ? 0 : (sint16)normalized[1];
-    direction[2] = (sint16)normalized[2];
+        vector.words[1] = 0;
+    NormalizeFixedVector(normalized.words, vector.words);
+    direction.components[0] = (sint16)normalized.words[0];
+    direction.components[1] = horizontal ? 0 : (sint16)normalized.words[1];
+    direction.components[2] = (sint16)normalized.words[2];
 }
 
-static void AdvanceBeastPhase(uint32 object)
+void TheBeast::AdvancePhase()
 {
-    uint32 phase = r_u16(object + 474);
-    w_u16(object + 474, phase + 1);
+    uint32 phase = ai.phase;
+    ai.phase = phase + 1;
 }
 
-static void SelectBeastState(uint32 object, uint32 state)
+void TheBeast::SelectState(uint32 state)
 {
-    w_u16(object + 472, state);
-    w_u16(object + 474, 0);
+    ai.state = state;
+    ai.phase = 0;
 }
 
-static void RestoreBeastState(uint32 object)
+void TheBeast::RestoreState()
 {
-    uint32 state = r_u16(object + 440);
-    uint32 phase = r_u16(object + 442);
-    w_u16(object + 472, state);
-    w_u16(object + 474, phase);
+    uint32 state = ai.parameters[2];
+    uint32 phase = ai.parameters[3];
+    ai.state = state;
+    ai.phase = phase;
 }
 
-static void ClearBeastVelocity(uint32 object)
+void TheBeast::ClearVelocity()
 {
-    TheBeast::Attach(object).motion.velocity[2] = 0;
-    TheBeast::Attach(object).motion.velocity[1] = 0;
-    TheBeast::Attach(object).motion.velocity[0] = 0;
+    motion.velocity.words[2] = 0;
+    motion.velocity.words[1] = 0;
+    motion.velocity.words[0] = 0;
 }
 
-static void BeginBeastAttack(TheBeast &owner)
+void TheBeast::BeginAttack()
 {
-    const uint32 object = NativeObjectGuestAddress(&owner);
-    uint32 flags = r_u32(object + 396);
-    uint32 player = visual_lists.players;
-    w_u32(object + 396, flags & 0xFFFFFFFE);
-    ClearBeastVelocity(object);
-    owner.TrackTarget(player);
+    uint32 flags = control.flags;
+    control.flags = flags & 0xFFFFFFFE;
+    ClearVelocity();
+    TrackTarget(visual_lists.players);
 }
 
-static void PlayBeastAnimation(uint32 object, uint32 animation)
+void TheBeast::PlayAnimation(uint32 animation)
 {
-    sub_80063038(object, animation, 0, (uint32)-1);
+    SetAnimationRange(animation, 0, (uint32)-1);
 }
 
-static void JumpBeastToPoint(TheBeast &owner, uint32 *position)
+void TheBeast::JumpToPoint(uint32 *position)
 {
-    const uint32 object = NativeObjectGuestAddress(&owner);
     uint32 height;
-    owner.ClearFacing();
-    height = (uint32)(sint32)(sint16)r_u16(object + 456);
+    ClearFacing();
+    height = (uint32)(sint32)(sint16)(uint32)ground_offset;
     position[1] -= height << 12;
-    owner.SetJumpDestination(position);
+    SetJumpDestination(position);
 }
 
-static uint32 ReadBeastPointDistance(const uint32 *position, uint32 target)
-{
-    uint32 x = position[0], other_x = r_u32(target), z, other_z;
-    x = (uint32)((sint32)(x - other_x) >> 12);
-    z = position[2];
-    other_z = r_u32(target + 8);
-    z = (uint32)((sint32)(z - other_z) >> 12);
-    return sub_80085B54(x * x + z * z);
-}
-
-static uint32 ReadBeastBeamPoint(uint32 object)
+uint32 TheBeast::ReadBeamPoint()
 {
     uint32 index;
-    if (r_u16(object + 444))
+    if (ai.parameters[4])
     {
-        index = (uint32)(sint32)(sint16)r_u16(object + 464);
-        return r_u16(0x800A6BAC + index * 2);
+        index = (uint32)(sint32)(sint16)ai.work[2];
+        return spawn_points.groups[2][index];
     }
-    return r_u16(0x800FF4BC);
+    return spawn_points.beam_point;
 }
 
-static void PositionBeastBeamPoint(uint32 object, uint32 *position, uint16 *angles, uint32 turn)
+void TheBeast::PositionBeamPoint(uint32 *position, uint16 *angles, uint32 turn)
 {
     uint32 distance, yaw, offset;
-    xport_draft_host_sub_80066B8C_p13(angles, object + 4, position);
+    CalculateDirectionAngles(angles, model.pos.words, position);
     if (turn)
     {
         yaw = angles[1];
-        offset = r_u16(object + 446);
+        offset = ai.parameters[5];
         angles[1] = turn == 1 ? yaw + offset : yaw - offset;
     }
-    distance = xport_draft_host_sub_8006689C_p2(object + 4, position);
-    xport_draft_host_sub_800667CC_p13(position, distance, angles);
-    xport_draft_host_sub_8006C0B8_p1(position, object + 4);
+    distance = MeasureEuclideanDistance(model.pos.words, position);
+    BuildDirectionVector(position, distance, angles);
+    AddVectors(position, model.pos.words);
 }
 
-static uint32 ReadTheBeastTargetWord(const uint32 *position, uint32 axis)
+TheBeast::TheBeast(const RecordCursor &record_data, uint32 index) : Enemy(), jump_timer(0)
 {
-    uint32 address = GuestMemoryAddress(position), value;
-    if (address)
-        return r_u32(address + axis * 4);
-    memcpy(&value, (const uint8 *)position + axis * 4, 4);
-    return value;
-}
-
-TheBeast::TheBeast(const uint8 *record_data, uint32 index)
-    : Enemy()
-{
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 cursor, roll;
-    const uint32 data = GuestMemoryAddress(record_data);
+    for (uint32 index = 0; index < 5; ++index)
+        used_points[index] = 0;
+    RecordDataBorrow record_borrow;
+    uint32 roll;
+    RecordCursor cursor;
     FUNCTION_MARKER(0x800408A0, "SLUS_003.73");
-    if (!data)
-    {
-        // TODO Support native record data in the original parser adapter
-        GameDiagnostic("TheBeast record data is outside guest memory\n");
-        abort();
-    }
-    w_u32(object + 68, 0x800A20C0);
-    cursor = sub_80062B0C(object, data);
-    this->model.angles[0] = r_u16(cursor);
-    this->model.angles[1] = r_u16(cursor + 2);
-    roll = r_u16(cursor + 4);
-    w_u32(object + 400, cursor + 6);
-    w_u8(object + 380, 1);
+    aim_pos.words[0] = aim_pos.words[1] = aim_pos.words[2] = 0;
+    bone_aim_pos.words[0] = bone_aim_pos.words[1] = bone_aim_pos.words[2] = 0;
+
+    cursor = ReadPosition(record_data);
+    this->model.angles.words[0] = cursor.Read16();
+    this->model.angles.words[1] = (cursor + 2).Read16();
+    roll = (cursor + 4).Read16();
+    script_cursor = cursor + 6;
+    this->control.script_active = 1;
     this->record_idx = index;
-    this->model.angles[2] = roll;
+    this->model.angles.words[2] = roll;
     Configure();
-    cursor = r_u32(object + 400);
-    sub_8004BE90(object, cursor);
+    cursor = script_cursor;
+    ExecuteScript(RecordCursor(cursor));
 }
 
-uint32 TheBeast::Configure()
+void TheBeast::Configure()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 buffer, colors;
     FUNCTION_MARKER(0x800409E0, "SLUS_003.73");
-    sub_800626C8(object, 0x800A2040);
+    SetModelBank("thebeast");
     motion.drag[0] = 31;
     motion.drag[1] = 31;
     motion.drag[2] = 31;
     AddToList(visual_lists.actors);
     this->model.flags = this->model.flags | 128;
-    sub_8004BD04(object, 3, 5);
-    sub_8004BDCC(object, 0, 0, 0);
-    sub_8004BDCC(object, 1, 0, 0);
-    sub_8004BDCC(object, 1, 1, 1);
-    sub_8004BDCC(object, 2, 0, 0);
-    sub_8004BDCC(object, 2, 1, 2);
-    w_u16(object + 436, 32);
-    w_u16(object + 438, 32);
+    AllocateBehaviorTable(3, 5);
+    SetBehaviorValue(0, 0, 0);
+    SetBehaviorValue(1, 0, 0);
+    SetBehaviorValue(1, 1, 1);
+    SetBehaviorValue(2, 0, 0);
+    SetBehaviorValue(2, 1, 2);
+    ai.parameters[0] = 32;
+    ai.parameters[1] = 32;
     this->kind = 220;
-    w_u16(object + 456, 271);
-    w_u32(object + 552, 0);
-    w_u32(object + 556, 0);
-    w_u32(object + 560, 0);
-    w_u8(object + 454, 0);
-    w_u16(object + 472, 0);
-    w_u16(object + 474, 0);
-    w_u8(object + 381, 0);
-    w_u32(0x800FF4EC, object);
-    w_u8(object + 314, 1);
-    buffer = sub_8006B864(32, 0, 1);
-    w_u32(object + 316, buffer);
-    colors = sub_8006B864(16, 0, 1);
-    buffer = r_u32(object + 316);
-    w_u32(object + 320, colors);
-    w_u16(buffer, 0);
-    buffer = r_u32(object + 316);
-    w_u16(buffer + 2, (uint16)-4096);
-    buffer = r_u32(object + 316);
-    w_u16(buffer + 4, 0);
-    colors = r_u32(object + 320);
-    w_u8(colors, 128);
-    colors = r_u32(object + 320);
-    w_u8(colors + 1, 128);
-    colors = r_u32(object + 320);
-    w_u8(colors + 2, 128);
-    return colors;
+    this->ground_offset = 271;
+    beams[0] = 0;
+    beams[1] = 0;
+    flamethrower = 0;
+    ai.parameters[9] = (ai.parameters[9] & 0xFF00) | (uint8)(0);
+    ai.state = 0;
+    ai.phase = 0;
+    this->control.hierarchy_ready = 0;
+    camera_subject.SetObject(&model);
+    projection.enabled = true;
+    memset(&projection.dir, 0, sizeof(projection.dir));
+    projection.dir.m[0][1] = -ONE;
+    projection.color = 0x808080;
+}
+
+TheBeast::~TheBeast()
+{
+    for (uint32 index = 0; index < 2; ++index)
+        if (beams[index])
+            beams[index]->Destroy(3);
+    if (flamethrower)
+        flamethrower->Destroy(3);
+    if (held_projectile)
+        held_projectile->Destroy(3);
+    for (uint32 index = 0; index < 2; ++index)
+        if (charge_rings[index])
+            charge_rings[index]->Destroy(3);
 }
 
 uint32 TheBeast::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, buffer, index, result;
+    uint32 index, result;
     FUNCTION_MARKER(0x80040B64, "SLUS_003.73");
-    w_u32(object + 68, 0x800A20C0);
     ClearTrackedObjectHealth();
     RemoveFromList(visual_lists.actors);
     Enemy::FreeBehaviorTable();
-    child = r_u32(object + 552);
-    DestroyTheBeastChild(child, 0);
-    child = r_u32(object + 556);
-    DestroyTheBeastChild(child, 0);
-    child = r_u32(object + 560);
-    DestroyTheBeastChild(child, 0);
-    child = r_u32(object + 572);
-    DestroyTheBeastChild(child, 68);
-    buffer = r_u32(object + 316);
-    if (buffer)
-        ReleaseHeapBlock(buffer);
-    buffer = r_u32(object + 320);
-    if (buffer)
-        ReleaseHeapBlock(buffer);
-    w_u32(0x800FF4EC, 0);
     for (index = 0; index < 2; ++index)
     {
-        child = r_u32(object + 564 + index * 4);
-        DestroyTheBeastChild(child, 68);
+        if (beams[index])
+            beams[index]->Destroy(3);
+        beams[index] = 0;
+    }
+    if (flamethrower)
+        flamethrower->Destroy(3);
+    flamethrower = 0;
+    if (held_projectile)
+        held_projectile->Destroy(3);
+    held_projectile = 0;
+    projection.enabled = false;
+    camera_subject.Reset();
+    for (index = 0; index < 2; ++index)
+    {
+        if (charge_rings[index])
+            charge_rings[index]->Destroy(3);
+        charge_rings[index] = 0;
     }
     Enemy::Destroy(0);
     result = reason & 1;
     if (result)
-        result = ReleaseObjectStorage(object);
+        result = ReleaseObjectStorage(this);
     return result;
 }
 
 uint32 TheBeast::SpawnPickup()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 mode, threshold, player, kind, index, entry, candidate, x, z, child, choice;
-    uint32 position[4];
+    RecordDataBorrow record_borrow;
+    uint32 mode, threshold, kind, index, x, z, choice;
+    Pickup *child;
+    uint16 *entry;
+    ModelInstance *player, *candidate;
+    Vector3 position;
     sint32 timer, health;
     FUNCTION_MARKER(0x80040D14, "SLUS_003.73");
-    timer = (sint16)r_u16(object + 462);
+    timer = (sint16)ai.work[1];
     if (timer < 150)
     {
-        w_u16(object + 462, timer + 1);
+        ai.work[1] = timer + 1;
         return timer + 1;
     }
-    w_u16(object + 462, 0);
-    mode = r_u16(object + 440);
+    ai.work[1] = 0;
+    mode = ai.parameters[2];
     if (mode < 5)
         return 0x800F0000;
-    threshold = r_u16(0x800EC526);
+    threshold = GetGameTuning().player.maximum_health;
     player = visual_lists.players;
-    health = (sint16)r_u16(player + 218);
+    health = static_cast<VisualObject *>(player->owner)->health;
     kind = 0;
     if (health < ((sint32)(threshold << 16) >> 17) && RandomRange(3) == 0)
         kind = 14;
@@ -379,211 +314,243 @@ uint32 TheBeast::SpawnPickup()
         choice = RandomRange(6);
         switch (choice)
         {
-            case 0: kind = 5; break;
-            case 1: kind = 3; break;
-            case 2: kind = 4; break;
-            case 3: kind = 1; break;
-            case 4: kind = 10; break;
-            default: kind = 14; break;
+            case 0:
+                kind = 5;
+                break;
+            case 1:
+                kind = 3;
+                break;
+            case 2:
+                kind = 4;
+                break;
+            case 3:
+                kind = 1;
+                break;
+            case 4:
+                kind = 10;
+                break;
+            default:
+                kind = 14;
+                break;
         }
     }
-    mode = r_u16(object + 440);
+    mode = ai.parameters[2];
     if (mode - 5 >= 5)
         return 0;
-    entry = 0x800A6BB8;
-    ShuffleSpawnPoints((uint16 *)psx_addr(entry, 2), 5);
+    entry = spawn_points.groups[3];
+    ShuffleSpawnPoints(entry, 5);
     for (index = 0; index < 5; ++index)
     {
-        choice = r_u16(entry);
-        xport_draft_host_sub_8006613C_p1(position, choice);
-        if (apocalypse_ground_native(position, 0, 2048) != (uint32)-1)
+        choice = *entry;
+        ReadRecordPosition(position.words, choice);
+        if (FindGroundHeight(position.words, 0, 2048) != (uint32)-1)
         {
             candidate = visual_lists.pickups;
             if (candidate)
             {
-                x = position[0];
-                z = position[2];
+                x = position.words[0];
+                z = position.words[2];
                 while (candidate)
                 {
-                    if (r_u32(candidate + 4) == x && r_u32(candidate + 12) == z)
+                    if (candidate->pos.words[0] == x && candidate->pos.words[2] == z)
                         break;
-                    candidate = r_u32(candidate + 28);
+                    candidate = candidate->next;
                 }
             }
             if (!candidate)
             {
-                child = xport_draft_host_sub_80020EF8_p2(kind & 65535, position, 7, 600, 0x800A71CC);
+                child = ::SpawnPickup(kind & 65535, position.words, 7, 600, zero_vector.words);
                 if (!child)
                     return 0;
-                sub_8002005C(child, 8192, 4);
-                x = position[1];
-                w_u8(child + 308, 0);
-                w_u32(child + 312, x + 6553600);
+                child->SetMotionParameters(8192, 4);
+                x = position.words[1];
+                child->ignore_floor = 0;
+                child->floor_y = x + 6553600;
                 return 6553600;
             }
         }
-        entry += 2;
+        ++entry;
     }
     return 0;
 }
 
 uint32 TheBeast::Update()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 x, y, z, flags, mode, frame, child, timer, value, speed, player, weapon, distance, current, target;
-    uint32 position[4], muzzle[4], player_ground[3], discarded_direction[3];
-    uint16 desired[4], weapon_angles[4];
+    ModelBorrow model_borrow;
+    RecordDataBorrow record_borrow;
+    ModelInstance *player;
+    uint32 x;
+    uint32 y;
+    uint32 z;
+    uint32 flags;
+    uint32 mode;
+    uint32 frame;
+    GameHeapBlock *child;
+    uint32 timer;
+    uint32 value;
+    uint32 speed;
+    uint32 weapon;
+    uint32 distance;
+    uint32 current;
+    uint32 target;
+    Vector3 position, muzzle, player_ground, discarded_direction;
+    ShortVector3 desired, weapon_angles;
     uint32 velocity_x, velocity_z, velocity_y;
     sint16 pitch;
     CollisionRay raycast;
     FUNCTION_MARKER(0x80040F34, "SLUS_003.73");
-    x = r_u32(0x800A71CC);
-    y = r_u32(0x800A71D0);
-    z = r_u32(0x800A71D4);
-    motion.acceleration[0] = x;
-    motion.acceleration[1] = y;
-    motion.acceleration[2] = z;
-    UpdateModelAnimationData(object);
-    sub_8007FDF0(object);
+    x = (uint32)zero_vector[0];
+    y = (uint32)zero_vector[1];
+    z = (uint32)zero_vector[2];
+    motion.acceleration.words[0] = x;
+    motion.acceleration.words[1] = y;
+    motion.acceleration.words[2] = z;
+    UpdateModelAnimationData();
+    UpdateWorldTransform();
     BuildModelPose(*this);
     flags = this->activation_flags;
-    w_u16(object + 388, flags);
+    this->control.prev_activation_flags = flags;
     if (flags & 1)
     {
-        value = r_u8(object + 384);
+        value = (uint32)this->control.activation_count;
         this->activation_flags = flags & 65534;
-        w_u8(object + 384, value + 1);
+        this->control.activation_count = value + 1;
     }
     mode = this->model.animation;
     if (mode == 3)
     {
-        frame = sub_8006325C(object, 3, 5);
-        if (sub_80062D24(object, frame, 1))
+        frame = DidAnimationCrossFrame(3, 5);
+        if (UpdateEventLatch(frame, 1))
         {
-            sub_80069EF4(137, object + 4, 0);
-            xport_draft_host_sub_8007CC10_p1(position, object, 6);
-            position[1] += 131072;
-            child = sub_80032DC0(112);
+            PlayPositionedSound(137, model.pos.words, 0);
+            GetModelAttachment(position.words, *this, 6);
+            position.words[1] += 131072;
+            child = AllocateEffectStorage(112);
             if (child)
-                apocalypse_beast_ground_effect_native(child, position, 10, 64, 96, 96, 20, 64, 64);
+            {
+                new (child) BeastGroundEffect(position.words, 10, 64, 96, 96, 20, 64, 64);
+            }
         }
-        frame = sub_8006325C(object, 3, 31);
-        if (sub_80062D24(object, frame, 2))
+        frame = DidAnimationCrossFrame(3, 31);
+        if (UpdateEventLatch(frame, 2))
         {
-            sub_80069EF4(137, object + 4, 0);
-            xport_draft_host_sub_8007CC10_p1(position, object, 5);
-            position[1] += 131072;
-            child = sub_80032DC0(112);
+            PlayPositionedSound(137, model.pos.words, 0);
+            GetModelAttachment(position.words, *this, 5);
+            position.words[1] += 131072;
+            child = AllocateEffectStorage(112);
             if (child)
-                apocalypse_beast_ground_effect_native(child, position, 10, 64, 96, 96, 20, 64, 64);
+            {
+                new (child) BeastGroundEffect(position.words, 10, 64, 96, 96, 20, 64, 64);
+            }
         }
     }
     else if (mode == 4)
     {
-        frame = sub_8006325C(object, 4, 15);
-        if (sub_80062D24(object, frame, 1))
+        frame = DidAnimationCrossFrame(4, 15);
+        if (UpdateEventLatch(frame, 1))
         {
-            xport_draft_host_sub_8007CC10_p1(position, object, 5);
-            position[1] += 131072;
-            child = sub_80032DC0(112);
+            GetModelAttachment(position.words, *this, 5);
+            position.words[1] += 131072;
+            child = AllocateEffectStorage(112);
             if (child)
-                apocalypse_beast_ground_effect_native(child, position, 10, 64, 96, 96, 20, 64, 128);
-            xport_draft_host_sub_80069EF4_p2(137, position, 0);
-            current = visual_lists.cameras;
-            sub_800774EC(current, object + 4, 1);
+            {
+                new (child) BeastGroundEffect(position.words, 10, 64, 96, 96, 20, 64, 128);
+            }
+            PlayPositionedSound(137, position.words, 0);
+            static_cast<Camera *>(visual_lists.cameras->owner)->ApplyExplosionShake(1);
         }
     }
-    if (r_u8(object + 380))
+    if ((uint32)this->control.script_active)
     {
-        timer = r_u16(object + 476);
+        timer = (uint32)this->control.script_delay;
         if (timer)
-            w_u16(object + 476, timer - 1);
+            this->control.script_delay = timer - 1;
         else
         {
-            current = r_u32(object + 400);
-            sub_8004BE90(object, current);
+            ExecuteScript(script_cursor);
         }
     }
     else
         UpdateBehavior();
-    if (!r_u8(object + 381))
+    if (!(uint32)this->control.hierarchy_ready)
     {
         SetModelBoneTable(this->model.bank, TheBeastAttachments);
         InitializeModelAnimation(TheBeastHierarchy);
         flags = this->model.flags;
-        w_u8(object + 381, 1);
+        this->control.hierarchy_ready = 1;
         this->model.flags = flags | 4;
     }
-    if (r_u8(object + 382))
-        AddVectors(motion.acceleration, (const uint32 *)psx_addr(0x800A6844, 12));
-    sub_8004B9A4(object);
-    x = this->model.pos[0];
-    raycast.pos[0][0] = x;
-    y = this->model.pos[1] - 262144;
-    raycast.pos[0][1] = y;
-    z = this->model.pos[2];
-    raycast.pos[1][0] = x;
-    raycast.pos[1][1] = y + 8388608;
-    raycast.pos[0][2] = z;
-    raycast.pos[1][2] = z;
+    if ((uint32)this->control.gravity_enabled)
+        AddVectors(motion.acceleration.words, world_gravity.vector.words);
+    IntegrateMotion();
+    x = this->model.pos.words[0];
+    raycast.endpoints[0].words[0] = x;
+    y = this->model.pos.words[1] - 262144;
+    raycast.endpoints[0].words[1] = y;
+    z = this->model.pos.words[2];
+    raycast.endpoints[1].words[0] = x;
+    raycast.endpoints[1].words[1] = y + 8388608;
+    raycast.endpoints[0].words[2] = z;
+    raycast.endpoints[1].words[2] = z;
     InitializeCollisionRay(raycast);
     QueryCollisionRay(raycast, 1);
     if (raycast.hit.GetObject())
     {
-        w_u8(object + 314, 1);
-        w_u32(object + 184, raycast.hit_pos[0]);
-        w_u32(object + 188, raycast.hit_pos[1]);
-        w_u32(object + 192, raycast.hit_pos[2]);
-        w_u16(object + 164, (uint16)raycast.n.vx);
-        w_u16(object + 166, (uint16)raycast.n.vy);
-        w_u16(object + 168, (uint16)raycast.n.vz);
+        projection.enabled = true;
+        surface.pos.words[0] = raycast.hit_pos.words[0];
+        surface.pos.words[1] = raycast.hit_pos.words[1];
+        surface.pos.words[2] = raycast.hit_pos.words[2];
+        surface.n.vx = (uint16)raycast.n.vx;
+        surface.n.vy = (uint16)raycast.n.vy;
+        surface.n.vz = (uint16)raycast.n.vz;
     }
     else
-        w_u8(object + 314, 0);
-    flags = r_u32(object + 396);
+        projection.enabled = false;
+    flags = this->control.flags;
     if (flags & 16)
     {
-        target = r_u32(object + 528);
-        x = r_u32(target + 4);
-        y = r_u32(target + 8);
-        z = r_u32(target + 12);
-        w_u32(object + 532, x);
-        w_u32(object + 536, y);
-        w_u32(object + 540, z);
-        xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 532);
-        desired[0] = 0;
-        InterpolateBeastAngles(object + 16, (const uint16 *)desired, motion.angular_velocity, motion.angular_acceleration, 24);
+        ModelInstance *subject = tracked_target.GetObject();
+        if (subject)
+        {
+            aim_pos.words[0] = subject->pos.words[0];
+            aim_pos.words[1] = subject->pos.words[1];
+            aim_pos.words[2] = subject->pos.words[2];
+        }
+        else
+            control.flags &= ~16;
+        CalculateDirectionAngles(desired.words, model.pos.words, this->aim_pos.words);
+        desired.words[0] = 0;
+        UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, 24);
     }
     else if (flags & 32)
     {
-        xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 532);
-        desired[0] = 0;
-        InterpolateBeastAngles(object + 16, (const uint16 *)desired, motion.angular_velocity, motion.angular_acceleration, 16);
+        CalculateDirectionAngles(desired.words, model.pos.words, this->aim_pos.words);
+        desired.words[0] = 0;
+        UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, 16);
     }
-    flags = r_u32(object + 396);
+    flags = this->control.flags;
     if (flags & 64)
     {
-        xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 496);
-        value = desired[1];
-        desired[0] = 0;
-        current = this->model.angles[1];
-        desired[1] = (value - current) & 4095;
+        CalculateDirectionAngles(desired.words, model.pos.words, this->bone_aim_pos.words);
+        value = desired.words[1];
+        desired.words[0] = 0;
+        current = this->model.angles.words[1];
+        desired.words[1] = (value - current) & 4095;
     }
     else
     {
-        desired[0] = 0;
-        desired[1] = 0;
-        desired[2] = 0;
+        desired.words[0] = 0;
+        desired.words[1] = 0;
+        desired.words[2] = 0;
     }
-    InterpolateBeastAngles(object + 508, desired, (uint16 *)psx_addr(object + 514, 4), (uint16 *)psx_addr(object + 520, 4), 16);
-    sub_8006C730(object + 508, object + 514);
-    sub_8006C624(object + 508);
-    sub_8006C730(object + 514, object + 520);
-    DampAngles((uint16 *)psx_addr(object + 514, 6), motion.angular_drag);
-    sub_8006C64C(object + 514);
-    value = r_u16(object + 510);
-    GetModelJointAngles(17).rotation[1] = (uint16)value;
-    flags = r_u32(object + 396);
+    UpdateAngleAcceleration(aim.angles, aim.velocity, aim.acceleration, desired, 16);
+    AddAngleVector(aim.angles.words, aim.velocity.words);
+    NormalizeAngles(aim.angles.words);
+    AddAngleVector(aim.velocity.words, aim.acceleration.words);
+    DampAngles(aim.velocity.words, motion.angular_drag);
+    SnapSmallAngles(aim.velocity.words);
+    GetModelJointAngles(17).rotation.words[1] = aim.angles.words[1];
+    flags = this->control.flags;
     if (!(flags & 1))
         goto StoppedAnimation;
     if (flags & 4)
@@ -591,128 +558,128 @@ uint32 TheBeast::Update()
         frame = (uint32)(sint32)(sint8)this->model.frame;
         if ((sint32)frame < 18)
         {
-            w_u32(object + 304, 65536);
-            w_u8(object + 382, 0);
-            motion.velocity[2] = 0;
-            motion.velocity[1] = 0;
-            motion.velocity[0] = 0;
-            motion.acceleration[2] = 0;
-            motion.acceleration[1] = 0;
-            motion.acceleration[0] = 0;
+            this->playback.speed = 65536;
+            this->control.gravity_enabled = 0;
+            motion.velocity.words[2] = 0;
+            motion.velocity.words[1] = 0;
+            motion.velocity.words[0] = 0;
+            motion.acceleration.words[2] = 0;
+            motion.acceleration.words[1] = 0;
+            motion.acceleration.words[0] = 0;
         }
-        else if (r_u16(object + 544))
-            w_u8(object + 382, 1);
+        else if ((uint32)jump_timer)
+            this->control.gravity_enabled = 1;
         frame = (uint32)(sint32)(sint8)this->model.frame;
-        if ((sint32)frame >= 18 && !(r_u32(object + 396) & 8))
+        if ((sint32)frame >= 18 && !(this->control.flags & 8))
         {
-            x = r_u32(object + 484);
-            y = this->model.pos[0];
-            timer = r_u16(object + 544);
+            x = this->destination.words[0];
+            y = this->model.pos.words[0];
+            timer = (uint32)jump_timer;
             velocity_x = DivideBeastMovement(x - y, timer);
-            x = r_u32(object + 492);
-            y = this->model.pos[2];
-            timer = r_u16(object + 544);
+            x = this->destination.words[2];
+            y = this->model.pos.words[2];
+            timer = (uint32)jump_timer;
             velocity_z = DivideBeastMovement(x - y, timer);
-            x = r_u32(object + 488);
-            y = this->model.pos[1];
-            timer = r_u16(object + 544);
+            x = this->destination.words[1];
+            y = this->model.pos.words[1];
+            timer = (uint32)jump_timer;
             velocity_y = DivideBeastMovement(x - y, timer);
-            flags = r_u32(object + 396);
-            w_u32(object + 396, flags | 8);
-            motion.velocity[0] = velocity_x;
-            motion.velocity[2] = velocity_z;
-            motion.velocity[1] = velocity_y - (timer << 14);
-            sub_80069EF4(139, object + 4, 0);
+            flags = this->control.flags;
+            this->control.flags = flags | 8;
+            motion.velocity.words[0] = velocity_x;
+            motion.velocity.words[2] = velocity_z;
+            motion.velocity.words[1] = velocity_y - (timer << 14);
+            PlayPositionedSound(139, model.pos.words, 0);
         }
         else
         {
             frame = (uint32)(sint32)(sint8)this->model.frame;
             if ((sint32)frame >= 38)
             {
-                if (!r_u16(object + 544))
+                if (!(uint32)jump_timer)
                     goto JumpFinished;
-                w_u32(object + 304, 0);
+                this->playback.speed = 0;
             }
         }
-        timer = r_u16(object + 544);
+        timer = (uint32)jump_timer;
         if (timer)
         {
             timer = (timer - 1) & 65535;
-            w_u16(object + 544, timer);
+            jump_timer = timer;
             if (!timer)
             {
-                x = r_u32(object + 484);
-                y = r_u32(object + 488);
-                z = r_u32(object + 492);
-                this->model.pos[0] = x;
-                this->model.pos[1] = y;
-                this->model.pos[2] = z;
-                position[0] = this->model.pos[0];
-                position[1] = this->model.pos[1];
-                position[2] = this->model.pos[2];
-                value = (uint32)(sint32)(sint16)r_u16(object + 456);
-                position[1] += (value - 32) << 12;
-                if (r_u16(object + 472) != 4)
+                x = this->destination.words[0];
+                y = this->destination.words[1];
+                z = this->destination.words[2];
+                this->model.pos.words[0] = x;
+                this->model.pos.words[1] = y;
+                this->model.pos.words[2] = z;
+                position = this->model.pos;
+                value = (uint32)(sint32)(sint16)(uint32)this->ground_offset;
+                position.words[1] += (value - 32) << 12;
+                if (ai.state != 4)
                 {
-                    child = sub_80032DC0(112);
+                    child = AllocateEffectStorage(112);
                     if (child)
-                        apocalypse_beast_ground_effect_native(child, position, 10, 64, 96, 96, 20, 64, 128);
+                    {
+                        new (child) BeastGroundEffect(position.words, 10, 64, 96, 96, 20, 64, 128);
+                    }
                 }
-                motion.velocity[2] = 0;
-                motion.velocity[1] = 0;
-                motion.velocity[0] = 0;
-                motion.acceleration[2] = 0;
-                motion.acceleration[1] = 0;
-                w_u8(object + 382, 0);
-                current = visual_lists.cameras;
-                motion.acceleration[0] = 0;
-                w_u32(object + 304, 65536);
-                sub_800774EC(current, object + 4, 0);
-                sub_80069EF4(138, object + 4, 0);
+                motion.velocity.words[2] = 0;
+                motion.velocity.words[1] = 0;
+                motion.velocity.words[0] = 0;
+                motion.acceleration.words[2] = 0;
+                motion.acceleration.words[1] = 0;
+                this->control.gravity_enabled = 0;
+                Camera *impact_camera = static_cast<Camera *>(visual_lists.cameras->owner);
+                motion.acceleration.words[0] = 0;
+                this->playback.speed = 65536;
+                impact_camera->ApplyExplosionShake(0);
+                PlayPositionedSound(138, model.pos.words, 0);
             }
         }
-JumpFinished:
-        if (r_u8(object + 303))
+    JumpFinished:
+        if (this->playback.complete)
         {
-            flags = r_u32(object + 396);
-            w_u32(object + 396, flags & 0xFFFFFFF2);
+            flags = this->control.flags;
+            this->control.flags = flags & 0xFFFFFFF2;
         }
     }
     else
     {
-        distance = sub_8006696C(object + 4, object + 484);
+        distance = MeasurePositionDistance(this->model.pos.words, this->destination.words);
         speed = distance ? 32768 / distance : (uint32)-1;
         if ((sint32)speed >= 129)
             speed = 128;
-        xport_draft_host_sub_80066B8C_p1(desired, object + 4, object + 484);
-        desired[0] = 0;
-        InterpolateBeastAngles(object + 16, (const uint16 *)desired, motion.angular_velocity, motion.angular_acceleration, speed);
-        speed = r_u16(object + 436);
-        BuildDirectionVector(motion.velocity, speed, (const uint16 *)this->model.angles);
-        flags = r_u32(object + 396);
+        CalculateDirectionAngles(desired.words, this->model.pos.words, this->destination.words);
+        desired.words[0] = 0;
+        UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, speed);
+        speed = ai.parameters[0];
+        BuildDirectionVector(motion.velocity.words, speed, this->model.angles.words);
+        flags = this->control.flags;
         if (flags & 2)
         {
-            position[0] = this->model.pos[0];
-            position[1] = r_u32(object + 488);
-            position[2] = this->model.pos[2];
-            distance = xport_draft_host_sub_8006689C_p12(position, psx_addr(object + 484, 12));
+            position.words[0] = this->model.pos.words[0];
+            position.words[1] = this->destination.words[1];
+            position.words[2] = this->model.pos.words[2];
+            distance = MeasureEuclideanDistance(position.words, this->destination.words);
             value = distance < 64;
         }
         else
         {
-            distance = sub_8006689C(object + 4, object + 484);
+            distance = MeasureEuclideanDistance(this->model.pos.words, this->destination.words);
             value = distance < 128;
         }
         if (value)
         {
-            flags = r_u32(object + 396);
-            w_u32(object + 396, flags & 0xFFFFFFFE);
+            flags = this->control.flags;
+            this->control.flags = flags & 0xFFFFFFFE;
         }
     }
-    if (r_u32(object + 396) & 1)
+    if (this->control.flags & 1)
     {
-        if (!this->model.animation && r_u8(object + 303))
-            sub_80063118(object, 3, 1);
+        if (!this->model.animation && this->playback.complete)
+            StartAnimation(3, 1);
         mode = this->model.animation;
         goto AttackAnimation;
     }
@@ -720,12 +687,12 @@ StoppedAnimation:
     mode = this->model.animation;
     if (mode == 3)
     {
-        frame = sub_8006325C(object, 3, 43);
-        if (sub_80062D24(object, frame, 1))
-            sub_80063038(object, 8, 0, (uint32)-1);
-        frame = sub_8006325C(object, 3, 17);
-        if (sub_80062D24(object, frame, 2))
-            sub_80063038(object, 9, 0, (uint32)-1);
+        frame = DidAnimationCrossFrame(3, 43);
+        if (UpdateEventLatch(frame, 1))
+            SetAnimationRange(8, 0, (uint32)-1);
+        frame = DidAnimationCrossFrame(3, 17);
+        if (UpdateEventLatch(frame, 2))
+            SetAnimationRange(9, 0, (uint32)-1);
         mode = this->model.animation;
     }
 AttackAnimation:
@@ -737,180 +704,157 @@ AttackAnimation:
             player = visual_lists.players;
             if (player)
             {
-                xport_draft_host_sub_8007CC10_p1(position, object, 0);
+                GetModelAttachment(position.words, *this, 0);
                 player = visual_lists.players;
-                xport_draft_host_sub_8006C3AC_p123(discarded_direction, position, psx_addr(player + 4, 12));
-                xport_draft_host_sub_8006BF04_p1(discarded_direction);
+                SubtractVectors(discarded_direction.words, position.words, player->pos.words);
+                MeasureVectorLength(discarded_direction.words);
             }
         }
     }
-    if (sub_8004BDFC(object, 0, 0) & 65535)
+    if (GetBehaviorValue(0, 0) & 65535)
     {
-        if (!r_u32(object + 552))
+        for (uint32 index = 0; index < 2; ++index)
         {
-            child = sub_8002FED8(104);
-            if (child)
-                child = sub_80027720(child, 0x800FF5A0, 4096, 0, 128, 134);
-            w_u32(object + 552, child);
-            value = sub_8004BDFC(object, 2, 1) & 65535;
-            child = r_u32(object + 552);
-            w_u32(child + 40, value);
-            child = r_u32(object + 552);
-            sub_80027878(child, 255, 64, 0, 185, 185, 185, 160, 40, 0, 255, 255, 255);
+            if (!beams[index])
+            {
+                GameHeapBlock *allocation = AllocateZeroedHeapBlock(104);
+                ParticleBeam *created = 0;
+                if (allocation)
+                {
+                    created = new (allocation) ParticleBeam(&visual_lists.players, 4096, 0, 128, 134);
+                }
+                beams[index] = created;
+                value = GetBehaviorValue(2, 1) & 65535;
+                if (!beams[index])
+                {
+                    GameDiagnostic("TheBeast particle beam allocation failed\n");
+                    abort();
+                }
+                beams[index]->damage = value;
+                beams[index]->SetColors(255, 64, 0, 185, 185, 185, 160, 40, 0, 255, 255, 255);
+            }
         }
-        if (!r_u32(object + 556))
+        if (beams[0] || beams[1])
         {
-            child = sub_8002FED8(104);
-            if (child)
-                child = sub_80027720(child, 0x800FF5A0, 4096, 0, 128, 134);
-            w_u32(object + 556, child);
-            value = sub_8004BDFC(object, 2, 1) & 65535;
-            child = r_u32(object + 556);
-            w_u32(child + 40, value);
-            child = r_u32(object + 556);
-            sub_80027878(child, 255, 64, 0, 185, 185, 185, 160, 40, 0, 255, 255, 255);
-        }
-        weapon = r_u32(object + 552);
-        if (weapon || r_u32(object + 556))
-        {
-            xport_draft_host_sub_8007CC10_p1(position, object, 3);
-            player = visual_lists.players;
-            xport_draft_host_sub_80066B8C_p12(weapon_angles, position, player + 4);
-            player = visual_lists.players;
-            player_ground[0] = r_u32(player + 184);
-            player_ground[1] = r_u32(player + 188);
-            player_ground[2] = r_u32(player + 192);
-            distance = ReadBeastPlanarDistance(player_ground, position);
+            GetModelAttachment(position.words, *this, 3);
+            CalculateDirectionAngles(weapon_angles.words, position.words, visual_lists.players->pos.words);
+            player_ground.words[0] = static_cast<VisualObject *>(visual_lists.players->owner)->surface.pos.words[0];
+            player_ground.words[1] = static_cast<VisualObject *>(visual_lists.players->owner)->surface.pos.words[1];
+            player_ground.words[2] = static_cast<VisualObject *>(visual_lists.players->owner)->surface.pos.words[2];
+            distance = ReadBeastPlanarDistance(player_ground.words, position.words);
             if ((sint32)distance < 768)
                 distance = 768;
-            pitch = (sint16)ratan2((sint32)(player_ground[1] - position[1]) >> 12, (sint32)distance);
-            xport_draft_host_sub_8007CC10_p1(muzzle, object, 1);
-            xport_draft_host_sub_80066B8C_p123(weapon_angles, position, muzzle);
-            weapon_angles[0] = (uint16)pitch;
-            weapon = r_u32(object + 552);
-            if (weapon)
-                FireBeastWeapon(weapon, muzzle, weapon_angles);
-            if (r_u32(object + 556))
+            pitch = (sint16)ratan2((sint32)(player_ground.words[1] - position.words[1]) >> 12, (sint32)distance);
+            GetModelAttachment(muzzle.words, *this, 1);
+            CalculateDirectionAngles(weapon_angles.words, position.words, muzzle.words);
+            weapon_angles.words[0] = pitch;
+            if (beams[0])
+                beams[0]->Fire(muzzle.words, weapon_angles.components);
+            if (beams[1])
             {
-                xport_draft_host_sub_8007CC10_p1(muzzle, object, 2);
-                xport_draft_host_sub_80066B8C_p123(weapon_angles, position, muzzle);
-                weapon_angles[0] = (uint16)pitch;
-                weapon = r_u32(object + 556);
-                FireBeastWeapon(weapon, muzzle, weapon_angles);
+                GetModelAttachment(muzzle.words, *this, 2);
+                CalculateDirectionAngles(weapon_angles.words, position.words, muzzle.words);
+                weapon_angles.words[0] = pitch;
+                beams[1]->Fire(muzzle.words, weapon_angles.components);
             }
         }
     }
     else
     {
-        weapon = r_u32(object + 552);
-        if (weapon)
+        for (uint32 index = 0; index < 2; ++index)
         {
-            DestroyBeastWeapon(weapon);
-            w_u32(object + 552, 0);
-        }
-        weapon = r_u32(object + 556);
-        if (weapon)
-        {
-            DestroyBeastWeapon(weapon);
-            w_u32(object + 556, 0);
+            if (beams[index])
+                beams[index]->Destroy(3);
+            beams[index] = 0;
         }
     }
-    if (sub_8004BDFC(object, 1, 0) & 65535)
+    if (GetBehaviorValue(1, 0) & 65535)
     {
-        weapon = r_u32(object + 560);
-        if (!weapon)
+        if (!flamethrower)
         {
-            child = sub_8002FED8(72);
-            if (child)
-                child = sub_80024428(child, 0x800FF5A0, 0);
-            w_u32(object + 560, child);
-            value = sub_8004BDFC(object, 1, 1) & 65535;
-            child = r_u32(object + 560);
-            w_u32(child + 40, value);
-            child = r_u32(object + 560);
-            sub_800244CC(child, 2000);
-            weapon = r_u32(object + 560);
+            GameHeapBlock *allocation = AllocateZeroedHeapBlock(72);
+            Flamethrower *created = 0;
+            if (allocation)
+            {
+                created = new (allocation) Flamethrower(&visual_lists.players, 0);
+            }
+            flamethrower = created;
+            value = GetBehaviorValue(1, 1) & 65535;
+            if (!flamethrower)
+            {
+                GameDiagnostic("TheBeast flamethrower allocation failed\n");
+                abort();
+            }
+            flamethrower->damage = value;
+            flamethrower->Configure(2000);
         }
-        if (weapon)
+        if (flamethrower)
         {
-            xport_draft_host_sub_8007CC10_p1(muzzle, object, 3);
-            mode = this->model.animation;
+            GetModelAttachment(muzzle.words, *this, 3);
+            mode = model.animation;
             if (mode == 6)
             {
-                player = visual_lists.players;
-                xport_draft_host_sub_80066B8C_p12(weapon_angles, muzzle, player + 4);
-                pitch = (sint16)weapon_angles[0];
-                xport_draft_host_sub_8007CC10_p1(position, object, 4);
-                xport_draft_host_sub_80066B8C_p123(weapon_angles, muzzle, position);
-                weapon_angles[0] = (uint16)pitch;
+                CalculateDirectionAngles(weapon_angles.words, muzzle.words, visual_lists.players->pos.words);
+                pitch = weapon_angles.words[0];
+                GetModelAttachment(position.words, *this, 4);
+                CalculateDirectionAngles(weapon_angles.words, muzzle.words, position.words);
+                weapon_angles.words[0] = pitch;
             }
             else
             {
-                xport_draft_host_sub_8007CC10_p1(position, object, 4);
-                xport_draft_host_sub_80066B8C_p123(weapon_angles, muzzle, position);
+                GetModelAttachment(position.words, *this, 4);
+                CalculateDirectionAngles(weapon_angles.words, muzzle.words, position.words);
             }
-            weapon = r_u32(object + 560);
-            FireBeastWeapon(weapon, position, weapon_angles);
+            flamethrower->Fire(position.words, weapon_angles.components);
         }
     }
-    else
+    else if (flamethrower)
     {
-        weapon = r_u32(object + 560);
-        if (weapon)
-        {
-            DestroyBeastWeapon(weapon);
-            w_u32(object + 560, 0);
-        }
+        flamethrower->Destroy(3);
+        flamethrower = 0;
     }
     mode = this->model.animation;
     if (mode == 7)
     {
-        frame = sub_8006325C(object, 7, 25);
-        if (sub_80062D24(object, frame, 1))
+        frame = DidAnimationCrossFrame(7, 25);
+        if (UpdateEventLatch(frame, 1))
         {
-            xport_draft_host_sub_8007CC10_p1(position, object, 0);
-            child = sub_800625AC(428);
-            if (child)
+            GetModelAttachment(position.words, *this, 0);
+            GameHeapBlock *allocation = AllocateZeroedObject(428);
+            GuidedProjectile *created = 0;
+            if (allocation)
             {
-                void *storage = AllocateNativeObjectStorage(child, sizeof(GuidedProjectile));
-                new (storage) GuidedProjectile(position, 10, &visual_lists.players, 1);
+                created = new (allocation) GuidedProjectile(position.words, 10, &visual_lists.players, 1);
             }
-            w_u32(object + 572, child);
-            flags = r_u16(child + 78);
-            w_u16(child + 78, flags | 32);
-            child = r_u32(object + 572);
-            GuidedProjectile::Attach(child).SetLaunchDelay(0);
-        }
-        frame = sub_8006325C(object, 7, 68);
-        if (sub_80062D24(object, frame, 2))
-        {
-            if (r_u32(object + 572))
+            held_projectile = created;
+            if (!held_projectile)
             {
-                xport_draft_host_sub_8007CC10_p1(muzzle, object, 0);
-                player = visual_lists.players;
-                xport_draft_host_sub_80066B8C_p12(weapon_angles, muzzle, player + 4);
-                weapon_angles[1] = this->model.angles[1];
-                child = r_u32(object + 572);
-                apocalypse_guided_projectile_angles_native(child, weapon_angles);
-                player = visual_lists.players;
-                child = r_u32(object + 572);
-                sub_8002DC0C(child, 0, player + 184);
-                child = r_u32(object + 572);
-                flags = r_u16(child + 78);
-                w_u16(child + 78, flags & 65503);
+                GameDiagnostic("TheBeast held projectile allocation failed\n");
+                abort();
             }
-            w_u32(object + 572, 0);
+            held_projectile->lifecycle_flags |= 32;
+            held_projectile->SetLaunchDelay(0);
         }
-        if (r_u32(object + 572))
+        frame = DidAnimationCrossFrame(7, 68);
+        if (UpdateEventLatch(frame, 2))
         {
-            xport_draft_host_sub_8007CC10_p1(position, object, 0);
-            child = r_u32(object + 572);
-            x = position[0];
-            y = position[1];
-            z = position[2];
-            w_u32(child + 4, x);
-            w_u32(child + 8, y);
-            w_u32(child + 12, z);
+            if (held_projectile)
+            {
+                GetModelAttachment(muzzle.words, *this, 0);
+                CalculateDirectionAngles(weapon_angles.words, muzzle.words, visual_lists.players->pos.words);
+                weapon_angles.words[1] = model.angles.words[1];
+                held_projectile->SetAngles(weapon_angles.words);
+                held_projectile->Launch(0, static_cast<VisualObject *>(visual_lists.players->owner)->surface.pos.words);
+                held_projectile->lifecycle_flags &= 65503;
+            }
+            held_projectile = 0;
+        }
+        if (held_projectile)
+        {
+            GetModelAttachment(position.words, *this, 0);
+            held_projectile->model.pos.words[0] = position.words[0];
+            held_projectile->model.pos.words[1] = position.words[1];
+            held_projectile->model.pos.words[2] = position.words[2];
         }
     }
     return SpawnPickup();
@@ -918,55 +862,44 @@ AttackAnimation:
 
 uint32 TheBeast::Resize(uint32 increment)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 flags, scale, product, height, old_height, displacement, y;
     FUNCTION_MARKER(0x80041FDC, "SLUS_003.73");
     flags = this->model.flags;
-    scale = (uint32)(sint32)(sint16)this->model.scale[0];
+    scale = (uint32)(sint32)(sint16)this->model.scale.words[0];
     scale += increment;
     this->model.flags = flags | 512;
     product = ((scale << 4) + scale) << 4;
     product -= scale;
-    this->model.scale[2] = scale;
-    this->model.scale[1] = scale;
-    this->model.scale[0] = scale;
-    old_height = (uint32)(sint32)(sint16)r_u16(object + 456);
+    this->model.scale.words[2] = scale;
+    this->model.scale.words[1] = scale;
+    this->model.scale.words[0] = scale;
+    old_height = (uint32)(sint32)(sint16)(uint32)this->ground_offset;
     height = (uint32)((sint32)product >> 12);
-    w_u16(object + 456, height);
+    this->ground_offset = height;
     height = (uint32)(sint32)(sint16)height;
     displacement = (height - old_height) << 12;
-    y = this->model.pos[1];
-    this->model.pos[1] = y - displacement;
+    y = this->model.pos.words[1];
+    this->model.pos.words[1] = y - displacement;
     return displacement;
 }
 
 uint32 TheBeast::UpdateLighting()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 random, weapon, active = 0;
+    uint32 random, active = 0;
     uint8 red, green, blue;
-    sint16 direction[3], flicker[3], color[3];
+    sint16 flicker[3], color[3];
+    ShortVector3 direction;
     FUNCTION_MARKER(0x80042038, "SLUS_003.73");
-    w_u16(0x800FFB9E, (uint16)-4096);
-    w_u16(0x800FFBA6, 4096);
-    w_u16(0x800FFB9C, 0);
-    w_u16(0x800FFBA0, 0);
-    w_u16(0x800FFBA4, 0);
-    w_u16(0x800FFBA8, 0);
-    w_u16(0x800FFBAC, 2048);
-    w_u16(0x800FFBAE, 2048);
-    w_u16(0x800FFBB0, 2048);
     random = RandomRange(256);
     flicker[0] = (sint16)(random << 4);
     random = RandomRange((uint32)((sint32)random >> 1));
     flicker[1] = (sint16)(random << 4);
     flicker[2] = 0;
-    weapon = r_u32(object + 552);
-    if (weapon)
+    if (beams[0])
     {
-        if (apocalypse_weapon_light_colors(weapon, &red, &green, &blue))
+        if (beams[0]->ReadLight(&red, &green, &blue))
         {
-            ReadTheBeastLightDirection(object, 1, 1, direction);
+            ReadLightDirection(*this, 1, 1, direction);
             color[0] = (sint16)(red << 4);
             color[1] = (sint16)(green << 4);
             color[2] = (sint16)(blue << 4);
@@ -975,21 +908,20 @@ uint32 TheBeast::UpdateLighting()
     }
     else
     {
-        weapon = r_u32(object + 560);
-        if (weapon)
+        if (flamethrower)
         {
-            if (apocalypse_weapon_light_colors(weapon, &red, &green, &blue))
+            if (flamethrower->ReadLight(&red, &green, &blue))
             {
-                ReadTheBeastLightDirection(object, 4, 0, direction);
+                ReadLightDirection(*this, 4, 0, direction);
                 color[0] = (sint16)(red << 4);
                 color[1] = (sint16)(green << 4);
                 color[2] = (sint16)(blue << 4);
                 active = 1;
             }
         }
-        else if (r_u32(object + 572))
+        else if (held_projectile)
         {
-            ReadTheBeastLightDirection(object, 0, 0, direction);
+            ReadLightDirection(*this, 0, 0, direction);
             color[0] = 2560;
             color[1] = 1024;
             color[2] = 0;
@@ -998,31 +930,33 @@ uint32 TheBeast::UpdateLighting()
     }
     if (!active)
     {
-        direction[0] = 0;
-        direction[1] = 0;
-        direction[2] = 0;
+        direction.components[0] = 0;
+        direction.components[1] = 0;
+        direction.components[2] = 0;
         color[0] = 0;
         color[1] = 0;
         color[2] = 0;
     }
-    apocalypse_lighting_directions_native(0x800FFB9C, 0x800FFBA4, direction);
-    apocalypse_lighting_colors_native(0x800FFBAC, flicker, color);
-    w_u16(0x800FFA98, 64);
-    w_u16(0x800FFA96, 64);
-    w_u16(0x800FFA94, 64);
+    static const ShortVector3 dir0 = {{{0, -ONE, 0}}};
+    static const ShortVector3 dir1 = {{{0, ONE, 0}}};
+    static const sint16 base_color[3] = {2048, 2048, 2048};
+    SetLightingDirections(dir0.components, dir1.components, direction.components);
+    SetLightingColors(base_color, flicker, color);
+    game_lighting.background_color.b = 64;
+    game_lighting.background_color.g = 64;
+    game_lighting.background_color.r = 64;
     return 64;
 }
 
 uint32 TheBeast::Damage(uint32 damage, const sint32 *, uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 pulse, health, applied;
     sint32 alive;
     FUNCTION_MARKER(0x800422C0, "SLUS_003.73");
-    pulse = r_u8(object + 383);
-    w_u8(object + 383, pulse + 1);
-    alive = (sint16)r_u16(object + 218);
-    health = r_u16(object + 218);
+    pulse = (uint32)this->control.damage_phase;
+    this->control.damage_phase = pulse + 1;
+    alive = this->health;
+    health = (uint16)this->health;
     if (alive <= 0)
         return 0;
     if (reason == 5)
@@ -1034,7 +968,7 @@ uint32 TheBeast::Damage(uint32 damage, const sint32 *, uint32 reason)
         applied = (uint32)((sint32)damage >> 1);
     }
     health -= applied;
-    w_u16(object + 218, health);
+    this->health = (sint16)(uint16)(health);
     if ((sint32)(health << 16) <= 0)
         ClearTrackedObjectHealth();
     SetColor(3, 255, 255, 255);
@@ -1043,502 +977,519 @@ uint32 TheBeast::Damage(uint32 damage, const sint32 *, uint32 reason)
 
 void TheBeast::UpdateBehavior()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 state, phase, value, player, camera, floor, flags, child, table, target, index, entry, best, selected, chosen, distance, scale, counter, yaw;
-    uint32 position[4], destination[4], delta[4], normalized[4], scaled[4], sample[4];
+    ModelBorrow model_borrow;
+    RecordDataBorrow record_borrow;
+    uint32 state;
+    uint32 phase;
+    uint32 value;
+    uint32 floor;
+    uint32 flags;
+    GameHeapBlock *child;
+    uint32 index;
+    uint32 best;
+    uint32 selected;
+    uint32 chosen;
+    uint32 distance;
+    uint32 scale;
+    uint32 counter;
+    uint32 yaw;
+    Camera *camera;
+    ModelInstance *player;
+    const uint16 *entry;
+    Vector3 position, destination, delta, normalized, scaled, sample;
     uint32 shift, scalar;
-    uint16 angles[4];
+    ShortVector3 angles;
     uint8 voices[3];
-    sint32 health, step, old_counter, adjustment;
+    sint32 health, step, old_counter;
     bool selection_valid;
     CollisionRay raycast;
     FUNCTION_MARKER(0x80042360, "SLUS_003.73");
-    state = r_u16(object + 472);
+    state = ai.state;
     if (state > 128)
         return;
     switch (state)
     {
         case 0:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             switch (phase)
             {
                 case 0:
-                    floor = sub_80067A18(object + 4, 256, 1024);
+                    floor = FindGroundHeight(model.pos.words, 256, 1024);
                     if (floor != (uint32)-1)
                     {
-                        value = (uint32)(sint32)(sint16)r_u16(object + 456);
-                        this->model.pos[1] = floor - (value << 12);
+                        value = (uint32)(sint32)(sint16)(uint32)this->ground_offset;
+                        this->model.pos.words[1] = floor - (value << 12);
                     }
                     player = visual_lists.players;
-                    w_u32(player + 452, 150);
-                    w_u16(object + 218, 300);
-                    ::TrackObjectHealth(object, 24, 42, 4096);
-                    AdvanceBeastPhase(object);
+                    static_cast<Player *>(visual_lists.players->owner)->disable_timer = 150;
+                    this->health = (sint16)(uint16)(300);
+                    ::TrackObjectHealth(*this, 24, 42, 4096);
+                    AdvancePhase();
                     return;
                 case 1:
-                    camera = visual_lists.cameras;
-                    w_u32(camera + 304, 1);
-                    w_u32(camera + 296, object);
-                    w_u32(camera + 340, 1);
-                    w_u32(camera + 336, object);
-                    sub_800785D8(camera, 1100, 0);
-                    sub_80078618(camera, (uint32)-4096, 0);
-                    sub_8007865C(camera, 0, 0);
-                    sub_800786A0(camera, 3402, 0);
-                    sub_800786E4(camera, (uint32)-916, 0);
-                    phase = r_u16(object + 474);
-                    w_u16(object + 460, 45);
-                    w_u16(object + 474, phase + 1);
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    camera->follow.flags = 1;
+                    camera->follow.target.SetObject(&model);
+                    camera->aim.flags = 1;
+                    camera->aim.target.SetObject(&model);
+                    SetCameraOrbitDistanceTransition(1100, 0);
+                    SetCameraOrbitHeightTransition((uint32)-4096, 0);
+                    SetCameraTargetLateralOffsetTransition(0, 0);
+                    SetCameraTargetHeightOffsetTransition(3402, 0);
+                    SetCameraTargetForwardOffsetTransition((uint32)-916, 0);
+                    phase = ai.phase;
+                    ai.work[0] = 45;
+                    ai.phase = phase + 1;
                     return;
                 case 2:
                 case 3:
-                    counter = r_u16(object + 460);
-                    old_counter = (sint16)r_u16(object + 460);
+                    counter = ai.work[0];
+                    old_counter = (sint16)ai.work[0];
                     if (counter)
                     {
-                        w_u16(object + 460, old_counter - 1);
+                        ai.work[0] = old_counter - 1;
                         return;
                     }
                     if (phase == 2)
                     {
-                        camera = visual_lists.cameras;
-                        sub_80078618(camera, (uint32)-206, 30);
-                        sub_800786A0(camera, 90, 30);
-                        sub_800786E4(camera, 604, 30);
-                        phase = r_u16(object + 474);
-                        w_u16(object + 460, 30);
-                        w_u16(object + 474, phase + 1);
+                        camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                        SetCameraOrbitHeightTransition((uint32)-206, 30);
+                        SetCameraTargetHeightOffsetTransition(90, 30);
+                        SetCameraTargetForwardOffsetTransition(604, 30);
+                        phase = ai.phase;
+                        ai.work[0] = 30;
+                        ai.phase = phase + 1;
                     }
                     else
                     {
-                        voices[0] = r_u8(0x800FF4B0);
-                        voices[1] = r_u8(0x800FF4B1);
-                        voices[2] = r_u8(0x800FF4B2);
+                        voices[0] = voice_choices[0];
+                        voices[1] = voice_choices[1];
+                        voices[2] = voice_choices[2];
                         index = RandomRange(3);
                         ::SelectCdVoice(19, voices[index]);
-                        PlayBeastAnimation(object, 6);
-                        AdvanceBeastPhase(object);
+                        PlayAnimation(6);
+                        AdvancePhase();
                     }
                     return;
                 case 4:
-                    if (!r_u8(object + 303))
+                    if (!this->playback.complete)
                         return;
-                    camera = visual_lists.cameras;
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                     player = visual_lists.players;
-                    w_u32(camera + 304, 1);
-                    w_u32(camera + 296, player);
-                    w_u32(camera + 340, 1);
-                    w_u32(camera + 336, player);
-                    sub_800785D8(camera, 1100, 30);
-                    sub_80078618(camera, (uint32)-308, 30);
-                    sub_8007865C(camera, 0, 30);
-                    sub_800786A0(camera, 68, 30);
-                    sub_800786E4(camera, 216, 30);
-                    SelectBeastState(object, 1);
+                    camera->follow.flags = 1;
+                    camera->follow.target.SetObject(visual_lists.players);
+                    camera->aim.flags = 1;
+                    camera->aim.target.SetObject(visual_lists.players);
+                    SetCameraOrbitDistanceTransition(1100, 30);
+                    SetCameraOrbitHeightTransition((uint32)-308, 30);
+                    SetCameraTargetLateralOffsetTransition(0, 30);
+                    SetCameraTargetHeightOffsetTransition(68, 30);
+                    SetCameraTargetForwardOffsetTransition(216, 30);
+                    SelectState(1);
                     return;
                 default:
                     return;
             }
         case 1:
-            if (r_u16(object + 474))
+            if (ai.phase)
                 return;
-            if ((sint16)r_u16(object + 218) <= 0)
+            if (this->health <= 0)
             {
-                w_u16(object + 472, 3);
+                ai.state = 3;
                 return;
             }
-            if (r_u32(object + 220) < 768)
+            if (player_distance < 768)
             {
-                state = r_u16(object + 472);
-                phase = r_u16(object + 474);
-                SelectBeastState(object, 80);
-                w_u16(object + 440, state);
-                w_u16(object + 442, phase);
+                state = ai.state;
+                phase = ai.phase;
+                SelectState(80);
+                ai.parameters[2] = state;
+                ai.parameters[3] = phase;
                 return;
             }
-            state = r_u16(object + 472);
-            phase = r_u16(object + 474);
-            w_u16(object + 440, state);
-            w_u16(object + 442, phase);
+            state = ai.state;
+            phase = ai.phase;
+            ai.parameters[2] = state;
+            ai.parameters[3] = phase;
             if (!RandomRange(2))
-                SelectBeastState(object, 64);
+                SelectState(64);
             else
             {
-                w_u16(object + 446, 768);
-                w_u16(object + 444, 0);
-                SelectBeastState(object, 112);
+                ai.parameters[5] = 768;
+                ai.parameters[4] = 0;
+                SelectState(112);
             }
             return;
         case 3:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             if (!phase)
             {
-                index = r_u16(0x800FF4B4);
+                index = spawn_points.records[0];
                 ::SpawnRecord(index);
-                sub_80069EF4(132, object + 4, 0);
-                PlayBeastAnimation(object, 5);
-                AdvanceBeastPhase(object);
+                PlayPositionedSound(132, model.pos.words, 0);
+                PlayAnimation(5);
+                AdvancePhase();
             }
             else if (phase == 1)
             {
-                if (r_u8(object + 303))
+                if (this->playback.complete)
                 {
-                    camera = visual_lists.cameras;
-                    sub_800774EC(camera, object + 4, 1);
-                    index = r_u16(0x800FF4B6);
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    camera->ApplyExplosionShake(1);
+                    index = spawn_points.records[1];
                     ::SpawnRecord(index);
-                    index = r_u16(0x800FF4B8);
+                    index = spawn_points.records[2];
                     ::SpawnRecord(index);
-                    SelectBeastState(object, 4);
+                    SelectState(4);
                 }
                 else
                     Resize(20);
             }
             return;
         case 4:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             if (!phase)
             {
-                w_u16(object + 438, 48);
-                SetJumpDestination((const uint32 *)this->model.pos);
-                AdvanceBeastPhase(object);
+                ai.parameters[1] = 48;
+                SetJumpDestination(this->model.pos.words);
+                AdvancePhase();
             }
-            else if (phase == 1 && !(r_u32(object + 396) & 1))
+            else if (phase == 1 && !(this->control.flags & 1))
             {
                 ::SetScreenFlash(255, 255, 255, 8, 0, 0);
-                SelectBeastState(object, 5);
-                w_u16(object + 438, 48);
+                SelectState(5);
+                ai.parameters[1] = 48;
             }
             return;
         case 5:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             switch (phase)
             {
                 case 0:
-                    w_u16(object + 218, 200);
-                    ::TrackObjectHealth(object, 24, 42, 4096);
-                    camera = visual_lists.cameras;
-                    w_u16(object + 436, 48);
-                    w_u32(camera + 564, 18);
-                    AdvanceBeastPhase(object);
+                    this->health = (sint16)(uint16)(200);
+                    ::TrackObjectHealth(*this, 24, 42, 4096);
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    ai.parameters[0] = 48;
+                    camera->mode = 18;
+                    AdvancePhase();
                     return;
                 case 1:
-                    if ((sint16)r_u16(object + 218) <= 0)
+                    if (this->health <= 0)
                     {
-                        w_u16(object + 474, 3);
+                        ai.phase = 3;
                         return;
                     }
-                    distance = r_u32(object + 220);
+                    distance = player_distance;
                     if (distance < 3072)
                     {
-                        state = r_u16(object + 472);
-                        phase = r_u16(object + 474);
-                        SelectBeastState(object, distance < 768 ? 80 : 96);
-                        w_u16(object + 440, state);
-                        w_u16(object + 442, phase);
+                        state = ai.state;
+                        phase = ai.phase;
+                        SelectState(distance < 768 ? 80 : 96);
+                        ai.parameters[2] = state;
+                        ai.parameters[3] = phase;
                         return;
                     }
                     player = visual_lists.players;
                     if (!player)
                         return;
-                    if (apocalypse_candidate_native(object, destination, player + 4, 512, 1024, 128, 1024, 1, 0))
+                    if (ChoosePosition(destination.words, visual_lists.players->pos.words, 512, 1024, 128, 1024, 1, 0))
                     {
                         ClearFacing();
-                        SetDestination(destination);
-                        AdvanceBeastPhase(object);
+                        SetDestination(destination.words);
+                        AdvancePhase();
                     }
                     else
-                        ClearBeastVelocity(object);
+                        ClearVelocity();
                     return;
                 case 2:
-                    if (!(r_u32(object + 396) & 1) || !RandomRange(32))
-                        w_u16(object + 474, 1);
+                    if (!(this->control.flags & 1) || !RandomRange(32))
+                        ai.phase = 1;
                     return;
                 case 3:
-                    index = r_u16(0x800FF4BA);
-                    xport_draft_host_sub_8006613C_p1(position, index);
-                    floor = apocalypse_ground_native(position, 2048, 2048);
-                    position[1] = floor;
+                    index = spawn_points.records[3];
+                    ReadRecordPosition(position.words, index);
+                    floor = FindGroundHeight(position.words, 2048, 2048);
+                    position.words[1] = floor;
                     if (floor != (uint32)-1)
                     {
-                        JumpBeastToPoint(*this, position);
-                        AdvanceBeastPhase(object);
+                        JumpToPoint(position.words);
+                        AdvancePhase();
                     }
                     return;
                 case 4:
-                    if (!(r_u32(object + 396) & 1))
+                    if (!(this->control.flags & 1))
                     {
-                        sub_80069EF4(132, object + 4, 0);
-                        PlayBeastAnimation(object, 5);
-                        AdvanceBeastPhase(object);
+                        PlayPositionedSound(132, model.pos.words, 0);
+                        PlayAnimation(5);
+                        AdvancePhase();
                     }
                     return;
                 case 5:
-                    if (!r_u8(object + 303))
+                    if (!this->playback.complete)
                         Resize(20);
                     else
                     {
-                        state = r_u16(object + 472);
-                        w_u16(object + 474, 0);
-                        w_u16(object + 472, state + 1);
+                        state = ai.state;
+                        ai.phase = 0;
+                        ai.state = state + 1;
                     }
                     return;
                 default:
                     return;
             }
         case 6:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             switch (phase)
             {
                 case 0:
-                    w_u16(object + 218, 600);
-                    ::TrackObjectHealth(object, 24, 42, 4096);
-                    phase = r_u16(object + 474);
-                    w_u16(object + 460, 0);
-                    w_u16(object + 474, phase + 1);
+                    this->health = (sint16)(uint16)(600);
+                    ::TrackObjectHealth(*this, 24, 42, 4096);
+                    phase = ai.phase;
+                    ai.work[0] = 0;
+                    ai.phase = phase + 1;
                     return;
                 case 1:
-                    health = (sint16)r_u16(object + 218);
-                    step = (sint16)r_u16(object + 460);
+                    health = this->health;
+                    step = (sint16)ai.work[0];
                     if (health <= 0 && step >= 5)
                     {
-                        index = r_u16(0x800FF4BA);
-                        xport_draft_host_sub_8006613C_p1(position, index);
-                        floor = apocalypse_ground_native(position, 2048, 2048);
-                        position[1] = floor;
+                        index = spawn_points.records[3];
+                        ReadRecordPosition(position.words, index);
+                        floor = FindGroundHeight(position.words, 2048, 2048);
+                        position.words[1] = floor;
                         if (floor != (uint32)-1)
                         {
-                            JumpBeastToPoint(*this, position);
-                            w_u16(object + 474, 8);
+                            JumpToPoint(position.words);
+                            ai.phase = 8;
                         }
                         return;
                     }
-                    if (step < 5 && (sint16)r_u16(object + 218) < 600 - 90 * (step + 1))
+                    if (step < 5 && this->health < 600 - 90 * (step + 1))
                     {
-                        AdvanceBeastPhase(object);
+                        AdvancePhase();
                         return;
                     }
-                    if (r_u32(object + 220) < 3072)
+                    if (player_distance < 3072)
                     {
-                        w_u16(object + 474, 3);
+                        ai.phase = 3;
                         return;
                     }
                     player = visual_lists.players;
                     if (!player)
                         return;
-                    if (!apocalypse_candidate_native(object, position, player + 4, 512, 1024, 128, 1024, 1, 0))
+                    if (!ChoosePosition(position.words, visual_lists.players->pos.words, 512, 1024, 128, 1024, 1, 0))
                     {
-                        ClearBeastVelocity(object);
-                        w_u16(object + 474, 3);
+                        ClearVelocity();
+                        ai.phase = 3;
                         return;
                     }
-                    xport_draft_host_sub_8006C3AC_p123(delta, position, this->model.pos);
-                    delta[1] = 0;
+                    SubtractVectors(delta.words, position.words, this->model.pos.words);
+                    delta.words[1] = 0;
                     scalar = 0;
                     while (scalar < 8)
                     {
                         shift = 3;
-                        xport_draft_host_sub_8006C564_p123(normalized, delta, &shift);
-                        xport_draft_host_sub_8006C40C_p123(scaled, normalized, &scalar);
-                        xport_draft_host_sub_8006C34C_p13(sample, object + 4, scaled);
-                        raycast.pos[0][1] = sample[1];
-                        raycast.pos[0][1] = sample[1] - 2097152;
-                        raycast.pos[1][1] = sample[1];
-                        raycast.pos[0][0] = sample[0];
-                        raycast.pos[0][2] = sample[2];
-                        raycast.pos[1][0] = sample[0];
-                        raycast.pos[1][2] = sample[2];
-                        raycast.pos[1][1] = sample[1] + 8388608;
+                        ShiftVectorRight(normalized.words, delta.words, shift);
+                        MultiplyVector(scaled.words, normalized.words, scalar);
+                        AddVectors(sample.words, model.pos.words, scaled.words);
+                        raycast.endpoints[0].words[1] = sample.words[1];
+                        raycast.endpoints[0].words[1] = sample.words[1] - 2097152;
+                        raycast.endpoints[1].words[1] = sample.words[1];
+                        raycast.endpoints[0].words[0] = sample.words[0];
+                        raycast.endpoints[0].words[2] = sample.words[2];
+                        raycast.endpoints[1].words[0] = sample.words[0];
+                        raycast.endpoints[1].words[2] = sample.words[2];
+                        raycast.endpoints[1].words[1] = sample.words[1] + 8388608;
                         InitializeCollisionRay(raycast);
                         raycast.triggers = 0;
                         QueryCollisionRay(raycast, 1);
                         if (!raycast.hit.GetObject())
                         {
-                            ClearBeastVelocity(object);
-                            w_u16(object + 474, 3);
+                            ClearVelocity();
+                            ai.phase = 3;
                             return;
                         }
                         ++scalar;
                     }
                     ClearFacing();
-                    SetDestination(position);
-                    AdvanceBeastPhase(object);
+                    SetDestination(position.words);
+                    AdvancePhase();
                     return;
                 case 2:
                 case 4:
-                    step = (sint16)r_u16(object + 460);
-                    if (step >= 5 || (sint16)r_u16(object + 218) >= 600 - 90 * (step + 1))
+                    step = (sint16)ai.work[0];
+                    if (step >= 5 || this->health >= 600 - 90 * (step + 1))
                     {
                         if (phase == 4)
-                            w_u16(object + 474, 1);
-                        else if (!(r_u32(object + 396) & 1) || !RandomRange(32))
+                            ai.phase = 1;
+                        else if (!(this->control.flags & 1) || !RandomRange(32))
                         {
-                            phase = r_u16(object + 474);
-                            w_u16(object + 474, phase - 1);
+                            phase = ai.phase;
+                            ai.phase = phase - 1;
                         }
                         return;
                     }
-                    index = r_u16(0x800A6B94 + (uint32)step * 2);
-                    xport_draft_host_sub_8006613C_p1(position, index);
-                    floor = apocalypse_ground_native(position, 2048, 2048);
-                    position[1] = floor;
+                    index = spawn_points.groups[0][step];
+                    ReadRecordPosition(position.words, index);
+                    floor = FindGroundHeight(position.words, 2048, 2048);
+                    position.words[1] = floor;
                     if (floor == (uint32)-1)
-                        position[1] = r_u32(object + 188);
+                        position.words[1] = surface.pos.words[1];
                     ClearFacing();
-                    value = (uint32)(sint32)(sint16)r_u16(object + 456);
-                    position[1] -= value << 12;
+                    value = (uint32)(sint32)(sint16)(uint32)this->ground_offset;
+                    position.words[1] -= value << 12;
                     if (phase == 2)
-                        ClearBeastVelocity(object);
-                    SetJumpDestination(position);
+                        ClearVelocity();
+                    SetJumpDestination(position.words);
                     if (phase == 2)
-                        w_u16(object + 474, 5);
+                        ai.phase = 5;
                     else
-                        AdvanceBeastPhase(object);
+                        AdvancePhase();
                     return;
                 case 3:
-                    state = r_u16(object + 472);
-                    phase = r_u16(object + 474);
-                    w_u16(object + 474, 0);
-                    w_u16(object + 440, state);
-                    distance = r_u32(object + 220);
-                    w_u16(object + 442, phase - 1);
-                    w_u16(object + 472, distance < 768 ? 80 : distance < 1024 ? 96 : 64);
+                    state = ai.state;
+                    phase = ai.phase;
+                    ai.phase = 0;
+                    ai.parameters[2] = state;
+                    distance = player_distance;
+                    ai.parameters[3] = phase - 1;
+                    ai.state = distance < 768 ? 80 : distance < 1024 ? 96 : 64;
                     return;
                 case 5:
-                    if (!(r_u32(object + 396) & 1))
+                    if (!(this->control.flags & 1))
                     {
-                        PlayBeastAnimation(object, 4);
-                        AdvanceBeastPhase(object);
+                        PlayAnimation(4);
+                        AdvancePhase();
                     }
                     return;
                 case 6:
-                    if (!r_u8(object + 303))
+                    if (!this->playback.complete)
                     {
                         if ((sint8)this->model.frame == 15)
                         {
-                            step = (sint16)r_u16(object + 460);
+                            step = (sint16)ai.work[0];
                             player = visual_lists.solids;
-                            index = r_u16(0x800A6B94 + (uint32)step * 2);
+                            index = spawn_points.groups[0][step];
                             ::ActivateObjectsByIndex(player, index);
-                            step = (sint16)r_u16(object + 460);
-                            w_u16(object + 460, step + 1);
+                            step = (sint16)ai.work[0];
+                            ai.work[0] = step + 1;
                         }
                         return;
                     }
-                    index = r_u16(0x800FF4BA);
-                    xport_draft_host_sub_8006613C_p1(position, index);
-                    floor = apocalypse_ground_native(position, 2048, 2048);
-                    position[1] = floor;
+                    index = spawn_points.records[3];
+                    ReadRecordPosition(position.words, index);
+                    floor = FindGroundHeight(position.words, 2048, 2048);
+                    position.words[1] = floor;
                     if (floor != (uint32)-1)
                     {
-                        JumpBeastToPoint(*this, position);
-                        AdvanceBeastPhase(object);
+                        JumpToPoint(position.words);
+                        AdvancePhase();
                     }
                     return;
                 case 7:
-                    if (!(r_u32(object + 396) & 1))
-                        w_u16(object + 474, 1);
+                    if (!(this->control.flags & 1))
+                        ai.phase = 1;
                     return;
                 case 8:
-                    if (!(r_u32(object + 396) & 1))
+                    if (!(this->control.flags & 1))
                     {
-                        sub_80069EF4(132, object + 4, 0);
-                        PlayBeastAnimation(object, 5);
-                        AdvanceBeastPhase(object);
+                        PlayPositionedSound(132, model.pos.words, 0);
+                        PlayAnimation(5);
+                        AdvancePhase();
                     }
                     return;
                 case 9:
-                    if (!r_u8(object + 303))
+                    if (!this->playback.complete)
                         Resize(20);
                     else
                     {
-                        state = r_u16(object + 472);
-                        w_u16(object + 474, 0);
-                        w_u16(object + 472, state + 1);
+                        state = ai.state;
+                        ai.phase = 0;
+                        ai.state = state + 1;
                     }
                     return;
                 default:
                     return;
             }
         case 7:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             if (!phase)
             {
-                w_u16(object + 218, 600);
-                ::TrackObjectHealth(object, 24, 42, 4096);
-                PlayBeastAnimation(object, 4);
-                AdvanceBeastPhase(object);
+                this->health = (sint16)(uint16)(600);
+                ::TrackObjectHealth(*this, 24, 42, 4096);
+                PlayAnimation(4);
+                AdvancePhase();
             }
             else if (phase == 1)
             {
-                if (r_u8(object + 303))
-                    w_u16(object + 474, 2);
+                if (this->playback.complete)
+                    ai.phase = 2;
                 else if ((sint8)this->model.frame == 15)
                 {
-                    entry = 0x800A6BA0;
+                    entry = spawn_points.groups[1];
                     for (index = 0; index < 5; ++index)
                     {
-                        value = r_u16(entry);
-                        entry += 2;
+                        value = *entry;
+                        ++entry;
                         player = visual_lists.solids;
                         ::ActivateObjectsByIndex(player, value);
                     }
                 }
             }
             else if (phase == 2)
-                SelectBeastState(object, 8);
+                SelectState(8);
             return;
         case 8:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             if (phase == 0)
             {
-                phase = r_u16(object + 474);
-                w_u16(object + 460, 0);
-                w_u16(object + 474, phase + 1);
+                phase = ai.phase;
+                ai.work[0] = 0;
+                ai.phase = phase + 1;
                 phase = 1;
             }
             switch (phase)
             {
                 case 1:
-                    if ((sint16)r_u16(object + 218) <= 0 && (sint16)r_u16(object + 460) == 4)
+                    if (this->health <= 0 && (sint16)ai.work[0] == 4)
                     {
                         for (index = 0; index < 5; ++index)
-                            if (!r_u8(object + 546 + index))
+                            if (!used_points[index])
                             {
-                                w_u16(object + 464, index);
+                                ai.work[2] = index;
                                 break;
                             }
-                        SelectBeastState(object, 9);
+                        SelectState(9);
                         return;
                     }
                     player = visual_lists.players;
-                    distance = sub_80066918(object + 4, player + 4);
-                    scale = (uint32)((3 * (sint16)this->model.scale[0]) >> 4);
-                    state = r_u16(object + 472);
-                    phase = r_u16(object + 474);
-                    SelectBeastState(object, distance < scale ? 80 : 64);
-                    w_u16(object + 440, state);
-                    w_u16(object + 442, phase + 1);
+                    distance = MeasureHorizontalDistance(model.pos.words, player->pos.words);
+                    scale = (uint32)((3 * (sint16)this->model.scale.words[0]) >> 4);
+                    state = ai.state;
+                    phase = ai.phase;
+                    SelectState(distance < scale ? 80 : 64);
+                    ai.parameters[2] = state;
+                    ai.parameters[3] = phase + 1;
                     return;
                 case 2:
-                    step = (sint16)r_u16(object + 460);
-                    if (step >= 4 || (sint16)r_u16(object + 218) >= 600 - 120 * (step + 1))
+                    step = (sint16)ai.work[0];
+                    if (step >= 4 || this->health >= 600 - 120 * (step + 1))
                     {
-                        w_u16(object + 474, 1);
+                        ai.phase = 1;
                         return;
                     }
                     best = (uint32)-1;
                     selection_valid = false;
                     selected = 0;
-                    entry = 0x800A6BAC;
+                    entry = spawn_points.groups[2];
                     for (index = 0; index < 5; ++index)
                     {
-                        if (!r_u8(object + 546 + index))
+                        if (!used_points[index])
                         {
-                            value = r_u16(entry);
-                            xport_draft_host_sub_8006613C_p1(position, value);
+                            value = *entry;
+                            ReadRecordPosition(position.words, value);
                             player = visual_lists.players;
-                            distance = xport_draft_host_sub_8006689C_p12(position, psx_addr(player + 4, 12));
+                            distance = MeasureEuclideanDistance(position.words, player->pos.words);
                             if (distance < best)
                             {
                                 selected = index;
@@ -1546,7 +1497,7 @@ void TheBeast::UpdateBehavior()
                                 selection_valid = true;
                             }
                         }
-                        entry += 2;
+                        ++entry;
                     }
                     if (!selection_valid)
                     {
@@ -1554,287 +1505,284 @@ void TheBeast::UpdateBehavior()
                         GameDiagnostic("TODO TheBeast AI state8 has no selected point\n");
                         abort();
                     }
-                    w_u8(object + 546 + selected, 1);
-                    value = r_u16(0x800A6BAC + selected * 2);
-                    xport_draft_host_sub_8006613C_p1(position, value);
-                    floor = apocalypse_ground_native(position, 2048, 2048);
-                    position[1] = floor;
+                    used_points[selected] = 1;
+                    value = spawn_points.groups[2][selected];
+                    ReadRecordPosition(position.words, value);
+                    floor = FindGroundHeight(position.words, 2048, 2048);
+                    position.words[1] = floor;
                     if (floor == (uint32)-1)
-                        w_u16(object + 474, 1);
+                        ai.phase = 1;
                     else
                     {
-                        w_u16(object + 464, selected);
-                        JumpBeastToPoint(*this, position);
-                        AdvanceBeastPhase(object);
+                        ai.work[2] = selected;
+                        JumpToPoint(position.words);
+                        AdvancePhase();
                     }
                     return;
                 case 3:
-                    if (!(r_u32(object + 396) & 1))
+                    if (!(this->control.flags & 1))
                     {
-                        PlayBeastAnimation(object, 4);
-                        AdvanceBeastPhase(object);
+                        PlayAnimation(4);
+                        AdvancePhase();
                     }
                     return;
                 case 4:
-                    if (!r_u8(object + 303))
+                    if (!this->playback.complete)
                     {
                         if ((sint8)this->model.frame == 15)
                         {
-                            step = (sint16)r_u16(object + 460);
-                            w_u16(object + 460, step + 1);
-                            chosen = (uint32)(sint32)(sint16)r_u16(object + 464);
+                            step = (sint16)ai.work[0];
+                            ai.work[0] = step + 1;
+                            chosen = (uint32)(sint32)(sint16)ai.work[2];
                             player = visual_lists.solids;
-                            value = r_u16(0x800A6BAC + chosen * 2);
+                            value = spawn_points.groups[2][chosen];
                             ::ActivateObjectsByIndex(player, value);
                         }
                         return;
                     }
-                    value = r_u16(0x800FF4BA);
-                    xport_draft_host_sub_8006613C_p1(position, value);
-                    floor = apocalypse_ground_native(position, 2048, 2048);
-                    position[1] = floor;
+                    value = spawn_points.records[3];
+                    ReadRecordPosition(position.words, value);
+                    floor = FindGroundHeight(position.words, 2048, 2048);
+                    position.words[1] = floor;
                     if (floor != (uint32)-1)
                     {
-                        JumpBeastToPoint(*this, position);
-                        AdvanceBeastPhase(object);
+                        JumpToPoint(position.words);
+                        AdvancePhase();
                     }
                     return;
                 case 5:
-                    if (!(r_u32(object + 396) & 1))
-                        w_u16(object + 474, 1);
+                    if (!(this->control.flags & 1))
+                        ai.phase = 1;
                     return;
                 default:
                     return;
             }
         case 9:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             if (!phase)
             {
-                w_u16(object + 218, 400);
-                sub_8004BDCC(object, 2, 1, 4);
-                ::TrackObjectHealth(object, 24, 42, 4096);
-                value = r_u16(0x800FF4BA);
-                xport_draft_host_sub_8006613C_p1(position, value);
-                chosen = (uint32)(sint32)(sint16)r_u16(object + 464);
-                value = r_u16(0x800A6BAC + chosen * 2);
-                xport_draft_host_sub_8006613C_p1(delta, value);
-                xport_draft_host_sub_8006C3AC_p123(delta, delta, position);
-                delta[1] = 0;
-                xport_draft_host_sub_800666DC_p12(normalized, delta);
+                this->health = (sint16)(uint16)(400);
+                SetBehaviorValue(2, 1, 4);
+                ::TrackObjectHealth(*this, 24, 42, 4096);
+                value = spawn_points.records[3];
+                ReadRecordPosition(position.words, value);
+                chosen = (uint32)(sint32)(sint16)ai.work[2];
+                value = spawn_points.groups[2][chosen];
+                ReadRecordPosition(delta.words, value);
+                SubtractVectors(delta.words, delta.words, position.words);
+                delta.words[1] = 0;
+                NormalizeFixedVector(normalized.words, delta.words);
                 scalar = 512;
-                xport_draft_host_sub_8006C40C_p123(scaled, normalized, &scalar);
-                xport_draft_host_sub_8006C0B8_p12(position, scaled);
-                floor = apocalypse_ground_native(position, 2048, 2048);
-                position[1] = floor;
+                MultiplyVector(scaled.words, normalized.words, scalar);
+                AddVectors(position.words, scaled.words);
+                floor = FindGroundHeight(position.words, 2048, 2048);
+                position.words[1] = floor;
                 if (floor != (uint32)-1)
                 {
                     ClearFacing();
-                    value = (uint32)(sint32)(sint16)r_u16(object + 456);
-                    position[1] -= value << 12;
-                    SetDestination(position);
-                    AdvanceBeastPhase(object);
+                    value = (uint32)(sint32)(sint16)(uint32)this->ground_offset;
+                    position.words[1] -= value << 12;
+                    SetDestination(position.words);
+                    AdvancePhase();
                 }
             }
             else if (phase == 1)
             {
-                if (!(r_u32(object + 396) & 1))
-                    w_u16(object + 474, 2);
+                if (!(this->control.flags & 1))
+                    ai.phase = 2;
             }
             else if (phase == 2)
             {
-                if ((sint16)r_u16(object + 218) <= 0)
+                if (this->health <= 0)
                 {
-                    SelectBeastState(object, 10);
+                    SelectState(10);
                     return;
                 }
                 player = visual_lists.players;
-                distance = sub_80066918(object + 4, player + 4);
-                scale = (uint32)((3 * (sint16)this->model.scale[0]) >> 4);
+                distance = MeasureHorizontalDistance(model.pos.words, player->pos.words);
+                scale = (uint32)((3 * (sint16)this->model.scale.words[0]) >> 4);
                 if (distance < scale)
                 {
-                    state = r_u16(object + 472);
-                    phase = r_u16(object + 474);
-                    SelectBeastState(object, 128);
-                    w_u16(object + 440, state);
-                    w_u16(object + 442, phase);
+                    state = ai.state;
+                    phase = ai.phase;
+                    SelectState(128);
+                    ai.parameters[2] = state;
+                    ai.parameters[3] = phase;
                     return;
                 }
-                state = r_u16(object + 472);
-                phase = r_u16(object + 474);
-                w_u16(object + 442, phase);
-                w_u16(object + 440, state);
-                chosen = (uint32)(sint32)(sint16)r_u16(object + 464);
-                value = r_u16(0x800A6BAC + chosen * 2);
-                xport_draft_host_sub_8006613C_p1(position, value);
+                state = ai.state;
+                phase = ai.phase;
+                ai.parameters[3] = phase;
+                ai.parameters[2] = state;
+                chosen = (uint32)(sint32)(sint16)ai.work[2];
+                value = spawn_points.groups[2][chosen];
+                ReadRecordPosition(position.words, value);
                 player = visual_lists.players;
                 chosen = 0;
-                if (ReadBeastPointDistance(position, player + 4) < 1024)
+                if (ReadBeastPlanarDistance(position.words, player->pos.words) < 1024)
                     chosen = RandomRange(3) != 0;
                 if (chosen)
                 {
-                    w_u16(object + 446, 768);
-                    w_u16(object + 444, 1);
-                    SelectBeastState(object, 112);
+                    ai.parameters[5] = 768;
+                    ai.parameters[4] = 1;
+                    SelectState(112);
                 }
                 else
-                    SelectBeastState(object, 64);
+                    SelectState(64);
             }
             return;
         case 10:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             if (phase - 1 < 3)
             {
                 if (!RandomRange(60))
-                    sub_80069EF4(132, object + 4, 3);
-                value = (uint32)(sint32)(sint16)r_u16(object + 464);
-                camera = visual_lists.cameras;
+                    PlayPositionedSound(132, model.pos.words, 3);
+                value = (uint32)(sint32)(sint16)ai.work[2];
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 yaw = (value - 16) & 4095;
-                w_u16(object + 464, yaw);
-                sub_8007851C(camera, yaw, 4);
+                ai.work[2] = yaw;
+                camera->SetYawTransition(yaw, 4);
             }
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             switch (phase)
             {
                 case 0:
                     player = visual_lists.players;
-                    w_u32(player + 452, 900);
-                    sub_80069EF4(132, object + 4, 0);
-                    sub_80063118(object, 12, 1);
-                    camera = visual_lists.cameras;
-                    w_u16(object + 460, 0);
-                    w_u16(object + 464, 2048);
+                    static_cast<Player *>(visual_lists.players->owner)->disable_timer = 900;
+                    PlayPositionedSound(132, model.pos.words, 0);
+                    StartAnimation(12, 1);
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    ai.work[0] = 0;
+                    ai.work[2] = 2048;
                     if (camera)
                     {
-                        w_u32(camera + 304, 1);
-                        w_u32(camera + 340, 1);
-                        w_u32(camera + 296, object);
-                        w_u32(camera + 336, object);
-                        w_u32(camera + 564, 3);
-                        sub_8007851C(camera, 2048, 4);
-                        camera = visual_lists.cameras;
-                        sub_800785D8(camera, 1324, 16);
-                        camera = visual_lists.cameras;
-                        sub_80078618(camera, (uint32)-854, 16);
-                        camera = visual_lists.cameras;
-                        sub_8007865C(camera, 0, 16);
-                        camera = visual_lists.cameras;
-                        sub_800786A0(camera, (uint32)-144, 16);
-                        camera = visual_lists.cameras;
-                        sub_800786E4(camera, (uint32)-472, 16);
+                        camera->follow.flags = 1;
+                        camera->aim.flags = 1;
+                        camera->follow.target.SetObject(&model);
+                        camera->aim.target.SetObject(&model);
+                        camera->mode = 3;
+                        camera->SetYawTransition(2048, 4);
+                        camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                        SetCameraOrbitDistanceTransition(1324, 16);
+                        camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                        SetCameraOrbitHeightTransition((uint32)-854, 16);
+                        camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                        SetCameraTargetLateralOffsetTransition(0, 16);
+                        camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                        SetCameraTargetHeightOffsetTransition((uint32)-144, 16);
+                        camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                        SetCameraTargetForwardOffsetTransition((uint32)-472, 16);
                     }
-                    AdvanceBeastPhase(object);
+                    AdvancePhase();
                     return;
                 case 1:
-                    counter = r_u16(object + 460);
-                    old_counter = (sint16)r_u16(object + 460);
+                    counter = ai.work[0];
+                    old_counter = (sint16)ai.work[0];
                     if (counter < 180)
                     {
-                        w_u16(object + 460, old_counter + 1);
+                        ai.work[0] = old_counter + 1;
                         if (!RandomRange(3))
                         {
-                            w_u32(0x800FF3AC, 0);
-                            child = sub_80032DC0(92);
+                            use_small_effect_pool = false;
+                            child = AllocateEffectStorage(92);
                             if (child)
                             {
-                                void *dram_addr = AllocateNativeObjectStorage(child, sizeof(BeastOrbitEffect));
-                                new (dram_addr) BeastOrbitEffect((const uint32 *)this->model.pos);
+                                new (child) BeastOrbitEffect(this->model.pos.words);
                             }
-                            w_u32(0x800FF3AC, 1);
+                            use_small_effect_pool = true;
                         }
                         return;
                     }
-                    child = sub_80032DC0(124);
+                    child = AllocateEffectStorage(124);
                     if (child)
-                        sub_8001EB64(child, object + 4, 255, 128, 0, 512, 32);
-                    sub_80069EF4(1, object + 4, 0);
-                    AdvanceBeastPhase(object);
+                    {
+                        new (child) ExpandingGlow(model.pos.words, 255, 128, 0, 512, 32);
+                    }
+                    PlayPositionedSound(1, model.pos.words, 0);
+                    AdvancePhase();
                     return;
                 case 2:
                     flags = this->model.flags;
                     this->model.flags = flags & 65407;
-                    sub_800626F8(object, 0, 255, 0, 0);
-                    w_u32(object + 176, 0x02404040);
-                    w_u16(object + 180, 10240);
-                    phase = r_u16(object + 474);
-                    w_u16(object + 182, 10);
-                    w_u16(object + 474, phase + 1);
+                    SetColor(0, 255, 0, 0);
+                    model_effect.color_mode = 0x02404040;
+                    model_effect.scale = 10240;
+                    phase = ai.phase;
+                    model_effect.depth_bias = 10;
+                    ai.phase = phase + 1;
                     return;
                 case 3:
-                    if ((sint16)this->model.scale[0] >= 2049)
+                    if ((sint16)this->model.scale.words[0] >= 2049)
                     {
                         Resize((uint32)-16);
                         return;
                     }
-                    camera = visual_lists.cameras;
-                    old_counter = (sint16)r_u16(camera + 494) - 2048;
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    old_counter = (sint16)camera->angles.words[1] - 2048;
                     if (old_counter < 0)
                         old_counter = -old_counter;
                     if (old_counter < 128)
                     {
-                        phase = r_u16(object + 474);
-                        w_u16(object + 460, 0);
-                        w_u16(object + 474, phase + 1);
+                        phase = ai.phase;
+                        ai.work[0] = 0;
+                        ai.phase = phase + 1;
                     }
                     return;
                 case 4:
-                    camera = visual_lists.cameras;
-                    w_u32(camera + 564, 3);
-                    sub_8007851C(camera, 2048, 4);
-                    camera = visual_lists.cameras;
-                    sub_800785D8(camera, 1324, 16);
-                    camera = visual_lists.cameras;
-                    sub_80078618(camera, (uint32)-316, 16);
-                    camera = visual_lists.cameras;
-                    sub_8007865C(camera, 0, 16);
-                    camera = visual_lists.cameras;
-                    sub_800786A0(camera, 220, 16);
-                    camera = visual_lists.cameras;
-                    sub_800786E4(camera, (uint32)-328, 16);
-                    AdvanceBeastPhase(object);
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    camera->mode = 3;
+                    camera->SetYawTransition(2048, 4);
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    SetCameraOrbitDistanceTransition(1324, 16);
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    SetCameraOrbitHeightTransition((uint32)-316, 16);
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    SetCameraTargetLateralOffsetTransition(0, 16);
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    SetCameraTargetHeightOffsetTransition(220, 16);
+                    camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                    SetCameraTargetForwardOffsetTransition((uint32)-328, 16);
+                    AdvancePhase();
                     return;
                 case 5:
-                    old_counter = (sint16)r_u16(object + 460);
+                    old_counter = (sint16)ai.work[0];
                     counter = (uint16)old_counter;
-                    w_u16(object + 460, old_counter + 1);
+                    ai.work[0] = old_counter + 1;
                     if (counter == 16)
                     {
                         flags = this->model.flags;
-                        w_u32(object + 176, 0);
+                        model_effect.color_mode = 0;
                         this->model.flags = flags | 1;
                         ::SetScreenFlash(240, 240, 240, 32, 0, 0);
-                        position[0] = this->model.pos[0];
-                        position[1] = this->model.pos[1];
-                        position[2] = this->model.pos[2];
-                        value = (uint32)(sint32)(sint16)r_u16(object + 456);
-                        position[1] += value << 12;
-                        child = sub_800625AC(296);
+                        position = this->model.pos;
+                        value = (uint32)(sint32)(sint16)(uint32)this->ground_offset;
+                        position.words[1] += value << 12;
+                        child = AllocateZeroedObject(296);
                         if (child)
                         {
-                            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(BeastFinalVisual));
-                            new (dram_addr) BeastFinalVisual(position);
+                            new (child) BeastFinalVisual(position.words);
                         }
-                        sub_80069EF4(1, object + 4, 0);
-                        position[2] -= 524288;
-                        position[0] += 737280;
-                        SpawnFireCycle(position, 220, 0, 2);
-                        position[0] -= 1474560;
-                        SpawnFireCycle(position, 220, 0, 2);
+                        PlayPositionedSound(1, model.pos.words, 0);
+                        position.words[2] -= 524288;
+                        position.words[0] += 737280;
+                        SpawnFireCycle(position.words, 220, 0, 2);
+                        position.words[0] -= 1474560;
+                        SpawnFireCycle(position.words, 220, 0, 2);
                         return;
                     }
                     if (counter >= 220)
                     {
-                        table = r_u32(object + 68);
-                        adjustment = (sint16)r_u16(table + 16);
-                        target = r_u32(table + 20);
-                        xport_draft_guest_call1(target, object + (uint32)adjustment);
+                        Finish();
                         CompleteLevel(0);
                         return;
                     }
                     if (counter >= 17 && !(old_counter & 15))
                     {
-                        child = sub_80032DC0(124);
+                        child = AllocateEffectStorage(124);
                         if (child)
-                            sub_8001EB64(child, object + 4, 255, 128, 0, 512, 32);
+                        {
+                            new (child) ExpandingGlow(model.pos.words, 255, 128, 0, 512, 32);
+                        }
                     }
                     if (counter == 190)
                         ::FadeScreenToWhite(30, 1);
@@ -1845,29 +1793,29 @@ void TheBeast::UpdateBehavior()
         case 64:
         case 80:
         case 96:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             if (!phase)
             {
-                BeginBeastAttack(*this);
-                if (r_u8(object + 296) == 1)
+                BeginAttack();
+                if (this->playback.loop_mode == 1)
                 {
-                    PlayBeastAnimation(object, state == 64 ? 7 : state == 80 ? 2 : 6);
+                    PlayAnimation(state == 64 ? 7 : state == 80 ? 2 : 6);
                     if (state == 80)
-                        sub_80069EF4(135, object + 4, 0);
-                    phase = r_u16(object + 474);
-                    w_u16(object + 474, phase + 2);
+                        PlayPositionedSound(135, model.pos.words, 0);
+                    phase = ai.phase;
+                    ai.phase = phase + 2;
                 }
                 else
-                    AdvanceBeastPhase(object);
+                    AdvancePhase();
             }
             else if (phase == 1)
             {
-                if (r_u8(object + 303))
+                if (this->playback.complete)
                 {
-                    PlayBeastAnimation(object, state == 64 ? 7 : state == 80 ? 2 : 6);
+                    PlayAnimation(state == 64 ? 7 : state == 80 ? 2 : 6);
                     if (state == 80)
-                        sub_80069EF4(135, object + 4, 0);
-                    AdvanceBeastPhase(object);
+                        PlayPositionedSound(135, model.pos.words, 0);
+                    AdvancePhase();
                 }
             }
             else if (phase == 2)
@@ -1875,29 +1823,29 @@ void TheBeast::UpdateBehavior()
                 if (state == 64)
                 {
                     value = this->model.frame;
-                    sub_8004BDCC(object, 1, 0, value - 18 < 22);
+                    SetBehaviorValue(1, 0, value - 18 < 22);
                 }
                 else if (state == 96 && (sint8)this->model.frame >= 28)
-                    sub_8004BDCC(object, 1, 0, 1);
+                    SetBehaviorValue(1, 0, 1);
                 player = visual_lists.players;
-                if (!player || r_u8(object + 303))
+                if (!player || this->playback.complete)
                 {
                     if (state == 80)
-                        w_u16(object + 474, 3);
+                        ai.phase = 3;
                     else
-                        AdvanceBeastPhase(object);
+                        AdvancePhase();
                 }
                 else if (state == 80)
                 {
                     value = this->model.frame;
                     if (value - 13 < 9)
                     {
-                        distance = sub_80066918(object + 4, player + 4);
-                        scale = (uint32)((3 * (sint16)this->model.scale[0]) >> 4);
+                        distance = MeasureHorizontalDistance(model.pos.words, player->pos.words);
+                        scale = (uint32)((3 * (sint16)this->model.scale.words[0]) >> 4);
                         if (distance < scale)
                         {
-                            player = visual_lists.players;
-                            ApplyObjectDamage(player, 2, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+                            VisualObject *damage_target = static_cast<VisualObject *>(visual_lists.players->owner);
+                            damage_target->Damage(2, zero_vector.components, 0);
                         }
                     }
                 }
@@ -1905,156 +1853,156 @@ void TheBeast::UpdateBehavior()
             else if (phase == 3)
             {
                 if (state == 96)
-                    sub_8004BDCC(object, 1, 0, 0);
+                    SetBehaviorValue(1, 0, 0);
                 ClearFacing();
-                RestoreBeastState(object);
+                RestoreState();
             }
             return;
         case 112:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             switch (phase)
             {
                 case 0:
-                    flags = r_u32(object + 396);
-                    w_u32(object + 396, flags & 0xFFFFFFFE);
-                    motion.velocity[2] = 0;
-                    motion.velocity[1] = 0;
-                    chosen = r_u16(object + 444);
-                    motion.velocity[0] = 0;
+                    flags = this->control.flags;
+                    this->control.flags = flags & 0xFFFFFFFE;
+                    motion.velocity.words[2] = 0;
+                    motion.velocity.words[1] = 0;
+                    chosen = ai.parameters[4];
+                    motion.velocity.words[0] = 0;
                     if (chosen)
                     {
-                        chosen = (uint32)(sint32)(sint16)r_u16(object + 464);
-                        value = r_u16(0x800A6BAC + chosen * 2);
+                        chosen = (uint32)(sint32)(sint16)ai.work[2];
+                        value = spawn_points.groups[2][chosen];
                     }
                     else
-                        value = r_u16(0x800FF4BC);
-                    xport_draft_host_sub_8006613C_p1(position, value);
-                    PositionBeastBeamPoint(object, position, angles, 0);
-                    SetFacingPoint(position);
-                    phase = r_u16(object + 474);
-                    w_u16(object + 466, 0);
-                    w_u16(object + 474, phase + 1);
+                        value = spawn_points.beam_point;
+                    ReadRecordPosition(position.words, value);
+                    PositionBeamPoint(position.words, angles.words, 0);
+                    SetFacingPoint(position.words);
+                    phase = ai.phase;
+                    ai.work[3] = 0;
+                    ai.phase = phase + 1;
                     return;
                 case 1:
-                    counter = r_u16(object + 466);
+                    counter = ai.work[3];
                     if (counter >= 32)
                     {
                         for (index = 0; index < 2; ++index)
                         {
-                            entry = object + 564 + index * 4;
-                            child = r_u32(entry);
-                            if (child)
+                            if (charge_rings[index])
                             {
-                                table = r_u32(child + 68);
-                                adjustment = (sint16)r_u16(table + 8);
-                                target = r_u32(table + 12);
-                                apocalypse_object_cleanup(target, child + (uint32)adjustment, 3);
-                                w_u32(entry, 0);
+                                charge_rings[index]->Destroy(3);
+                                charge_rings[index] = 0;
                             }
                         }
                         ClearFacing();
-                        sub_80063118(object, 1, 1);
-                        sub_8004BDCC(object, 0, 0, 1);
-                        value = ReadBeastBeamPoint(object);
-                        xport_draft_host_sub_8006613C_p1(position, value);
-                        PositionBeastBeamPoint(object, position, angles, 1);
-                        SetBoneFacingPoint(position);
-                        phase = r_u16(object + 474);
-                        w_u16(object + 466, 0);
-                        w_u16(object + 474, phase + 1);
+                        StartAnimation(1, 1);
+                        SetBehaviorValue(0, 0, 1);
+                        value = ReadBeamPoint();
+                        ReadRecordPosition(position.words, value);
+                        PositionBeamPoint(position.words, angles.words, 1);
+                        SetBoneFacingPoint(position.words);
+                        phase = ai.phase;
+                        ai.work[3] = 0;
+                        ai.phase = phase + 1;
                         return;
                     }
                     for (index = 0; index < 2; ++index)
                     {
-                        xport_draft_host_sub_8007CC10_p1(position, object, index + 1);
-                        entry = object + 564 + index * 4;
-                        if (!r_u32(entry))
+                        GetModelAttachment(position.words, *this, index + 1);
+                        if (!charge_rings[index])
                         {
-                            child = sub_80032DC0(104);
-                            if (child)
-                                child = apocalypse_ring_effect_native(child, position, 32, 32, 128, 128, 128, 64, 16, 0);
-                            w_u32(entry, child);
+                            GameHeapBlock *allocation = AllocateEffectStorage(104);
+                            RingEffect *created = 0;
+                            if (allocation)
+                            {
+                                created = new (allocation) RingEffect(position.words, 32, 32, 128, 128, 128, 64, 16, 0);
+                            }
+                            charge_rings[index] = created;
                         }
-                        child = r_u32(entry);
-                        xport_draft_host_sub_80032EE4_p2(child, position);
-                        child = r_u32(entry);
-                        step = (sint16)r_u16(object + 466);
-                        sub_80034994(child, 2 * step + 16);
+                        if (!charge_rings[index])
+                        {
+                            GameDiagnostic("TheBeast charge ring allocation failed\n");
+                            abort();
+                        }
+                        charge_rings[index]->SetPosition(position.words);
+                        step = (sint16)ai.work[3];
+                        charge_rings[index]->SetRadii(2 * step + 16);
                     }
-                    w_u16(object + 466, counter + 1);
+                    ai.work[3] = counter + 1;
                     return;
                 case 2:
                 case 3:
-                    if (phase == 3 && r_u32(object + 220) < 768)
+                    if (phase == 3 && player_distance < 768)
                     {
-                        sub_8004BDCC(object, 0, 0, 0);
+                        SetBehaviorValue(0, 0, 0);
                         ClearBoneFacing();
-                        RestoreBeastState(object);
+                        RestoreState();
                         return;
                     }
-                    step = (sint16)r_u16(object + 466);
+                    step = (sint16)ai.work[3];
                     if (step < (phase == 2 ? 48 : 64))
                     {
-                        w_u16(object + 466, step + 1);
+                        ai.work[3] = step + 1;
                         return;
                     }
-                    value = ReadBeastBeamPoint(object);
-                    xport_draft_host_sub_8006613C_p1(position, value);
-                    PositionBeastBeamPoint(object, position, angles, phase == 2 ? 2 : 0);
-                    SetBoneFacingPoint(position);
-                    phase = r_u16(object + 474);
-                    w_u16(object + 466, 0);
-                    w_u16(object + 474, phase + 1);
+                    value = ReadBeamPoint();
+                    ReadRecordPosition(position.words, value);
+                    PositionBeamPoint(position.words, angles.words, phase == 2 ? 2 : 0);
+                    SetBoneFacingPoint(position.words);
+                    phase = ai.phase;
+                    ai.work[3] = 0;
+                    ai.phase = phase + 1;
                     return;
                 case 4:
-                    step = (sint16)r_u16(object + 466);
+                    step = (sint16)ai.work[3];
                     if (step < 48)
                     {
                         player = visual_lists.players;
-                        distance = sub_80066918(object + 4, player + 4);
-                        scale = (uint32)((3 * (sint16)this->model.scale[0]) >> 4);
+                        distance = MeasureHorizontalDistance(model.pos.words, player->pos.words);
+                        scale = (uint32)((3 * (sint16)this->model.scale.words[0]) >> 4);
                         if (distance >= scale)
                         {
-                            w_u16(object + 466, step + 1);
+                            ai.work[3] = step + 1;
                             return;
                         }
                     }
-                    sub_8004BDCC(object, 0, 0, 0);
+                    SetBehaviorValue(0, 0, 0);
                     ClearBoneFacing();
-                    RestoreBeastState(object);
+                    RestoreState();
                     return;
                 default:
                     return;
             }
         case 128:
-            phase = r_u16(object + 474);
+            phase = ai.phase;
             if (!phase)
             {
-                BeginBeastAttack(*this);
-                PlayBeastAnimation(object, 4);
-                AdvanceBeastPhase(object);
+                BeginAttack();
+                PlayAnimation(4);
+                AdvancePhase();
             }
             else if (phase == 1)
             {
                 if ((sint8)this->model.frame == 15)
                 {
                     player = visual_lists.players;
-                    distance = sub_80066918(object + 4, player + 4);
-                    scale = (uint32)((3 * (sint16)this->model.scale[0]) >> 4);
+                    distance = MeasureHorizontalDistance(model.pos.words, player->pos.words);
+                    scale = (uint32)((3 * (sint16)this->model.scale.words[0]) >> 4);
                     if (distance < scale)
                     {
-                        player = visual_lists.players;
-                        health = (sint16)r_u16(0x800EC526);
+                        VisualObject *damage_target = static_cast<VisualObject *>(visual_lists.players->owner);
+                        health = (sint16)GetGameTuning().player.maximum_health;
                         if (health < 0)
                             health += 3;
                         health >>= 2;
-                        ApplyObjectDamage(player, health, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+                        damage_target->Damage(health, zero_vector.components, 0);
                     }
                 }
-                else if (r_u8(object + 303))
+                else if (this->playback.complete)
                 {
                     ClearFacing();
-                    RestoreBeastState(object);
+                    RestoreState();
                 }
             }
             return;
@@ -2063,48 +2011,55 @@ void TheBeast::UpdateBehavior()
     }
 }
 
-uint32 TheBeast::SetScriptParameters(uint32 command)
+void TheBeast::SetParameters(uint32 command)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 cursor, base, value, group, lane;
+    RecordDataBorrow record_borrow;
+    uint32 value, group, lane;
+    RecordCursor cursor;
+    RecordCursor base;
     FUNCTION_MARKER(0x80044474, "SLUS_003.73");
     command &= 65535;
     if (command != 0x2130)
-        return Enemy::ReadParameters(command);
-    base = r_u32(object + 400) + 2;
-    w_u32(object + 400, base);
+    {
+        Enemy::ReadParameters(command);
+        return;
+    }
+    base = script_cursor + 2;
+    script_cursor = base;
     for (lane = 0; lane < 4; ++lane)
     {
-        value = r_u16(base + lane * 2);
-        w_u32(object + 400, base + lane * 2 + 2);
-        w_u16(0x800FF4B4 + lane * 2, value);
+        value = (base + lane * 2).Read16();
+        script_cursor = base + lane * 2 + 2;
+        spawn_points.records[lane] = value;
     }
     cursor = base + 8;
     for (group = 0; group < 5; ++group)
     {
         for (lane = 0; lane < 5; ++lane)
         {
-            cursor = r_u32(object + 400);
-            value = r_u16(cursor);
+            cursor = script_cursor;
+            value = cursor.Read16();
             cursor += 2;
-            w_u16(0x800A6B94 + group * 12 + lane * 2, value);
-            w_u32(object + 400, cursor);
+            spawn_points.groups[group][lane] = value;
+            script_cursor = cursor;
         }
     }
-    value = r_u16(cursor);
-    w_u32(object + 400, cursor + 2);
-    w_u16(0x800FF4BE, value);
-    value = r_u16(cursor + 2);
-    w_u32(object + 400, cursor + 4);
-    w_u16(0x800FF4BC, value);
-    return cursor + 4;
+    value = cursor.Read16();
+    script_cursor = cursor + 2;
+    spawn_points.extra_record = value;
+    value = (cursor + 2).Read16();
+    script_cursor = cursor + 4;
+    spawn_points.beam_point = value;
+    return;
 }
 
 uint32 TheBeast::ExecuteCommand(uint32 command)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 cursor, position[4], shift = 12, operand, table, target, height;
-    sint32 adjustment;
+    RecordDataBorrow record_borrow;
+    uint32 shift = 12, operand, height;
+    Vector3 position;
+    RecordCursor cursor;
+
     FUNCTION_MARKER(0x80044608, "SLUS_003.73");
     command &= 65535;
     switch (command)
@@ -2113,228 +2068,141 @@ uint32 TheBeast::ExecuteCommand(uint32 command)
         case 0x4223:
         case 0x4222:
         case 0x4225:
-            cursor = (r_u32(object + 400) + 3) & 0xFFFFFFFC;
-            position[0] = r_u32(cursor);
-            position[1] = r_u32(cursor + 4);
-            position[2] = r_u32(cursor + 8);
-            ShiftVectorLeft(position, &shift);
+            cursor = AlignScriptCursor(script_cursor);
+            position.words[0] = cursor.Read32();
+            position.words[1] = (cursor + 4).Read32();
+            position.words[2] = (cursor + 8).Read32();
+            ShiftVectorLeft(position.words, shift);
             if (command == 0x4222 || command == 0x4225)
-                AddVectors(position, (const uint32 *)this->model.pos);
-            w_u32(object + 400, cursor + 12);
+                AddVectors(position.words, this->model.pos.words);
+            script_cursor = cursor + 12;
             break;
         case 0x4221:
         case 0x4224:
-            cursor = r_u32(object + 400);
-            operand = r_u16(cursor);
-            w_u32(object + 400, cursor + 2);
+            cursor = script_cursor;
+            operand = cursor.Read16();
+            script_cursor = cursor + 2;
             if (operand & 0x2000)
             {
-                table = r_u32(object + 68);
-                adjustment = (sint16)r_u16(table + 80);
-                target = r_u32(table + 84);
-                operand = DispatchObjectParameterGetter(target, object + (uint32)adjustment, operand);
+                operand = ResolveParameter(operand);
             }
-            ReadRecordPosition(position, operand & 65535);
-            height = apocalypse_ground_native(position, 512, 2048);
+            ReadRecordPosition(position.words, operand & 65535);
+            height = FindGroundHeight(position.words, 512, 2048);
             if (height != (uint32)-1)
-                position[1] = height - ((uint32)(sint32)(sint16)r_u16(object + 456) << 12);
+                position.words[1] = height - ((uint32)(sint32)(sint16)(uint32)this->ground_offset << 12);
             break;
         case 0x4262:
-            w_u32(object + 400, r_u32(object + 400) + 2);
+            script_cursor = script_cursor + 2;
             return 1;
         default:
             return Enemy::ExecuteCommand(command);
     }
     if (command == 0x4220 || command == 0x4221 || command == 0x4222)
-        TheBeast::SetDestination(position);
+        TheBeast::SetDestination(position.words);
     else
-        TheBeast::SetJumpDestination(position);
+        TheBeast::SetJumpDestination(position.words);
     return 1;
 }
 
 uint32 TheBeast::SetDestination(const uint32 *position)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 mode, x, y, z, flags;
     FUNCTION_MARKER(0x8004481C, "SLUS_003.73");
     mode = this->model.animation;
     if (mode && mode != 3)
-        sub_80063038(object, 0, 0, (uint32)-1);
-    x = ReadTheBeastTargetWord(position, 0);
-    y = ReadTheBeastTargetWord(position, 1);
-    z = ReadTheBeastTargetWord(position, 2);
-    w_u32(object + 484, x);
-    w_u32(object + 488, y);
-    w_u32(object + 492, z);
-    flags = (r_u32(object + 396) | 1) & 0xFFFFFFF3;
-    w_u32(object + 396, flags);
+        SetAnimationRange(0, 0, (uint32)-1);
+    x = position[0];
+    y = position[1];
+    z = position[2];
+    this->destination.words[0] = x;
+    this->destination.words[1] = y;
+    this->destination.words[2] = z;
+    flags = (this->control.flags | 1) & 0xFFFFFFF3;
+    this->control.flags = flags;
     return flags;
 }
 
 uint32 TheBeast::SetJumpDestination(const uint32 *position)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z, flags, timer;
     FUNCTION_MARKER(0x80044898, "SLUS_003.73");
-    sub_80063038(object, 10, 0, (uint32)-1);
-    x = ReadTheBeastTargetWord(position, 0);
-    y = ReadTheBeastTargetWord(position, 1);
-    z = ReadTheBeastTargetWord(position, 2);
-    w_u32(object + 484, x);
-    w_u32(object + 488, y);
-    w_u32(object + 492, z);
-    flags = r_u32(object + 396);
-    timer = r_u16(object + 438);
+    SetAnimationRange(10, 0, (uint32)-1);
+    x = position[0];
+    y = position[1];
+    z = position[2];
+    this->destination.words[0] = x;
+    this->destination.words[1] = y;
+    this->destination.words[2] = z;
+    flags = this->control.flags;
+    timer = ai.parameters[1];
     flags |= 5;
-    w_u16(object + 544, timer);
-    w_u32(object + 396, flags);
+    jump_timer = timer;
+    this->control.flags = flags;
     return flags;
 }
 
-uint32 TheBeast::TrackTarget(uint32 target)
+uint32 TheBeast::TrackTarget(ModelInstance *target)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 result, flags;
     FUNCTION_MARKER(0x80044900, "SLUS_003.73");
-    result = sub_80062F48(target);
-    if (!result)
-    {
-        flags = r_u32(object + 396);
-        w_u32(object + 528, target);
-        result = flags | 16;
-        w_u32(object + 396, result);
-    }
+    uint32 result = static_cast<VisualObject *>(target->owner)->IsFinished();
+    if (result)
+        return result;
+    tracked_target.SetObject(target);
+    result = control.flags | 16;
+    control.flags = result;
     return result;
 }
 
 uint32 TheBeast::SetFacingPoint(const uint32 *position)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z, flags;
     FUNCTION_MARKER(0x8004494C, "SLUS_003.73");
-    x = ReadTheBeastTargetWord(position, 0);
-    y = ReadTheBeastTargetWord(position, 1);
-    z = ReadTheBeastTargetWord(position, 2);
-    w_u32(object + 532, x);
-    w_u32(object + 536, y);
-    w_u32(object + 540, z);
-    flags = r_u32(object + 396) | 32;
-    w_u32(object + 396, flags);
+    x = position[0];
+    y = position[1];
+    z = position[2];
+    this->aim_pos.words[0] = x;
+    this->aim_pos.words[1] = y;
+    this->aim_pos.words[2] = z;
+    flags = this->control.flags | 32;
+    this->control.flags = flags;
     return flags;
 }
 
 uint16 *TheBeast::ClearFacing()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 flags;
     FUNCTION_MARKER(0x80044978, "SLUS_003.73");
-    flags = r_u32(object + 396);
-    w_u32(object + 396, flags & 0xFFFFFFCF);
-    motion.angular_velocity[2] = 0;
-    motion.angular_velocity[1] = 0;
-    motion.angular_velocity[0] = 0;
-    motion.angular_acceleration[2] = 0;
-    motion.angular_acceleration[1] = 0;
-    motion.angular_acceleration[0] = 0;
-    return motion.angular_acceleration;
+    flags = this->control.flags;
+    this->control.flags = flags & 0xFFFFFFCF;
+    motion.angular_velocity.words[2] = 0;
+    motion.angular_velocity.words[1] = 0;
+    motion.angular_velocity.words[0] = 0;
+    motion.angular_acceleration.words[2] = 0;
+    motion.angular_acceleration.words[1] = 0;
+    motion.angular_acceleration.words[0] = 0;
+    return motion.angular_acceleration.words;
 }
 
 uint32 TheBeast::SetBoneFacingPoint(const uint32 *position)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z, flags;
     FUNCTION_MARKER(0x800449AC, "SLUS_003.73");
-    x = ReadTheBeastTargetWord(position, 0);
-    y = ReadTheBeastTargetWord(position, 1);
-    z = ReadTheBeastTargetWord(position, 2);
-    w_u32(object + 496, x);
-    w_u32(object + 500, y);
-    w_u32(object + 504, z);
-    flags = r_u32(object + 396) | 64;
-    w_u32(object + 396, flags);
+    x = position[0];
+    y = position[1];
+    z = position[2];
+    this->bone_aim_pos.words[0] = x;
+    this->bone_aim_pos.words[1] = y;
+    this->bone_aim_pos.words[2] = z;
+    flags = this->control.flags | 64;
+    this->control.flags = flags;
     return flags;
 }
 
 uint32 TheBeast::ClearBoneFacing()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 flags;
     FUNCTION_MARKER(0x800449D8, "SLUS_003.73");
-    flags = r_u32(object + 396) & 0xFFFFFFBF;
-    w_u32(object + 396, flags);
+    flags = this->control.flags & 0xFFFFFFBF;
+    this->control.flags = flags;
     return flags;
 }
-
-
-
-
-
-extern "C" uint32 sub_80040B64(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x80040B64, "SLUS_003.73");
-    return TheBeast::Attach(object).TheBeast::Destroy(reason);
-}
-
-
-
-
-
-extern "C" uint32 sub_800422C0(uint32 object, uint32 damage, uint32, uint32 reason)
-{
-    FUNCTION_MARKER(0x800422C0, "SLUS_003.73");
-    return TheBeast::Attach(object).TheBeast::Damage(damage, 0, reason);
-}
-
-extern "C" uint32 sub_80044474(uint32 object, uint32 command)
-{
-    FUNCTION_MARKER(0x80044474, "SLUS_003.73");
-    return TheBeast::Attach(object).TheBeast::SetScriptParameters(command);
-}
-
-extern "C" uint32 sub_80044608(uint32 object, uint32 command)
-{
-    FUNCTION_MARKER(0x80044608, "SLUS_003.73");
-    return TheBeast::Attach(object).TheBeast::ExecuteCommand(command);
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-extern "C" uint32 apocalypse_beast_destination_native(uint32 object, const uint32 *position)
-{
-    return TheBeast::Attach(object).SetDestination(position);
-}
-
-extern "C" uint32 apocalypse_beast_jump_destination_native(uint32 object, const uint32 *position)
-{
-    return TheBeast::Attach(object).SetJumpDestination(position);
-}
-
-extern "C" uint32 apocalypse_beast_facing_point_native(uint32 object, const uint32 *position)
-{
-    return TheBeast::Attach(object).SetFacingPoint(position);
-}
-
-extern "C" uint32 apocalypse_beast_bone_facing_point_native(uint32 object, const uint32 *position)
-{
-    return TheBeast::Attach(object).SetBoneFacingPoint(position);
-}
-
-extern "C" uint32 sub_80040F34(uint32 object)
-{
-    FUNCTION_MARKER(0x80040F34, "SLUS_003.73");
-    return TheBeast::Attach(object).TheBeast::Update();
-}
-
-

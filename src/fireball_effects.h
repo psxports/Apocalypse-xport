@@ -3,24 +3,40 @@
 
 #include "effect_sprite.h"
 
+class Character;
+
 class Fireball : public Sprite
 {
 public:
-    Fireball(uint32 source, sint16 bone);
-    virtual ~Fireball() {}
-    static Fireball &Attach(uint32 object);
+    Fireball(Character &source, sint16 bone);
+
+    virtual ~Fireball()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
+
+private:
+    ObjectReference<Character> source;
+    uint8 rise_speed;
+    uint8 intensity;
 };
 
 class Smoke : public Sprite
 {
 public:
     Smoke(const uint32 *position);
-    virtual ~Smoke() {}
-    static Smoke &Attach(uint32 object);
+
+    virtual ~Smoke()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
+
+private:
+    uint8 rise_speed;
 };
 
 #endif

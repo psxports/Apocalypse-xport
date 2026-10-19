@@ -8,8 +8,11 @@ class BeastFinalVisual : public VisualObject
 {
 public:
     BeastFinalVisual(const uint32 *position);
-    virtual ~BeastFinalVisual() {}
-    static BeastFinalVisual &Attach(uint32 object);
+
+    virtual ~BeastFinalVisual()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Update();
 };

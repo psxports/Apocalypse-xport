@@ -1,10 +1,12 @@
+#include <stdlib.h>
+#include <string.h>
+
+#include "scene_lifecycle.h"
 #include "loading_screen.h"
 #include "startup_resources.h"
 #include "resource_io.h"
 #include "game_string.h"
-#include "game_sdk_bindings.h"
-#include <stdlib.h>
-#include <string.h>
+#include "game_diagnostics.h"
 
 struct LevelLoadEstimate
 {
@@ -108,8 +110,7 @@ void InitializeLevelLoadEstimates()
 uint32 PrepareLevelLoadingScreen(const char *name, const char *image)
 {
     FUNCTION_MARKER(0x80016354, "SLUS_003.73");
-    // Display environment remains a renderer boundary until the UI migration
-    PutDispEnv((DISPENV *)psx_addr(0x800C636C, sizeof(DISPENV)));
+    PutDispEnv(&scene_render.buffers[1].disp);
     PSX_RECT rect = {0, 0, 512, 512};
     ClearImage(&rect, 0, 0, 0);
     LoadStartupImage(0, image, 240);
@@ -171,18 +172,4 @@ uint32 DrawLevelLoadProgress()
     }
     level_loading.pending = false;
     return result;
-}
-
-extern "C" uint32 sub_80016354(uint32 name, uint32 image)
-{
-    FUNCTION_MARKER(0x80016354, "SLUS_003.73");
-    return PrepareLevelLoadingScreen((const char *)psx_addr(name, 1), (const char *)psx_addr(image, 1));
-}
-
-
-
-extern "C" uint32 sub_80016560(void)
-{
-    FUNCTION_MARKER(0x80016560, "SLUS_003.73");
-    return DrawLevelLoadProgress();
 }

@@ -11,11 +11,9 @@ class BallisticProjectile : public ProjectileBase
 {
 public:
     BallisticProjectile(const uint32 *position, const sint16 *angles, uint32 damage, uint32 speed, ModelInstance **list);
-    static BallisticProjectile &Attach(uint32 object);
     virtual uint32 Destroy(uint32 reason);
     uint32 ResolveImpact();
     virtual uint32 Update();
-
 };
 
 #endif

@@ -1,15 +1,21 @@
+#include <new>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "game_heap.h"
+#include "scene_lifecycle.h"
+#include "level_session.h"
+#include "effect_object.h"
 #include "visual_object.h"
-#include "game_sdk_bindings.h"
+#include "game_diagnostics.h"
 #include "angle_math.h"
 #include "ring_burst_effect.h"
-#include "object_collision_events.h"
+#include "collision.h"
 #include "object_damage.h"
 #include "vector_distance.h"
 #include "ring_effect.h"
-extern "C" {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+
 #include "projectile_line.h"
 #include "model_projection.h"
 #include "effect_sprite.h"
@@ -18,36 +24,6 @@ extern "C" {
 #include "game_random.h"
 #include "effect_color.h"
 #include "effect_lifecycle.h"
-#include "native_object_storage.h"
-#include <new>
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-
-
-
-uint32 LineProjectile::ReadAnglesWord(uint32 address, const void *native_angles)
-{
-    uint32 left, right, shift, value;
-    if (native_angles)
-    {
-        memcpy(&value, native_angles, 4);
-        return value;
-    }
-    left = r_u32((address + 3) & ~3);
-    right = r_u32(address & ~3);
-    shift = (address & 3) * 8;
-    return shift ? (left << (32 - shift)) | (right >> shift) : right;
-}
-
-uint32 LineProjectile::ReadAnglesTail(uint32 address, const void *native_angles)
-{
-    sint16 value;
-    if (!native_angles)
-        return (uint32)(sint32)(sint16)r_u16(address + 4);
-    memcpy(&value, (const unsigned char *)native_angles + 4, 2);
-    return (uint32)(sint32)value;
-}
 
 uint32 LineProjectile::DivideLifetime(uint32 numerator, uint32 denominator)
 {
@@ -58,453 +34,344 @@ uint32 LineProjectile::DivideLifetime(uint32 numerator, uint32 denominator)
     return (uint32)((sint32)numerator / (sint32)denominator);
 }
 
-LineProjectile::LineProjectile(const uint32 *input_position, const sint16 *input_angles, uint32 speed, uint32 damage, const uint32 *owner_pointer, uint32 red, uint32 green, uint32 blue, uint32 mode) : RenderableEffect()
+LineProjectile::LineProjectile(const uint32 *input_position, const sint16 *input_angles, uint32 speed, uint32 damage, ModelInstance **owner_list, uint32 red, uint32 green, uint32 blue, uint32 mode) : RenderableEffect(), age(0), lifetime(0), owner_list(0), damage(0), speed(0), ring(), mode(0)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 angles = GuestMemoryAddress(input_angles);
-    const void *native_angles = angles ? 0 : input_angles;
-    uint16 rotation[3];
-    uint32 vector[3], scaled[3], packed, x, y, z, player, owner, scalar, effect;
+    ShortVector3 rotation;
+    Vector3 vector, scaled;
+    uint32 x, y, z, scalar;
+    ModelInstance *player, *owner;
     FUNCTION_MARKER(0x800256F0, "SLUS_003.73");
-    const uint32 owner_address = GuestMemoryAddress(owner_pointer);
-    if (!owner_address)
-    {
-        // TODO Bind native owner records to the original pointer contract
-        GameDiagnostic("TODO LineProjectile native owner record\n");
-        abort();
-    }
-    w_u32(object + 68, 0x800A1458);
     player = visual_lists.players;
-    w_u32(object + 80, speed);
-    w_u16(object + 76, damage);
-    w_u32(object + 72, owner_address);
-    owner = r_u32(owner_address);
+    this->speed = speed;
+    this->damage = damage;
+    this->owner_list = owner_list;
+    owner = *owner_list;
     if (owner == player)
-        w_u8(object + 67, 4);
-    packed = ReadAnglesWord(angles, native_angles);
-    z = ReadAnglesTail(angles, native_angles);
-    memcpy(rotation, &packed, 4);
-    rotation[2] = (uint16)z;
+        this->kind = 4;
+    CopyAngleVector(rotation.words, (const uint16 *)input_angles);
     scalar = RandomRange(21);
-    rotation[0] = (uint16)((rotation[0] + scalar - 10) & 4095);
-    speed = r_u32(object + 80);
-    BuildDirectionVector((uint32 *)psx_addr(object + 36, 12), speed, rotation);
-    DivideVector(vector, (const uint32 *)psx_addr(object + 36, 12), (const uint32 *)psx_addr(object + 80, 4));
-    w_u32(object + 96, vector[0]);
-    w_u32(object + 100, vector[1]);
-    w_u32(object + 104, vector[2]);
+    rotation.words[0] = (uint16)((rotation.words[0] + scalar - 10) & 4095);
+    speed = this->speed;
+    BuildDirectionVector(this->velocity.words, speed, rotation.words);
+    DivideVector(vector.words, this->velocity.words, this->speed);
+    this->dir = vector;
     scalar = 100;
-    MultiplyVector(scaled, (const uint32 *)psx_addr(object + 96, 12), &scalar);
-    AddVectors(vector, input_position, scaled);
-    w_u32(object + 24, vector[0]);
-    w_u32(object + 28, vector[1]);
-    w_u32(object + 32, vector[2]);
-    x = r_u32(object + 24);
-    y = r_u32(object + 28);
-    z = r_u32(object + 32);
-    w_u32(object + 84, x);
-    w_u32(object + 88, y);
-    w_u32(object + 92, z);
+    MultiplyVector(scaled.words, this->dir.words, scalar);
+    AddVectors(vector.words, input_position, scaled.words);
+    this->pos = vector;
+    x = this->pos.words[0];
+    y = this->pos.words[1];
+    z = this->pos.words[2];
+    this->origin.words[0] = x;
+    this->origin.words[1] = y;
+    this->origin.words[2] = z;
     scalar = RandomRange(100);
-    MultiplyVector(vector, (const uint32 *)psx_addr(object + 96, 12), &scalar);
-    AddVectors((uint32 *)psx_addr(object + 24, 12), vector);
-    x = r_u32(object + 24);
-    y = r_u32(object + 28);
-    z = r_u32(object + 32);
-    w_u32(object + 108, x);
-    w_u32(object + 112, y);
-    w_u32(object + 116, z);
+    MultiplyVector(vector.words, this->dir.words, scalar);
+    AddVectors(this->pos.words, vector.words);
+    x = this->pos.words[0];
+    y = this->pos.words[1];
+    z = this->pos.words[2];
+    this->tail_pos.words[0] = x;
+    this->tail_pos.words[1] = y;
+    this->tail_pos.words[2] = z;
     InitializeTrace();
-    w_u8(object + 265, red);
-    w_u8(object + 266, green);
-    w_u8(object + 267, blue);
-    w_u8(object + 264, mode);
-    effect = SpawnProjectileRingTrail((const uint32 *)psx_addr(object + 24, 12), red & 255, green & 255, blue & 255);
-    w_u32(object + 120, effect);
+    this->rgb.code = 0;
+    this->rgb.r = red;
+    this->rgb.g = green;
+    this->rgb.b = blue;
+    this->mode = mode;
+    ring = SpawnProjectileRingTrail(pos.words, red & 255, green & 255, blue & 255);
+}
+
+LineProjectile::~LineProjectile()
+{
+    if (ring)
+        ring->Destroy(3);
 }
 
 uint32 LineProjectile::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, target, result;
-    sint32 adjustment;
     FUNCTION_MARKER(0x800258F8, "SLUS_003.73");
-    child = r_u32(object + 120);
-    w_u32(object + 68, 0x800A1458);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        adjustment = (sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, child + (uint32)adjustment, 3);
-    }
+    if (ring)
+        ring->Destroy(3);
+    ring = 0;
     RenderableEffect::Destroy(0);
-    result = reason & 1;
-    if (result)
-        result = ReleaseEffectStorage(object);
-    return result;
+    return reason & 1 ? ReleaseEffectStorage(this) : 0;
 }
 
 uint32 LineProjectile::Finish()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 particle, red, green, blue;
+    GameHeapBlock *particle;
+    uint32 red;
+    uint32 green;
+    uint32 blue;
     FUNCTION_MARKER(0x80025974, "SLUS_003.73");
     particle = AllocateEffectStorage(124);
     if (particle)
     {
-        red = ((59 * r_u8(object + 265)) >> 7) & 255;
-        green = ((59 * r_u8(object + 266)) >> 7) & 255;
-        blue = ((59 * r_u8(object + 267)) >> 7) & 255;
-        void *dram_addr = AllocateNativeObjectStorage(particle, sizeof(RingBurstEffect));
-        new (dram_addr) RingBurstEffect((const uint32 *)psx_addr(object + 24, 12), 5, 255, 255, 255, 1, red, green, blue, 1, 60, 0, 1, 50, 80, 25, 40, 10, 5);
+        red = ((59 * this->rgb.r) >> 7) & 255;
+        green = ((59 * this->rgb.g) >> 7) & 255;
+        blue = ((59 * this->rgb.b) >> 7) & 255;
+        new (particle) RingBurstEffect(this->pos.words, 5, 255, 255, 255, 1, red, green, blue, 1, 60, 0, 1, 50, 80, 25, 40, 10, 5);
     }
     return EffectObject::Finish();
 }
 
 uint32 LineProjectile::InitializeTrace()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 dx, dy, dz, x, y, z, hit, distance, speed, result;
+    uint32 dx, dy, dz, x, y, z, distance, speed, result;
+    ModelInstance *hit;
     FUNCTION_MARKER(0x80025A74, "SLUS_003.73");
-    dx = r_u32(object + 96);
-    dy = r_u32(object + 100);
-    x = r_u32(object + 24);
-    trace.pos[0][0] = x - 300 * dx;
-    y = r_u32(object + 28);
-    dz = r_u32(object + 104);
-    trace.pos[0][1] = y - 300 * dy;
-    z = r_u32(object + 32);
-    dx = r_u32(object + 96);
-    trace.pos[0][2] = z - 300 * dz;
-    x = r_u32(object + 24);
-    dy = r_u32(object + 100);
-    trace.pos[1][0] = x + 10000 * dx;
-    y = r_u32(object + 28);
-    dz = r_u32(object + 104);
-    trace.pos[1][1] = y + 10000 * dy;
-    z = r_u32(object + 32);
-    trace.pos[1][2] = z + 10000 * dz;
+    dx = this->dir.words[0];
+    dy = this->dir.words[1];
+    x = this->pos.words[0];
+    trace.endpoints[0].words[0] = x - 300 * dx;
+    y = this->pos.words[1];
+    dz = this->dir.words[2];
+    trace.endpoints[0].words[1] = y - 300 * dy;
+    z = this->pos.words[2];
+    dx = this->dir.words[0];
+    trace.endpoints[0].words[2] = z - 300 * dz;
+    x = this->pos.words[0];
+    dy = this->dir.words[1];
+    trace.endpoints[1].words[0] = x + 10000 * dx;
+    y = this->pos.words[1];
+    dz = this->dir.words[2];
+    trace.endpoints[1].words[1] = y + 10000 * dy;
+    z = this->pos.words[2];
+    trace.endpoints[1].words[2] = z + 10000 * dz;
     InitializeCollisionRay(trace);
-    w_u32(0x800FF974, 1);
+    collision_query.reject_surface40 = true;
     QueryCollisionRay(trace, 0);
-    hit = trace.object;
-    w_u32(0x800FF974, 0);
+    hit = trace.hit.GetObject();
+    collision_query.reject_surface40 = false;
     distance = hit ? trace.distance : 10000;
-    speed = r_u32(object + 80);
+    speed = this->speed;
     result = DivideLifetime(distance, speed);
-    w_u16(object + 10, result);
+    this->lifetime = result;
     return result;
 }
 
 uint32 LineProjectile::Render()
 {
     const ModelProjectionConfig &proj_cfg = GetModelProjectionConfig();
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 packet, limit, next, red, green, blue, color, screen, depth, result;
-    uint32 ordering_table, bucket, header, old, draw_mode, draw_word;
+    uint8 *packet, *limit, *next;
+    uint32 red, green, blue, color, screen, depth, result;
+    uint32 draw_mode, draw_word;
     FUNCTION_MARKER(0x80025BEC, "SLUS_003.73");
-    packet = r_u32(0x800FF668);
-    limit = r_u32(0x800FF374);
-    next = packet + 28;
-    result = limit < next;
+    packet = scene_render.cursor;
+    limit = scene_render.limit;
+    result = limit - packet < (sint32)(sizeof(LINE_G2) + sizeof(DR_TPAGE));
     if (result)
         return result;
-    w_u32(0x800FF668, next);
-    w_u32(packet, 0x04000000);
-    red = r_u8(object + 265);
-    green = r_u8(object + 266);
-    blue = r_u8(object + 267);
+    next = packet + sizeof(LINE_G2) + sizeof(DR_TPAGE);
+    scene_render.cursor = next;
+    LINE_G2 *line = (LINE_G2 *)packet;
+    line->tag = 0;
+    setLineG2(line);
+    red = this->rgb.r;
+    green = this->rgb.g;
+    blue = this->rgb.b;
     color = (((197 * blue) >> 8) << 16) | ((197 * green) & 0xFF00) | 0x52000000 | ((197 * red) >> 8);
-    w_u32(packet + 4, color);
-    red = r_u8(object + 265);
-    green = r_u8(object + 266);
-    blue = r_u8(object + 267);
+    line->p[0].rgbc.rgbc = color;
+    red = this->rgb.r;
+    green = this->rgb.g;
+    blue = this->rgb.b;
     color = (((49 * blue) >> 7) << 16) | (((49 * green) >> 7) << 8) | ((49 * red) >> 7);
-    w_u32(packet + 12, color);
-    depth = ProjectWorldPoint((const uint32 *)psx_addr(object + 24, 12), &screen);
-    w_u32(packet + 16, screen);
-    ProjectWorldPoint((const uint32 *)psx_addr(object + 108, 12), &screen);
-    w_u32(packet + 8, screen);
-    limit = proj_cfg.near_depth;
-    result = (sint32)depth < (sint32)limit;
+    line->p[1].rgbc.rgbc = color;
+    depth = ProjectWorldPoint(pos.words, &screen);
+    line->p[1].xy.xy = screen;
+    ProjectWorldPoint(tail_pos.words, &screen);
+    line->p[0].xy.xy = screen;
+    uint32 depth_limit = proj_cfg.near_depth;
+    result = (sint32)depth < (sint32)depth_limit;
     if (!result)
     {
-        limit = proj_cfg.max_distance;
-        result = (sint32)limit < (sint32)depth;
+        depth_limit = proj_cfg.max_distance;
+        result = (sint32)depth_limit < (sint32)depth;
     }
     if (result)
     {
-        w_u32(0x800FF668, packet);
+        scene_render.cursor = packet;
         return result;
     }
-    ordering_table = r_u32(0x800FF660);
-    bucket = ordering_table + (depth & 0x3FFC) + 112;
-    header = r_u32(packet);
-    old = r_u32(bucket);
-    w_u32(packet, (header & 0xFF000000) | (old & 0xFFFFFF));
-    old = r_u32(bucket);
-    w_u32(bucket, (old & 0xFF000000) | (packet & 0xFFFFFF));
-    draw_mode = r_u32(0x800FF468);
-    draw_word = r_u32(0x800FF46C);
-    w_u32(packet + 20, draw_mode);
-    w_u32(packet + 24, draw_word);
-    header = r_u32(packet + 20);
-    old = r_u32(bucket);
-    w_u32(packet + 20, (header & 0xFF000000) | (old & 0xFFFFFF));
-    old = r_u32(bucket);
-    result = (old & 0xFF000000) | ((packet + 20) & 0xFFFFFF);
-    w_u32(bucket, result);
-    return result;
+    uint32 *bucket = scene_render.cur->ot + ((depth & 0x3FFC) >> 2);
+    setaddr(line, getaddr(bucket));
+    setaddr(bucket, gpu_packet_link((uintptr_t)line));
+    draw_mode = GetEffectDrawMode().tag;
+    draw_word = GetEffectDrawMode().code[0];
+    DR_TPAGE *state = (DR_TPAGE *)(packet + sizeof(LINE_G2));
+    state->tag = draw_mode;
+    state->code[0] = draw_word;
+    setaddr(state, getaddr(bucket));
+    setaddr(bucket, gpu_packet_link((uintptr_t)state));
+    return *bucket;
 }
 
-uint32 LineProjectile::Update()
+void LineProjectile::Update()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, value, distance, scalar, scaled[3], position[4];
-    uint32 hit, list, head, damage, mode, node, next, particle;
+    Vector3 scaled, position;
+    uint32 value, distance, scalar;
+    ModelInstance *hit, *head;
+    uint32 damage;
+    uint32 mode;
+    GameHeapBlock *particle;
     uint32 release = 0, age, lifetime, result, x, y, z;
     FUNCTION_MARKER(0x80025E2C, "SLUS_003.73");
-    AddVectors((uint32 *)psx_addr(object + 24, 12), (const uint32 *)psx_addr(object + 36, 12));
-    child = r_u32(object + 120);
-    if (child)
+    AddVectors(this->pos.words, this->velocity.words);
+    if (ring)
     {
-        RingEffect::Attach(child).SetPosition((const uint32 *)psx_addr(object + 24, 12));
-        child = r_u32(object + 120);
-        value = r_u16(child + 96);
-        w_u16(child + 96, value + 200);
+        ring->SetPosition(pos.words);
+        ring->angle += 200;
     }
-    age = r_u16(object + 8);
-    w_u16(object + 8, age + 1);
-    distance = MeasureEuclideanDistance((const uint32 *)psx_addr(object + 24, 12), (const uint32 *)psx_addr(object + 84, 12));
+    age = this->age;
+    this->age = age + 1;
+    distance = MeasureEuclideanDistance(this->pos.words, this->origin.words);
     if ((sint32)distance >= 601)
         distance = 600;
     scalar = distance;
-    MultiplyScalarVector(scaled, &scalar, (const uint32 *)psx_addr(object + 96, 12));
-    SubtractVectors(position, (const uint32 *)psx_addr(object + 24, 12), scaled);
-    w_u32(object + 108, position[0]);
-    w_u32(object + 112, position[1]);
-    w_u32(object + 116, position[2]);
-    value = r_u8(object + 264);
-    list = r_u32(object + 72);
-    head = r_u32(list);
+    MultiplyScalarVector(scaled.words, scalar, this->dir.words);
+    SubtractVectors(position.words, this->pos.words, scaled.words);
+    this->tail_pos = position;
+    value = this->mode;
+    head = *owner_list;
     if (value)
-        hit = TraceSegmentCollision((const uint32 *)psx_addr(object + 108, 12), (const uint32 *)psx_addr(object + 24, 12), head);
+        hit = TraceSegmentCollision(this->tail_pos.words, this->pos.words, head);
     else
-        hit = IntersectObjectSpheres((const uint32 *)psx_addr(object + 108, 12), (const uint32 *)psx_addr(object + 24, 12), position, head, 0);
+        hit = IntersectObjectSpheres(this->tail_pos.words, this->pos.words, position.words, head, 0);
     if (hit)
     {
         release = 1;
-        damage = r_u16(object + 76);
-        ApplyObjectDamage(hit, damage, (const sint32 *)psx_addr(object + 96, 12), 9);
-        mode = r_u32(0x800FF378);
+        damage = this->damage;
+        static_cast<VisualObject *>(hit->owner)->Damage(damage, this->dir.components, 9);
+        mode = level_environment.area_kind;
         if (mode == 6)
         {
-            list = r_u32(object + 72);
-            if (list == 0x800FF5A0)
+            if (owner_list == &visual_lists.players)
             {
-                node = r_u32(0x800FF458);
-                while (node)
+                EffectObject *effect = effect_lists.renderables;
+                while (effect)
                 {
-                    next = r_u32(node + 4);
-                    if (node != object && r_u8(node + 67) == 4)
-                        LineProjectile::Attach(node).LineProjectile::Finish();
-                    node = next;
+                    EffectObject *next_effect = effect->next;
+                    if (effect->IsAlive() && effect != this && effect->kind == 4)
+                        static_cast<LineProjectile *>(effect)->LineProjectile::Finish();
+                    effect = next_effect;
                 }
                 goto CheckLifetime;
             }
-            mode = r_u32(0x800FF378);
+            mode = level_environment.area_kind;
         }
-        if (mode == 3 && r_u8(object + 67) == 4)
+        if (mode == 3 && this->kind == 4)
         {
             particle = AllocateEffectStorage(124);
             if (particle)
             {
-                void *dram_addr = AllocateNativeObjectStorage(particle, sizeof(RingBurstEffect));
-                new (dram_addr) RingBurstEffect((const uint32 *)psx_addr(object + 24, 12), 5, 255, 255, 255, 1, 64, 32, 160, 1, 60, 0, 1, 100, 120, 80, 100, 10, 8);
+                new (particle) RingBurstEffect(this->pos.words, 5, 255, 255, 255, 1, 64, 32, 160, 1, 60, 0, 1, 100, 120, 80, 100, 10, 8);
             }
         }
     }
 CheckLifetime:
-    age = (uint32)(sint32)(sint16)r_u16(object + 8);
-    lifetime = r_u16(object + 10);
+    age = (uint32)(sint32)(sint16)this->age;
+    lifetime = this->lifetime;
     result = (sint32)age < (sint32)lifetime;
     if (!result)
     {
-        hit = trace.object;
+        hit = trace.hit.GetObject();
         release = 1;
         if (hit)
         {
-            damage = r_u16(object + 76);
-            DamageLevelObject(hit, trace.poly, (sint32)damage);
-            x = trace.hit_pos[0];
-            y = trace.hit_pos[1];
-            z = trace.hit_pos[2];
-            w_u32(object + 24, x);
-            w_u32(object + 28, y);
-            w_u32(object + 32, z);
+            damage = this->damage;
+            DamageLevelObject(hit, trace.hit.GetPolygon(), (sint32)damage);
+            x = trace.hit_pos.words[0];
+            y = trace.hit_pos.words[1];
+            z = trace.hit_pos.words[2];
+            this->pos.words[0] = x;
+            this->pos.words[1] = y;
+            this->pos.words[2] = z;
         }
     }
     if (release)
-        return Finish();
-    return result;
+    {
+        Finish();
+        return;
+    }
+    return;
 }
 
-extern "C" uint32 sub_800258F8(uint32 object, uint32 reason)
+ProjectileTracer::ProjectileTracer(const uint32 *start, const uint32 *end) : LineEffect(), age(0)
 {
-    FUNCTION_MARKER(0x800258F8, "SLUS_003.73");
-    return LineProjectile::Attach(object).LineProjectile::Destroy(reason);
-}
-
-
-
-extern "C" uint32 sub_80025BEC(uint32 object)
-{
-    FUNCTION_MARKER(0x80025BEC, "SLUS_003.73");
-    return LineProjectile::Attach(object).LineProjectile::Render();
-}
-
-extern "C" uint32 sub_80025E2C(uint32 object)
-{
-    FUNCTION_MARKER(0x80025E2C, "SLUS_003.73");
-    return LineProjectile::Attach(object).LineProjectile::Update();
-}
-
-LineProjectile &LineProjectile::Attach(uint32 object)
-{
-    return *static_cast<LineProjectile *>(FindNativeObjectStorage(object));
-}
-
-
-
-extern "C" uint32 apocalypse_line_projectile_native(uint32 object, const void *position, const void *angles, uint32 speed, uint32 damage, uint32 owner_pointer, uint32 red, uint32 green, uint32 blue, uint32 mode)
-{
-    void *storage = AllocateNativeObjectStorage(object, sizeof(LineProjectile));
-    new (storage) LineProjectile((const uint32 *)position, (const sint16 *)angles, speed, damage, (const uint32 *)psx_addr(owner_pointer, 4), red, green, blue, mode);
-    return object;
-}
-
-
-
-
-static uint32 ReadTracerEndpoint(const uint32 *position, uint32 axis)
-{
-    uint32 address = GuestMemoryAddress(position);
-    return address ? r_u32(address + axis * 4) : xport_load_le32((const uint8 *)position + axis * 4);
-}
-
-ProjectileTracer::ProjectileTracer(const uint32 *start, const uint32 *end) : LineEffect()
-{
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 endpoint[3], direction[3], scaled[3], point[3], delta[3], movement[3];
+    Vector3 end_pos, direction, scaled, point, delta, movement;
     uint32 distance, offset, divisor = 5, shift = 1, axis;
     FUNCTION_MARKER(0x800234CC, "SLUS_003.73");
-    w_u32(object + 68, 0x800A1530);
     for (axis = 0; axis < 3; ++axis)
-        endpoint[axis] = ReadTracerEndpoint(end, axis);
-    SubtractVectors(direction, endpoint, start);
-    distance = MeasureVectorLength(direction);
+        end_pos.words[axis] = end[axis];
+    SubtractVectors(direction.words, end_pos.words, start);
+    distance = MeasureVectorLength(direction.words);
     if (distance)
-        DivideVector(direction, &distance);
+        DivideVector(direction.words, distance);
     else
         Finish();
     if ((sint32)distance >= 3001)
     {
         distance = 3000;
-        MultiplyScalarVector(scaled, &distance, direction);
-        AddVectors(point, start, scaled);
-        for (axis = 0; axis < 3; ++axis)
-            endpoint[axis] = point[axis];
+        MultiplyScalarVector(scaled.words, distance, direction.words);
+        AddVectors(point.words, start, scaled.words);
+        end_pos = point;
     }
     offset = RandomRange((uint32)((sint32)distance / 3));
-    MultiplyVector(scaled, direction, &offset);
-    AddVectors(point, start, scaled);
-    for (axis = 0; axis < 3; ++axis)
-        w_u32(object + 80 + axis * 4, point[axis]);
-    SubtractVectors(delta, endpoint, (const uint32 *)psx_addr(object + 80, 12));
-    DivideVector(movement, delta, &divisor);
-    AddVectors(point, (const uint32 *)psx_addr(object + 80, 12), movement);
-    for (axis = 0; axis < 3; ++axis)
-        w_u32(object + 92 + axis * 4, point[axis]);
-    ShiftVectorLeft(point, movement, &shift);
-    for (axis = 0; axis < 3; ++axis)
-        w_u32(object + 36 + axis * 4, point[axis]);
-    w_u32(object + 72, (r_u32(object + 72) & 0xFF000000) | 0x2000000);
-}
-
-// Native ABI helper retains the return discarded by the original update dispatcher
-static uint32 UpdateProjectileTracerData(uint32 object)
-{
-    FUNCTION_MARKER(0x800236D4, "SLUS_003.73");
-    uint32 age = r_u32(object + 104);
-    if (age)
-    {
-        AddVectors((uint32 *)psx_addr(object + 80, 12), (const uint32 *)psx_addr(object + 36, 12));
-        AddVectors((uint32 *)psx_addr(object + 92, 12), (const uint32 *)psx_addr(object + 36, 12));
-        age = r_u32(object + 104);
-    }
-    ++age;
-    w_u32(object + 104, age);
-    if (age == 4)
-        sub_80032ED8(object);
-    return FadePackedColor((uint32 *)psx_addr(object + 76, 4), 16);
+    MultiplyVector(scaled.words, direction.words, offset);
+    AddVectors(point.words, start, scaled.words);
+    endpoint[0] = point;
+    SubtractVectors(delta.words, end_pos.words, endpoint[0].words);
+    DivideVector(movement.words, delta.words, divisor);
+    AddVectors(point.words, endpoint[0].words, movement.words);
+    endpoint[1] = point;
+    ShiftVectorLeft(point.words, movement.words, shift);
+    this->velocity = point;
+    color[0] = (color[0] & 0xFF000000) | 0x2000000;
 }
 
 void ProjectileTracer::Update()
 {
-    UpdateProjectileTracerData(NativeObjectGuestAddress(this));
-}
-
-ProjectileTracer &ProjectileTracer::Attach(uint32 object)
-{
-    return *static_cast<ProjectileTracer *>(FindNativeObjectStorage(object));
+    FUNCTION_MARKER(0x800236D4, "SLUS_003.73");
+    if (age)
+    {
+        AddVectors(endpoint[0].words, velocity.words);
+        AddVectors(endpoint[1].words, velocity.words);
+    }
+    ++age;
+    if (age == 4)
+        Finish();
+    FadePackedColor(&color[1], 16);
 }
 
 uint32 ProjectileTracer::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8002BC44, "SLUS_003.73");
-    w_u32(object + 68, 0x800A1530);
     uint32 result = LineEffect::Destroy(0);
-    return (reason & 1) ? ReleaseEffectStorage(object) : result;
+    return (reason & 1) ? ReleaseEffectStorage(this) : result;
 }
 
-extern "C" uint32 apocalypse_projectile_spawn_234CC(uint32 object, const sint32 start[3], const sint32 end[3])
-{
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(ProjectileTracer));
-    new (dram_addr) ProjectileTracer((const uint32 *)start, (const uint32 *)end);
-    return object;
-}
-
-
-
-extern "C" uint32 sub_800236D4(uint32 object)
-{
-    FUNCTION_MARKER(0x800236D4, "SLUS_003.73");
-    return UpdateProjectileTracerData(object);
-}
-extern "C" uint32 sub_8002BC44(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x8002BC44, "SLUS_003.73");
-    return ProjectileTracer::Attach(object).ProjectileTracer::Destroy(reason);
-}
-
-uint32 CreateProjectileImpact(uint32 flags, const uint32 *position)
+void CreateProjectileImpact(uint32 flags, const uint32 *position)
 {
     FUNCTION_MARKER(0x8002289C, "SLUS_003.73");
-    uint32 effect;
+    GameHeapBlock *effect;
     if (flags & 4)
     {
+        AnimatedSprite *sprite = 0;
         effect = AllocateEffectStorage(120);
         if (effect)
         {
-            void *dram_addr = AllocateNativeObjectStorage(effect, sizeof(AnimatedSprite));
-            new (dram_addr) AnimatedSprite(position, (uint32)0, 744, 1, 1, 0xFFFFFFFF);
+            sprite = new (effect) AnimatedSprite(position, (uint32)0, 744, 1, 1, 0xFFFFFFFF);
         }
-        // TODO: Resolve original null allocation accesses before frame selection
-        w_u8(effect + 90, RandomRange(r_u8(effect + 89) - 1));
-        w_u16(effect + 96, RandomRange(4096));
-        w_u16(effect + 64, 100);
+        if (!sprite)
+        {
+            GameDiagnostic("Projectile impact sprite allocation failed\n");
+            abort();
+        }
+        sprite->frame = RandomRange(sprite->frame_count - 1);
+        sprite->angle = RandomRange(4096);
+        sprite->depth_bias = 100;
     }
     if (flags & 8)
     {
@@ -513,28 +380,17 @@ uint32 CreateProjectileImpact(uint32 flags, const uint32 *position)
             effect = AllocateEffectStorage(112);
             if (effect)
             {
-                void *dram_addr = AllocateNativeObjectStorage(effect, sizeof(ParticleSprite));
-                new (dram_addr) ParticleSprite(position, 128, 128, 128, 6, 1000, 1, 40, 0x3000, 20);
+                new (effect) ParticleSprite(position, 128, 128, 128, 6, 1000, 1, 40, 0x3000, 20);
             }
         }
     }
-    uint32 result = flags & 16;
-    if (result)
+    if (flags & 16)
     {
-        result = AllocateEffectStorage(96);
-        if (result)
+        effect = AllocateEffectStorage(96);
+        if (effect)
         {
             uint32 count = RandomRange(3) + 1;
-            void *dram_addr = AllocateNativeObjectStorage(result, sizeof(SmokeEmitter));
-            new (dram_addr) SmokeEmitter(position, 1, count, 128, 128, 128, 8, 5, 700, 700);
+            new (effect) SmokeEmitter(position, 1, count, 128, 128, 128, 8, 5, 700, 700);
         }
     }
-    return result;
 }
-
-extern "C" uint32 apocalypse_projectile_impact_2289C(uint32 flags, const sint32 position[3])
-{
-    return CreateProjectileImpact(flags, (const uint32 *)position);
-}
-
-

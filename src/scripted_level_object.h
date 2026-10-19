@@ -7,9 +7,8 @@
 class ScriptedLevelObject : public Enemy
 {
 public:
-    ScriptedLevelObject(const uint8 *data, uint32 index);
-    virtual ~ScriptedLevelObject() {}
-    static ScriptedLevelObject &Attach(uint32 object);
+    ScriptedLevelObject(const RecordCursor &data, uint32 index);
+    virtual ~ScriptedLevelObject();
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Update();
     uint32 IntegrateMotion();
@@ -21,6 +20,16 @@ public:
     virtual void SetParameters(uint32 command);
     uint32 SetScriptParameters(uint32 command);
     virtual uint32 ResolveParameter(uint32 command);
+
+private:
+    uint16 scale_ticks[3];
+    ShortVector3 scale_step;
+    sint16 contact_damage;
+    uint32 contacted;
+    uint32 contact_age;
+    uint32 sound_voices;
+    uint32 sound_period;
+    Vector3 push_extent;
 };
 
 #endif

@@ -6,5 +6,5 @@ extern "C"
 }
 struct TextureResource;
 struct ModelGeometry;
-uint32 RenderModelShadow(const ModelGeometry &model, const void *matrix, uint32 rgb, uint32 scale, uint32 depth_bias, const TextureResource &texture);
+uint32 RenderModelShadow(const ModelGeometry &model, const MATRIX &matrix, uint32 rgb, uint32 scale, uint32 depth_bias, const TextureResource &texture);
 #endif

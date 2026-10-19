@@ -1,16 +1,14 @@
-#include "game_sdk_bindings.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include <stdlib.h>
+
+#include "game_diagnostics.h"
+
 #include "palette_resources.h"
 #include "model_resources.h"
 #include "resource_io.h"
 #include "game_heap.h"
-#include <stdlib.h>
 
-template <uint32 count> struct PaletteSlotPool
+template <uint32 count>
+struct PaletteSlotPool
 {
     PalettePosition pos;
     uint8 available[count];
@@ -26,7 +24,8 @@ const PalettePosition &GetLargePalettePos()
     return large_pal_slots.pos;
 }
 
-template <uint32 count> static uint32 AllocatePaletteSlot(PaletteSlotPool<count> &pool)
+template <uint32 count>
+static uint32 AllocatePaletteSlot(PaletteSlotPool<count> &pool)
 {
     uint32 slot = 0;
     while (slot < count && !pool.available[slot])
@@ -40,7 +39,8 @@ template <uint32 count> static uint32 AllocatePaletteSlot(PaletteSlotPool<count>
     return slot;
 }
 
-template <uint32 count> static void ReleasePaletteSlot(PaletteSlotPool<count> &pool, uint32 slot)
+template <uint32 count>
+static void ReleasePaletteSlot(PaletteSlotPool<count> &pool, uint32 slot)
 {
     if (slot >= count)
     {
@@ -170,13 +170,13 @@ void ResetPaletteResources()
         ReleasePaletteResource(pal_resources);
 }
 
-uint32 AllocateSmallPaletteSlot()
+static uint32 AllocateSmallPaletteSlot()
 {
     FUNCTION_MARKER(0x800696A8, "SLUS_003.73");
     return AllocatePaletteSlot(small_pal_slots);
 }
 
-uint32 AllocateLargePaletteSlot()
+static uint32 AllocateLargePaletteSlot()
 {
     FUNCTION_MARKER(0x80069700, "SLUS_003.73");
     return AllocatePaletteSlot(large_pal_slots);
@@ -195,20 +195,20 @@ PaletteResource *LoadPaletteResource(uint32 key, uint16 *colors, uint32 flags)
     cursor = colors;
     for (uint32 index = 0; index < count; ++index, ++cursor)
     {
-        color = xport_load_le16(cursor);
+        color = *cursor;
         if ((color & 0x7FFF) == 0x7C1F)
         {
             found = 1;
-            xport_store_le16(cursor, 0);
+            *cursor = 0;
         }
         else if (found || !color)
-            xport_store_le16(cursor, color | 0x8000);
+            *cursor = color | 0x8000;
     }
     if (!found)
     {
         cursor = colors;
         for (uint32 index = 0; index < count; ++index, ++cursor)
-            xport_store_le16(cursor, xport_load_le16(cursor) | 0x8000);
+            *cursor |= 0x8000;
     }
     if (count == 16)
     {
@@ -235,11 +235,3 @@ PaletteResource *LoadPaletteResource(uint32 key, uint16 *colors, uint32 flags)
     pal->loaded = 1;
     return pal;
 }
-
-extern "C" uint32 sub_800696A8(void)
-{
-    FUNCTION_MARKER(0x800696A8, "SLUS_003.73");
-    return AllocateSmallPaletteSlot();
-}
-
-

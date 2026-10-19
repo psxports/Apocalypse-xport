@@ -6,12 +6,46 @@ extern "C"
 #include "psx.h"
 }
 
+#include "vector3.h"
+
+struct SoundBankHandles
+{
+    sint16 common;
+    sint16 level;
+    sint16 music;
+};
+
+extern SoundBankHandles sound_banks;
+void ResetSoundBankHandles();
+
+struct PositionedSoundEvent
+{
+    uint32 pending;
+    Vector3 pos;
+};
+
+extern PositionedSoundEvent positioned_sound_event;
+void ResetSoundEvents();
+
+struct AudioPlaybackState
+{
+    sint16 saved_left[24];
+    sint16 saved_right[24];
+    sint16 sequence;
+    uint32 suspended;
+    uint32 resume_pending;
+    uint32 start_pending;
+    uint32 tempo;
+    uint32 reverb_ticks;
+    uint32 restore_pending;
+};
+
+extern AudioPlaybackState audio_playback;
+void ResetAudioPlayback();
+
 uint32 InitializeAudioOutput();
 uint32 InitializeAudioSession(const char *resource);
 uint32 ReleaseAudioSession();
-
-uint32 ReleaseSoundBank(sint16 bank, uint32 header);
-uint32 LoadSoundBank(const char *name, uint32 header_output);
 
 uint32 LoadLevelSoundBank(const char *basename);
 void ReleaseLevelSoundBank();
@@ -33,6 +67,7 @@ uint32 DisableSoundReverb();
 uint32 MarkMusicRestorePending();
 uint32 ResetMusicPlaybackState();
 uint32 StopMusicPlayback();
+uint32 StopMusicSequence();
 uint32 RestoreMusicPlayback();
 uint32 SetSoundReverbDepth(uint8 left, uint8 right);
 

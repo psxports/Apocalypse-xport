@@ -1,118 +1,68 @@
-#include "model_render_view.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
-#include "orbit_camera.h"
-#include "native_object_storage.h"
-#include "game_heap.h"
-#include "game_object_allocation.h"
 #include <new>
 
-static uint32 ReadOrbitWord(const uint32 *record, uint32 offset)
-{
-    uint32 address = GuestMemoryAddress(record);
-    return address ? r_u32(address + offset) : xport_load_le32((const uint8 *)record + offset);
-}
+#include "angle_math.h"
+#include "game_lighting.h"
+#include "model_render_view.h"
+#include "game_diagnostics.h"
+#include "orbit_camera.h"
 
-OrbitCamera &OrbitCamera::Attach(uint32 object)
-{
-    return *static_cast<OrbitCamera *>(FindNativeObjectStorage(object));
-}
-
-OrbitCamera::OrbitCamera(const uint32 *position, uint32 radius, uint32 height)
+OrbitCamera::OrbitCamera(const uint32 *position, uint32 radius, uint32 height) : phase(0)
 {
     FUNCTION_MARKER(0x80011904, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    w_u32(object, 0x800A0380);
-    w_u32(object + 4, ReadOrbitWord(position, 0) << 12);
-    w_u32(object + 8, ReadOrbitWord(position, 4) << 12);
-    uint32 z = ReadOrbitWord(position, 8);
-    w_u32(object + 16, radius);
-    w_u32(object + 20, height);
-    w_u32(object + 12, z << 12);
+    center.words[0] = position[0] << 12;
+    center.words[1] = position[1] << 12;
+    uint32 z = position[2];
+    this->radius = radius;
+    this->height = height;
+    center.words[2] = z << 12;
     Update();
-    w_u16(0x800FFA98, 128);
-    w_u16(0x800FFA96, 128);
-    w_u16(0x800FFA94, 128);
+    game_lighting.background_color.b = 128;
+    game_lighting.background_color.g = 128;
+    game_lighting.background_color.r = 128;
 }
 
 uint32 OrbitCamera::Destroy(uint32 reason)
 {
     FUNCTION_MARKER(0x80011990, "SLUS_003.73");
-    uint32 object = NativeObjectGuestAddress(this);
-    w_u32(object, 0x800A0390);
     if (reason & 1)
-        return ReleaseHeapBlock(object);
-    return 0x800A0390;
+        ReleaseStorage();
+    return 0;
 }
 
 uint32 OrbitCamera::Advance()
 {
-    uint32 *record = (uint32 *)psx_addr(NativeObjectGuestAddress(this), 28);
     FUNCTION_MARKER(0x800119C4, "SLUS_003.73");
-    uint32 phase = ReadOrbitWord(record, 24) + 4;
-    uint32 address = GuestMemoryAddress(record);
-    if (address)
-        w_u32(address + 24, phase);
-    else
-        xport_store_le32((uint8 *)record + 24, phase);
+    phase += 4;
     return Update();
 }
 
 uint32 OrbitCamera::Update()
 {
-    const uint32 *record = (const uint32 *)psx_addr(NativeObjectGuestAddress(this), 28);
     FUNCTION_MARKER(0x800119F0, "SLUS_003.73");
-    // Preserve the original initial position reads before phase lookup
-    (void)ReadOrbitWord(record, 4);
-    (void)ReadOrbitWord(record, 8);
-    (void)ReadOrbitWord(record, 12);
-    uint32 phase = ReadOrbitWord(record, 24) & 4095;
-    uint32 sine = (uint32)rsin(phase);
-    uint32 radius = ReadOrbitWord(record, 16);
-    uint32 x = ReadOrbitWord(record, 4) + radius * sine;
-    uint32 height = ReadOrbitWord(record, 20) << 12;
-    uint32 y = ReadOrbitWord(record, 8) - height;
-    phase = ReadOrbitWord(record, 24) & 4095;
-    uint32 cosine = (uint32)rcos(phase);
-    radius = ReadOrbitWord(record, 16);
-    uint32 z = ReadOrbitWord(record, 12);
-    GetModelRenderView().pos[0] = (uint32)((sint32)x >> 12);
-    GetModelRenderView().pos[1] = (uint32)((sint32)y >> 12);
-    z += radius * cosine;
-    GetModelRenderView().pos[2] = (uint32)((sint32)z >> 12);
-    height = ReadOrbitWord(record, 20) << 12;
-    radius = ReadOrbitWord(record, 16);
+    uint32 angle = phase & 4095;
+    uint32 s = (uint32)rsin(angle);
+    uint32 x = center.words[0] + radius * s;
+    uint32 vertical = height << 12;
+    uint32 y = center.words[1] - vertical;
+    angle = phase & 4095;
+    uint32 c = (uint32)rcos(angle);
+    uint32 z = center.words[2];
+    GetModelRenderView().pos.words[0] = (uint32)((sint32)x >> 12);
+    GetModelRenderView().pos.words[1] = (uint32)((sint32)y >> 12);
+    z += radius * c;
+    GetModelRenderView().pos.words[2] = (uint32)((sint32)z >> 12);
+    vertical = height << 12;
     sint32 slope;
     if (!radius)
-        slope = (sint32)height < 0 ? 1 : -1;
-    else if (height == 0x80000000 && radius == 0xFFFFFFFF)
-        slope = (sint32)height;
+        slope = (sint32)vertical < 0 ? 1 : -1;
+    else if (vertical == 0x80000000 && radius == 0xFFFFFFFF)
+        slope = (sint32)vertical;
     else
-        slope = (sint32)height / (sint32)radius;
-    GetModelRenderView().angles[0] = (uint16)(0 - (uint32)apocalypse_angle_from_slope(slope));
-    uint32 address = GuestMemoryAddress(record);
-    uint32 heading = address ? r_u16(address + 24) : xport_load_le16((const uint8 *)record + 24);
-    GetModelRenderView().angles[2] = (uint16)(0);
+        slope = (sint32)vertical / (sint32)radius;
+    GetModelRenderView().angles.words[0] = (uint16)(0 - (uint32)CalculateAngleFromSlope(slope));
+    uint32 heading = (uint16)phase;
+    GetModelRenderView().angles.words[2] = 0;
     uint32 result = heading + 2048;
-    GetModelRenderView().angles[1] = (uint16)(result);
+    GetModelRenderView().angles.words[1] = (uint16)result;
     return result;
-}
-
-
-
-extern "C" uint32 sub_80011990(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x80011990, "SLUS_003.73");
-    return OrbitCamera::Attach(object).OrbitCamera::Destroy(reason);
-}
-
-
-
-extern "C" uint32 sub_800119C4(uint32 record)
-{
-    FUNCTION_MARKER(0x800119C4, "SLUS_003.73");
-    return OrbitCamera::Attach(record).Advance();
 }

@@ -1,16 +1,15 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "geometry_commands.h"
+#include "model_render.h"
 #include "model_resources.h"
-#include "game_sdk_bindings.h"
-extern "C" {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
+
 #include "model_animation.h"
 #include "model_materials.h"
 #include "character.h"
 #include "angle_math.h"
-#include "native_object_storage.h"
-#include <stdio.h>
-#include <stdlib.h>
 
 static uint32 DivideAnimationWord(uint32 numerator, uint32 denominator)
 {
@@ -33,7 +32,6 @@ static uint32 RemainderAnimationWord(uint32 numerator, uint32 denominator)
 void Character::InitializeModelAnimation(const ModelHierarchyTable &table)
 {
     FUNCTION_MARKER(0x8007CAC8, "SLUS_003.73");
-    const uint32 object = NativeObjectGuestAddress(this);
     const uint32 model = this->model.bank;
     const uint32 vertices = GetModelBank(model).geometry.count;
     for (uint32 row = 0; row < table.count; ++row)
@@ -59,9 +57,9 @@ void Character::InitializeModelAnimation(const ModelHierarchyTable &table)
     for (uint32 row = 0; row < table.count; ++row)
         for (uint32 axis = 6; axis > 0; --axis)
             if (axis > 3)
-                angles[row].translation[axis - 4] = 0;
+                angles[row].translation.words[axis - 4] = 0;
             else
-                angles[row].rotation[axis - 1] = 0;
+                angles[row].rotation.words[axis - 1] = 0;
     const ModelAnimation &animation = GetModelAnimation(GetModelBank(model).animations, this->model.animation);
     if (animation.bone_count != vertices)
     {
@@ -71,7 +69,7 @@ void Character::InitializeModelAnimation(const ModelHierarchyTable &table)
         abort();
     }
     // Prepare the current zero-angle pose before attachment queries can read it
-    UpdateModelAnimationData(object);
+    UpdateModelAnimationData();
     const ModelPose *source = animation.interval ? GetModelPoseWorkspace(vertices) : GetModelAnimationPoses(animation, this->model.frame * vertices, vertices);
     for (uint32 bone = 0; bone < vertices; ++bone)
         poses[bone] = source[bone];
@@ -82,13 +80,12 @@ void Character::InitializeModelAnimation(const ModelHierarchyTable &table)
     model_pose_count = vertices;
 }
 
-void UpdateModelAnimationData(uint32 object)
+void Character::UpdateModelAnimationData()
 {
     FUNCTION_MARKER(0x8007CECC, "SLUS_003.73");
-    const ModelInstance &model = VisualObject::Attach(object).model;
     const ModelAnimation &animation = GetModelAnimation(GetModelBank(model.bank).animations, model.animation);
     if (animation.interval)
-        InterpolateModelAnimation(animation, model.frame, r_u8(object + 296) == 1, 0, animation.bone_count);
+        InterpolateModelAnimation(animation, model.frame, playback.loop_mode == 1, 0, animation.bone_count);
 }
 
 void InterpolateModelAnimation(const ModelAnimation &animation, uint32 frame, uint32 loop, uint32 first, uint32 count)
@@ -126,24 +123,24 @@ void InterpolateModelAnimation(const ModelAnimation &animation, uint32 frame, ui
     for (uint32 bone = 0; bone < count; ++bone)
         for (uint32 vector = 0; vector < 4; ++vector)
         {
-            const uint16 *left = vector < 3 ? source0[bone].rotation[vector] : source0[bone].translation;
-            const uint16 *right = vector < 3 ? source1[bone].rotation[vector] : source1[bone].translation;
-            uint16 *destination = vector < 3 ? output[bone].rotation[vector] : output[bone].translation;
-            uint16 difference[4];
-            uint32 initial[3], interpolated[3];
-            SubtractAngleVector(difference, right, left);
+            const ShortVector3 &left = vector < 3 ? source0[bone].rotation[vector] : source0[bone].translation;
+            const ShortVector3 &right = vector < 3 ? source1[bone].rotation[vector] : source1[bone].translation;
+            ShortVector3 &destination = vector < 3 ? output[bone].rotation[vector] : output[bone].translation;
+            ShortVector3 difference;
+            Vector3 initial, interpolated;
+            SubtractAngleVector(difference.words, right.words, left.words);
             for (uint32 axis = 0; axis < 3; ++axis)
-                initial[axis] = (uint32)(sint32)(sint16)left[axis];
+                initial.words[axis] = (uint32)(sint32)(sint16)left.words[axis];
             for (uint32 axis = 0; axis < 3; ++axis)
-                xport_draft_gte_data_write(25 + axis, initial[axis]);
+                xport_gte_write_data(25 + axis, initial.words[axis]);
             for (uint32 axis = 0; axis < 3; ++axis)
-                xport_draft_gte_data_write(9 + axis, (uint32)(sint32)(sint16)difference[axis]);
-            xport_draft_gte_data_write(8, factor);
-            xport_draft_gte_execute(0x1A8003E);
+                xport_gte_write_data(9 + axis, (uint32)(sint32)(sint16)difference.words[axis]);
+            xport_gte_write_data(8, factor);
+            ExecuteGeometryCommand(0x1A8003E);
             for (uint32 axis = 0; axis < 3; ++axis)
-                interpolated[axis] = xport_draft_gte_data_read(25 + axis);
+                interpolated.words[axis] = xport_gte_read_data(25 + axis);
             for (uint32 axis = 0; axis < 3; ++axis)
-                destination[axis] = (uint16)interpolated[axis];
+                destination.words[axis] = (uint16)interpolated.words[axis];
         }
 }
 
@@ -163,8 +160,8 @@ void UpdateModelColorAnimation(uint32 model_index)
     if (!bank.color_animation.present)
         return;
     SelectModelPalette(bank.colors);
-    const uint32 tick = r_u32(0x800FFB40);
-    const uint32 old_tick = r_u32(0x800FFAB4);
+    const uint32 tick = model_render_state.frame;
+    const uint32 old_tick = model_render_state.previous_frame;
     const uint32 step = tick >= old_tick ? tick - old_tick : 1;
     AdvanceModelColors(bank.colors, bank.color_animation, step);
 }

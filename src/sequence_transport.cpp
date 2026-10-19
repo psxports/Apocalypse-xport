@@ -1,269 +1,386 @@
+#include <stdlib.h>
+#include <string.h>
+
 #include "sequence_transport.h"
-extern "C" {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
 
-static uint32 QueueSequenceVoiceOff(void)
-{
-    uint32 voice, low, high, row, pending_low, pending_high, active, result;
-    FUNCTION_MARKER(0x80091FAC, "SLUS_003.73");
-    voice = r_u16(0x80105638);
-    low = voice < 16 ? (uint32)1 << (voice & 31) : 0;
-    high = voice < 16 ? 0 : (uint32)1 << ((voice - 16) & 31);
-    row = 0x80104E28 + voice * 54;
-    w_u8(row + 29, 0);
-    pending_low = r_u16(0x80105520);
-    pending_high = r_u16(0x80105522);
-    w_u16(row + 4, 0);
-    w_u16(row, 0);
-    active = r_u16(0x80104E18);
-    pending_low |= low;
-    w_u16(0x80105520, pending_low);
-    w_u16(0x80104E18, active & ~pending_low);
-    active = r_u16(0x80104E1A);
-    pending_high |= high;
-    w_u16(0x80105522, pending_high);
-    result = active & ~pending_high;
-    w_u16(0x80104E1A, result);
-    return result;
-}
+static SpuSequenceSchedulerTrack *track_storage;
 
-uint32 StopSequenceVoices(uint32 identity)
+static void RequireSequenceTrack(sint16 sequence, sint16 track)
 {
-    uint32 voice = 0, bit, protection, result;
-    sint32 count, owner;
-    FUNCTION_MARKER(0x80092EA4, "SLUS_003.73");
-    count = (sint8)r_u8(0x8010561C);
-    if (count <= 0)
-        return (uint32)count;
-    identity = (uint32)(sint32)(sint16)identity;
-    do
+    if (sequence < 0 || sequence >= spu_sequence_scheduler.sequence_count || track < 0 || track >= spu_sequence_scheduler.separation_count || !spu_sequence_scheduler.tracks[sequence])
     {
-        protection = r_u32(0x800FD01C);
-        bit = (uint32)1 << ((voice & 255) & 31);
-        if (!(protection & bit))
+        GameDiagnostic("Sequence track outside its native table\n");
+        abort();
+    }
+}
+
+static uint32 ReadSequenceDelta(sint16 sequence, sint16 track)
+{
+    RequireSequenceTrack(sequence, track);
+    return spu_sequence_scheduler_read_delta(&spu_sequence_scheduler, sequence, track);
+}
+
+static uint32 StopSequenceVoices(sint16 handle)
+{
+    FUNCTION_MARKER(0x80092EA4, "SLUS_003.73");
+    return spu_sequence_vm_sequence_key_off(handle);
+}
+
+static uint32 SaveSequenceVolume(sint16 handle, uint16 *left, uint16 *right)
+{
+    FUNCTION_MARKER(0x80092DB0, "SLUS_003.73");
+    RequireSequenceTrack((uint16)handle & 255, (uint16)handle >> 8);
+    return spu_sequence_vm_get_sequence_volume(&spu_sequence_scheduler, handle, left, right);
+}
+
+static uint32 SetSequenceVolumeCallback(sint16 handle, sint16 left, sint16 right, sint16 mode)
+{
+    RequireSequenceTrack((uint16)handle & 255, (uint16)handle >> 8);
+    return spu_sequence_vm_set_sequence_volume(&spu_sequence_scheduler, handle, left, right, mode);
+}
+
+static uint32 SetSequenceVoiceVolumes(sint16 handle, sint16 left, sint16 right)
+{
+    FUNCTION_MARKER(0x8009282C, "SLUS_003.73");
+    return SetSequenceVolumeCallback(handle, left, right, 1);
+}
+
+static uint32 SetSequenceChannelVoices(sint16 handle, sint16 bank, sint16 program, uint16 volume, uint16 pan)
+{
+    FUNCTION_MARKER(0x8009302C, "SLUS_003.73");
+    return spu_sequence_vm_set_volume(&spu_sequence_scheduler, handle, bank, program, volume, pan);
+}
+
+static uint32 StartSequenceNote(sint16 handle, sint16 bank, sint16 program, uint16 note, uint16 velocity, uint16 pan)
+{
+    return spu_sequence_vm_key_on(&spu_sequence_scheduler, handle, bank, program, note, velocity, pan);
+}
+
+static uint32 SequenceNote(sint16 sequence, sint16 track, uint8 note, uint8 velocity)
+{
+    FUNCTION_MARKER(0x8008CDFC, "SLUS_003.73");
+    return spu_sequence_scheduler_note_on(&spu_sequence_scheduler, sequence, track, note, velocity, StartSequenceNote, spu_sequence_vm_key_off);
+}
+
+static uint32 SequenceProgram(sint16 sequence, sint16 track, uint8 program)
+{
+    FUNCTION_MARKER(0x8008CEDC, "SLUS_003.73");
+    return spu_sequence_scheduler_program_change(&spu_sequence_scheduler, sequence, track, program, ReadSequenceDelta);
+}
+
+static uint32 SequenceChannelVolume(sint16 sequence, sint16 track, uint8 volume)
+{
+    FUNCTION_MARKER(0x8008C8CC, "SLUS_003.73");
+    return spu_sequence_scheduler_volume(&spu_sequence_scheduler, sequence, track, volume, SetSequenceChannelVoices, ReadSequenceDelta);
+}
+
+static uint32 SequenceChannelPan(sint16 sequence, sint16 track, uint8 pan)
+{
+    FUNCTION_MARKER(0x8008C99C, "SLUS_003.73");
+    return spu_sequence_scheduler_pan(&spu_sequence_scheduler, sequence, track, pan, SetSequenceChannelVoices, ReadSequenceDelta);
+}
+
+static uint32 SequenceDamper(sint16 sequence, sint16 track, uint8 value)
+{
+    FUNCTION_MARKER(0x8008CA6C, "SLUS_003.73");
+    return spu_sequence_scheduler_damper(&spu_sequence_scheduler, sequence, track, value, ReadSequenceDelta);
+}
+
+static uint32 SequencePitchBend(sint16 sequence, sint16 track)
+{
+    FUNCTION_MARKER(0x8008CB1C, "SLUS_003.73");
+    return spu_sequence_scheduler_pitch_bend(&spu_sequence_scheduler, sequence, track, spu_sequence_vm_sequence_bend, ReadSequenceDelta);
+}
+
+static uint32 SequenceMeta(sint16 sequence, sint16 track)
+{
+    return spu_sequence_scheduler_meta_event(&spu_sequence_scheduler, sequence, track, ReadSequenceDelta);
+}
+
+static uint32 SequenceControl(sint16 sequence, sint16 track, uint8 control)
+{
+    FUNCTION_MARKER(0x8008CBCC, "SLUS_003.73");
+    return spu_sequence_scheduler_control_change(&spu_sequence_scheduler, sequence, track, control, &spu_sequence_handlers, ReadSequenceDelta);
+}
+
+static uint32 SequenceDataEntry(sint16 sequence, sint16 track, uint8 value)
+{
+    SpuSequenceSchedulerTrack *record = spu_sequence_scheduler.tracks[sequence] + track;
+    return spu_sequence_scheduler_data_entry(record, sequence, track, value, spu_tone_commands, 20, ReadSequenceDelta);
+}
+
+static uint32 EnableSequenceReverb(uint32 enabled)
+{
+    return SpuSetReverb(enabled);
+}
+
+static uint32 SequenceResetControllers(sint16 sequence, sint16 track)
+{
+    return spu_sequence_scheduler_reset_controllers(&spu_sequence_scheduler, sequence, track, EnableSequenceReverb, ReadSequenceDelta);
+}
+
+static uint32 SequenceNrpnLsb(sint16 sequence, sint16 track, uint8 value)
+{
+    return spu_sequence_scheduler_nrpn_lsb(&spu_sequence_scheduler, sequence, track, value, spu_sequence_dispatch_mark, ReadSequenceDelta);
+}
+
+static uint32 SequenceNrpnMsb(sint16 sequence, sint16 track, uint8 value)
+{
+    return spu_sequence_scheduler_nrpn_msb(&spu_sequence_scheduler, sequence, track, value, ReadSequenceDelta);
+}
+
+static uint32 SequenceRpnLsb(sint16 sequence, sint16 track, uint8 value)
+{
+    return spu_sequence_scheduler_rpn_lsb(&spu_sequence_scheduler, sequence, track, value, ReadSequenceDelta);
+}
+
+static uint32 SequenceRpnMsb(sint16 sequence, sint16 track, uint8 value)
+{
+    return spu_sequence_scheduler_rpn_msb(&spu_sequence_scheduler, sequence, track, value, ReadSequenceDelta);
+}
+
+static uint32 SequenceReverbDepth(sint16 sequence, sint16 track, uint8 value)
+{
+    return spu_sequence_scheduler_reverb_depth(&spu_sequence_scheduler, sequence, track, value, spu_sequence_vm_reverb_depth, ReadSequenceDelta);
+}
+
+template <uint8 attribute>
+static uint32 SetSequenceToneAttribute(sint16 bank, sint16 program, sint16 tone, VagAtr attributes, uint8 value)
+{
+    return spu_vab_nrpn_attr_by_value(attribute, bank, program, tone, attributes, value);
+}
+
+static uint32 SetSequenceReverbType(uint8 value)
+{
+    return spu_sequence_vm_reverb_type(value);
+}
+
+static uint32 SetSequenceReverbDepth(uint8 value)
+{
+    return spu_sequence_vm_reverb_depth(value, value);
+}
+
+static const SpuSequenceHandlers default_handlers = {SequenceNote, SequenceProgram, SequencePitchBend, SequenceMeta, SequenceControl, SequenceDataEntry, SequenceChannelVolume, SequenceChannelPan, SequenceDamper, SequenceNrpnLsb, SequenceNrpnMsb, SequenceRpnLsb, SequenceRpnMsb, SequenceReverbDepth, SequenceResetControllers};
+
+static const SpuToneCommand default_commands[20] = {{SetSequenceToneAttribute<0>, 0}, {SetSequenceToneAttribute<1>, 0}, {SetSequenceToneAttribute<2>, 0}, {SetSequenceToneAttribute<3>, 0}, {SetSequenceToneAttribute<4>, 0}, {SetSequenceToneAttribute<5>, 0}, {SetSequenceToneAttribute<6>, 0}, {SetSequenceToneAttribute<7>, 0}, {SetSequenceToneAttribute<8>, 0}, {SetSequenceToneAttribute<9>, 0}, {SetSequenceToneAttribute<10>, 0}, {SetSequenceToneAttribute<11>, 0}, {SetSequenceToneAttribute<12>, 0}, {SetSequenceToneAttribute<13>, 0}, {SetSequenceToneAttribute<14>, 0}, {0, SetSequenceReverbType}, {0, SetSequenceReverbDepth}, {0, spu_sequence_vm_reverb_feedback}, {0, spu_sequence_vm_reverb_delay}, {0, spu_sequence_vm_reverb_delay}};
+
+void InitializeSequenceCallbacks()
+{
+    spu_sequence_handlers = default_handlers;
+    memcpy(spu_tone_commands, default_commands, sizeof(default_commands));
+}
+
+static uint32 StartChainedSequence(sint16 sequence, sint16 track)
+{
+    FUNCTION_MARKER(0x8008DC3C, "SLUS_003.73");
+    RequireSequenceTrack(sequence, track);
+    return spu_sequence_scheduler_next_separation(&spu_sequence_scheduler, sequence, track);
+}
+
+static uint32 SequenceEnd(sint16 sequence, sint16 track)
+{
+    FUNCTION_MARKER(0x8008D648, "SLUS_003.73");
+    return spu_sequence_scheduler_end_of_track(&spu_sequence_scheduler, sequence, track, StartChainedSequence, StopSequenceVoices);
+}
+
+static uint32 SequenceEvent(sint16 sequence, sint16 track)
+{
+    FUNCTION_MARKER(0x8008D88C, "SLUS_003.73");
+    return spu_sequence_scheduler_read_event(&spu_sequence_scheduler, sequence, track, &spu_sequence_handlers, ReadSequenceDelta, SequenceEnd);
+}
+
+static uint32 TickSequenceTrack(sint16 sequence, sint16 track)
+{
+    FUNCTION_MARKER(0x8008D54C, "SLUS_003.73");
+    return spu_sequence_scheduler_play_tick(&spu_sequence_scheduler, sequence, track, SequenceEvent);
+}
+
+static uint32 TickSequenceVolume(sint16 sequence, sint16 track)
+{
+    FUNCTION_MARKER(0x8008D26C, "SLUS_003.73");
+    return spu_sequence_scheduler_crescendo(&spu_sequence_scheduler, sequence, track, SaveSequenceVolume, SetSequenceVolumeCallback);
+}
+
+static uint32 TickSequenceVolumeDown(sint16 sequence, sint16 track)
+{
+    return spu_sequence_scheduler_decrescendo(&spu_sequence_scheduler, sequence, track, SaveSequenceVolume, SetSequenceVolumeCallback);
+}
+
+static void TickSequenceTempo(sint16 sequence, sint16 track)
+{
+    FUNCTION_MARKER(0x8008F69C, "SLUS_003.73");
+    spu_sequence_scheduler_tempo_ramp(&spu_sequence_scheduler, sequence, track);
+}
+
+static uint32 StopSequenceTick(sint16 sequence, sint16 track)
+{
+    FUNCTION_MARKER(0x8008D47C, "SLUS_003.73");
+    return spu_sequence_scheduler_pause(&spu_sequence_scheduler, sequence, track, StopSequenceVoices);
+}
+
+static void ReplaySequenceTick(sint16 sequence, sint16 track)
+{
+    FUNCTION_MARKER(0x8008DD3C, "SLUS_003.73");
+    spu_sequence_scheduler_resume(&spu_sequence_scheduler, sequence, track);
+}
+
+static uint32 StopSequenceTrack(sint16 sequence, sint16 track)
+{
+    FUNCTION_MARKER(0x8008EE7C, "SLUS_003.73");
+    return spu_sequence_scheduler_stop(&spu_sequence_scheduler, sequence, track, StopSequenceVoices);
+}
+
+static const SpuSequencePumpOps pump_ops = {spu_sequence_vm_flush, TickSequenceTrack, TickSequenceVolume, TickSequenceVolumeDown, TickSequenceTempo, StopSequenceTick, ReplaySequenceTick, StopSequenceTrack};
+
+extern "C" void TickMusicSequences(void)
+{
+    FUNCTION_MARKER(0x8008CFFC, "SLUS_003.73");
+    if (track_storage)
+        spu_sequence_scheduler_pump(&spu_sequence_scheduler, &pump_ops);
+}
+
+static void ReleaseSequenceTracks()
+{
+    for (uint32 sequence = 0; sequence < spu_sequence_scheduler.sequence_count; ++sequence)
+    {
+        SpuSequenceSchedulerTrack *tracks = spu_sequence_scheduler.tracks[sequence];
+        if (tracks)
         {
-            owner = (sint16)r_u16(0x80104E38 + (voice & 255) * 54);
-            if ((uint32)owner == identity)
+            for (uint32 track = 0; track < spu_sequence_scheduler.separation_count; ++track)
             {
-                w_u16(0x80105638, voice & 255);
-                QueueSequenceVoiceOff();
+                free((void *)tracks[track].stream.data);
+                spu_sequence_stream_clear(&tracks[track].stream);
             }
         }
-        ++voice;
-        count = (sint8)r_u8(0x8010561C);
-        result = (sint32)(voice & 255) < count;
-    } while (result);
+        spu_sequence_scheduler.tracks[sequence] = 0;
+    }
+    free(track_storage);
+    track_storage = 0;
+    spu_sequence_scheduler.sequence_count = 0;
+    spu_sequence_scheduler.separation_count = 0;
+    spu_sequence_scheduler.used_mask = 0;
+}
+
+void ResetMusicSequencer()
+{
+    spu_sequence_scheduler.processing = 1;
+    spu_sequence_scheduler_stop_timer(spu_sequence_clock());
+    ReleaseSequenceTracks();
+    spu_sequence_scheduler_initialize(&spu_sequence_scheduler, spu_sequence_vm_initialize);
+    SpuSequenceClock clock = {0, 1, TickMusicSequences, 0, 0, 0, 127, 0};
+    *spu_sequence_clock() = clock;
+    InitializeSequenceCallbacks();
+}
+
+uint32 InitializeSequenceTracks(sint16 sequences, sint16 tracks)
+{
+    FUNCTION_MARKER(0x8008F16C, "SLUS_003.73");
+    if (sequences <= 0 || sequences > 32 || tracks <= 0 || tracks > 16)
+    {
+        GameDiagnostic("Invalid native sequence table dimensions\n");
+        abort();
+    }
+    spu_sequence_scheduler.processing = 1;
+    for (sint16 sequence = 0; sequence < (sint16)spu_sequence_scheduler.sequence_count; ++sequence)
+        spu_sequence_scheduler_close(&spu_sequence_scheduler, sequence, SetSequenceVolumeCallback, StopSequenceVoices);
+    ReleaseSequenceTracks();
+    track_storage = (SpuSequenceSchedulerTrack *)calloc((uint32)sequences * tracks, sizeof(*track_storage));
+    if (!track_storage)
+    {
+        GameDiagnostic("Cannot allocate native sequence tracks\n");
+        abort();
+    }
+    uint32 result = spu_sequence_scheduler_set_table(&spu_sequence_scheduler, track_storage, sequences, tracks);
+    spu_sequence_scheduler.processing = 0;
     return result;
 }
 
-uint32 SaveSequenceVolume(uint32 identity, uint32 left, uint32 right)
+static uint32 SequenceInitialize(sint16 sequence, sint16 bank, const uint8 *data)
 {
-    uint32 record, value;
-    FUNCTION_MARKER(0x80092DB0, "SLUS_003.73");
-    record = r_u32(0x80104590 + (identity & 255) * 4);
-    w_u16(0x80105634, identity);
-    record += ((identity & 0xFF00) >> 8) * 176;
-    value = r_u16(record + 88);
-    w_u16(left, value);
-    value = r_u16(record + 90);
-    w_u16(right, value);
-    return (uint32)(sint32)(sint16)r_u16(0x80105634);
+    FUNCTION_MARKER(0x8008E21C, "SLUS_003.73");
+    return spu_sequence_scheduler_initialize_track(&spu_sequence_scheduler, sequence, bank, data, ReadSequenceDelta);
+}
+
+sint32 OpenAudioSequence(const uint8 *data, uint32 size, sint16 bank)
+{
+    FUNCTION_MARKER(0x8008E14C, "SLUS_003.73");
+    uint32 used = spu_sequence_scheduler.used_mask;
+    sint16 result = spu_sequence_scheduler_open(&spu_sequence_scheduler, data, size, bank, SequenceInitialize, &spu_sequence_handlers, &default_handlers, spu_tone_commands, default_commands);
+    if (result < 0)
+    {
+        uint32 opened = spu_sequence_scheduler.used_mask & ~used;
+        for (uint32 slot = 0; slot < spu_sequence_scheduler.sequence_count; ++slot)
+            if (opened & ((uint32)1 << slot))
+                spu_sequence_scheduler_close(&spu_sequence_scheduler, slot, SetSequenceVolumeCallback, StopSequenceVoices);
+    }
+    return result;
+}
+
+uint32 PlaySequence(uint32 sequence, uint32 mode, uint32 loops)
+{
+    RequireSequenceTrack((sint16)sequence, 0);
+    SpuSequenceSchedulerTrack *track = spu_sequence_scheduler.tracks[(uint16)sequence];
+    track->stream.cursor = track->stream.start;
+    track->stream.loop_start = track->stream.start;
+    track->stream.replay = track->stream.start;
+    return spu_sequence_scheduler_play_mode(&spu_sequence_scheduler, (sint16)sequence, 0, mode, (sint16)loops, SetSequenceVolumeCallback);
+}
+
+uint32 SetSequenceVolumes(uint32 sequence, uint32 left, uint32 right)
+{
+    return SetSequenceVoiceVolumes((sint16)sequence, (sint16)left, (sint16)right);
+}
+
+uint32 StopAndResetSequence(sint16 sequence)
+{
+    FUNCTION_MARKER(0x8008DD9C, "SLUS_003.73");
+    RequireSequenceTrack(sequence, 0);
+    return spu_sequence_scheduler_close(&spu_sequence_scheduler, sequence, SetSequenceVolumeCallback, StopSequenceVoices);
 }
 
 uint32 RequestSequenceStop(uint32 sequence, uint32 track)
 {
-    uint32 table, displacement, identity, record, flags;
     FUNCTION_MARKER(0x8008E56C, "SLUS_003.73");
-    table = 0x80104590 + (uint32)(sint32)(sint16)sequence * 4;
-    displacement = (uint32)(sint32)(sint16)track * 176;
-    identity = (uint32)(sint32)(sint16)(sequence | (track << 8));
-    record = r_u32(table) + displacement;
-    SaveSequenceVolume(identity, record + 92, record + 94);
-    record = r_u32(table) + displacement;
-    flags = r_u32(record + 152);
-    w_u32(record + 152, flags & ~1);
-    record = r_u32(table) + displacement;
-    flags = r_u32(record + 152);
-    w_u32(record + 152, flags & ~8);
-    record = r_u32(table) + displacement;
-    flags = r_u32(record + 152) | 2;
-    w_u32(record + 152, flags);
-    return flags;
-}
-
-uint32 StopSequenceTick(uint32 sequence, uint32 track)
-{
-    uint32 table, displacement, identity, record, flags;
-    FUNCTION_MARKER(0x8008D47C, "SLUS_003.73");
-    table = 0x80104590 + (uint32)(sint32)(sint16)sequence * 4;
-    displacement = (uint32)(sint32)(sint16)track * 176;
-    identity = (uint32)(sint32)(sint16)(sequence | (track << 8));
-    record = r_u32(table) + displacement;
-    StopSequenceVoices(identity);
-    w_u8(record + 20, 0);
-    record = r_u32(table) + displacement;
-    flags = r_u32(record + 152) & ~2;
-    w_u32(record + 152, flags);
-    return flags;
-}
-
-uint32 ReplaySequenceTick(uint32 sequence, uint32 track)
-{
-    uint32 table, displacement, record, flags;
-    FUNCTION_MARKER(0x8008DD3C, "SLUS_003.73");
-    table = 0x80104590 + (uint32)(sint32)(sint16)sequence * 4;
-    displacement = (uint32)(sint32)(sint16)track * 176;
-    record = r_u32(table) + displacement;
-    w_u8(record + 20, 1);
-    record = r_u32(table) + displacement;
-    flags = r_u32(record + 152);
-    w_u32(record + 152, flags & ~8);
-    return record;
+    RequireSequenceTrack((sint16)sequence, (sint16)track);
+    return spu_sequence_scheduler_request_pause(&spu_sequence_scheduler, sequence, track, SaveSequenceVolume);
 }
 
 uint32 RequestSequenceReplay(uint32 sequence, uint32 track)
 {
-    uint32 table, displacement, record, flags, result;
     FUNCTION_MARKER(0x8008E72C, "SLUS_003.73");
-    table = 0x80104590 + (uint32)(sint32)(sint16)sequence * 4;
-    displacement = (uint32)(sint32)(sint16)track * 176;
-    record = r_u32(table) + displacement;
-    flags = r_u32(record + 152);
-    result = flags & 0x100;
-    if (!(flags & 0x204))
-    {
-        result = (uint32)-3;
-        if (!(flags & 0x100))
-        {
-            w_u32(record + 152, flags & ~2);
-            record = r_u32(table) + displacement;
-            flags = r_u32(record + 152) | 8;
-            w_u32(record + 152, flags);
-            record = r_u32(table) + displacement;
-            result = r_u32(record + 152) | 1;
-            w_u32(record + 152, result);
-        }
-    }
-    return result;
-}
-
-uint32 StopMusicSequence(void)
-{
-    uint32 sequence;
-    FUNCTION_MARKER(0x8006A3C4, "SLUS_003.73");
-    sequence = (uint32)(sint32)(sint16)r_u16(0x800FF6AC);
-    RequestSequenceStop(sequence, 0);
-    w_u32(0x800FF6B4, 1);
-    w_u32(0x800FF6B8, 0);
-    return 1;
-}
-
-extern "C" uint32 sub_8006A3C4(void)
-{
-    FUNCTION_MARKER(0x8006A3C4, "SLUS_003.73");
-    return StopMusicSequence();
-}
-
-extern "C" uint32 apocalypse_sequence_stop_tick(uint32 sequence, uint32 track)
-{
-    return StopSequenceTick(sequence, track);
-}
-
-extern "C" uint32 apocalypse_sequence_replay_tick(uint32 sequence, uint32 track)
-{
-    return ReplaySequenceTick(sequence, track);
-}
-
-extern "C" uint32 apocalypse_sequence_replay(uint32 sequence)
-{
-    return RequestSequenceReplay((uint32)(sint32)(sint16)sequence, 0);
-}
-
-void SetMusicSequenceFadeStep(uint32 step)
-{
-    FUNCTION_MARKER(0x8006A490, "SLUS_003.73");
-    w_u32(0x800FF6BC, step & 65535);
-}
-
-extern "C" void sub_8006A490(uint32 step)
-{
-    FUNCTION_MARKER(0x8006A490, "SLUS_003.73");
-    SetMusicSequenceFadeStep(step);
+    RequireSequenceTrack((sint16)sequence, (sint16)track);
+    return spu_sequence_scheduler_replay_mode(&spu_sequence_scheduler, (sint16)sequence, (sint16)track);
 }
 
 uint32 StopSequenceImmediately(uint32 sequence, uint32 track)
 {
-    uint32 table, displacement, record, flags, identity, first, second, tempo, start, replay, index;
-    static const uint32 fields[13] = {28, 24, 25, 30, 26, 27, 31, 23, 33, 28, 29, 21, 22};
-    FUNCTION_MARKER(0x8008EE7C, "SLUS_003.73");
-    table = 0x80104590 + (uint32)(sint32)(sint16)sequence * 4;
-    displacement = (uint32)(sint32)(sint16)track * 176;
-    record = r_u32(table) + displacement;
-    first = record;
-    flags = r_u32(record + 152);
-    w_u32(record + 152, flags & ~1);
-    record = r_u32(table) + displacement;
-    flags = r_u32(record + 152);
-    w_u32(record + 152, flags & ~2);
-    record = r_u32(table) + displacement;
-    flags = r_u32(record + 152);
-    w_u32(record + 152, flags & ~8);
-    record = r_u32(table) + displacement;
-    flags = r_u32(record + 152);
-    w_u32(record + 152, flags & ~0x400);
-    record = r_u32(table) + displacement;
-    flags = r_u32(record + 152);
-    identity = (uint32)(sint32)(sint16)(sequence | (track << 8));
-    w_u32(record + 152, flags | 4);
-    StopSequenceVoices(identity);
-    sub_800905AC();
-    second = r_u32(first + 132);
-    record = r_u32(first + 140);
-    tempo = r_u16(first + 86);
-    start = r_u32(first + 4);
-    replay = r_u32(first + 4);
-    w_u8(first + 20, 0);
-    w_u32(first + 136, 0);
-    for (index = 0; index < 13; ++index)
-        w_u8(first + fields[index], 0);
-    w_u32(first + 144, second);
-    w_u32(first + 148, record);
-    w_u16(first + 84, tempo);
-    w_u32(first, start);
-    w_u32(first + 8, replay);
-    for (index = 0; index < 16; ++index)
-    {
-        w_u8(first + 55 + index, index);
-        w_u8(first + 39 + index, 64);
-        w_u16(first + 96 + index * 2, 127);
-    }
-    w_u16(first + 92, 127);
-    w_u16(first + 94, 127);
-    return 127;
+    RequireSequenceTrack((sint16)sequence, (sint16)track);
+    return StopSequenceTrack((sint16)sequence, (sint16)track);
 }
 
-uint32 StartChainedSequence(uint32 sequence, uint32 track)
+static void MusicSequenceIrq0()
 {
-    uint32 table, displacement, record, flags_record, result;
-    static const uint32 masks[5] = {0x100, 8, 2, 4, 0x200};
-    FUNCTION_MARKER(0x8008DC3C, "SLUS_003.73");
-    table = 0x80104590 + (uint32)(sint32)(sint16)sequence * 4;
-    displacement = (uint32)(sint32)(sint16)track * 176;
-    record = r_u32(table) + displacement;
-    w_u8(record + 32, 1);
-    w_u8(record + 33, 0);
-    for (uint32 index = 0; index < 5; ++index)
-    {
-        flags_record = r_u32(table) + displacement;
-        w_u32(flags_record + 152, r_u32(flags_record + 152) & ~masks[index]);
-    }
-    result = r_u32(record + 4);
-    w_u8(record + 20, 1);
-    w_u32(record, result);
-    flags_record = r_u32(table) + displacement;
-    result = r_u32(flags_record + 152) | 1;
-    w_u32(flags_record + 152, result);
-    return result;
+    spu_sequence_scheduler_irq0(spu_sequence_clock());
+}
+
+static void MusicSequenceHalfRate()
+{
+    spu_sequence_scheduler_half_rate(spu_sequence_clock());
+}
+
+void InitializeMusicSequenceTimer()
+{
+    spu_sequence_clock()->tick = TickMusicSequences;
+}
+
+void SetMusicSequenceTickMode(uint32 mode)
+{
+    spu_sequence_scheduler_tick_mode(&spu_sequence_scheduler, spu_sequence_clock(), mode, GetVideoMode());
+}
+
+void StartMusicSequencer()
+{
+    FUNCTION_MARKER(0x8008EC4C, "SLUS_003.73");
+    spu_sequence_scheduler_start_timer(spu_sequence_clock(), 0, MusicSequenceIrq0, MusicSequenceHalfRate);
 }

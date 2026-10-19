@@ -6,6 +6,8 @@ extern "C"
 #include "psx.h"
 }
 
+void ResetSoundVoicePitches();
+
 uint32 PlaySoundVoices(uint32 configuration, uint8 note, sint16 left, sint16 right, uint32 pitch_variation);
 
 void StopSoundVoices(uint32 mask);

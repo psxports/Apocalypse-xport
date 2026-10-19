@@ -1,15 +1,16 @@
-#include "game_sdk_bindings.h"
-#include "texture_resources.h"
-#include "model_vram.h"
 #include <stdlib.h>
 #include <string.h>
+
+#include "game_diagnostics.h"
+#include "texture_resources.h"
+#include "model_vram.h"
 
 static TextureResource *tex_buckets[512];
 static uint32 tex_bucket;
 static TextureResource *tex_cursor;
 static TextureGroupBlock *tex_groups;
 
-TextureResource *AllocateModelResourceEntry(uint32 key)
+static TextureResource *AllocateModelResourceEntry(uint32 key)
 {
     FUNCTION_MARKER(0x8006E178, "SLUS_003.73");
     TextureResource *tex = (TextureResource *)malloc(sizeof(TextureResource));
@@ -68,9 +69,12 @@ uint32 PackTextureUv(const TextureResource &tex, uint32 word)
 {
     switch (word)
     {
-        case 0: return tex.uv[0].uv | ((uint32)tex.clut << 16);
-        case 1: return tex.uv[1].uv | ((uint32)tex.tpage << 16);
-        case 2: return tex.uv[2].uv | ((uint32)tex.uv[3].uv << 16);
+        case 0:
+            return tex.uv[0].uv | ((uint32)tex.clut << 16);
+        case 1:
+            return tex.uv[1].uv | ((uint32)tex.tpage << 16);
+        case 2:
+            return tex.uv[2].uv | ((uint32)tex.uv[3].uv << 16);
     }
     GameDiagnostic("Invalid packed texture UV word %u\n", word);
     abort();
@@ -328,10 +332,4 @@ const TextureFrame &GetTextureFrame(const TextureGroup *grp, sint32 idx)
         abort();
     }
     return grp->frames[idx];
-}
-
-const TextureGroup *FindModelTextureGroup(uint32 name)
-{
-    // Incoming script names remain at the string migration boundary
-    return FindModelTextureGroup((const char *)psx_addr(name, 1));
 }

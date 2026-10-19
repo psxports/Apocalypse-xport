@@ -1,204 +1,170 @@
+#include <new>
+#include <stdlib.h>
+
+#include "game_heap.h"
 #include "visual_object.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
 #include "beam_trigger.h"
 #include "effect_lifecycle.h"
 #include "record_data.h"
 #include "game_object_allocation.h"
-#include "object_collision_events.h"
+#include "collision.h"
 #include "record_factory.h"
 #include "audio_session.h"
 #include "game_random.h"
 #include "point_segments.h"
-#include "native_object_storage.h"
-#include <new>
 
 uint32 BeamTrigger::InitializeEffect()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 effect, storage, x, y, z, value;
     FUNCTION_MARKER(0x8001A478, "SLUS_003.73");
-    effect = AllocateEffectStorage(96);
-    if (effect)
+    GameHeapBlock *allocation = AllocateEffectStorage(96);
+    if (!allocation)
     {
-        void *dram_addr = AllocateNativeObjectStorage(effect, sizeof(PointSegments));
-        new (dram_addr) PointSegments(1);
+        GameDiagnostic("Beam trigger point allocation failed\n");
+        abort();
     }
-    w_u32(object + 320, effect);
-    x = this->model.pos[0];
-    y = this->model.pos[1];
-    z = this->model.pos[2];
-    w_u32(effect + 84, x);
-    w_u32(effect + 88, y);
-    w_u32(effect + 92, z);
-    w_u8(r_u32(object + 320) + 66, 1);
-    PointSegments::Attach(r_u32(object + 320)).EnableSegments();
-    effect = r_u32(object + 320);
-    storage = r_u32(effect + 80);
-    x = r_u32(object + 308);
-    y = r_u32(object + 312);
-    z = r_u32(object + 316);
-    w_u32(storage, x);
-    w_u32(storage + 4, y);
-    w_u32(storage + 8, z);
-    storage = r_u32(r_u32(object + 320) + 80);
-    value = r_u8(object + 296);
-    w_u8(storage + 12, value);
-    storage = r_u32(r_u32(object + 320) + 80);
-    value = r_u8(object + 297);
-    w_u8(storage + 13, value);
-    storage = r_u32(r_u32(object + 320) + 80);
-    value = r_u8(object + 298);
-    w_u8(storage + 14, value);
-    return value;
+    effect = new (allocation) PointSegments(1);
+    effect->origin.words[0] = model.pos.words[0];
+    effect->origin.words[1] = model.pos.words[1];
+    effect->origin.words[2] = model.pos.words[2];
+    effect->persistent = 1;
+    effect->EnableSegments();
+    effect->points[0].pos.words[0] = target.words[0];
+    effect->points[0].pos.words[1] = target.words[1];
+    effect->points[0].pos.words[2] = target.words[2];
+    effect->points[0].rgbc.r = rgb[0];
+    effect->points[0].rgbc.g = rgb[1];
+    effect->points[0].rgbc.b = rgb[2];
+    return rgb[2];
 }
 
-BeamTrigger::BeamTrigger(const uint8 *, uint32 index) : VisualObject()
+BeamTrigger::BeamTrigger(const uint8 *, uint32 index) : VisualObject(), triggered(0), timer(0), spawn_rec(0), effect()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 flags, secondary_flags, cursor, reference, records, record, value;
+    RecordDataBorrow record_borrow;
+    uint32 flags, secondary_flags, reference, value;
+    RecordCursor cursor;
+    RecordCursor record;
     FUNCTION_MARKER(0x8001A2E8, "SLUS_003.73");
-    w_u32(object + 68, 0x800A0700);
     flags = this->model.flags;
     secondary_flags = this->lifecycle_flags;
     this->model.flags = flags | 1;
     this->lifecycle_flags = secondary_flags & 0xFFEF;
     AddToList(visual_lists.actors);
     index &= 65535;
-    w_u8(object + 299, 0);
-    ReadRecordPosition((uint32 *)this->model.pos, index);
+    triggered = 0;
+    ReadRecordPosition(this->model.pos.words, index);
     cursor = GetRecordPayload(index);
-    reference = r_u16(cursor + 2);
-    records = r_u32(0x800FF624);
-    record = r_u32(records + reference * 4);
-    value = r_u16(record);
+    reference = (cursor + 2).Read16();
+    record = GetLevelRecord(reference);
+    value = (record).Read16();
     if ((sint16)value == 3)
     {
-        value = r_u16(cursor + 4);
-        w_u16(object + 306, value);
-        reference = r_u16(cursor + 2);
+        value = (cursor + 4).Read16();
+        spawn_rec = value;
+        reference = (cursor + 2).Read16();
     }
     else
     {
-        w_u16(object + 306, reference);
-        reference = r_u16(cursor + 4);
+        spawn_rec = reference;
+        reference = (cursor + 4).Read16();
     }
-    ReadRecordPosition((uint32 *)psx_addr(object + 308, 12), reference);
-    w_u8(object + 296, 32);
-    w_u8(object + 297, 0);
-    w_u8(object + 298, 0);
-    w_u16(object + 304, 0);
-    w_u32(object + 300, 1);
+    ReadRecordPosition(target.words, reference);
+    rgb[0] = 32;
+    rgb[1] = 0;
+    rgb[2] = 0;
+    timer = 0;
     InitializeEffect();
+}
+
+BeamTrigger::~BeamTrigger()
+{
+    if (effect)
+        effect->Destroy(3);
 }
 
 uint32 BeamTrigger::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, receiver, target;
     FUNCTION_MARKER(0x8001A3E8, "SLUS_003.73");
-    w_u32(object + 68, 0x800A0700);
     RemoveFromList(visual_lists.actors);
-    child = r_u32(object + 320);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, receiver, 3);
-    }
+    if (effect)
+        effect->Destroy(3);
+    effect = 0;
     VisualObject::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(object) : 0;
+    return reason & 1 ? ReleaseObjectStorage(this) : 0;
 }
 
 uint32 BeamTrigger::Update()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 effect, player, storage, active, value, flags, result, timer, random, table, receiver, target, axis;
     FUNCTION_MARKER(0x8001A550, "SLUS_003.73");
-    effect = r_u32(object + 320);
-    player = visual_lists.players;
-    storage = r_u32(effect + 80);
-    active = 0;
-    if (player && TraceSegmentCollision((const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 308, 12), player))
+    ModelInstance *player = visual_lists.players;
+    uint32 active = 0;
+    if (player && TraceSegmentCollision(model.pos.words, target.words, player))
     {
-        value = r_u8(object + 299);
         active = 1;
-        if (!value)
+        if (!triggered)
         {
             PlaySoundEffect(41, 8192, 0);
-            SpawnRecord(r_u16(object + 306));
-            w_u8(object + 299, 1);
+            SpawnRecord(spawn_rec);
+            triggered = 1;
         }
-        for (axis = 0; axis < 3; ++axis)
+        if (effect)
         {
-            value = r_u8(object + 296 + axis);
-            w_u8(storage + 12 + axis, value ? 255 : 0);
+            effect->points[0].rgbc.r = rgb[0] ? 255 : 0;
+            effect->points[0].rgbc.g = rgb[1] ? 255 : 0;
+            effect->points[0].rgbc.b = rgb[2] ? 255 : 0;
         }
-        w_u16(object + 304, 0);
+        timer = 0;
     }
-    flags = this->activation_flags;
-    result = flags & 0xFFFE;
+    uint32 flags = activation_flags;
+    uint32 result = flags & 0xFFFE;
     if (flags & 1)
     {
-        this->activation_flags = result;
+        activation_flags = result;
         result = 1;
-        w_u8(object + 299, 1);
+        triggered = 1;
     }
     if (active)
         return result;
-    if (r_u8(object + 299))
+    if (triggered)
     {
-        timer = r_u16(object + 304) + 1;
-        w_u16(object + 304, timer);
-        if ((timer & 65535) >= 61)
-        {
-            table = r_u32(object + 68);
-            receiver = object + (uint32)(sint32)(sint16)r_u16(table + 16);
-            target = r_u32(table + 20);
-            return xport_draft_guest_call1(target, receiver);
-        }
+        ++timer;
+        if (timer >= 61)
+            return Finish();
         if (!RandomRange(2))
         {
-            for (axis = 0; axis < 3; ++axis)
+            for (uint32 axis = 0; axis < 3; ++axis)
             {
-                result = r_u8(object + 296 + axis) >> 2;
-                w_u8(storage + 12 + axis, result);
+                result = rgb[axis] >> 2;
+                if (effect)
+                {
+                    RGBC &color = effect->points[0].rgbc;
+                    if (axis == 0)
+                        color.r = result;
+                    else if (axis == 1)
+                        color.g = result;
+                    else
+                        color.b = result;
+                }
             }
             return result;
         }
     }
-    for (axis = 0; axis < 3; ++axis)
+    for (uint32 axis = 0; axis < 3; ++axis)
     {
-        value = r_u8(object + 296 + axis);
-        random = RandomRange(value >> 1);
-        value = r_u8(object + 296 + axis);
-        result = random - (value >> 2);
-        w_u8(storage + 12 + axis, value + result);
+        uint32 val = rgb[axis];
+        uint32 random = RandomRange(val >> 1);
+        val = rgb[axis];
+        result = random - (val >> 2);
+        if (effect)
+        {
+            RGBC &color = effect->points[0].rgbc;
+            if (axis == 0)
+                color.r = val + result;
+            else if (axis == 1)
+                color.g = val + result;
+            else
+                color.b = val + result;
+        }
     }
     return result;
-}
-
-
-
-extern "C" uint32 sub_8001A3E8(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x8001A3E8, "SLUS_003.73");
-    return BeamTrigger::Attach(object).BeamTrigger::Destroy(reason);
-}
-
-
-
-extern "C" uint32 sub_8001A550(uint32 object)
-{
-    FUNCTION_MARKER(0x8001A550, "SLUS_003.73");
-    return BeamTrigger::Attach(object).BeamTrigger::Update();
-}
-
-BeamTrigger &BeamTrigger::Attach(uint32 object)
-{
-    return *static_cast<BeamTrigger *>(FindNativeObjectStorage(object));
 }

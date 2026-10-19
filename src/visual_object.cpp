@@ -1,20 +1,16 @@
-#include "game_sdk_bindings.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <new>
+
+#include "game_tuning.h"
+#include "game_diagnostics.h"
 
 #include "character.h"
-#include "object_lifecycle.h"
 #include "object_damage.h"
 #include "game_heap.h"
 #include "model_resources.h"
 #include "game_object_allocation.h"
-#include "native_object_storage.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 // Native lookup for the mapped single-inheritance visual hierarchy
 
@@ -39,34 +35,13 @@ extern "C"
 
 #include "textured_quad.h"
 #include "effect_lifecycle.h"
-#include <new>
 
 VisualLists visual_lists;
+uint32 visual_activation_distance;
 
 void ResetVisualLists()
 {
     memset(&visual_lists, 0, sizeof(visual_lists));
-}
-
-
-static uint32 ReadVisualRecordWord(const uint8 *data)
-{
-    uint32 address = GuestMemoryAddress(data);
-    if (address)
-        return r_u32(address);
-    uint32 value;
-    memcpy(&value, data, 4);
-    return value;
-}
-
-static uint32 ReadVisualRecordHalf(const uint8 *data)
-{
-    uint32 address = GuestMemoryAddress(data);
-    if (address)
-        return r_u16(address);
-    uint16 value;
-    memcpy(&value, data, 2);
-    return value;
 }
 
 static sint32 DivideVisualColor(sint32 numerator, uint32 divisor)
@@ -76,68 +51,34 @@ static sint32 DivideVisualColor(sint32 numerator, uint32 divisor)
     return numerator / (sint32)divisor;
 }
 
-VisualObject &VisualObject::Attach(uint32 object)
-{
-    return *static_cast<VisualObject *>(FindNativeObjectStorage(object));
-}
-
 ScaledObject::ScaledObject()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80062628, "SLUS_003.73");
-    w_u32(object + 68, 0x800A33C0);
     model.owner = this;
-    model.scale[0] = ONE;
-    model.scale[1] = ONE;
-    model.scale[2] = ONE;
-}
-
-uint32 InitializeScaledObjectBase(uint32 object)
-{
-    FUNCTION_MARKER(0x80062628, "SLUS_003.73");
-    w_u32(object + 68, 0x800A33C0);
-    ScaledObject *base = static_cast<ScaledObject *>(FindNativeObjectStorage(object));
-    base->model.scale[0] = ONE;
-    base->model.scale[1] = ONE;
-    base->model.scale[2] = ONE;
-    return object;
+    model.scale.words[0] = ONE;
+    model.scale.words[1] = ONE;
+    model.scale.words[2] = ONE;
 }
 
 uint32 ScaledObject::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 flags, index;
     FUNCTION_MARKER(0x80062650, "SLUS_003.73");
     flags = model.flags & 1024;
-    w_u32(object + 68, 0x800A33C0);
     if (flags)
     {
         index = model.flash;
         ReleaseObjectFlash((uint8)index);
     }
+    MarkDestroyed();
+    model.InvalidateReferences();
     if (reason & 1)
-        return ::ReleaseObjectStorage(object);
+        return ::ReleaseObjectStorage(this);
     return 0;
-}
-
-uint32 DestroyScaledObjectBase(uint32 object, uint32 reason)
-{
-    uint32 flags, index;
-    FUNCTION_MARKER(0x80062650, "SLUS_003.73");
-    ScaledObject *base = static_cast<ScaledObject *>(FindNativeObjectStorage(object));
-    flags = base->model.flags & 1024;
-    w_u32(object + 68, 0x800A33C0);
-    if (flags)
-    {
-        index = base->model.flash;
-        ReleaseObjectFlash((uint8)index);
-    }
-    return (reason & 1) ? ReleaseObjectStorage(object) : 0;
 }
 
 uint32 VisualObject::SetModelBank(const char *name)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800626C8, "SLUS_003.73");
     uint32 result = FindModelBankByName(name);
     this->model.bank = result;
@@ -147,7 +88,6 @@ uint32 VisualObject::SetModelBank(const char *name)
 
 uint32 VisualObject::SetColor(sint32 duration, uint32 red, uint32 green, uint32 blue)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800626F8, "SLUS_003.73");
     uint32 flags, color, divisor, result;
     sint32 dr, dg, db;
@@ -204,7 +144,6 @@ uint32 VisualObject::SetColor(sint32 duration, uint32 red, uint32 green, uint32 
 
 uint32 VisualObject::AdvanceColor()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80062858, "SLUS_003.73");
     uint32 timer = color_transition.timer;
     if (!timer)
@@ -236,53 +175,43 @@ uint32 VisualObject::AdvanceColor()
     return result;
 }
 
-VisualObject::VisualObject() : kind(0), activation_flags(0), lifecycle_flags(0), target_mark(0), event_flags(0), record_idx(0), saved_head(0) : ScaledObject()
+VisualObject::VisualObject() : ScaledObject(), contact_strength(10), player_distance(0), kind(0), activation_flags(0), lifecycle_flags(0), target_mark(0), event_flags(0), record_idx(0), collision_radius(0), contact_flags(0), health(0), target_disabled(0), saved_head(0), list_head(0)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 flags, value;
     FUNCTION_MARKER(0x80062924, "SLUS_003.73");
-    w_u32(object + 68, 0x800A3380);
+    memset(&surface, 0, sizeof(surface));
     motion.drag[0] = 1;
     motion.drag[1] = 1;
     motion.drag[2] = 1;
     motion.angular_drag[0] = 1;
     motion.angular_drag[1] = 1;
     motion.angular_drag[2] = 1;
-    w_u32(object + 208, 10);
-    w_u16(object + 148, 0);
     this->record_idx = 65535;
-    value = r_u16(0x800EC682);
-    w_u16(object + 200, value);
+    value = GetGameTuning().shadow_radius;
+    shadow.radius = value;
     flags = this->lifecycle_flags;
-    value = r_u16(0x800EC680);
+    value = GetGameTuning().shadow_height;
     this->lifecycle_flags = flags | 18;
-    w_u16(object + 212, 50);
-    w_u16(object + 204, value);
+    this->collision_radius = 50;
+    shadow.max_height = value;
 }
 
-uint32 InitializeVisualObjectBase(uint32 object)
+uint32 VisualObject::Finish()
 {
-    uint32 flags, value;
-    FUNCTION_MARKER(0x80062924, "SLUS_003.73");
-    InitializeScaledObjectBase(object);
-    w_u32(object + 68, 0x800A3380);
-    VisualObject::Attach(object).motion.drag[0] = 1;
-    VisualObject::Attach(object).motion.drag[1] = 1;
-    VisualObject::Attach(object).motion.drag[2] = 1;
-    VisualObject::Attach(object).motion.angular_drag[0] = 1;
-    VisualObject::Attach(object).motion.angular_drag[1] = 1;
-    VisualObject::Attach(object).motion.angular_drag[2] = 1;
-    w_u32(object + 208, 10);
-    w_u16(object + 148, 0);
-    w_u16(object + 214, 65535);
-    value = r_u16(0x800EC682);
-    w_u16(object + 200, value);
-    flags = r_u16(object + 78);
-    value = r_u16(0x800EC680);
-    w_u16(object + 78, flags | 18);
-    w_u16(object + 212, 50);
-    w_u16(object + 204, value);
-    return object;
+    FUNCTION_MARKER(0x80062F0C, "SLUS_003.73");
+    uint32 result = IsFinished();
+    if (!result)
+    {
+        result = lifecycle_flags | 0x40;
+        lifecycle_flags = result;
+    }
+    return result;
+}
+
+uint32 VisualObject::IsFinished()
+{
+    FUNCTION_MARKER(0x80062F48, "SLUS_003.73");
+    return (lifecycle_flags & 0x40) != 0;
 }
 
 uint32 VisualObject::Update()
@@ -311,46 +240,18 @@ uint32 VisualObject::Damage(uint32, const sint32 *, uint32)
 
 uint32 VisualObject::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, target;
-    sint32 adjustment;
     FUNCTION_MARKER(0x800629BC, "SLUS_003.73");
-    child = r_u32(object + 196);
-    w_u32(object + 68, 0x800A3380);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        adjustment = (sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, child + (uint32)adjustment, 3);
-    }
+    if (shadow.effect)
+        shadow.effect->Destroy(3);
+    shadow.effect = 0;
     ScaledObject::Destroy(0);
-    if (reason & 1)
-        return ::ReleaseObjectStorage(object);
-    return 0;
-}
-
-uint32 DestroyVisualObjectBase(uint32 object, uint32 reason)
-{
-    uint32 child, table, target;
-    sint32 adjustment;
-    FUNCTION_MARKER(0x800629BC, "SLUS_003.73");
-    child = r_u32(object + 196);
-    w_u32(object + 68, 0x800A3380);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        adjustment = (sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, child + (uint32)adjustment, 3);
-    }
-    DestroyScaledObjectBase(object, 0);
-    return (reason & 1) ? ReleaseObjectStorage(object) : 0;
+    return reason & 1 ? ::ReleaseObjectStorage(this) : 0;
 }
 
 ModelInstance *VisualObject::AddToList(ModelInstance *&head)
 {
     FUNCTION_MARKER(0x80062A38, "SLUS_003.73");
+    list_head = &head;
     model.prev = 0;
     model.next = head;
     head = &model;
@@ -361,7 +262,6 @@ ModelInstance *VisualObject::AddToList(ModelInstance *&head)
 
 ModelInstance *VisualObject::RemoveFromList(ModelInstance *&head)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80062A64, "SLUS_003.73");
     if ((this->lifecycle_flags & 1) && &head != &visual_lists.suspended)
         RestoreList();
@@ -375,37 +275,36 @@ ModelInstance *VisualObject::RemoveFromList(ModelInstance *&head)
         result = model.next;
         head = result;
     }
+    if (list_head == &head)
+        list_head = 0;
     return result;
 }
 
-const uint8 *VisualObject::ReadPosition(const uint8 *data)
+RecordCursor VisualObject::ReadPosition(RecordCursor data)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80062B0C, "SLUS_003.73");
     for (uint32 axis = 0; axis < 3; ++axis)
     {
-        uint32 value = ReadVisualRecordWord(data + axis * 4) << 12;
-        pos_history.saved[axis] = value;
-        this->model.pos[axis] = value;
+        uint32 value = (data + axis * 4).Read32() << 12;
+        pos_history.saved.words[axis] = value;
+        this->model.pos.words[axis] = value;
     }
     return data + 12;
 }
 
-const uint8 *VisualObject::ReadAngles(const uint8 *data)
+RecordCursor VisualObject::ReadAngles(RecordCursor data)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80062B50, "SLUS_003.73");
     for (uint32 axis = 0; axis < 3; ++axis)
     {
-        uint32 value = ReadVisualRecordHalf(data + axis * 2);
-        this->model.angles[axis] = value;
+        uint32 value = (data + axis * 2).Read16();
+        this->model.angles.words[axis] = value;
     }
     return data + 6;
 }
 
 uint32 VisualObject::MoveToTemporaryList(ModelInstance *&head)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80062B7C, "SLUS_003.73");
     ReleaseResources();
     saved_head = &head;
@@ -418,7 +317,6 @@ uint32 VisualObject::MoveToTemporaryList(ModelInstance *&head)
 
 uint32 VisualObject::RestoreList()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80062BF0, "SLUS_003.73");
     uint32 result = this->lifecycle_flags & 1;
     if (result)
@@ -431,9 +329,25 @@ uint32 VisualObject::RestoreList()
     return result;
 }
 
+uint32 *VisualObject::ApplyContactImpulse(const VisualObject &object)
+{
+    FUNCTION_MARKER(0x80062C50, "SLUS_003.73");
+    Vector3 delta, shifted, product, quotient, impulse;
+    uint32 shift = 12;
+    SubtractVectors(delta.words, model.pos.words, object.model.pos.words);
+    uint32 distance = MeasureVectorLength(delta.words);
+    if (!distance)
+        distance = 1;
+    ShiftVectorRight(shifted.words, delta.words, shift);
+    MultiplyScalarVector(product.words, object.contact_strength, shifted.words);
+    DivideVector(quotient.words, product.words, distance);
+    ShiftVectorLeft(impulse.words, quotient.words, shift);
+    AddVectors(motion.velocity.words, impulse.words);
+    return motion.velocity.words;
+}
+
 uint32 VisualObject::UpdateEventLatch(uint32 active, uint32 mask)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 flags;
     FUNCTION_MARKER(0x80062D24, "SLUS_003.73");
     if (active == 1)
@@ -451,7 +365,6 @@ uint32 VisualObject::UpdateEventLatch(uint32 active, uint32 mask)
 
 uint32 VisualObject::EnableShadow()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80062D70, "SLUS_003.73");
     uint32 result = this->lifecycle_flags | 8;
     this->lifecycle_flags = result;
@@ -460,181 +373,75 @@ uint32 VisualObject::EnableShadow()
 
 uint32 VisualObject::RemoveShadow()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80062D84, "SLUS_003.73");
-    uint32 result = this->lifecycle_flags & 0xFFF7;
-    uint32 child = r_u32(object + 196);
-    this->lifecycle_flags = result;
-    if (child)
+    uint32 result = lifecycle_flags & 0xFFF7;
+    lifecycle_flags = result;
+    if (shadow.effect)
     {
-        uint32 table = r_u32(child + 68);
-        sint32 adjustment = (sint16)r_u16(table + 8);
-        uint32 target = r_u32(table + 12);
-        result = apocalypse_object_cleanup(target, child + (uint32)adjustment, 3);
-        w_u32(object + 196, 0);
+        result = shadow.effect->Destroy(3);
+        shadow.effect = 0;
     }
     return result;
 }
 
 uint32 VisualObject::UpdateShadow()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80062DD8, "SLUS_003.73");
-    if (!(this->lifecycle_flags & 8))
+    if (!(lifecycle_flags & 8))
         return RemoveShadow();
-    uint32 child = r_u32(object + 196);
-    if (!child)
+    if (!shadow.effect)
     {
-        w_u32(0x800FF3AC, 0);
-        child = AllocateEffectStorage(156);
-        if (child)
+        use_small_effect_pool = false;
+        GameHeapBlock *allocation = AllocateEffectStorage(156);
+        if (allocation)
         {
-            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(TexturedQuad));
-            new (dram_addr) TexturedQuad();
+            shadow.effect = new (allocation) TexturedQuad();
         }
-        // TODO: Resolve original null allocation before native quad attachment
-        w_u32(object + 196, child);
-        w_u32(0x800FF3AC, 1);
-        TexturedQuad::Attach(child).SelectResource((const char *)psx_addr(0x800FF5F0, 1), 0);
-        TexturedQuad::Attach(r_u32(object + 196)).AddFlags(4);
-        TexturedQuad::Attach(r_u32(object + 196)).EnableSemiTransparency();
-        w_u16(r_u32(object + 196) + 64, 32);
-        w_u8(r_u32(object + 196) + 66, 1);
+        use_small_effect_pool = true;
+        if (!shadow.effect)
+        {
+            GameDiagnostic("Object shadow allocation failed\n");
+            abort();
+        }
+        shadow.effect->SelectResource("Shadow", 0);
+        shadow.effect->AddFlags(4);
+        shadow.effect->EnableSemiTransparency();
+        shadow.effect->depth_bias = 32;
+        shadow.effect->persistent = 1;
     }
-    sint16 direction[3] = {0, -4096, 0};
-    uint32 radius = r_u16(object + 200);
-    child = r_u32(object + 196);
-    TexturedQuad::Attach(child).SetPosition((const uint32 *)psx_addr(object + 184, 12), direction, radius, radius);
-    sint32 total = (sint16)r_u16(object + 204);
-    sint32 current = (sint16)r_u16(object + 202);
-    uint32 numerator = ((uint32)total - (uint32)current) << 7;
+    const sint16 direction[3] = {0, -4096, 0};
+    shadow.effect->SetPosition(surface.pos.words, direction, shadow.radius, shadow.radius);
+    sint32 total = (sint16)shadow.max_height;
+    sint32 height = (sint16)shadow.height;
+    uint32 numerator = ((uint32)total - (uint32)height) << 7;
     sint32 alpha = total ? (sint32)numerator / total : ((sint32)numerator < 0 ? 1 : -1);
     if (alpha < 0)
         alpha = 0;
-    return TexturedQuad::Attach(r_u32(object + 196)).SetBrightness((uint32)alpha & 255);
+    return shadow.effect->SetBrightness((uint32)alpha & 255);
 }
 
-uint32 VisualObject::Finish()
+VisualObject::~VisualObject()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    FUNCTION_MARKER(0x80062F0C, "SLUS_003.73");
-    uint32 result = IsFinished();
-    if (!result)
-    {
-        result = this->lifecycle_flags | 64;
-        this->lifecycle_flags = result;
-    }
-    return result;
+    if (shadow.effect)
+        shadow.effect->Destroy(3);
+    if (!list_head)
+        return;
+    if (model.next)
+        model.next->prev = model.prev;
+    if (model.prev)
+        model.prev->next = model.next;
+    if (*list_head == &model)
+        *list_head = model.next;
 }
 
-uint32 VisualObject::IsFinished()
+ModelInstance *ModelReference::GetObject() const
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    FUNCTION_MARKER(0x80062F48, "SLUS_003.73");
-    return (this->lifecycle_flags & 64) != 0;
+    if (!object || !object->active)
+        return 0;
+    return !object->owner || object->owner->IsAlive() ? object : 0;
 }
 
-extern "C" uint32 sub_80062F48(uint32 object)
+ModelPolygon *ModelReference::GetPolygon() const
 {
-    // ABI data query also supports original callers before native construction
-    FUNCTION_MARKER(0x80062F48, "SLUS_003.73");
-    return (r_u16(object + 78) & 64) != 0;
+    return GetObject() ? poly : 0;
 }
-
-extern "C" uint32 sub_80062B7C(uint32 object, uint32 list)
-{
-    FUNCTION_MARKER(0x80062B7C, "SLUS_003.73");
-    return VisualObject::Attach(object).VisualObject::MoveToTemporaryList((uint32 *)psx_addr(list, 4));
-}
-
-extern "C" uint32 sub_80062A38(uint32 object, uint32 list)
-{
-    FUNCTION_MARKER(0x80062A38, "SLUS_003.73");
-    return VisualObject::Attach(object).VisualObject::AddToList((uint32 *)psx_addr(list, 4));
-}
-
-extern "C" uint32 sub_80062A64(uint32 object, uint32 list)
-{
-    FUNCTION_MARKER(0x80062A64, "SLUS_003.73");
-    return VisualObject::Attach(object).VisualObject::RemoveFromList((uint32 *)psx_addr(list, 4));
-}
-
-extern "C" uint32 sub_80062BF0(uint32 object)
-{
-    FUNCTION_MARKER(0x80062BF0, "SLUS_003.73");
-    return VisualObject::Attach(object).VisualObject::RestoreList();
-}
-
-extern "C" uint32 sub_80062B0C(uint32 object, uint32 data)
-{
-    FUNCTION_MARKER(0x80062B0C, "SLUS_003.73");
-    const uint8 *next = VisualObject::Attach(object).VisualObject::ReadPosition((const uint8 *)psx_addr(data, 12));
-    return GuestMemoryAddress(next);
-}
-
-extern "C" uint32 sub_80062B50(uint32 object, uint32 data)
-{
-    FUNCTION_MARKER(0x80062B50, "SLUS_003.73");
-    const uint8 *next = VisualObject::Attach(object).VisualObject::ReadAngles((const uint8 *)psx_addr(data, 6));
-    return GuestMemoryAddress(next);
-}
-
-extern "C" uint32 sub_800626C8(uint32 object, uint32 name)
-{
-    FUNCTION_MARKER(0x800626C8, "SLUS_003.73");
-    return VisualObject::Attach(object).VisualObject::SetModelBank((const char *)psx_addr(name, 1));
-}
-
-extern "C" uint32 sub_800626F8(uint32 object, uint32 duration, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x800626F8, "SLUS_003.73");
-    return VisualObject::Attach(object).VisualObject::SetColor((sint32)duration, red, green, blue);
-}
-
-
-
-extern "C" uint32 sub_80062924(uint32 object)
-{
-    FUNCTION_MARKER(0x80062924, "SLUS_003.73");
-    return InitializeVisualObjectBase(object);
-}
-
-extern "C" uint32 sub_80062F0C(uint32 object)
-{
-    FUNCTION_MARKER(0x80062F0C, "SLUS_003.73");
-    return VisualObject::Attach(object).VisualObject::Finish();
-}
-
-extern "C" uint32 sub_80062650(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x80062650, "SLUS_003.73");
-    return DestroyScaledObjectBase(object, reason);
-}
-
-extern "C" uint32 sub_800629BC(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x800629BC, "SLUS_003.73");
-    return DestroyVisualObjectBase(object, reason);
-}
-
-
-
-extern "C" uint32 sub_80062D24(uint32 object, uint32 active, uint32 mask)
-{
-    FUNCTION_MARKER(0x80062D24, "SLUS_003.73");
-    return VisualObject::Attach(object).UpdateEventLatch(active, mask);
-}
-
-extern "C" uint32 sub_80062D70(uint32 object)
-{
-    FUNCTION_MARKER(0x80062D70, "SLUS_003.73");
-    return VisualObject::Attach(object).VisualObject::EnableShadow();
-}
-
-extern "C" uint32 sub_80062D84(uint32 object)
-{
-    FUNCTION_MARKER(0x80062D84, "SLUS_003.73");
-    return VisualObject::Attach(object).VisualObject::RemoveShadow();
-}
-
-

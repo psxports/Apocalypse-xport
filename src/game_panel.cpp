@@ -1,19 +1,31 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "pause_menu.h"
+#include "cd_voice_event.h"
+#include "level_session.h"
+#include "scene_lifecycle.h"
+#include "game_tuning.h"
+#include "input_recording.h"
+#include "game_pad_poll.h"
+#include "game_settings.h"
+
+#include "game_tick.h"
+
+#include "record_scripts.h"
+
 #include "player.h"
 #include "weapon_nodes.h"
 #include "visual_object.h"
 #include "cheat_input.h"
 #include "resource_io.h"
-#include "game_sdk_bindings.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
+
 #include "game_panel.h"
+static uint32 SeedMenuFire(uint32 sparks);
+static uint32 DrawMenuRightHint(void);
 #include "menu_window.h"
-#include "native_object_storage.h"
-#include <stdio.h>
-#include <stdlib.h>
 #include "hud_text.h"
 #include "hud_sprites.h"
 #include "record_data.h"
@@ -22,7 +34,51 @@ extern "C"
 #include "game_heap.h"
 #include "game_random.h"
 
+struct MenuFireBuffers
+{
+    uint8 *buffers[2];
+    uint8 selected;
+    uint16 width;
+    uint16 height;
+    uint8 intensity;
+    PSX_RECT rectangle;
+};
+
+PanelText panel_text = {"", 0, -20, 0, {'?', '?', 0}, 0};
+
+void ResetPanelText()
+{
+    const PanelText initial = {"", 0, -20, 0, {'?', '?', 0}, 0};
+    panel_text = initial;
+}
+
+static MenuFireBuffers menu_fire;
+
+void ResetMenuFireBuffers()
+{
+    ReleaseMenuBuffers();
+    MenuFireBuffers initial = {0};
+    menu_fire = initial;
+}
+
 static const TextureGroup *panel_group;
+
+struct HealthTracker
+{
+    ModelReference object;
+    uint32 prev_health;
+    uint16 x;
+    uint16 y;
+    uint32 initial_health;
+    uint32 scale;
+    uint32 flash;
+
+    HealthTracker() : prev_health(0), x(0), y(0), initial_health(0), scale(0), flash(0)
+    {
+    }
+};
+
+static HealthTracker health_tracker;
 
 void ForgetPanelTexture(const TextureGroup *grp)
 {
@@ -44,224 +100,205 @@ void LoadPanelResource()
 uint32 ResetPanelDisplayTimer()
 {
     FUNCTION_MARKER(0x8006CDC4, "SLUS_003.73");
-    w_u32(0x800FF758, 150);
+    panel_text.lives_timer = 150;
     return 150;
 }
 
-
-
-
 uint32 DrawDebugPanel()
 {
-    uint32 enabled = GetCheatOptions().debug_panel, text = 0x800FF768;
-    uint32 trigger, player, numerator, denominator, percentage, position[3], end, start;
+    RecordDataBorrow record_borrow;
+    uint32 enabled = GetCheatOptions().debug_panel;
+    const char *text = "";
+    ModelInstance *player;
+    uint32 trigger, numerator, denominator, percentage;
+    Vector3 position;
     sint32 high;
     FUNCTION_MARKER(0x8006CDD4, "SLUS_003.73");
     if (!enabled)
         return enabled;
-    trigger = r_u32(0x800FF620);
-    if (trigger != 0xFFFF && (sint16)r_u16(r_u32(r_u32(0x800FF624) + trigger * 4)) == 8)
-        text = ReadRecordPosition(position, trigger) + 6;
+    trigger = GetStartRecordIndex();
+    if (trigger != 0xFFFF && (sint16)(GetLevelRecord(trigger)).Read16() == 8)
+        text = (ReadRecordPosition(position.words, trigger) + 6).CStr();
     QueueHudText(24, 193, text, 32, 32, 114, 1);
     player = visual_lists.players;
-    QueueHudNumber(23, 205, (uint32)((sint32)r_u32(player + 4) >> 12), 32, 32, 114, 1);
+    QueueHudNumber(23, 205, (uint32)((sint32)player->pos.words[0] >> 12), 32, 32, 114, 1);
     player = visual_lists.players;
-    QueueHudNumber(90, 205, (uint32)((sint32)r_u32(player + 8) >> 12), 32, 32, 114, 1);
+    QueueHudNumber(90, 205, (uint32)((sint32)player->pos.words[1] >> 12), 32, 32, 114, 1);
     player = visual_lists.players;
-    QueueHudNumber(152, 205, (uint32)((sint32)r_u32(player + 12) >> 12), 32, 32, 114, 1);
-    numerator = r_u32(0x800FF34C) * 100;
+    QueueHudNumber(152, 205, (uint32)((sint32)player->pos.words[2] >> 12), 32, 32, 114, 1);
+    numerator = scene_render.used * 100;
     high = (sint32)(((sint64)(sint32)numerator * (sint64)0x4BDA12F7) >> 32);
     percentage = (uint32)(high >> 15) - (uint32)((sint32)numerator >> 31);
     QueueHudNumber(24, 217, percentage, 32, 32, 114, 1);
-    numerator = r_u32(0x800FF748) * 100;
-    end = r_u32(0x800E6C0C);
-    start = r_u32(0x800E6C08);
-    denominator = end - start;
+    numerator = GetGameHeapUsed(0) * 100;
+    denominator = GetGameHeapCapacity(0);
     percentage = denominator ? numerator / denominator : 0xFFFFFFFF;
     QueueHudNumber(49, 217, percentage, 32, 32, 114, 1);
     player = visual_lists.players;
     if (player)
-        QueueHudNumber(74, 217, r_u32(player + 644), 32, 32, 114, 1);
+        QueueHudNumber(74, 217, static_cast<Player *>(player->owner)->sel_weapon, 32, 32, 114, 1);
     QueueHudNumber(109, 217, GetResourceReadPhase(), 32, 32, 114, 1);
-    return QueueHudNumber(127, 217, r_u32(0x800FF2B8), 32, 32, 114, 1);
+    return QueueHudNumber(127, 217, cd_voice.active, 32, 32, 114, 1);
 }
 
-
-
-// TODO Establish original receiver ownership before making this an instance method
-uint32 TrackObjectHealth(uint32 object, uint32 x, uint32 y, uint32 scale)
+uint32 TrackObjectHealth(VisualObject &object, uint32 x, uint32 y, uint32 scale)
 {
-    uint32 health;
     FUNCTION_MARKER(0x8006D390, "SLUS_003.73");
-    health = (uint32)(sint32)(sint16)r_u16(object + 218);
-    w_u32(0x800FF76C, object);
-    w_u32(0x800FFC50, x);
-    w_u32(0x800FFC54, y);
-    w_u32(0x800FFC5C, scale);
-    w_u32(0x800FFC58, health);
-    w_u32(0x800FFC4C, health);
+    uint32 health = (uint32)(sint32)object.health;
+    health_tracker.object.SetObject(&object.model);
+    health_tracker.x = x;
+    health_tracker.y = y;
+    health_tracker.scale = scale;
+    health_tracker.initial_health = health;
+    health_tracker.prev_health = health;
     return health;
 }
 
 void ClearTrackedObjectHealth()
 {
     FUNCTION_MARKER(0x8006D3B4, "SLUS_003.73");
-    w_u32(0x800FF76C, 0);
+    health_tracker.object.Reset();
 }
 
-
-
-
-void DrawTrackedObjectHealth()
+static void DrawTrackedObjectHealth()
 {
-    uint32 object, health, packet, cursor, next, limit, flash, scale, product;
-    uint32 x, y, right, top, bottom, left, buffer, tag, head, opcode, initial_health;
+    VisualObject *object;
+    uint8 *packet, *cursor, *next, *limit;
+    uint32 health, flash, scale, product;
+    uint32 x, y, right, top, bottom, left, opcode, initial_health;
     FUNCTION_MARKER(0x8006D3C0, "SLUS_003.73");
-    object = r_u32(0x800FF76C);
-    if (!object)
+    ModelInstance *instance = health_tracker.object.GetObject();
+    if (!instance)
         return;
-    if (r_u16(object + 78) & 64)
+    object = static_cast<VisualObject *>(instance->owner);
+    if (object->lifecycle_flags & 64)
     {
         ClearTrackedObjectHealth();
         return;
     }
-    health = (uint32)(sint32)(sint16)r_u16(object + 218);
+    health = (uint32)(sint32)object->health;
     if ((sint32)health < 0)
         health = 0;
-    if ((sint32)health < (sint32)r_u32(0x800FFC4C))
+    if ((sint32)health < (sint32)health_tracker.prev_health)
     {
-        w_u32(0x800FFC4C, health);
-        w_u32(0x800FF770, 8);
+        health_tracker.prev_health = health;
+        health_tracker.flash = 8;
     }
-    packet = r_u32(0x800FF668);
-    limit = r_u32(0x800FF374);
-    next = packet + 24;
-    if (limit < next)
+    packet = scene_render.cursor;
+    limit = scene_render.limit;
+    if (limit - packet < (sint32)(sizeof(POLY_F4)))
         return;
-    w_u32(0x800FF668, next);
-    w_u8(packet + 3, 5);
-    w_u8(packet + 7, 40);
-    w_u8(packet + 4, 128);
-    flash = r_u8(0x800FF770);
-    w_u8(packet + 5, flash << 4);
-    flash = r_u8(0x800FF770);
-    w_u8(packet + 6, flash << 4);
-    scale = r_u32(0x800FFC5C);
-    x = r_u16(0x800FFC50);
+    next = packet + sizeof(POLY_F4);
+    scene_render.cursor = next;
+    POLY_F4 *health_poly = (POLY_F4 *)packet;
+    setPolyF4(health_poly);
+    health_poly->rgbc.code = 40;
+    health_poly->rgbc.r = 128;
+    flash = (uint8)health_tracker.flash;
+    health_poly->rgbc.g = flash << 4;
+    flash = (uint8)health_tracker.flash;
+    health_poly->rgbc.b = flash << 4;
+    scale = health_tracker.scale;
+    x = health_tracker.x;
     product = (uint32)((sint32)health >> 2) * scale;
-    opcode = r_u8(packet + 7);
-    y = r_u16(0x800FFC54);
-    w_u8(packet + 7, opcode | 2);
-    buffer = r_u32(0x800FF660);
-    w_u16(packet + 8, x);
-    w_u16(packet + 16, x);
-    w_u16(packet + 10, y);
-    w_u16(packet + 14, y);
+    opcode = health_poly->rgbc.code;
+    y = health_tracker.y;
+    health_poly->rgbc.code = opcode | 2;
+    health_poly->p[0].x = x;
+    health_poly->p[2].x = x;
+    health_poly->p[0].y = y;
+    health_poly->p[1].y = y;
     y += 6;
-    w_u16(packet + 18, y);
-    w_u16(packet + 22, y);
-    tag = r_u32(packet);
-    cursor = r_u32(0x800FF668);
-    next = cursor + 8;
+    health_poly->p[2].y = y;
+    health_poly->p[3].y = y;
+    cursor = scene_render.cursor;
     right = x + (uint32)((sint32)product >> 12);
-    w_u16(packet + 12, right);
-    w_u16(packet + 20, right);
-    head = r_u32(buffer + 112);
-    w_u32(packet, (tag & 0xFF000000) | (head & 0xFFFFFF));
-    head = r_u32(buffer + 112);
-    limit = r_u32(0x800FF374);
-    w_u32(buffer + 112, (head & 0xFF000000) | (packet & 0xFFFFFF));
-    if (limit < next)
+    health_poly->p[1].x = right;
+    health_poly->p[3].x = right;
+    limit = scene_render.limit;
+    setaddr(health_poly, getaddr(scene_render.cur->ot));
+    setaddr(scene_render.cur->ot, gpu_packet_link((uintptr_t)health_poly));
+    if (limit - cursor < (sint32)(sizeof(DR_TPAGE)))
         return;
-    w_u32(0x800FF668, next);
-    w_u8(cursor + 3, 1);
-    buffer = r_u32(0x800FF660);
-    w_u32(cursor + 4, 0xE1000220);
-    tag = r_u32(cursor);
-    flash = r_u32(0x800FF770);
-    head = r_u32(buffer + 112);
-    w_u32(cursor, (tag & 0xFF000000) | (head & 0xFFFFFF));
-    head = r_u32(buffer + 112);
-    w_u32(buffer + 112, (head & 0xFF000000) | (cursor & 0xFFFFFF));
+    next = cursor + sizeof(DR_TPAGE);
+    scene_render.cursor = next;
+    DR_TPAGE *mode = (DR_TPAGE *)cursor;
+    setlen(mode, 1);
+    mode->code[0] = 0xE1000220;
+    flash = health_tracker.flash;
+    setaddr(mode, getaddr(scene_render.cur->ot));
+    setaddr(scene_render.cur->ot, gpu_packet_link((uintptr_t)mode));
     if (flash)
-        w_u32(0x800FF770, flash - 1);
-    packet = r_u32(0x800FF668);
-    limit = r_u32(0x800FF374);
-    next = packet + 28;
-    if (limit < next)
+        health_tracker.flash = flash - 1;
+    packet = scene_render.cursor;
+    limit = scene_render.limit;
+    if (limit - packet < (sint32)(sizeof(LINE_F4)))
         return;
-    w_u32(0x800FF668, next);
-    w_u8(packet + 3, 6);
-    w_u8(packet + 7, 76);
-    w_u8(packet + 4, 240);
-    w_u8(packet + 5, 0);
-    w_u8(packet + 6, 0);
-    initial_health = r_u32(0x800FFC58);
-    w_u32(packet + 24, 0x55555555);
-    scale = r_u32(0x800FFC5C);
-    y = r_u16(0x800FFC54);
-    cursor = r_u32(0x800FF668);
+    next = packet + sizeof(LINE_F4);
+    scene_render.cursor = next;
+    LINE_F4 *outline = (LINE_F4 *)packet;
+    setLineF4(outline);
+    outline->rgbc.code = 76;
+    outline->rgbc.r = 240;
+    outline->rgbc.g = 0;
+    outline->rgbc.b = 0;
+    initial_health = health_tracker.initial_health;
+    outline->pad = 0x55555555;
+    scale = health_tracker.scale;
+    y = health_tracker.y;
+    cursor = scene_render.cursor;
     product = (uint32)((sint32)initial_health >> 2) * scale;
     top = y - 1;
     bottom = y + 6;
-    x = r_u16(0x800FFC50);
-    next = cursor + 16;
-    w_u16(packet + 18, bottom);
-    w_u16(packet + 22, bottom);
-    w_u16(packet + 10, top);
-    w_u16(packet + 14, top);
+    x = health_tracker.x;
+    outline->p[2].y = bottom;
+    outline->p[3].y = bottom;
+    outline->p[0].y = top;
+    outline->p[1].y = top;
     left = x - 1;
-    w_u16(packet + 8, left);
-    w_u16(packet + 20, left);
-    buffer = r_u32(0x800FF660);
+    outline->p[0].x = left;
+    outline->p[3].x = left;
     right = x + (uint32)((sint32)product >> 12) + 1;
-    w_u16(packet + 12, right);
-    w_u16(packet + 16, right);
-    tag = r_u32(packet);
-    head = r_u32(buffer + 112);
-    w_u32(packet, (tag & 0xFF000000) | (head & 0xFFFFFF));
-    head = r_u32(buffer + 112);
-    limit = r_u32(0x800FF374);
-    w_u32(buffer + 112, (head & 0xFF000000) | (packet & 0xFFFFFF));
-    if (limit < next)
+    outline->p[1].x = right;
+    outline->p[2].x = right;
+    limit = scene_render.limit;
+    setaddr(outline, getaddr(scene_render.cur->ot));
+    setaddr(scene_render.cur->ot, gpu_packet_link((uintptr_t)outline));
+    if (limit - cursor < (sint32)(sizeof(LINE_F2)))
         return;
-    w_u32(0x800FF668, next);
-    w_u8(cursor + 3, 3);
-    w_u8(cursor + 7, 64);
-    w_u8(cursor + 4, 240);
-    w_u8(cursor + 5, 0);
-    w_u8(cursor + 6, 0);
-    y = r_u16(0x800FFC54);
-    x = r_u16(0x800FFC50);
+    next = cursor + sizeof(LINE_F2);
+    scene_render.cursor = next;
+    LINE_F2 *left_line = (LINE_F2 *)cursor;
+    setLineF2(left_line);
+    left_line->rgbc.code = 64;
+    left_line->rgbc.r = 240;
+    left_line->rgbc.g = 0;
+    left_line->rgbc.b = 0;
+    y = health_tracker.y;
+    x = health_tracker.x;
     top = y - 1;
     bottom = y + 6;
-    w_u16(cursor + 14, bottom);
-    buffer = r_u32(0x800FF660);
+    left_line->p[1].y = bottom;
     left = x - 1;
-    w_u16(cursor + 8, left);
-    w_u16(cursor + 12, left);
-    tag = r_u32(cursor);
-    w_u16(cursor + 10, top);
-    head = r_u32(buffer + 112);
-    w_u32(cursor, (tag & 0xFF000000) | (head & 0xFFFFFF));
-    head = r_u32(buffer + 112);
-    w_u32(buffer + 112, (head & 0xFF000000) | (cursor & 0xFFFFFF));
+    left_line->p[0].x = left;
+    left_line->p[1].x = left;
+    left_line->p[0].y = top;
+    setaddr(left_line, getaddr(scene_render.cur->ot));
+    setaddr(scene_render.cur->ot, gpu_packet_link((uintptr_t)left_line));
 }
 
-
-
-void DrawWeaponAmmoIndicator(uint32 slot)
+static void DrawWeaponAmmoIndicator(uint32 slot)
 {
     Player *hero = 0;
     static const uint32 xs[8] = {0, 414, 424, 439, 449, 454, 454, 449};
     static const uint32 ys[8] = {0, 37, 32, 32, 37, 43, 49, 55};
-    uint32 player, packet, bar, next, limit, ammo, extent, x, y, head, buffer, tag;
+    uint8 *packet, *bar, *next, *limit;
+    uint32 ammo, extent, x, y;
     WeaponNode *weapon;
     sint32 high;
     FUNCTION_MARKER(0x8006D704, "SLUS_003.73");
     hero = visual_lists.players ? static_cast<Player *>(visual_lists.players->owner) : 0;
-    player = hero ? NativeObjectGuestAddress(hero) : 0;
-    if (!player)
+    if (!hero)
         return;
     if (slot >= 8 || !slot)
         return;
@@ -270,105 +307,97 @@ void DrawWeaponAmmoIndicator(uint32 slot)
         return;
     x = xs[slot];
     y = ys[slot];
-    packet = r_u32(0x800FF668);
-    limit = r_u32(0x800FF374);
-    next = packet + 32;
-    bar = packet + 16;
-    if (limit < next)
+    packet = scene_render.cursor;
+    limit = scene_render.limit;
+    if (limit - packet < (sint32)(2 * sizeof(LINE_F2)))
         return;
+    next = packet + 2 * sizeof(LINE_F2);
+    bar = packet + sizeof(LINE_F2);
     ammo = weapon->ammo;
     high = (sint32)(((sint64)(sint32)ammo * (sint64)0x10624DD3) >> 32);
-    w_u32(0x800FF668, next);
+    scene_render.cursor = next;
     extent = (uint32)(high >> 3) - (uint32)((sint32)ammo >> 31);
     if (extent)
     {
-        w_u8(bar + 3, 3);
-        w_u8(bar + 7, 64);
-        w_u8(bar + 5, 255);
-        w_u8(bar + 4, 0);
-        w_u8(bar + 6, 0);
-        buffer = r_u32(0x800FF660);
-        w_u16(bar + 8, x);
-        w_u16(bar + 10, y);
-        w_u16(bar + 12, x + extent - 1);
-        w_u16(bar + 14, y);
-        tag = r_u32(bar);
-        head = r_u32(buffer + 112);
-        w_u32(bar, (tag & 0xFF000000) | (head & 0xFFFFFF));
-        head = r_u32(buffer + 112);
-        w_u32(buffer + 112, (head & 0xFF000000) | (bar & 0xFFFFFF));
+        LINE_F2 *ammo_line = (LINE_F2 *)bar;
+        setLineF2(ammo_line);
+        ammo_line->rgbc.code = 64;
+        ammo_line->rgbc.g = 255;
+        ammo_line->rgbc.r = 0;
+        ammo_line->rgbc.b = 0;
+        ammo_line->p[0].x = x;
+        ammo_line->p[0].y = y;
+        ammo_line->p[1].x = x + extent - 1;
+        ammo_line->p[1].y = y;
+        setaddr(ammo_line, getaddr(scene_render.cur->ot));
+        setaddr(scene_render.cur->ot, gpu_packet_link((uintptr_t)ammo_line));
     }
-    w_u8(packet + 3, 3);
-    w_u8(packet + 7, 64);
-    w_u8(packet + 5, 64);
-    w_u8(packet + 4, 0);
-    w_u8(packet + 6, 0);
-    buffer = r_u32(0x800FF660);
-    tag = r_u32(packet);
-    w_u16(packet + 8, x);
-    w_u16(packet + 10, y);
-    w_u16(packet + 12, x + 7);
-    w_u16(packet + 14, y);
-    head = r_u32(buffer + 112);
-    w_u32(packet, (tag & 0xFF000000) | (head & 0xFFFFFF));
-    head = r_u32(buffer + 112);
-    w_u32(buffer + 112, (head & 0xFF000000) | (packet & 0xFFFFFF));
-    if (r_u32(player + 644) == slot)
+    LINE_F2 *back_line = (LINE_F2 *)packet;
+    setLineF2(back_line);
+    back_line->rgbc.code = 64;
+    back_line->rgbc.g = 64;
+    back_line->rgbc.r = 0;
+    back_line->rgbc.b = 0;
+    back_line->p[0].x = x;
+    back_line->p[0].y = y;
+    back_line->p[1].x = x + 7;
+    back_line->p[1].y = y;
+    setaddr(back_line, getaddr(scene_render.cur->ot));
+    setaddr(scene_render.cur->ot, gpu_packet_link((uintptr_t)back_line));
+    if (hero->sel_weapon == slot)
         AllocateHudRectangle(x - 3, y - 1, 13, 4, 128, 128, 128, 0);
 }
-
-
 
 void DrawGamePanel()
 {
     Player *hero = 0;
-    uint32 timer, text, value, quotient, flag, player, kind;
+    const char *text;
+    uint32 timer, value, quotient, flag, kind;
     WeaponNode *weapon;
     uint32 x, y, percentage, width, product, height, green, index;
     sint32 count, maximum, numerator, sine;
-    uint8 *packet;
+    POLY_FT4 *packet;
     const TextureFrame *texture;
     FUNCTION_MARKER(0x8006D91C, "SLUS_003.73");
-    timer = r_u32(0x800FF758);
+    timer = panel_text.lives_timer;
     if (timer)
     {
         texture = &GetTextureFrame(panel_group, 1);
-        w_u32(0x800FF758, timer - 1);
+        panel_text.lives_timer = timer - 1;
         packet = AllocateHudSprite(*texture);
         if (packet)
             PlaceHudSprite(40, 27, packet, GetTextureFrame(panel_group, 1));
-        if (r_u32(0x800FF758))
+        if (panel_text.lives_timer)
         {
             if (GetCheatOptions().unlimited_lives)
-                text = r_u32(0x800A558C);
+                text = MenuText::infinite_lives;
             else
             {
-                value = r_u32(0x800FF874) - 1;
+                value = game_progress.lives - 1;
                 quotient = (uint32)((sint32)value / 10);
-                text = 0x800FF774;
-                w_u8(text, quotient ? quotient + 48 : 32);
-                w_u8(text + 1, value - quotient * 10 + 48);
+                text = panel_text.lives;
+                panel_text.lives[0] = (char)(quotient ? quotient + 48 : 32);
+                panel_text.lives[1] = (char)(value - quotient * 10 + 48);
             }
             SetHudTextScale(256);
             SetHudTextColor(128, 128, 128, 0);
             SetHudTextAlignment(1);
-            DrawStyledHudText(65, 27, (const char *)psx_addr(text, 1), 0, 0, 256);
+            DrawStyledHudText(65, 27, text, 0, 0, 256);
         }
     }
-    if (r_u32(0x800FF008))
+    if (scene_frame.paused)
         return;
-    flag = r_u32(0x800FF304);
+    flag = game_session.demo_mode;
     hero = visual_lists.players ? static_cast<Player *>(visual_lists.players->owner) : 0;
-    player = hero ? NativeObjectGuestAddress(hero) : 0;
     if (flag)
     {
         SetHudTextScale(256);
         SetHudTextColor(128, 128, 128, 0);
-        DrawStyledHudText(58, 50, (const char *)psx_addr(r_u32(0x800A556C), 1), 0, 0, 256);
+        DrawStyledHudText(58, 50, MenuText::demo, 0, 0, 256);
     }
     if (!GetCheatOptions().status_hud)
         return;
-    count = (sint32)r_u32(player + 532);
+    count = (sint32)hero->smartbombs;
     if (count >= 16)
         count = 15;
     x = 412;
@@ -403,32 +432,48 @@ void DrawGamePanel()
     if (packet)
     {
         PlaceScaledHudSprite(436, 46, packet, GetTextureFrame(panel_group, 0));
-        packet[6] = 90;
-        packet[5] = 90;
-        packet[4] = 90;
+        packet->rgbc.b = 90;
+        packet->rgbc.g = 90;
+        packet->rgbc.r = 90;
     }
     hero = visual_lists.players ? static_cast<Player *>(visual_lists.players->owner) : 0;
-    player = hero ? NativeObjectGuestAddress(hero) : 0;
-    if (player)
+    if (hero)
     {
         weapon = hero ? hero->weapons[hero->sel_weapon] : 0;
         kind = weapon ? weapon->type : 0;
         texture = &GetTextureFrame(panel_group, 0);
         switch (kind)
         {
-            case 1: texture = &GetTextureFrame(panel_group, 9); break;
-            case 2: texture = &GetTextureFrame(panel_group, 3); break;
-            case 3: texture = &GetTextureFrame(panel_group, 5); break;
-            case 4: texture = &GetTextureFrame(panel_group, 6); break;
-            case 5: texture = &GetTextureFrame(panel_group, 4); break;
-            case 6: texture = &GetTextureFrame(panel_group, 8); break;
-            case 7: texture = &GetTextureFrame(panel_group, 7); break;
+            case 1:
+                texture = &GetTextureFrame(panel_group, 9);
+                break;
+            case 2:
+                texture = &GetTextureFrame(panel_group, 3);
+                break;
+            case 3:
+                texture = &GetTextureFrame(panel_group, 5);
+                break;
+            case 4:
+                texture = &GetTextureFrame(panel_group, 6);
+                break;
+            case 5:
+                texture = &GetTextureFrame(panel_group, 4);
+                break;
+            case 6:
+                texture = &GetTextureFrame(panel_group, 8);
+                break;
+            case 7:
+                texture = &GetTextureFrame(panel_group, 7);
+                break;
             case 8:
                 texture = 0;
                 AllocateHudRectangle(425, 39, 22, 14, 40, 40, 40, 0);
                 break;
-            case 9: texture = 0; break;
-            default: break;
+            case 9:
+                texture = 0;
+                break;
+            default:
+                break;
         }
         if (texture)
         {
@@ -438,8 +483,8 @@ void DrawGamePanel()
         }
     }
     // TODO Establish the original invariant requiring a player here
-    maximum = (sint16)r_u16(0x800EC526);
-    numerator = (sint32)(((uint32)maximum - (uint32)(sint32)(sint16)r_u16(player + 218)) * 100);
+    maximum = (sint16)GetGameTuning().player.maximum_health;
+    numerator = (sint32)(((uint32)maximum - (uint32)(sint32)hero->health) * 100);
     if (!maximum)
         percentage = numerator < 0 ? 1 : 0xFFFFFFFF;
     else if (numerator == (sint32)0x80000000 && maximum == -1)
@@ -455,7 +500,7 @@ void DrawGamePanel()
     {
         product = (percentage - 60) * 350;
         value = (uint32)((sint32)product / 40);
-        index = ((value + 50) * r_u32(0x800FF2F0)) & 4095;
+        index = ((value + 50) * game_clock.tick) & 4095;
         sine = rsin(index);
         product = (uint32)sine * (uint32)sine;
         green = (uint32)((sint32)product >> 16);
@@ -487,142 +532,138 @@ void DrawGamePanel()
     DrawTrackedObjectHealth();
 }
 
-
-
-static uint32 DrawPauseMenuText(uint32 x, uint32 y, uint32 text, uint32 filter, uint32 color, uint32 scale)
-{
-    return DrawStyledHudText(x, y, (const char *)psx_addr(text, 1), filter, color, scale);
-}
-
-uint32 DrawPauseMenuHeading(void)
+static uint32 DrawPauseMenuHeading(void)
 {
     FUNCTION_MARKER(0x8001664C, "SLUS_003.73");
     uint32 result;
     SetHudTextScale(512);
     SetHudTextColor(149, 20, 20, 0);
-    result = DrawPauseMenuText(256, 34, r_u32(0x800A5548), 0, 0, 256);
+    result = DrawStyledHudText(256, 34, MenuText::paused, 0, 0, 256);
     SetHudTextScale(256);
     return result;
 }
 
-uint32 DrawPauseMenuDisplay(void)
+void DrawPauseMenuDisplay(void)
 {
     FUNCTION_MARKER(0x80016884, "SLUS_003.73");
-    sint32 result;
-    uint32 player, label, text_y, amplitude, phase, countdown, text_count;
-    sint32 v1;
-    sint32 v2;
-    sint32 v3;
-    uint32 v4;
-    sint32 v5;
+    uint32 blink;
+    ModelInstance *player;
+    const char *label;
+    uint32 text_y, amplitude, phase, countdown, text_count;
+    sint32 shake_remaining;
+    MenuWindow *pause_window;
+    MenuWindow *window;
+    const char *prompt;
+    sint32 prompt_y;
     sint32 i;
-    sint32 v7;
-    sint32 v8;
-    sint32 v9;
-    sint32 v10;
-    sint32 v11;
-    uint32 v12;
-    uint32 v13;
-    sint32 v14;
-    char v15[104];
+    sint32 caption_width;
+    MenuWindow *confirm_window;
+    sint32 message_x;
+    sint32 message_y;
+    const char *message;
+    const char *error_prompt;
+    sint32 error_y;
+    char caption[104];
+    char percent[13];
     if (GetCheatOptions().debug_panel)
         /* MIPS 800168B0..800168C0 stores zero for all four stack arguments */
-        sub_8006D1C0(19, 190, 194, 42, 0, 0, 0, 0);
-    if (r_u32(0x800FF008))
+        AllocateHudRectangle(19, 190, 194, 42, 0, 0, 0, 0);
+    if (scene_frame.paused)
     {
-        nullsub_19();
+        (void)0;
         ::UpdateHudTextGlowCurve();
     }
     SetHudTextAlignment(0);
-    if ((r_u32(0x800FF81C) && ((r_u32(0x800FF64C) & 0x20) != 0)))
+    if ((input_recording.HasBuffer() && ((game_clock.vblank_frame & 0x20) != 0)))
     {
         SetHudTextColor(128, 128, 128, 0);
         SetHudTextScale(256);
-        DrawPauseMenuText(256, 35, r_u32((0x800A556C + (0) * 4)), 0, 0, 256);
+        DrawStyledHudText(256, 35, MenuText::demo, 0, 0, 256);
     }
     player = visual_lists.players;
-    if (player && (sint16)r_u16(player + 218) <= 0 && r_u32(0x800FF874) == 1)
+    if (player && static_cast<VisualObject *>(player->owner)->health <= 0 && game_progress.lives == 1)
     {
         if (!::HasMenuBuffers())
             ::CreateMenuBuffers(951706923, 64, 64, 127);
         SetHudTextColor(128, 128, 128, 0);
         SetHudTextScale(384);
-        label = r_u32(0x800A54E8);
-        text_y = (uint32)(sint32)(sint16)r_u16(0x800FF038);
-        DrawPauseMenuText(256, text_y, label, 0, 128, 256);
-        text_y = r_u16(0x800FF038) + 8;
-        w_u16(0x800FF038, text_y);
+        label = MenuText::game_over;
+        text_y = (uint32)(sint32)panel_text.game_over_y;
+        DrawStyledHudText(256, text_y, label, 0, 128, 256);
+        text_y = (uint16)panel_text.game_over_y + 8;
+        panel_text.game_over_y = (sint16)text_y;
         if ((sint16)text_y >= 121)
-            w_u16(0x800FF038, 120);
+            panel_text.game_over_y = 120;
     }
     SetHudTextScale(256);
-    result = (sint32)0x800A0000;
-    switch (r_u32(0x800FF080))
+    switch (menu_runtime.screen)
     {
-        case 1:
+        case MENU_SCREEN_PAUSED:
             DrawPauseMenuHeading();
-            amplitude = r_u32(0x800FF00C);
-            v1 = (sint32)(amplitude - 2);
+            amplitude = menu_runtime.shake_amplitude;
+            shake_remaining = (sint32)(amplitude - 2);
             if (amplitude)
             {
-                phase = r_u32(0x800FF010);
-                w_u32(0x800FF00C, (uint32)v1);
-                w_u32(0x800FF010, phase + 690);
-                if (v1 < 0)
+                phase = menu_runtime.shake_phase;
+                menu_runtime.shake_amplitude = shake_remaining;
+                menu_runtime.shake_phase = phase + 690;
+                if (shake_remaining < 0)
                 {
-                    w_u32(0x800FF00C, 0);
-                    w_u32(0x800FF010, 0);
+                    menu_runtime.shake_amplitude = 0;
+                    menu_runtime.shake_phase = 0;
                 }
             }
-            phase = r_u32(0x800FF010);
+            phase = menu_runtime.shake_phase;
             {
                 uint32 cosine = (uint32)rcos(phase & 4095);
-                uint32 product = r_u32(0x800FF00C) * cosine;
-                v2 = r_u32(0x800FF084);
+                uint32 product = menu_runtime.shake_amplitude * cosine;
+                pause_window = menu_runtime.pause;
                 if ((sint32)product < 0)
                     product += 4095;
-                MenuWindow::Attach(v2).pos[0] = (uint32)((sint32)product >> 12) + 256;
+                pause_window->scr_pos[0] = (uint32)((sint32)product >> 12) + 256;
             }
-            MenuWindow::Attach((uint32)v2).Draw();
+            pause_window->Draw();
             if (GetCheatOptions().debug_panel)
-                return DrawMenuRightHint();
+                DrawMenuRightHint();
             else
-                return DrawMenuCenteredHint();
+                DrawMenuCenteredHint();
+            return;
 
-        case 2:
-            v3 = r_u32(0x800FF088);
-            if (v3)
-                return MenuWindow::Attach((uint32)v3).Draw();
-            return 0x80016B10;
+        case MENU_SCREEN_RESTART_SELECTION:
+            window = menu_runtime.restart;
+            if (window)
+                window->Draw();
+            return;
 
-        case 7:
-        case 8:
-            return 0x80017350;
+        case MENU_SCREEN_EXIT_FADE_START:
+        case MENU_SCREEN_EXIT_FADE:
+            return;
 
-        case 3:
+        case MENU_SCREEN_QUIT_CONFIRM:
             DrawPauseMenuHeading();
             DrawMenuHints();
             SetHudTextColor(149, 20, 20, 0);
-            DrawPauseMenuText(256, 95, r_u32((0x800A559C + (0) * 4)), 0, 0, 256);
-            v3 = r_u32(0x800FF024);
-            MenuWindow::Attach(v3).pos[1] = 135;
-            return MenuWindow::Attach((uint32)v3).Draw();
+            DrawStyledHudText(256, 95, MenuText::really_quit, 0, 0, 256);
+            window = menu_runtime.confirm;
+            window->scr_pos[1] = 135;
+            window->Draw();
+            return;
 
-        case 4:
+        case MENU_SCREEN_CONTROLLER_MISSING:
             DrawPauseMenuHeading();
             SetMenuRedText();
-            result = ((((sint32)r_u32(0x800FF2F0)) / 10) & 1);
-            if (!result)
-                return result;
-            DrawPauseMenuText(256, 171, r_u32((0x800A5564 + (0) * 4)), 0, 0, 256);
-            v4 = r_u32((0x800A5568 + (0) * 4));
-            v5 = 197;
-            goto LABEL_57;
+            blink = ((sint32)game_clock.tick / 10) & 1;
+            if (!blink)
+                return;
+            DrawStyledHudText(256, 171, MenuText::please_reinsert, 0, 0, 256);
+            prompt = MenuText::controller;
+            prompt_y = 197;
+            goto DrawPrompt;
 
-        case 5:
-            // TODO: Original text buffer capacity is 104 bytes
-            text_count = r_u32(0x800FF034);
-            if ((sint32)text_count < 0 || text_count >= sizeof(v15))
+        case MENU_SCREEN_RESULTS_CAPTION:
+            // Preserve the original 104-byte caption buffer
+            text_count = panel_text.visible;
+            if ((sint32)text_count < 0 || text_count >= sizeof(caption))
             {
                 GameDiagnostic("Menu text length exceeds original 104-byte buffer\n");
                 abort();
@@ -632,201 +673,197 @@ uint32 DrawPauseMenuDisplay(void)
             {
                 do
                 {
-                    if ((uint32)i >= sizeof(v15) - 1)
+                    if ((uint32)i >= sizeof(caption) - 1)
                     {
                         GameDiagnostic("Menu text grew beyond original buffer\n");
                         abort();
                     }
-                    v15[i] = (char)r_u8(r_u32(0x800FF030) + (uint32)i);
+                    caption[i] = panel_text.caption[(uint32)i];
                     ++i;
-                    text_count = r_u32(0x800FF034);
+                    text_count = panel_text.visible;
                 } while (i < (sint32)text_count);
             }
-            text_count = r_u32(0x800FF034);
-            if (text_count >= sizeof(v15))
+            text_count = panel_text.visible;
+            if (text_count >= sizeof(caption))
             {
                 GameDiagnostic("Menu text terminator exceeds original buffer\n");
                 abort();
             }
-            v15[text_count] = 0;
+            caption[text_count] = 0;
             SetHudTextScale(192);
             SetHudTextColor(128, 128, 128, 0);
             SetHudTextAlignment(1);
-            v7 = MeasureStyledHudText((const char *)psx_addr(r_u32(0x800FF030), 1));
-            return DrawStyledHudText(256 - (uint32)((sint32)v7 >> 1), 34, v15, 0, 0, 256);
+            caption_width = MeasureStyledHudText(panel_text.caption);
+            DrawStyledHudText(256 - (uint32)((sint32)caption_width >> 1), 34, caption, 0, 0, 256);
+            return;
 
-        case 6:
-            goto LABEL_31;
+        case MENU_SCREEN_RESULTS_PERCENT:
+            goto DrawResults;
 
-        case 9:
+        case MENU_SCREEN_SAVE_CONFIRM:
             SetHudTextColor(149, 20, 20, 0);
-            DrawPauseMenuText(256, 103, r_u32((0x800A5550 + (0) * 4)), 0, 0, 256);
-            v8 = r_u32(0x800FF024);
-            MenuWindow::Attach(v8).pos[1] = 143;
-            MenuWindow::Attach((uint32)v8).Draw();
+            DrawStyledHudText(256, 103, MenuText::save_game_prompt, 0, 0, 256);
+            confirm_window = menu_runtime.confirm;
+            confirm_window->scr_pos[1] = 143;
+            confirm_window->Draw();
             DrawMenuCenteredHint();
-        LABEL_31:
+        DrawResults:
             SetHudTextScale(192);
 
             SetHudTextColor(128, 128, 128, 0);
             SetHudTextAlignment(0);
-            DrawPauseMenuText(256, 34, r_u32(0x800FF030), 0, 0, 256);
-            result = r_u32(0x800FF040);
-            if (!result)
-                return result;
+            DrawStyledHudText(256, 34, panel_text.caption, 0, 0, 256);
+            if (!game_progress.completion.completed)
+                return;
             SetHudTextScale(256);
             SetHudTextAlignment(1);
-            DrawPauseMenuText(166, 68, r_u32((0x800A5558 + (0) * 4)), 0, 0, 256);
-            result = 100;
-            v9 = 1;
-            if ((r_u32(0x800FFB58) == 100))
+            DrawStyledHudText(166, 68, MenuText::kill_percent, 0, 0, 256);
+            if ((game_progress.completion.display_percent == 100))
             {
-                countdown = r_u32(0x800FF044);
+                countdown = game_progress.completion.blink_ticks;
                 if (countdown)
-                    w_u32(0x800FF044, countdown - 1);
-                result = ((r_u32(0x800FF044) >> 2) & 1);
-                if (result)
-                    v9 = 0;
+                    game_progress.completion.blink_ticks = countdown - 1;
+                blink = (game_progress.completion.blink_ticks >> 2) & 1;
+                if (blink)
+                    return;
             }
-            if (!v9)
-                return result;
-            snprintf((char *)psx_addr(0x800FFD30, 1), PSX_DRAM_SIZE - 0xFFD30, (const char *)psx_addr(0x800FF08C, 1), r_u32(0x800FFB58));
-            v10 = 270;
-            v11 = 68;
-            v12 = 0x800FFD30;
-            goto LABEL_48;
+            snprintf(percent, sizeof(percent), " %d", (sint32)game_progress.completion.display_percent);
+            message_x = 270;
+            message_y = 68;
+            message = percent;
+            goto DrawMessage;
 
-        case 10:
+        case MENU_SCREEN_CARD_POLL_DELAY:
 
-        case 11:
+        case MENU_SCREEN_CARD_QUERY:
             SetMenuGreenText();
-            DrawPauseMenuText(256, 90, r_u32((0x800A56B4 + (0) * 4)), 0, 0, 256);
+            DrawStyledHudText(256, 90, MenuText::checking_memory_card, 0, 0, 256);
             SetMenuRedText();
-            DrawPauseMenuText(256, 140, r_u32((0x800A56AC + (0) * 4)), 0, 0, 256);
-            v4 = r_u32((0x800A56B0 + (0) * 4));
-            v5 = 166;
-            goto LABEL_57;
+            DrawStyledHudText(256, 140, MenuText::do_not_remove, 0, 0, 256);
+            prompt = MenuText::memory_card;
+            prompt_y = 166;
+            goto DrawPrompt;
 
-        case 12:
+        case MENU_SCREEN_SAVE_SLOT:
             DrawMenuHints();
             SetMenuRedText();
-            DrawPauseMenuText(256, 25, r_u32((0x800A5554 + (0) * 4)), 0, 0, 256);
-            v3 = r_u32(0x800FF028);
-            return MenuWindow::Attach((uint32)v3).Draw();
+            DrawStyledHudText(256, 25, MenuText::save_game, 0, 0, 256);
+            window = menu_runtime.save;
+            window->Draw();
+            return;
 
-        case 13:
+        case MENU_SCREEN_SAVE_OVERWRITE:
             DrawMenuHints();
             SetMenuGreenText();
-            DrawPauseMenuText(256, 40, r_u32((0x800A56DC + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 66, r_u32((0x800A56E0 + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 92, r_u32((0x800A56E4 + (0) * 4)), 0, 0, 256);
-            v3 = r_u32(0x800FF024);
-            return MenuWindow::Attach((uint32)v3).Draw();
+            DrawStyledHudText(256, 40, MenuText::okay_to_overwrite, 0, 0, 256);
+            DrawStyledHudText(256, 66, MenuText::previously_saved_game, 0, 0, 256);
+            DrawStyledHudText(256, 92, MenuText::in_this_save_slot, 0, 0, 256);
+            window = menu_runtime.confirm;
+            window->Draw();
+            return;
 
-        case 14:
+        case MENU_SCREEN_CARD_WRITE:
             SetMenuGreenText();
-            DrawPauseMenuText(256, 110, r_u32((0x800A56E8 + (0) * 4)), 0, 0, 256);
+            DrawStyledHudText(256, 110, MenuText::now_saving_data, 0, 0, 256);
             SetMenuRedText();
-            DrawPauseMenuText(256, 140, r_u32((0x800A56AC + (0) * 4)), 0, 0, 256);
-            v4 = r_u32((0x800A56B0 + (0) * 4));
-            v5 = 166;
-            goto LABEL_57;
+            DrawStyledHudText(256, 140, MenuText::do_not_remove, 0, 0, 256);
+            prompt = MenuText::memory_card;
+            prompt_y = 166;
+            goto DrawPrompt;
 
-        case 15:
+        case MENU_SCREEN_CARD_WRITE_ERROR:
             SetMenuRedText();
-            DrawPauseMenuText(256, 110, r_u32((0x800A56EC + (0) * 4)), 0, 0, 256);
-            v14 = 136;
-            v13 = r_u32((0x800A56F0 + (0) * 4));
-            goto LABEL_55;
+            DrawStyledHudText(256, 110, MenuText::attempt_to_write_to, 0, 0, 256);
+            error_y = 136;
+            error_prompt = MenuText::memory_card_failed;
+            goto DrawCardError;
 
-        case 16:
+        case MENU_SCREEN_CARD_WRITE_COMPLETE:
             SetMenuGreenText();
-            DrawPauseMenuText(256, 110, r_u32((0x800A5704 + (0) * 4)), 0, 0, 256);
-            v5 = 140;
-            goto LABEL_56;
+            DrawStyledHudText(256, 110, MenuText::save_completed, 0, 0, 256);
+            prompt_y = 140;
+            goto ShowAcknowledgePrompt;
 
-        case 17:
+        case MENU_SCREEN_CARD_FULL:
             SetMenuRedText();
             SetHudTextScale(192);
-            DrawPauseMenuText(256, 67, r_u32((0x800A56BC + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 85, r_u32((0x800A56C0 + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 103, r_u32((0x800A56C4 + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 121, r_u32((0x800A56C8 + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 139, r_u32((0x800A56CC + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 157, r_u32((0x800A56D0 + (0) * 4)), 0, 0, 256);
+            DrawStyledHudText(256, 67, MenuText::your_memory_card_in, 0, 0, 256);
+            DrawStyledHudText(256, 85, MenuText::memory_card_slot_1_is_full, 0, 0, 256);
+            DrawStyledHudText(256, 103, MenuText::insert_a_memory_card_with, 0, 0, 256);
+            DrawStyledHudText(256, 121, MenuText::at_least_1_free_block_or_delete, 0, 0, 256);
+            DrawStyledHudText(256, 139, MenuText::a_block_using_the_console, 0, 0, 256);
+            DrawStyledHudText(256, 157, MenuText::internal_memory_card_manager, 0, 0, 256);
             SetHudTextScale(256);
-            v5 = 188;
-            goto LABEL_56;
+            prompt_y = 188;
+            goto ShowAcknowledgePrompt;
 
-        case 18:
+        case MENU_SCREEN_CARD_MISSING:
             SetMenuRedText();
-            DrawPauseMenuText(256, 90, r_u32((0x800A5664 + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 116, r_u32((0x800A5668 + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 142, r_u32((0x800A566C + (0) * 4)), 0, 0, 256);
-            v4 = r_u32((0x800A5670 + (0) * 4));
-            v5 = 168;
-            goto LABEL_57;
+            DrawStyledHudText(256, 90, MenuText::please_insert_a_memory, 0, 0, 256);
+            DrawStyledHudText(256, 116, MenuText::card_in_memory_card, 0, 0, 256);
+            DrawStyledHudText(256, 142, MenuText::slot_1_or_press_any, 0, 0, 256);
+            prompt = MenuText::button_to_cancel;
+            prompt_y = 168;
+            goto DrawPrompt;
 
-        case 19:
+        case MENU_SCREEN_CARD_FORMAT_CONFIRM:
             DrawMenuHints();
             SetMenuRedText();
-            DrawPauseMenuText(256, 35, r_u32((0x800A5688 + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 61, r_u32((0x800A568C + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 87, r_u32((0x800A5690 + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 113, r_u32(0x800A5694), 0, 0, 256);
-            v3 = r_u32(0x800FF024);
-            MenuWindow::Attach(v3).pos[1] = 148;
-            return MenuWindow::Attach((uint32)v3).Draw();
+            DrawStyledHudText(256, 35, MenuText::the_memory_card_in, 0, 0, 256);
+            DrawStyledHudText(256, 61, MenuText::memory_card_slot_1_is, 0, 0, 256);
+            DrawStyledHudText(256, 87, MenuText::unformatted_do_you, 0, 0, 256);
+            DrawStyledHudText(256, 113, MenuText::want_to_format_it, 0, 0, 256);
+            window = menu_runtime.confirm;
+            window->scr_pos[1] = 148;
+            window->Draw();
+            return;
 
-        case 20:
+        case MENU_SCREEN_CARD_FORMAT:
             SetMenuGreenText();
-            if ((((((sint32)r_u32(0x800FF2F0)) / 10) & 1) != 0))
-                DrawPauseMenuText(256, 110, r_u32((0x800A56A8 + (0) * 4)), 0, 0, 256);
+            if ((((((sint32)game_clock.tick) / 10) & 1) != 0))
+                DrawStyledHudText(256, 110, MenuText::formatting_memory_card, 0, 0, 256);
             SetMenuRedText();
-            DrawPauseMenuText(256, 140, r_u32((0x800A56AC + (0) * 4)), 0, 0, 256);
-            v4 = r_u32((0x800A56B0 + (0) * 4));
-            v5 = 166;
-            goto LABEL_57;
+            DrawStyledHudText(256, 140, MenuText::do_not_remove, 0, 0, 256);
+            prompt = MenuText::memory_card;
+            prompt_y = 166;
+            goto DrawPrompt;
 
-        case 21:
+        case MENU_SCREEN_CARD_FORMAT_ERROR:
             SetMenuRedText();
-            DrawPauseMenuText(256, 90, r_u32((0x800A56F4 + (0) * 4)), 0, 0, 256);
-            DrawPauseMenuText(256, 116, r_u32((0x800A56F8 + (0) * 4)), 0, 0, 256);
-            v13 = r_u32((0x800A56FC + (0) * 4));
-            v14 = 142;
-        LABEL_55:
-            DrawPauseMenuText(256, v14, v13, 0, 0, 256);
+            DrawStyledHudText(256, 90, MenuText::format_failed, 0, 0, 256);
+            DrawStyledHudText(256, 116, MenuText::try_again_or_insert, 0, 0, 256);
+            error_prompt = MenuText::a_new_memory_card;
+            error_y = 142;
+        DrawCardError:
+            DrawStyledHudText(256, error_y, error_prompt, 0, 0, 256);
 
-            v5 = 170;
-        LABEL_56:
-            v4 = r_u32(0x800A5590);
+            prompt_y = 170;
+        ShowAcknowledgePrompt:
+            prompt = MenuText::press_any_button;
 
-        LABEL_57:
-            result = DrawPauseMenuText(256, v5, v4, 0, 0, 256);
+        DrawPrompt:
+            DrawStyledHudText(256, prompt_y, prompt, 0, 0, 256);
 
             break;
 
-        case 22:
+        case MENU_SCREEN_CARD_FORMAT_COMPLETE:
             SetMenuGreenText();
-            if ((((((sint32)r_u32(0x800FF2F0)) / 10) & 1) != 0))
-                DrawPauseMenuText(256, 110, r_u32((0x800A5700 + (0) * 4)), 0, 0, 256);
-            v10 = 256;
-            v11 = 140;
-            v12 = ((uint32)(r_u32(0x800A5590)));
-        LABEL_48:
-            result = DrawPauseMenuText(v10, v11, v12, 0, 0, 256);
+            if ((((((sint32)game_clock.tick) / 10) & 1) != 0))
+                DrawStyledHudText(256, 110, MenuText::format_completed, 0, 0, 256);
+            message_x = 256;
+            message_y = 140;
+            message = MenuText::press_any_button;
+        DrawMessage:
+            DrawStyledHudText(message_x, message_y, message, 0, 0, 256);
 
             break;
 
         default:
-            return result;
+            return;
     }
 
-    return result;
+    return;
 }
-
-
-
 
 uint32 SetMenuRedText(void)
 {
@@ -846,26 +883,26 @@ uint32 DrawMenuLeftHint(void)
     SetHudTextAlignment(1);
     SetHudTextScale(192);
     SetHudTextColor(149, 20, 20, 0);
-    DrawPauseMenuText(92, 210, r_u32(0x800A5574), 0, 0, 256);
+    DrawStyledHudText(92, 210, MenuText::go_back, 0, 0, 256);
     SetHudTextAlignment(0);
-    uint8 *packet = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 1));
-    uint32 result = packet ? GuestMemoryAddress(packet) : 0;
+    POLY_FT4 *packet = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 1));
+    uint32 result = 0;
     if (packet)
         result = PlaceScaledHudSprite(64, 211, packet, GetTextureFrame(GetButtonResourceGroup(), 1));
     SetHudTextScale(256);
     return result;
 }
 
-uint32 DrawMenuRightHint(void)
+static uint32 DrawMenuRightHint(void)
 {
     FUNCTION_MARKER(0x80016744, "SLUS_003.73");
     SetHudTextAlignment(1);
     SetHudTextScale(192);
     SetHudTextColor(149, 20, 20, 0);
-    DrawPauseMenuText(348, 210, r_u32(0x800A5578), 0, 0, 256);
+    DrawStyledHudText(348, 210, MenuText::select, 0, 0, 256);
     SetHudTextAlignment(0);
-    uint8 *packet = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
-    uint32 result = packet ? GuestMemoryAddress(packet) : 0;
+    POLY_FT4 *packet = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
+    uint32 result = 0;
     if (packet)
         result = PlaceScaledHudSprite(320, 211, packet, GetTextureFrame(GetButtonResourceGroup(), 0));
     SetHudTextScale(256);
@@ -885,123 +922,17 @@ uint32 DrawMenuCenteredHint(void)
     SetHudTextAlignment(1);
     SetHudTextScale(256);
     SetHudTextColor(149, 20, 20, 0);
-    DrawPauseMenuText(227, 213, r_u32(0x800A5578), 0, 0, 256);
-    uint8 *packet = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
+    DrawStyledHudText(227, 213, MenuText::select, 0, 0, 256);
+    POLY_FT4 *packet = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
     if (packet)
         return PlaceScaledHudSprite(199, 214, packet, GetTextureFrame(GetButtonResourceGroup(), 0));
     return 0;
 }
 
-
-
-
-
-
-
-
-uint32 BlurMenuBuffers(void)
-{
-    FUNCTION_MARKER(0x8002E2E8, "SLUS_003.73");
-    uint32 selected, other, toggle;
-    sint32 row;
-    selected = r_u32(0x800FF230);
-    if (!selected)
-        return selected;
-    toggle = r_u8(0x800FF238) == 0;
-    w_u8(0x800FF238, toggle);
-    selected = r_u32(0x800FF230 + 4 * toggle);
-    other = r_u32(0x800FF230 + 4 * (toggle == 0));
-    for (row = 1; row < (sint32)r_u16(0x800FF23C) - 1; ++row)
-    {
-        uint32 stride = r_u16(0x800FF23A);
-        uint32 top = r_u32(selected + (uint32)(row - 1) * stride);
-        uint32 bottom = r_u32(selected + (uint32)(row + 1) * stride);
-        uint32 carry = 0;
-        sint32 column = 1;
-        for (;;)
-        {
-            uint32 top_second = (top >> 16) & 255;
-            uint32 bottom_second = (bottom >> 16) & 255;
-            uint32 top_last = top >> 24;
-            uint32 bottom_last = bottom >> 24;
-            uint32 output = carry;
-            uint32 next_top, next_bottom;
-            sint32 next_column = column + 2;
-            uint32 top_offset;
-            output |= (((top & 255) + top_second + (bottom & 255) + bottom_second) >> 2) << 8;
-            output |= ((((top >> 8) & 255) + top_last + ((bottom >> 8) & 255) + bottom_last) >> 2) << 16;
-            stride = r_u16(0x800FF23A);
-            top_offset = (uint32)(row - 1) * stride;
-            if (next_column >= (sint32)stride - 1)
-                break;
-            next_top = r_u32(selected + top_offset + (uint32)next_column + 1);
-            next_bottom = r_u32(selected + (uint32)(row + 1) * stride + (uint32)next_column + 1);
-            output |= ((top_second + (next_top & 255) + bottom_second + (next_bottom & 255)) >> 2) << 24;
-            w_u32(selected + (uint32)row * stride + (uint32)next_column - 3, output);
-            w_u32(other + top_offset + (uint32)next_column - 3, output);
-            carry = (top_last + ((next_top >> 8) & 255) + bottom_last + (next_bottom >> 24)) >> 2;
-            top = next_top;
-            bottom = next_bottom;
-            column = next_column + 2;
-        }
-    }
-    SeedMenuFire(4);
-    return xport_draft_host_sub_800885A4_p1((const sint16 *)psx_addr(0x800FF240, 8), selected);
-}
-
-
-
-uint32 SeedMenuFire(uint32 sparks)
-{
-    FUNCTION_MARKER(0x8002E4D8, "SLUS_003.73");
-    uint32 height = r_u16(0x800FF23C);
-    uint32 width = r_u16(0x800FF23A);
-    uint32 row_offset = (height - 1) * width;
-    uint32 selected = r_u8(0x800FF238);
-    uint32 buffer = r_u32(0x800FF230 + selected * 4);
-    uint32 cursor = buffer + row_offset;
-    uint32 words = width >> 2;
-    if (words)
-    {
-        uint32 index = 0;
-        do
-        {
-            w_u32(cursor, 0);
-            width = r_u16(0x800FF23A);
-            ++index;
-            words = width >> 2;
-            cursor += 4;
-        } while (index < words);
-    }
-    uint32 result = RandomRange(r_u8(0x800FF23E) >> 1);
-    uint32 intensity = (r_u8(0x800FF23E) >> 1) + result;
-    while (sparks)
-    {
-        result = RandomRange(r_u16(0x800FF23A) >> 1);
-        height = r_u16(0x800FF23C);
-        width = r_u16(0x800FF23A);
-        result += width >> 2;
-        row_offset = (height - 1) * width;
-        w_u8(buffer + row_offset + result, intensity);
-        height = r_u16(0x800FF23C);
-        width = r_u16(0x800FF23A);
-        row_offset = (height - 1) * width;
-        w_u8(buffer + row_offset + result + 1, intensity);
-        height = r_u16(0x800FF23C);
-        width = r_u16(0x800FF23A);
-        row_offset = (height - 1) * width;
-        --sparks;
-        w_u8(buffer + row_offset + result - 1, intensity);
-    }
-    return result;
-}
-
-
-
 uint32 HasMenuBuffers()
 {
     FUNCTION_MARKER(0x8002E13C, "SLUS_003.73");
-    return r_u32(0x800FF230) != 0;
+    return menu_fire.buffers[0] != 0;
 }
 
 uint32 CreateMenuBuffers(uint32 resource, uint32 width, uint32 height, uint32 mode)
@@ -1016,37 +947,133 @@ uint32 CreateMenuBuffers(uint32 resource, uint32 width, uint32 height, uint32 mo
     uint32 page = texture.tpage;
     uint32 pixel_shift = (2 - ((page & 384) >> 7)) & 31;
     uint32 texture_x = texture.uv[0].u;
-    w_u16(0x800FF240, ((page & 15) << 6) + (texture_x >> pixel_shift));
+    menu_fire.rectangle.x = ((page & 15) << 6) + (texture_x >> pixel_shift);
     uint32 texture_y = texture.uv[0].v;
-    w_u16(0x800FF244, width >> 1);
-    w_u16(0x800FF23A, width);
-    w_u16(0x800FF246, height);
-    w_u16(0x800FF23C, height);
-    w_u8(0x800FF23E, mode);
-    w_u16(0x800FF242, texture_y + ((page << 4) & 256));
+    menu_fire.rectangle.w = width >> 1;
+    menu_fire.width = width;
+    menu_fire.rectangle.h = height;
+    menu_fire.height = height;
+    menu_fire.intensity = mode;
+    menu_fire.rectangle.y = texture_y + ((page << 4) & 256);
     uint32 bytes = width * height;
-    result = AllocateHeapBlock(bytes << 1, 0, 1);
-    if (!result)
-        return result;
-    w_u32(0x800FF230, result);
-    w_u32(0x800FF234, result + bytes);
-    for (uint32 row = 0; row < height; ++row)
+    uint8 *allocation = (uint8 *)calloc(height, 2 * (size_t)width);
+    if (!allocation)
     {
-        for (uint32 column = 0; column < width; ++column)
-        {
-            uint32 stride = r_u16(0x800FF23A);
-            uint32 buffer = r_u32(0x800FF230);
-            w_u8(buffer + row * stride + column, 0);
-            stride = r_u16(0x800FF23A);
-            buffer = r_u32(0x800FF234);
-            w_u8(buffer + row * stride + column, 0);
-        }
+        StopWithHeapErrorColor(0, 0, 128);
+        return 0;
     }
+    menu_fire.buffers[0] = allocation;
+    menu_fire.buffers[1] = allocation + bytes;
     return 0;
 }
 
+void ReleaseMenuBuffers()
+{
+    FUNCTION_MARKER(0x8002E2B8, "SLUS_003.73");
+    if (menu_fire.buffers[0])
+    {
+        free(menu_fire.buffers[0]);
+        menu_fire.buffers[0] = 0;
+        menu_fire.buffers[1] = 0;
+    }
+}
 
+uint32 BlurMenuBuffers(void)
+{
+    FUNCTION_MARKER(0x8002E2E8, "SLUS_003.73");
+    uint8 *selected, *other;
+    uint32 toggle;
+    sint32 row;
+    selected = menu_fire.buffers[0];
+    if (!selected)
+        return 0;
+    toggle = menu_fire.selected == 0;
+    menu_fire.selected = toggle;
+    selected = menu_fire.buffers[toggle];
+    other = menu_fire.buffers[toggle == 0];
+    for (row = 1; row < (sint32)menu_fire.height - 1; ++row)
+    {
+        uint32 stride = menu_fire.width;
+        uint32 top = xport_load_le32(selected + (uint32)(row - 1) * stride);
+        uint32 bottom = xport_load_le32(selected + (uint32)(row + 1) * stride);
+        uint32 carry = 0;
+        sint32 column = 1;
+        for (;;)
+        {
+            uint32 top_second = (top >> 16) & 255;
+            uint32 bottom_second = (bottom >> 16) & 255;
+            uint32 top_last = top >> 24;
+            uint32 bottom_last = bottom >> 24;
+            uint32 output = carry;
+            uint32 next_top, next_bottom;
+            sint32 next_column = column + 2;
+            uint32 top_offset;
+            output |= (((top & 255) + top_second + (bottom & 255) + bottom_second) >> 2) << 8;
+            output |= ((((top >> 8) & 255) + top_last + ((bottom >> 8) & 255) + bottom_last) >> 2) << 16;
+            stride = menu_fire.width;
+            top_offset = (uint32)(row - 1) * stride;
+            if (next_column >= (sint32)stride - 1)
+                break;
+            next_top = xport_load_le32(selected + top_offset + (uint32)next_column + 1);
+            next_bottom = xport_load_le32(selected + (uint32)(row + 1) * stride + (uint32)next_column + 1);
+            output |= ((top_second + (next_top & 255) + bottom_second + (next_bottom & 255)) >> 2) << 24;
+            // Write four packed pixels at potentially unaligned byte positions
+            xport_store_le32(selected + (uint32)row * stride + (uint32)next_column - 3, output);
+            xport_store_le32(other + top_offset + (uint32)next_column - 3, output);
+            carry = (top_last + ((next_top >> 8) & 255) + bottom_last + (next_bottom >> 24)) >> 2;
+            top = next_top;
+            bottom = next_bottom;
+            column = next_column + 2;
+        }
+    }
+    SeedMenuFire(4);
+    return LoadImagePSX(&menu_fire.rectangle, (uint32 *)selected);
+}
 
+static uint32 SeedMenuFire(uint32 sparks)
+{
+    FUNCTION_MARKER(0x8002E4D8, "SLUS_003.73");
+    uint32 height = menu_fire.height;
+    uint32 width = menu_fire.width;
+    uint32 row_offset = (height - 1) * width;
+    uint32 selected = menu_fire.selected;
+    uint8 *buffer = menu_fire.buffers[selected];
+    uint8 *cursor = buffer + row_offset;
+    uint32 words = width >> 2;
+    if (words)
+    {
+        uint32 index = 0;
+        do
+        {
+            memset(cursor, 0, sizeof(uint32));
+            width = menu_fire.width;
+            ++index;
+            words = width >> 2;
+            cursor += 4;
+        } while (index < words);
+    }
+    uint32 result = RandomRange(menu_fire.intensity >> 1);
+    uint32 intensity = (menu_fire.intensity >> 1) + result;
+    while (sparks)
+    {
+        result = RandomRange(menu_fire.width >> 1);
+        height = menu_fire.height;
+        width = menu_fire.width;
+        result += width >> 2;
+        row_offset = (height - 1) * width;
+        buffer[row_offset + result] = intensity;
+        height = menu_fire.height;
+        width = menu_fire.width;
+        row_offset = (height - 1) * width;
+        buffer[row_offset + result + 1] = intensity;
+        height = menu_fire.height;
+        width = menu_fire.width;
+        row_offset = (height - 1) * width;
+        --sparks;
+        buffer[row_offset + result - 1] = intensity;
+    }
+    return result;
+}
 
 uint32 SetMenuDarkRedText()
 {
@@ -1054,91 +1081,60 @@ uint32 SetMenuDarkRedText()
     return SetHudTextColor(149, 20, 20, 0);
 }
 
-
-
-
 const char *ReadMenuButtonLabel(uint32 button)
 {
-    uint32 label;
+    const char *label;
     FUNCTION_MARKER(0x800117D8, "SLUS_003.73");
     if (button == 2)
-        label = r_u32(0x800A55C0);
+        label = MenuText::r2;
     else if (button == 4)
-        label = r_u32(0x800A55C4);
+        label = MenuText::l1;
     else if (button == 8)
-        label = r_u32(0x800A55C8);
+        label = MenuText::r1;
     else if (button == 1)
-        label = r_u32(0x800A55BC);
+        label = MenuText::l2;
     else
-        label = 0x800FEEFC;
-    return label ? (const char *)psx_addr(label, 1) : 0;
+        label = MenuText::empty;
+    return label;
 }
-
-extern "C" uint32 sub_800117D8(uint32 button)
-{
-    FUNCTION_MARKER(0x800117D8, "SLUS_003.73");
-    return GuestMemoryAddress(ReadMenuButtonLabel(button));
-}
-
 
 sint32 ReadMenuNavigationStep()
 {
     uint32 left, right, counter;
     sint32 direction = 0;
     FUNCTION_MARKER(0x8001173C, "SLUS_003.73");
-    left = r_u8(0x800EC178);
+    left = game_pads[0].buttons[8].down;
     if (!left)
     {
-        right = r_u8(0x800EC188);
+        right = game_pads[0].buttons[9].down;
         if (!right)
         {
-            w_u32(0x800FF018, 0);
+            menu_runtime.navigation_ticks = 0;
             return 0;
         }
     }
-    counter = r_u32(0x800FF018);
+    counter = menu_runtime.navigation_ticks;
     if (!counter || ((sint32)counter >= 11 && !(counter & 1)))
     {
-        right = r_u8(0x800EC188);
+        right = game_pads[0].buttons[9].down;
         if (right)
             direction = 1;
         if (left)
             direction = -1;
     }
-    counter = r_u32(0x800FF018);
-    w_u32(0x800FF018, counter + 1);
+    counter = menu_runtime.navigation_ticks;
+    menu_runtime.navigation_ticks = (uint32)(counter + 1);
     return direction;
 }
 
-extern "C" uint32 sub_8001173C(void)
-{
-    FUNCTION_MARKER(0x8001173C, "SLUS_003.73");
-    return (uint32)ReadMenuNavigationStep();
-}
-
-static sint32 ReadMenuButtonBinding(const sint16 *binding)
-{
-    uint32 address = GuestMemoryAddress(binding);
-    return address ? (sint16)r_u16(address) : (sint16)xport_load_le16(binding);
-}
-
-static void WriteMenuButtonBinding(sint16 *binding, uint32 button)
-{
-    uint32 address = GuestMemoryAddress(binding);
-    if (address)
-        w_u16(address, button);
-    else
-        xport_store_le16(binding, (uint16)button);
-}
-
-sint32 AssignMenuButton(uint32 button, sint16 *selected, sint16 *other1, sint16 *other2, sint16 *other3)
+sint32 AssignMenuButton(uint32 button, sint16 *sel, sint16 *binding0, sint16 *binding1, sint16 *binding2)
 {
     FUNCTION_MARKER(0x80011860, "SLUS_003.73");
-    WriteMenuButtonBinding(selected, button);
-    sint32 first = ReadMenuButtonBinding(other1);
-    sint32 second = ReadMenuButtonBinding(other2);
-    sint32 third = ReadMenuButtonBinding(other3);
-    uint32 available = ~(button | (uint32)first | (uint32)second | (uint32)third) & 15;
+    *sel = button;
+    sint32 val0 = *binding0;
+    sint32 val1 = *binding1;
+    sint32 val2 = *binding2;
+    uint32 available = ~(button | (uint32)val0 | (uint32)val1 | (uint32)val2) & 15;
     if (available & 8)
         available = 8;
     if (available & 4)
@@ -1147,27 +1143,21 @@ sint32 AssignMenuButton(uint32 button, sint16 *selected, sint16 *other1, sint16 
         available = 2;
     if (available & 1)
         available = 1;
-    if (button == (uint32)first)
-        WriteMenuButtonBinding(other1, available);
-    second = ReadMenuButtonBinding(other2);
-    if (button == (uint32)second)
-        WriteMenuButtonBinding(other2, available);
-    third = ReadMenuButtonBinding(other3);
-    if (button == (uint32)third)
-        WriteMenuButtonBinding(other3, available);
-    return third;
-}
-
-extern "C" uint32 sub_80011860(uint32 button, uint32 selected, uint32 other1, uint32 other2, uint32 other3)
-{
-    FUNCTION_MARKER(0x80011860, "SLUS_003.73");
-    return (uint32)AssignMenuButton(button, (sint16 *)psx_addr(selected, 2), (sint16 *)psx_addr(other1, 2), (sint16 *)psx_addr(other2, 2), (sint16 *)psx_addr(other3, 2));
+    if (button == (uint32)val0)
+        *binding0 = available;
+    val1 = *binding1;
+    if (button == (uint32)val1)
+        *binding1 = available;
+    val2 = *binding2;
+    if (button == (uint32)val2)
+        *binding2 = available;
+    return val2;
 }
 
 // Native extraction retains the signed multiply-high quotient sequence
-static sint32 ReadMenuSliderWidth(uint32 address, uint32 multiplier, uint32 shift)
+static sint32 ReadMenuSliderWidth(uint16 volume, uint32 multiplier, uint32 shift)
 {
-    sint32 level = (sint16)r_u16(address);
+    sint32 level = (sint16)volume;
     uint32 product = (uint32)level * 296;
     sint64 wide = (sint64)(sint32)product * (sint64)(sint32)multiplier;
     uint32 high = (uint32)((uint64)wide >> 32);
@@ -1175,33 +1165,26 @@ static sint32 ReadMenuSliderWidth(uint32 address, uint32 multiplier, uint32 shif
     return (sint32)((uint32)(sum >> shift) - (uint32)((sint32)product >> 31));
 }
 
-static const char *ReadMenuSliderLabel(uint32 address)
-{
-    uint32 label = r_u32(address);
-    return label ? (const char *)psx_addr(label, 1) : 0;
-}
-
-uint32 DrawMenuVolumeSlider(MenuWindow &menu)
+void DrawMenuVolumeSlider(MenuWindow &menu)
 {
     FUNCTION_MARKER(0x800115C0, "SLUS_003.73");
-    uint32 result = menu.IsSelected(ReadMenuSliderLabel(0x800A55A4));
-    if (result)
-        return result;
+    if (menu.IsSelected(MenuText::return_to_options_menu))
+        return;
     sint32 width = 0;
     bool width_known = false;
-    if (menu.IsSelected(ReadMenuSliderLabel(0x800A55A8)))
+    if (menu.IsSelected(MenuText::fx_level))
     {
-        width = ReadMenuSliderWidth(0x800ECC7A, 0x80020009, 13);
+        width = ReadMenuSliderWidth(game_settings.effects_volume, 0x80020009, 13);
         width_known = true;
     }
-    if (menu.IsSelected(ReadMenuSliderLabel(0x800A55AC)))
+    if (menu.IsSelected(MenuText::music_level))
     {
-        width = ReadMenuSliderWidth(0x800ECC78, 0x81020409, 6);
+        width = ReadMenuSliderWidth(game_settings.music_volume, 0x81020409, 6);
         width_known = true;
     }
-    if (menu.IsSelected(ReadMenuSliderLabel(0x800A55B0)))
+    if (menu.IsSelected(MenuText::voice_level))
     {
-        width = ReadMenuSliderWidth(0x800ECC7C, 0x80808081, 7);
+        width = ReadMenuSliderWidth(game_settings.voice_volume, 0x80808081, 7);
         width_known = true;
     }
     if (!width_known)
@@ -1211,9 +1194,5 @@ uint32 DrawMenuVolumeSlider(MenuWindow &menu)
         abort();
     }
     AllocateHudRectangle((uint32)width + 108, 41, 296 - (uint32)width, 10, 0, 0, 0, 0);
-    uint8 *packet = AllocateHudRectangle(106, 40, 300, 12, 100, 0, 0, 0);
-    return packet ? GuestMemoryAddress(packet) : 0;
+    AllocateHudRectangle(106, 40, 300, 12, 100, 0, 0, 0);
 }
-
-
-

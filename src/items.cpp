@@ -1,12 +1,22 @@
+#include <new>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "game_heap.h"
+#include "game_tuning.h"
+#include "collision.h"
+
+#include "world_gravity.h"
+
+#include "object_initializers.h"
+
+#include "effect_object.h"
 #include "visual_object.h"
 #include "object_damage.h"
-#include "game_sdk_bindings.h"
-extern "C" {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
+
 #include "items.h"
-#include "native_object_storage.h"
 #include "game_object_allocation.h"
 #include "model_resources.h"
 #include "game_random.h"
@@ -16,362 +26,316 @@ extern "C" {
 #include "vector_arithmetic.h"
 #include "ring_burst_effect.h"
 #include "audio_session.h"
-#include <new>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "player.h"
 
-
-
-static uint32 ReadItemsPositionWord(const uint32 *position, uint32 axis)
+Items::Items(const RecordCursor &data, uint32 index) : VisualObject(), hover_y(0), fuse_timer(0), settled(0), bob_phase(0)
 {
-    uint32 address = GuestMemoryAddress(position);
-    if (address)
-        return r_u32(address + axis * 4);
+    ObjectBorrow object_borrow;
     uint32 value;
-    memcpy(&value, (const uint8 *)position + axis * 4, 4);
-    return value;
-}
-
-Items::Items(const uint8 *data, uint32 index) : VisualObject()
-{
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 value, cursor, parameter, ground, x, y, z, child;
+    uint32 parameter;
+    uint32 ground;
+    uint32 x;
+    uint32 y;
+    uint32 z;
+    GameHeapBlock *child;
     FUNCTION_MARKER(0x8005B3E0, "SLUS_003.73");
-    w_u32(object + 68, 0x800A2870);
-    SetModelBank((const char *)psx_addr(0x800FF574, 1));
-    value = r_u8(0x800FF645);
+    SetModelBank("items");
+    value = items_bank;
     value = FindModelResourceIndex(0x717FB6B2, value);
     this->model.model_idx = value;
     AddToList(visual_lists.actors);
-    w_u16(object + 212, 64);
-    w_u16(object + 218, 20);
+    this->collision_radius = 64;
+    this->health = 20;
     this->kind = 204;
-    if (!GuestMemoryAddress(data))
+    RecordCursor cursor = ReadAngles(ReadPosition(data));
+    cfg.damage = 20;
+    cfg.arm_radius = 512;
+    cfg.blast_radius = 256;
+    cfg.fuse_ticks = 16;
+    cfg.life_ticks = 360;
+    cfg.hover_height = 128;
+    record_idx = index;
+    while (cursor.Read16() != 0x4100)
     {
-        // TODO Bind native item records before storing their persistent cursor
-        GameDiagnostic("TODO Items record cursor requires mapped game memory\n");
-        abort();
+        cursor.Require(6);
+        parameter = (cursor + 2).Read16();
+        value = (cursor + 4).Read16();
+        cursor += 6;
+        switch (parameter)
+        {
+            case DamageAmount:
+                cfg.damage = value;
+                break;
+            case ArmRadius:
+                cfg.arm_radius = value;
+                break;
+            case BlastRadius:
+                cfg.blast_radius = value;
+                break;
+            case FuseTicks:
+                cfg.fuse_ticks = value;
+                break;
+            case LifeTicks:
+                cfg.life_ticks = value;
+                break;
+            case HoverHeight:
+                cfg.hover_height = value;
+                break;
+            default:
+                GameDiagnostic("Items configuration index out of bounds: %u\n", parameter);
+                abort();
+        }
     }
-    const uint8 *next = ReadPosition(data);
-    next = ReadAngles(next);
-    cursor = GuestMemoryAddress(next);
-    w_u32(object + 320, cursor);
-    w_u16(object + 310, 512);
-    w_u16(object + 312, 256);
-    w_u16(object + 314, 16);
-    w_u16(object + 316, 360);
-    this->record_idx = index;
-    w_u16(object + 308, 20);
-    w_u16(object + 318, 128);
-    for (;;)
-    {
-        cursor = r_u32(object + 320);
-        if (r_u16(cursor) == 0x4100)
-            break;
-        w_u32(object + 320, cursor + 2);
-        parameter = r_u16(cursor + 2);
-        w_u32(object + 320, cursor + 4);
-        value = r_u16(cursor + 4);
-        w_u32(object + 320, cursor + 6);
-        w_u16(object + 308 + parameter * 2, value);
-    }
-    ground = sub_80067A18(object + 4, 0, 8192);
+    ground = FindGroundHeight(model.pos.words, 0, 8192);
     if (ground == 0xFFFFFFFF)
         VisualObject::Finish();
     else
     {
-        value = r_u16(object + 318);
-        w_u32(object + 296, ground - (value << 12));
-        x = r_u32(0x800A6844);
-        y = r_u32(0x800A6848);
-        z = r_u32(0x800A684C);
-        motion.acceleration[0] = x;
-        motion.acceleration[1] = y;
-        motion.acceleration[2] = z;
+        value = cfg.hover_height;
+        hover_y = ground - (value << 12);
+        x = world_gravity.vector.words[0];
+        y = world_gravity.vector.words[1];
+        z = world_gravity.vector.words[2];
+        motion.acceleration.words[0] = x;
+        motion.acceleration.words[1] = y;
+        motion.acceleration.words[2] = z;
         child = AllocateEffectStorage(176);
         if (child)
         {
-            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(OscillatingRing));
-            new (dram_addr) OscillatingRing((const uint32 *)this->model.pos, 64, 32, 64, 32, 96, 32, 32, 64, 0);
+            ring = new (child) OscillatingRing(this->model.pos.words, 64, 32, 64, 32, 96, 32, 32, 64, 0);
         }
-        w_u32(object + 324, child);
-        w_u8(child + 66, 1);
-        w_u16(object + 306, 0);
-        w_u8(object + 304, 0);
+        if (!ring)
+        {
+            // TODO Original constructor writes through null after failed ring allocation
+            GameDiagnostic("TODO Items ring allocation failed\n");
+            abort();
+        }
+        ring->persistent = 1;
+        bob_phase = 0;
+        settled = 0;
     }
 }
 
-Items::Items(const uint32 *position, uint32 first, uint32 second, uint32 value312, uint32 value314, uint32 value316, uint32 value318) : VisualObject()
+Items::Items(const uint32 *pos, uint32 damage, uint32 arm_radius, uint32 blast_radius, uint32 fuse_ticks, uint32 life_ticks, uint32 hover_height) : VisualObject(), hover_y(0), fuse_timer(0), settled(0), bob_phase(0)
 {
-    uint32 object = NativeObjectGuestAddress(this);
+    ObjectBorrow object_borrow;
     uint32 bank, value, random_x, random_y, random_z, x, y, z, ground;
     FUNCTION_MARKER(0x8005B5D8, "SLUS_003.73");
-    w_u32(object + 68, 0x800A2870);
-    SetModelBank((const char *)psx_addr(0x800FF574, 1));
-    bank = r_u8(0x800FF645);
+    SetModelBank("items");
+    bank = items_bank;
     value = FindModelResourceIndex(0x717FB6B2, bank);
     this->model.model_idx = value;
     AddToList(visual_lists.actors);
-    w_u16(object + 212, 64);
-    w_u16(object + 218, 20);
+    this->collision_radius = 64;
+    this->health = 20;
     this->kind = 204;
     random_x = RandomRange(128) - 64;
     random_y = RandomRange(128) - 64;
     random_z = RandomRange(128) - 64;
-    motion.angular_velocity[0] = random_x;
-    motion.angular_velocity[1] = random_y;
-    motion.angular_velocity[2] = random_z;
-    x = ReadItemsPositionWord(position, 0);
-    y = ReadItemsPositionWord(position, 1);
-    z = ReadItemsPositionWord(position, 2);
-    pos_history.saved[0] = x;
-    pos_history.saved[1] = y;
-    pos_history.saved[2] = z;
-    x = pos_history.saved[0];
-    y = pos_history.saved[1];
-    z = pos_history.saved[2];
-    this->model.pos[0] = x;
-    this->model.pos[1] = y;
-    this->model.pos[2] = z;
-    w_u16(object + 308, first);
-    w_u16(object + 312, value312);
-    w_u16(object + 314, value314);
-    w_u16(object + 316, value316);
-    w_u16(object + 318, value318);
-    w_u16(object + 310, second);
-    ground = sub_80067A18(object + 4, 128, 8192);
+    motion.angular_velocity.words[0] = random_x;
+    motion.angular_velocity.words[1] = random_y;
+    motion.angular_velocity.words[2] = random_z;
+    x = pos[0];
+    y = pos[1];
+    z = pos[2];
+    pos_history.saved.words[0] = x;
+    pos_history.saved.words[1] = y;
+    pos_history.saved.words[2] = z;
+    this->model.pos.words[0] = x;
+    this->model.pos.words[1] = y;
+    this->model.pos.words[2] = z;
+    cfg.damage = damage;
+    cfg.blast_radius = blast_radius;
+    cfg.fuse_ticks = fuse_ticks;
+    cfg.life_ticks = life_ticks;
+    cfg.hover_height = hover_height;
+    cfg.arm_radius = arm_radius;
+    ground = FindGroundHeight(model.pos.words, 128, 8192);
     if (ground == 0xFFFFFFFF)
         VisualObject::Finish();
     else
     {
-        value = r_u16(object + 318);
-        w_u32(object + 296, ground - (value << 12));
-        x = r_u32(0x800A6844);
-        y = r_u32(0x800A6848);
-        z = r_u32(0x800A684C);
-        motion.acceleration[0] = x;
-        motion.acceleration[1] = y;
-        motion.acceleration[2] = z;
-        w_u16(object + 306, 0);
-        w_u8(object + 304, 0);
+        value = cfg.hover_height;
+        hover_y = ground - (value << 12);
+        x = world_gravity.vector.words[0];
+        y = world_gravity.vector.words[1];
+        z = world_gravity.vector.words[2];
+        motion.acceleration.words[0] = x;
+        motion.acceleration.words[1] = y;
+        motion.acceleration.words[2] = z;
+        bob_phase = 0;
+        settled = 0;
         EnableShadow();
-        value = r_u16(0x800EC530);
-        w_u16(object + 204, value << 1);
-        x = this->model.pos[0];
-        y = this->model.pos[1];
-        z = this->model.pos[2];
-        w_u32(object + 184, x);
-        w_u32(object + 188, y);
-        w_u32(object + 192, z);
-        w_u32(object + 188, ground);
+        value = GetGameTuning().pickup_floor_offset;
+        shadow.max_height = value << 1;
+        x = this->model.pos.words[0];
+        y = this->model.pos.words[1];
+        z = this->model.pos.words[2];
+        surface.pos.words[0] = x;
+        surface.pos.words[1] = y;
+        surface.pos.words[2] = z;
+        surface.pos.words[1] = ground;
     }
+}
+
+Items::~Items()
+{
+    if (ring)
+        ring->Destroy(3);
 }
 
 uint32 Items::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, receiver, target;
+    ObjectBorrow object_borrow;
     FUNCTION_MARKER(0x8005B7D4, "SLUS_003.73");
-    w_u32(object + 68, 0x800A2870);
     RemoveFromList(visual_lists.actors);
-    child = r_u32(object + 324);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        (void)apocalypse_object_cleanup(target, receiver, 3);
-    }
+    if (ring)
+        ring->Destroy(3);
+    ring = 0;
     VisualObject::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(object) : 0;
+    return (reason & 1) ? ReleaseObjectStorage(this) : 0;
 }
 
 uint32 Items::Damage(uint32 damage, const sint32 *, uint32)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    sint32 health = (sint16)r_u16(object + 218);
-    uint32 remaining = r_u16(object + 218) - damage;
+    sint32 health = this->health;
+    uint32 remaining = (uint16)this->health - damage;
     FUNCTION_MARKER(0x8005B864, "SLUS_003.73");
     if (health > 0)
     {
-        w_u16(object + 218, remaining);
+        this->health = (sint16)(uint16)(remaining);
         if ((sint32)(remaining << 16) <= 0)
-            w_u32(object + 300, 1);
+            fuse_timer = 1;
     }
     return 1;
 }
 
 uint32 Items::Update()
 {
+    ObjectBorrow object_borrow;
     uint32 trig_angle;
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 timer, child, value, ground, phase, hero, table, target, receiver, damage;
+    uint32 timer, value, ground, phase, damage;
     uint32 result, flags, scale, remaining;
     sint32 distance, height, sine;
     FUNCTION_MARKER(0x8005B890, "SLUS_003.73");
-    timer = r_u16(object + 316);
+    timer = cfg.life_ticks;
     if (timer)
     {
         timer = (timer - 1) & 0xFFFF;
-        w_u16(object + 316, timer);
+        cfg.life_ticks = timer;
         if (!timer)
         {
-            value = r_u16(object + 314);
-            child = r_u32(object + 324);
-            w_u32(object + 300, value);
+            value = cfg.fuse_ticks;
+            OscillatingRing *child = ring.Get();
+            fuse_timer = value;
             if (child)
             {
-                OscillatingRing::Attach(child).SetCenterColor(128, 96, 32);
-                OscillatingRing::Attach(r_u32(object + 324)).SetRingColors(64, 0, 0);
+                child->SetCenterColor(128, 96, 32);
+                ring->SetRingColors(64, 0, 0);
             }
         }
     }
-    AddAngleVector((uint16 *)this->model.angles, (const uint16 *)motion.angular_velocity);
-    if (!r_u8(object + 304))
+    AddAngleVector(this->model.angles.words, motion.angular_velocity.words);
+    if (!settled)
     {
-        if ((sint32)motion.velocity[1] <= 0)
+        if ((sint32)motion.velocity.words[1] <= 0)
         {
-            AddVectors((uint32 *)this->model.pos, (const uint32 *)motion.velocity);
-            AddVectors((uint32 *)motion.velocity, (const uint32 *)motion.acceleration);
+            AddVectors(this->model.pos.words, motion.velocity.words);
+            AddVectors(motion.velocity.words, motion.acceleration.words);
         }
         else
         {
-            value = this->model.pos[1];
-            ground = r_u32(object + 296);
+            value = this->model.pos.words[1];
+            ground = hover_y;
             if ((sint32)value < (sint32)ground)
             {
-                AddVectors((uint32 *)this->model.pos, (const uint32 *)motion.velocity);
-                AddVectors((uint32 *)motion.velocity, (const uint32 *)motion.acceleration);
-                value = this->model.pos[1];
-                ground = r_u32(object + 296);
+                AddVectors(this->model.pos.words, motion.velocity.words);
+                AddVectors(motion.velocity.words, motion.acceleration.words);
+                value = this->model.pos.words[1];
+                ground = hover_y;
                 if ((sint32)value >= (sint32)ground)
                 {
-                    w_u8(object + 304, 1);
-                    motion.velocity[2] = 0;
-                    motion.velocity[1] = 0;
-                    motion.velocity[0] = 0;
-                    motion.acceleration[2] = 0;
-                    motion.acceleration[1] = 0;
-                    motion.acceleration[0] = 0;
+                    settled = 1;
+                    motion.velocity.words[2] = 0;
+                    motion.velocity.words[1] = 0;
+                    motion.velocity.words[0] = 0;
+                    motion.acceleration.words[2] = 0;
+                    motion.acceleration.words[1] = 0;
+                    motion.acceleration.words[0] = 0;
                 }
             }
         }
-        flags = r_u8(object + 304);
+        flags = settled;
     }
     else
         flags = 1;
     if (flags)
     {
-        trig_angle = r_u16(object + 306) & 0xFFF;
-        phase = r_u16(object + 306);
+        trig_angle = bob_phase & 0xFFF;
+        phase = bob_phase;
         sine = rsin(trig_angle);
-        ground = r_u32(object + 296);
+        ground = hover_y;
         value = ground + ((uint32)sine << 6);
-        w_u16(object + 306, phase + 64);
-        this->model.pos[1] = value;
+        bob_phase = phase + 64;
+        this->model.pos.words[1] = value;
     }
-    value = r_u32(object + 188);
-    height = (sint32)(value - this->model.pos[1]) >> 12;
-    hero = visual_lists.players;
-    w_u16(object + 202, (uint32)height);
-    if (hero)
+    value = surface.pos.words[1];
+    height = (sint32)(value - this->model.pos.words[1]) >> 12;
+    shadow.height = (uint32)height;
+    if (visual_lists.players)
     {
-        distance = (sint32)r_u32(object + 220);
-        if (distance < (sint32)r_u16(object + 312))
+        distance = (sint32)player_distance;
+        if (distance < (sint32)cfg.blast_radius)
             goto explode;
     }
     else
         distance = 65535;
-    if (r_u32(object + 300))
+    if (fuse_timer)
     {
         flags = this->model.flags;
-        scale = this->model.scale[1];
+        scale = this->model.scale.words[1];
         this->model.flags = flags | 512;
-        value = this->model.scale[0];
-        this->model.scale[1] = scale + 380;
-        remaining = r_u32(object + 300) - 1;
-        this->model.scale[0] = value + 380;
-        result = this->model.scale[2] + 380;
-        w_u32(object + 300, remaining);
-        this->model.scale[2] = result;
+        value = this->model.scale.words[0];
+        this->model.scale.words[1] = scale + 380;
+        remaining = fuse_timer - 1;
+        this->model.scale.words[0] = value + 380;
+        result = this->model.scale.words[2] + 380;
+        fuse_timer = remaining;
+        this->model.scale.words[2] = result;
         if (!remaining)
             goto explode;
     }
     else
     {
-        result = distance < (sint32)r_u16(object + 310);
+        result = distance < (sint32)cfg.arm_radius;
         if (result)
         {
-            result = r_u16(object + 314);
-            child = r_u32(object + 324);
-            w_u32(object + 300, result);
+            result = cfg.fuse_ticks;
+            OscillatingRing *child = ring.Get();
+            fuse_timer = result;
             if (!child)
                 return result;
-            OscillatingRing::Attach(child).SetCenterColor(128, 96, 32);
-            result = OscillatingRing::Attach(r_u32(object + 324)).SetRingColors(64, 0, 0);
+            child->SetCenterColor(128, 96, 32);
+            result = ring->SetRingColors(64, 0, 0);
         }
     }
-    child = r_u32(object + 324);
-    return child ? OscillatingRing::Attach(child).SetPosition((const uint32 *)this->model.pos) : result;
+    return ring ? ring->SetPosition(this->model.pos.words) : result;
 explode:
-    SpawnExplosionRing((const uint32 *)this->model.pos, 128, 255, 128, 0, 4, 1, 100);
-    PlayPositionedSound(24, (const uint32 *)this->model.pos, 4);
-    if (distance < (sint32)r_u16(object + 310))
+    SpawnExplosionRing(this->model.pos.words, 128, 255, 128, 0, 4, 1, 100);
+    PlayPositionedSound(24, this->model.pos.words, 4);
+    if (distance < (sint32)cfg.arm_radius)
     {
-        hero = visual_lists.players;
-        damage = r_u16(object + 308);
-        receiver = hero;
-        ApplyObjectDamage(receiver, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+        // Ring creation and sound queuing do not execute gameplay callbacks
+        if (!visual_lists.players)
+        {
+            GameDiagnostic("Items explosion requires an active player\n");
+            abort();
+        }
+        Player &hero = *static_cast<Player *>(visual_lists.players->owner);
+        damage = cfg.damage;
+        hero.Damage(damage, zero_vector.components, 0);
     }
-    table = r_u32(object + 68);
-    receiver = object + (uint32)(sint32)(sint16)r_u16(table + 16);
-    target = r_u32(table + 20);
-    if (target != 0x80062F0C)
-    {
-        GameDiagnostic("TODO Class204 finish callback %08X receiver %08X\n", target, receiver);
-        abort();
-    }
-    return VisualObject::Attach(receiver).VisualObject::Finish();
-}
-
-Items &Items::Attach(uint32 object)
-{
-    return *static_cast<Items *>(FindNativeObjectStorage(object));
+    return VisualObject::Finish();
 }
 
 // Compatibility entry points retain the guest call contract
-uint32 sub_8005B3E0(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x8005B3E0, "SLUS_003.73");
-    void *native_instance_storage = AllocateNativeObjectStorage(object, sizeof(Items));
-    new (native_instance_storage) Items((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
-
-uint32 sub_8005B5D8(uint32 object, uint32 position, uint32 first, uint32 second, uint32 value312, uint32 value314, uint32 value316, uint32 value318)
-{
-    FUNCTION_MARKER(0x8005B5D8, "SLUS_003.73");
-    void *native_instance_storage = AllocateNativeObjectStorage(object, sizeof(Items));
-    new (native_instance_storage) Items((const uint32 *)psx_addr(position, 12), first, second, value312, value314, value316, value318);
-    return object;
-}
-
-uint32 sub_8005B7D4(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x8005B7D4, "SLUS_003.73");
-    return Items::Attach(object).Items::Destroy(reason);
-}
-
-uint32 sub_8005B864(uint32 object, uint32 damage)
-{
-    FUNCTION_MARKER(0x8005B864, "SLUS_003.73");
-    return Items::Attach(object).Items::Damage(damage, 0, 0);
-}
-
-uint32 sub_8005B890(uint32 object)
-{
-    FUNCTION_MARKER(0x8005B890, "SLUS_003.73");
-    return Items::Attach(object).Items::Update();
-}
-

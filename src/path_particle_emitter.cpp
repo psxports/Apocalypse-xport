@@ -1,181 +1,155 @@
+#include <new>
+#include <stdlib.h>
+
+#include "game_heap.h"
+#include "effect_object.h"
+#include "game_diagnostics.h"
 #include "record_data.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+
 #include "path_particle_emitter.h"
 #include "effect_sprite.h"
 #include "expanding_ring.h"
-#include "native_object_storage.h"
 #include "game_random.h"
 #include "effect_lifecycle.h"
 #include "vector_arithmetic.h"
-#include <new>
 
-PathParticleEmitter::PathParticleEmitter(uint32 identifier) : EffectController()
+PathParticleEmitter::PathParticleEmitter(uint32 identifier) : EffectController(), start_rec(0), smoke_frequency(0), ring_frequency(0), identifier(0)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 record, first, second, table, slot, item, kind, payload = 0, value;
+    RecordDataBorrow record_borrow;
     FUNCTION_MARKER(0x8001F8AC, "SLUS_003.73");
-    w_u32(object + 68, 0x800A10F4);
-    record = GetRecordPayload(identifier);
-    first = r_u16(record + 2);
-    table = r_u32(0x800FF624);
-    item = r_u32(table + first * 4);
-    kind = (uint32)(sint32)(sint16)r_u16(item);
-    second = r_u16(record + 4);
-    if (kind == 10)
+    RecordCursor record(GetRecordPayload(identifier));
+    uint32 first = (record + 2).Read16();
+    uint32 second = (record + 4).Read16();
+    RecordCursor first_record(GetLevelRecord(first));
+    RecordCursor second_record(GetLevelRecord(second));
+    RecordCursor payload(0);
+    if ((sint16)(first_record).Read16() == 10 && (sint16)(second_record).Read16() == 11)
     {
-        slot = table + second * 4;
-        item = r_u32(slot);
-        kind = (uint32)(sint32)(sint16)r_u16(item);
-        if (kind == 11)
-        {
-            w_u32(object + 72, first);
-            payload = r_u32(slot);
-        }
+        start_rec = first;
+        payload = second_record + 2;
     }
-    table = r_u32(0x800FF624);
-    slot = table + first * 4;
-    item = r_u32(slot);
-    kind = (uint32)(sint32)(sint16)r_u16(item);
-    if (kind == 11)
+    else if ((sint16)(first_record).Read16() == 11 && (sint16)(second_record).Read16() == 10)
     {
-        item = r_u32(table + second * 4);
-        kind = (uint32)(sint32)(sint16)r_u16(item);
-        payload += 2;
-        if (kind == 10)
-        {
-            w_u32(object + 72, second);
-            payload = r_u32(slot) + 2;
-        }
+        start_rec = second;
+        payload = first_record + 2;
     }
-    else
-        payload += 2;
-    w_u32(object + 84, identifier);
-    // TODO Malformed record pairs retain the original low-address payload read
-    value = r_u16(payload);
-    w_u16(object + 80, value);
-    value = r_u16(payload + 2);
-    w_u8(object + 67, 7);
-    w_u16(object + 82, value);
+    if (!payload)
+    {
+        GameDiagnostic("TODO Invalid path emitter record pair\n");
+        abort();
+    }
+    this->identifier = identifier;
+    smoke_frequency = (payload).Read16();
+    this->kind = 7;
+    ring_frequency = (payload + 2).Read16();
 }
 
-uint32 SpawnPathParticleEmitter(uint32 identifier)
+void SpawnPathParticleEmitter(uint32 identifier)
 {
-    uint32 object = r_u32(0x800FF434), value;
+    EffectObject *node = effect_lists.controllers;
+    GameHeapBlock *object;
+    uint32 value;
     FUNCTION_MARKER(0x8001F6A0, "SLUS_003.73");
-    while (object)
+    while (node)
     {
-        value = r_u8(object + 67);
-        if (value == 7)
+        value = node->kind;
+        if (node->IsAlive() && value == 7)
         {
-            value = r_u32(object + 84);
+            value = static_cast<PathParticleEmitter *>(node)->identifier;
             if (value == identifier)
-                return value;
+                return;
         }
-        object = r_u32(object + 4);
+        node = node->next;
     }
-    object = sub_80032DC0(88);
+    object = AllocateEffectStorage(88);
     if (object)
     {
-        void *dram_addr = AllocateNativeObjectStorage(object, sizeof(PathParticleEmitter));
-        new (dram_addr) PathParticleEmitter(identifier);
+        new (object) PathParticleEmitter(identifier);
     }
-    return object;
-}
-PathParticleEmitter &PathParticleEmitter::Attach(uint32 object)
-{
-    return *static_cast<PathParticleEmitter *>(FindNativeObjectStorage(object));
 }
 
 uint32 PathParticleEmitter::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8001F9B8, "SLUS_003.73");
-    w_u32(object + 68, 0x800A10F4);
     uint32 result = EffectController::Destroy(0);
-    return (reason & 1) ? ReleaseEffectStorage(object) : result;
+    return (reason & 1) ? ReleaseEffectStorage(this) : result;
 }
 
-uint32 PathParticleEmitter::Update()
+void PathParticleEmitter::Update()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 previous, current, factor, record, colors[3], endpoint, channel, product, frequency, child, result;
-    uint32 origin[3], target[3], difference[3], shifted[3], scaled[3], fractional[3], offset[3], point[3], velocity[3];
+    RecordDataBorrow record_borrow;
+    uint32 previous;
+    uint32 current;
+    uint32 factor;
+    uint32 colors[3];
+    uint32 endpoint;
+    uint32 channel;
+    uint32 product;
+    uint32 frequency;
+    GameHeapBlock *child;
+    uint32 result;
+    RecordCursor record;
+    Vector3 origin, target, difference, shifted, scaled, fractional, offset, point, velocity;
     uint32 shift12 = 12, shift8 = 8;
     FUNCTION_MARKER(0x8001FA0C, "SLUS_003.73");
-    previous = r_u32(object + 84);
-    current = r_u32(object + 72);
+    previous = identifier;
+    current = start_rec;
     for (;;)
     {
         factor = RandomRange(256);
-        record = ReadRecordPosition(origin, previous);
-        colors[0] = r_u16(record + 6);
-        colors[1] = r_u16(record + 8);
-        colors[2] = r_u16(record + 10);
-        record = ReadRecordPosition(target, current);
+        record = ReadRecordPosition(origin.words, previous);
+        colors[0] = (record + 6).Read16();
+        colors[1] = (record + 8).Read16();
+        colors[2] = (record + 10).Read16();
+        record = ReadRecordPosition(target.words, current);
         for (channel = 0; channel < 3; ++channel)
         {
-            endpoint = r_u16(record + 6 + channel * 2);
+            endpoint = (record + 6 + channel * 2).Read16();
             product = (endpoint - colors[channel]) * factor;
             colors[channel] += (uint32)((sint32)product >> 8);
         }
-        SubtractVectors(difference, target, origin);
-        ShiftVectorRight(shifted, difference, &shift12);
-        MultiplyVector(scaled, shifted, &factor);
-        ShiftVectorRight(fractional, scaled, &shift8);
-        ShiftVectorLeft(offset, fractional, &shift12);
-        AddVectors(point, origin, offset);
-        target[0] = point[0];
-        target[1] = point[1];
-        target[2] = point[2];
-        frequency = r_u16(object + 80);
+        SubtractVectors(difference.words, target.words, origin.words);
+        ShiftVectorRight(shifted.words, difference.words, shift12);
+        MultiplyVector(scaled.words, shifted.words, factor);
+        ShiftVectorRight(fractional.words, scaled.words, shift8);
+        ShiftVectorLeft(offset.words, fractional.words, shift12);
+        AddVectors(point.words, origin.words, offset.words);
+        target = point;
+        frequency = smoke_frequency;
         if (frequency && !RandomRange(frequency))
         {
             result = RandomRange(8);
-            velocity[0] = 0;
-            velocity[1] = ((uint32)0 - result) << 12;
-            velocity[2] = 0;
+            velocity.words[0] = 0;
+            velocity.words[1] = ((uint32)0 - result) << 12;
+            velocity.words[2] = 0;
+            MovingSprite *smoke = 0;
             child = AllocateEffectStorage(112);
             if (child)
             {
-                void *dram_addr = AllocateNativeObjectStorage(child, sizeof(MovingSprite));
-                new (dram_addr) MovingSprite(target, velocity, (const char *)psx_addr(0x800FF1FC, 1), 1000, (uint32)-60, 5);
+                smoke = new (child) MovingSprite(target.words, velocity.words, "smoke", 1000, (uint32)-60, 5);
             }
-            // TODO The original sets colors even when smoke allocation fails
-            sub_800332FC(child, colors[0] & 255, colors[1] & 255, colors[2] & 255);
+            if (!smoke)
+            {
+                // Preserve the existing native failure instead of dereferencing a null child
+                GameDiagnostic("Path emitter smoke allocation failed\n");
+                abort();
+            }
+            smoke->SetColors(colors[0] & 255, colors[1] & 255, colors[2] & 255);
         }
-        frequency = r_u16(object + 82);
+        frequency = ring_frequency;
         if (frequency && !RandomRange(frequency))
         {
             child = AllocateEffectStorage(116);
             if (child)
             {
-                void *dram_addr = AllocateNativeObjectStorage(child, sizeof(ExpandingRing));
-                new (dram_addr) ExpandingRing((const sint32 *)target, 150, colors[0] & 255, colors[1] & 255, colors[2] & 255, 20, 8);
+                new (child) ExpandingRing(target.components, 150, colors[0] & 255, colors[1] & 255, colors[2] & 255, 20, 8);
             }
         }
         record = GetRecordPayload(current);
-        result = r_u16(record);
+        result = (record).Read16();
         previous = current;
         if (!result)
-            return result;
-        current = r_u16(record + 2);
+            return;
+        current = (record + 2).Read16();
     }
-}
-
-
-
-
-extern "C" uint32 sub_8001F9B8(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x8001F9B8, "SLUS_003.73");
-    return PathParticleEmitter::Attach(object).PathParticleEmitter::Destroy(reason);
-}
-extern "C" uint32 sub_8001FA0C(uint32 object)
-{
-    FUNCTION_MARKER(0x8001FA0C, "SLUS_003.73");
-    return PathParticleEmitter::Attach(object).PathParticleEmitter::Update();
 }

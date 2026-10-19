@@ -12,7 +12,11 @@ class ScaledObject : public Object
 {
 public:
     ModelInstance model;
-    virtual ~ScaledObject() {}
+
+    virtual ~ScaledObject()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
 
 protected:

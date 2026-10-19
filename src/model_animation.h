@@ -9,17 +9,16 @@ extern "C"
 #include "psx.h"
 }
 
-void ComposePoseMatrix(uint8 *output, const uint8 *left, const uint8 *right);
-void RelativePoseMatrix(uint8 *output, const uint8 *left, const uint8 *right);
+void SetupModelGteMatrices(const MATRIX &rotation, const MATRIX &lighting, const ModelPose &local);
+uint32 PackModelPoseRotationWord(const ModelPose &pose, uint32 index);
 
 void SetModelBoneTable(uint32 model_index, const ModelAttachmentTable &table);
 
-// Native helpers operate on the original addressable model buffers
+// Native animation operations use decoded pose and bone owners
 void UpdateModelAnimationData(uint32 object);
 void InterpolateModelAnimation(const ModelAnimation &animation, uint32 frame, uint32 loop, uint32 first, uint32 count);
 class Character;
 uint32 BuildModelPose(Character &character);
-uint32 UpdateModelWorldTransform(uint32 object);
 
 void UpdateModelColorAnimation(uint32 model_index);
 

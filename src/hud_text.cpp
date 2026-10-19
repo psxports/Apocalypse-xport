@@ -1,83 +1,180 @@
+#include <stdlib.h>
+#include <string.h>
+
+#include "geometry_commands.h"
+#include "scene_lifecycle.h"
+#include "game_tick.h"
 #include "model_render_view.h"
 #include "model_projection.h"
 #include "game_random.h"
-#include "game_heap.h"
 #include "hud_text.h"
-#include "native_object_storage.h"
 #include "model_resources.h"
 #include "vector_arithmetic.h"
-extern "C"
+#include "game_diagnostics.h"
+
+const HudTextAnimation hud_pickup_animation[3] = {
+    {10, 1, 0, {0, 512}, {{255, 255, 255}, {255, 255, 255}}, {0, 0}, {{256, 90}, {256, 90}}, 0, 1},
+    {10, 1, 0, {512, 512}, {{255, 255, 255}, {255, 255, 255}}, {0, 0}, {{256, 90}, {256, 90}}, 0, 1},
+    {15, 1, 0, {512, 0}, {{255, 255, 255}, {255, 255, 255}}, {0, 0}, {{256, 90}, {256, 90}}, 0, 0},
+};
+
+const HudTextAnimation hud_extra_life_animation[3] = {
+    {10, 1, 0, {0, 256}, {{255, 255, 255}, {255, 255, 255}}, {0, 0}, {{256, 90}, {256, 90}}, 0, 1},
+    {10, 1, 0, {256, 256}, {{255, 255, 255}, {255, 255, 255}}, {0, 0}, {{256, 90}, {256, 90}}, 0, 1},
+    {30, 1, 0, {256, 256}, {{255, 255, 255}, {255, 255, 255}}, {0, 0}, {{256, 90}, {256, 90}}, 5, 0},
+};
+
+const HudTextAnimation hud_weapon_animation[3] = {
+    {10, 1, 0, {0, 256}, {{255, 255, 255}, {255, 255, 255}}, {3072, 4096}, {{256, 90}, {256, 90}}, 0, 1},
+    {20, 1, 0, {256, 256}, {{255, 255, 255}, {255, 255, 255}}, {0, 0}, {{256, 90}, {256, 90}}, 0, 1},
+    {15, 1, 0, {256, 0}, {{255, 255, 255}, {255, 255, 255}}, {0, 1024}, {{256, 90}, {256, 90}}, 0, 0},
+};
+
+const HudTextAnimation hud_pulse_laser_animation[3] = {
+    {10, 1, 0, {0, 256}, {{0, 255, 0}, {0, 255, 0}}, {3072, 4096}, {{256, 90}, {256, 90}}, 0, 1},
+    {20, 1, 0, {256, 256}, {{0, 255, 0}, {0, 255, 0}}, {0, 0}, {{256, 90}, {256, 90}}, 0, 1},
+    {15, 1, 0, {256, 0}, {{0, 255, 0}, {0, 255, 0}}, {0, 1024}, {{256, 90}, {256, 90}}, 0, 0},
+};
+
+const HudTextAnimation hud_flamethrower_animation[3] = {
+    {10, 1, 0, {0, 256}, {{255, 70, 0}, {255, 70, 0}}, {3072, 4096}, {{256, 90}, {256, 90}}, 0, 1},
+    {20, 1, 0, {256, 256}, {{255, 70, 0}, {255, 70, 0}}, {0, 0}, {{256, 90}, {256, 90}}, 0, 1},
+    {15, 1, 0, {256, 0}, {{255, 70, 0}, {255, 70, 0}}, {0, 1024}, {{256, 90}, {256, 90}}, 0, 0},
+};
+
+namespace HudMessage
 {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
+const char checkpoint[] = "Checkpoint";
+const char health20[] = "20% Health";
+const char health50[] = "50% Health";
+const char health100[] = "100% Health";
+const char smart_bomb[] = "Smart Bomb";
+const char extra_life[] = "Extra Life";
+const char flamethrower[] = "Flamethrower";
+const char pulse_laser[] = "Pulse Laser";
+const char particle_beam[] = "Particle Beam";
+const char rip_laser[] = "Rip Laser";
+const char homing_missiles[] = "Homing Missiles";
+const char rockets[] = "rockets";
+const char grenades[] = "grenades";
+} // namespace HudMessage
+
+struct AnimatedHudText
+{
+    const char *text;
+    uint16 age;
+    const HudTextAnimation *animation;
+    AnimatedHudText *next;
+    AnimatedHudText *prev;
+};
+
+static AnimatedHudText *animated_hud_text;
+HudTextStyle hud_text_style = {0, {0x2C808080}, 0, 0, {0x0000C8FF}};
+HudTextGlow hud_text_glow = {{0},
+                             {0},
+                             {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              // Original curve index40 reads the adjacent extra-life animation header
+                              65546},
+                             32,
+                             0};
+
+void ResetHudTextState()
+{
+    ClearAnimatedHudText();
+    ResetHudTextQueue();
+    const HudTextStyle style = {0, {0x2C808080}, 0, 0, {0x0000C8FF}};
+    hud_text_style = style;
+    memset(&hud_text_glow, 0, sizeof(hud_text_glow));
+    hud_text_glow.curve[40] = 65546;
+    hud_text_glow.timer = 32;
 }
 
-static const uint8 small_glyphs[128] =
+static const uint8 small_glyphs[128] = {28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 255, 29, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 27, 30, 26, 28, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 28, 28, 28, 28, 28, 28, 28, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 28, 28, 28, 28, 28, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 28, 28, 28, 28};
+
+static const uint8 large_glyphs[256] = {42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 255, 44, 42, 42, 42, 2,  42, 48, 42, 42, 42, 1,  42, 50, 49, 42, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 42, 42, 42, 42, 42, 42, 6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 42, 42, 42, 42, 0,  42, 6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 42, 42, 42, 42, 42,
+                                        42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,  42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 20, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 43, 42, 42, 42, 3, 42, 42, 42, 46, 45, 51, 42, 52, 42, 42, 42, 42, 42, 42, 42, 47, 42, 4,  42, 42, 42, 42, 42, 5,  42, 42, 42, 43, 42, 42, 42, 3, 42, 42, 42, 46, 45, 51, 42, 52, 42, 42, 42, 42, 42, 42, 42, 47, 42, 4,  42, 42, 42, 42, 42, 5,  42, 42, 42};
+
+// Original 100 slots end at the glyph table and include the sentinel
+static const uint32 HUD_TEXT_CAPACITY = 99;
+
+struct HudTextRow
 {
-    28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
-    28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
-    255, 29, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 27, 30, 26, 28,
-    31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 28, 28, 28, 28, 28, 28,
-    28, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
-    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 28, 28, 28, 28,
-    28, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
-    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 28, 28, 28, 28, 28
+    uint16 x;
+    uint16 y;
+    uint32 rgbc;
+    uint8 projected;
+    uint8 enlarged;
+    Vector3 pos;
+    const char *text;
+    char *owned_text;
+    char digits[12];
 };
 
-static const uint8 large_glyphs[256] =
+struct HudTextQueue
 {
-    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
-    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
-    255, 44, 42, 42, 42, 2, 42, 48, 42, 42, 42, 1, 42, 50, 49, 42,
-    32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 42, 42, 42, 42, 42,
-    42, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-    21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 42, 42, 42, 42, 0,
-    42, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-    21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 42, 42, 42, 42, 42,
-    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
-    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
-    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
-    20, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
-    43, 42, 42, 42, 3, 42, 42, 42, 46, 45, 51, 42, 52, 42, 42, 42,
-    42, 42, 42, 42, 47, 42, 4, 42, 42, 42, 42, 42, 5, 42, 42, 42,
-    43, 42, 42, 42, 3, 42, 42, 42, 46, 45, 51, 42, 52, 42, 42, 42,
-    42, 42, 42, 42, 47, 42, 4, 42, 42, 42, 42, 42, 5, 42, 42, 42
+    HudTextQueue() : count(0)
+    {
+    }
+
+    ~HudTextQueue()
+    {
+        Clear();
+    }
+
+    void Clear()
+    {
+        for (uint32 index = 0; index < count; ++index)
+            free(rows[index].owned_text);
+        count = 0;
+    }
+
+    HudTextRow rows[HUD_TEXT_CAPACITY];
+    uint32 count;
 };
 
-uint32 AppendHudNumber(uint32 value)
+static HudTextQueue hud_text;
+
+static HudTextRow *AddHudTextRow(uint32 x, uint32 y, uint32 red, uint32 green, uint32 blue, uint32 flags)
 {
-    uint32 emitted = 0, divisor = 1000000000, cursor, digit;
+    if (hud_text.count >= HUD_TEXT_CAPACITY)
+    {
+        GameDiagnostic("HUD text row capacity exceeded\n");
+        abort();
+    }
+    HudTextRow *row = hud_text.rows + hud_text.count++;
+    memset(row, 0, sizeof(*row));
+    row->x = x;
+    row->y = y;
+    row->enlarged = flags;
+    // Original 0x800FF6E4 is the constant textured-quad command
+    row->rgbc = 0x2C000000 | ((blue & 255) << 16) | ((green & 255) << 8) | (red & 255);
+    return row;
+}
+
+static void FormatHudNumber(uint32 value, char *text)
+{
+    uint32 emitted = 0, divisor = 1000000000, digit;
     FUNCTION_MARKER(0x8006A75C, "SLUS_003.73");
     if ((sint32)value < 0)
     {
         value = 0 - value;
-        cursor = r_u32(0x800FF6F4);
-        w_u8(cursor, 45);
-        w_u32(0x800FF6F4, cursor + 1);
+        *text++ = '-';
     }
+    // Preserve the signed comparison after negating the low 32-bit value
     while (divisor)
     {
         if ((sint32)value >= (sint32)divisor)
         {
             digit = (uint32)((sint32)value / (sint32)divisor);
             emitted = 1;
-            cursor = r_u32(0x800FF6F4);
-            w_u8(cursor, digit + 48);
-            w_u32(0x800FF6F4, cursor + 1);
+            *text++ = digit + '0';
             value -= digit * divisor;
         }
         else if (emitted || divisor == 1)
-        {
-            cursor = r_u32(0x800FF6F4);
-            w_u8(cursor, 48);
-            w_u32(0x800FF6F4, cursor + 1);
-        }
+            *text++ = '0';
         divisor /= 10;
     }
-    cursor = r_u32(0x800FF6F4);
-    w_u8(cursor, 0);
-    w_u32(0x800FF6F4, cursor + 1);
-    return cursor + 1;
+    *text = 0;
 }
 
 static const TextureGroup *small_font;
@@ -122,128 +219,100 @@ void InitializeHudFonts()
     large_font = FindModelTextureGroup("Font");
 }
 
-uint32 ResetHudTextQueue()
+void ResetHudTextQueue()
 {
     FUNCTION_MARKER(0x8006A868, "SLUS_003.73");
-    w_u32(0x800FF6F0, 0x800E5C08);
-    w_u32(0x800E5C08, 1);
-    w_u32(0x800FF6F4, 0x800E6A08);
-    return 0x800E6A08;
+    hud_text.Clear();
 }
 
-uint32 QueueHudText(uint32 x, uint32 y, uint32 text, uint32 red, uint32 green, uint32 blue, uint32 flags)
+uint32 QueueHudText(uint32 x, uint32 y, const char *text, uint32 red, uint32 green, uint32 blue, uint32 flags)
 {
-    uint32 first, second, cursor, rgb;
     FUNCTION_MARKER(0x8006A890, "SLUS_003.73");
-    first = r_u32(0x800FF6F0);
-    w_u8(first + 16, 0);
-    second = r_u32(0x800FF6F0);
-    w_u32(first, 0);
-    w_u16(first + 4, x);
-    w_u16(first + 6, y);
-    w_u8(second + 17, flags);
-    rgb = r_u32(0x800FF6E4);
-    cursor = r_u32(0x800FF6F0);
-    rgb |= ((blue & 255) << 16) | ((green & 255) << 8) | (red & 255);
-    w_u32(cursor + 12, rgb);
-    w_u32(0x800FF6F0, cursor + 32);
-    w_u32(cursor + 8, text);
-    w_u32(cursor + 32, 1);
+    HudTextRow *row = AddHudTextRow(x, y, red, green, blue, flags);
+    size_t length = strlen(text);
+    row->owned_text = (char *)malloc(length + 1);
+    if (!row->owned_text)
+    {
+        GameDiagnostic("Cannot allocate queued HUD text\n");
+        abort();
+    }
+    memcpy(row->owned_text, text, length + 1);
+    row->text = row->owned_text;
     return 1;
 }
 
 uint32 QueueHudNumber(uint32 x, uint32 y, uint32 value, uint32 red, uint32 green, uint32 blue, uint32 flags)
 {
-    uint32 first, second, cursor, text, rgb;
     FUNCTION_MARKER(0x8006A8FC, "SLUS_003.73");
-    first = r_u32(0x800FF6F0);
-    w_u8(first + 16, 0);
-    second = r_u32(0x800FF6F0);
-    w_u32(first, 0);
-    w_u16(first + 4, x);
-    w_u16(first + 6, y);
-    w_u8(second + 17, flags);
-    cursor = r_u32(0x800FF6F0);
-    text = r_u32(0x800FF6F4);
-    w_u32(cursor + 8, text);
-    rgb = r_u32(0x800FF6E4);
-    rgb |= ((blue & 255) << 16) | ((green & 255) << 8) | (red & 255);
-    w_u32(cursor + 12, rgb);
-    AppendHudNumber(value);
-    cursor = r_u32(0x800FF6F0);
-    w_u32(0x800FF6F0, cursor + 32);
-    w_u32(cursor + 32, 1);
+    HudTextRow *row = AddHudTextRow(x, y, red, green, blue, flags);
+    FormatHudNumber(value, row->digits);
+    row->text = row->digits;
     return 1;
 }
-
-
-
-
-
-
-
 
 uint32 DrawHudTextQueue()
 {
     const ModelProjectionConfig &proj_cfg = GetModelProjectionConfig();
-    uint32 row = 0x800E5C08, camera[3], delta[3], scaled[3], shift;
-    uint32 matrix[5], sentinel, projected, text, command, x, y, depth, screen;
-    uint32 character, glyph, metric_width, packet, next, limit;
-    uint32 uv_word, u_right, u_left, v_bottom, v_top, uv_tail, width, height;
-    uint32 byte, top, bottom, right, buffer, bucket, tag, head;
+    uint32 shift;
+    Vector3 camera, delta, scaled;
+    uint32 rotation_words[5], projected, command, x, y, depth, screen;
+    const char *text;
+    uint32 character, glyph, metric_width;
+    uint8 *packet, *next, *limit;
+    uint32 u_right, u_left, v_bottom, v_top, width, height;
+    uint32 byte, top, bottom, right;
     FUNCTION_MARKER(0x8006AAB8, "SLUS_003.73");
-    matrix[0] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 0);
-    matrix[1] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 1);
-    xport_draft_gte_control_write(0, matrix[0]);
-    xport_draft_gte_control_write(1, matrix[1]);
-    matrix[2] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 2);
-    matrix[3] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 3);
-    matrix[4] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 4);
-    xport_draft_gte_control_write(2, matrix[2]);
-    xport_draft_gte_control_write(3, matrix[3]);
-    xport_draft_gte_control_write(4, matrix[4]);
-    xport_draft_gte_control_write(5, 0);
-    xport_draft_gte_control_write(6, 0);
-    xport_draft_gte_control_write(7, 0);
-    camera[0] = GetModelRenderView().pos[0] << 12;
-    camera[1] = GetModelRenderView().pos[1] << 12;
-    camera[2] = GetModelRenderView().pos[2] << 12;
-    for (;; row += 32)
+    // Packed GTE rotation words retain the final padding halfword
+    rotation_words[0] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 0);
+    rotation_words[1] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 1);
+    xport_gte_write_control(0, rotation_words[0]);
+    xport_gte_write_control(1, rotation_words[1]);
+    rotation_words[2] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 2);
+    rotation_words[3] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 3);
+    rotation_words[4] = ReadModelRenderMatrixWord(GetModelRenderView().projection, 4);
+    xport_gte_write_control(2, rotation_words[2]);
+    xport_gte_write_control(3, rotation_words[3]);
+    xport_gte_write_control(4, rotation_words[4]);
+    xport_gte_write_control(5, 0);
+    xport_gte_write_control(6, 0);
+    xport_gte_write_control(7, 0);
+    camera.words[0] = GetModelRenderView().pos.words[0] << 12;
+    camera.words[1] = GetModelRenderView().pos.words[1] << 12;
+    camera.words[2] = GetModelRenderView().pos.words[2] << 12;
+    for (uint32 index = 0; index < hud_text.count; ++index)
     {
-        sentinel = r_u32(row);
-        if (sentinel)
-            return sentinel;
-        projected = r_u8(row + 16);
-        text = r_u32(row + 8);
+        const HudTextRow *row = hud_text.rows + index;
+        projected = row->projected;
+        text = row->text;
         // TODO Original depth is defined only when this row is projected
         depth = 0;
         if (projected)
         {
-            SubtractVectors(delta, (const uint32 *)psx_addr(row + 20, 12), camera);
+            SubtractVectors(delta.words, row->pos.words, camera.words);
             shift = 12;
-            ShiftVectorRight(scaled, delta, &shift);
-            xport_draft_gte_data_write(0, (scaled[0] & 65535) | (scaled[1] << 16));
-            xport_draft_gte_data_write(1, scaled[2]);
-            xport_draft_gte_execute(0x180001);
-            command = r_u32(row + 12);
-            depth = xport_draft_gte_data_read(27);
+            ShiftVectorRight(scaled.words, delta.words, shift);
+            xport_gte_write_data(0, (scaled.words[0] & 65535) | (scaled.words[1] << 16));
+            xport_gte_write_data(1, scaled.words[2]);
+            ExecuteGeometryCommand(0x180001);
+            command = row->rgbc;
+            depth = xport_gte_read_data(27);
             if ((sint32)depth < (sint32)proj_cfg.near_depth)
                 continue;
             if ((sint32)proj_cfg.max_distance < (sint32)depth)
                 continue;
-            screen = xport_draft_gte_data_read(14);
+            screen = xport_gte_read_data(14);
             x = screen & 65535;
             y = screen >> 16;
         }
         else
         {
-            x = r_u16(row + 4);
-            y = r_u16(row + 6);
-            command = r_u32(row + 12);
+            x = row->x;
+            y = row->y;
+            command = row->rgbc;
         }
         for (;;)
         {
-            character = r_u8(text);
+            character = (uint8)*text;
             if (!character)
                 break;
             glyph = small_glyphs[character & 127];
@@ -260,192 +329,153 @@ uint32 DrawHudTextQueue()
             const TextureResource &tex = *frame.tex;
             if (metric_width < 4)
                 ++x;
-            packet = r_u32(0x800FF668);
-            limit = r_u32(0x800FF374);
-            next = packet + 40;
-            if (limit < next)
+            packet = scene_render.cursor;
+            limit = scene_render.limit;
+            if (limit - packet < (sint32)(sizeof(POLY_FT4)))
                 return 0x09000000;
-            w_u32(0x800FF668, next);
-            w_u32(packet, 0x09000000);
-            w_u32(packet + 4, command);
-            w_u32(packet + 12, PackTextureUv(tex, 0));
-            w_u32(packet + 20, PackTextureUv(tex, 1));
-            uv_word = PackTextureUv(tex, 2);
-            u_right = r_u8(packet + 20);
-            w_u32(packet + 28, uv_word);
-            u_left = r_u8(packet + 12);
-            uv_tail = tex.uv[3].uv;
-            v_bottom = r_u8(packet + 29);
+            next = packet + sizeof(POLY_FT4);
+            scene_render.cursor = next;
+            POLY_FT4 *poly = (POLY_FT4 *)packet;
+            poly->tag = 0;
+            setPolyFT4(poly);
+            poly->rgbc.rgbc = command;
+            uint32 packed_uv0 = PackTextureUv(tex, 0);
+            poly->p[0].uv.uv = packed_uv0;
+            poly->p[0].attr = packed_uv0 >> 16;
+            uint32 packed_uv1 = PackTextureUv(tex, 1);
+            poly->p[1].uv.uv = packed_uv1;
+            poly->p[1].attr = packed_uv1 >> 16;
+            const uint32 uv_word = PackTextureUv(tex, 2);
+            u_right = poly->p[1].uv.u;
+            // Original third word includes the fourth UV in its attribute half
+            poly->p[2].uv.uv = uv_word;
+            poly->p[2].attr = uv_word >> 16;
+            u_left = poly->p[0].uv.u;
+            const uint16 uv_tail = tex.uv[3].uv;
+            v_bottom = poly->p[2].uv.v;
             width = u_right - u_left;
-            v_top = r_u8(packet + 13);
-            w_u16(packet + 36, uv_tail);
-            projected = r_u8(row + 17);
+            v_top = poly->p[0].uv.v;
+            poly->p[3].uv.uv = uv_tail;
+            projected = row->enlarged;
             height = v_bottom - v_top;
             if (projected)
             {
-                width = (uint32)((sint32)(width * 55) >> 5);
-                height = (uint32)((sint32)(height * 55) >> 5);
-                byte = r_u8(packet + 36);
-                w_u8(packet + 20, u_right - 1);
-                v_bottom = r_u8(packet + 29);
-                w_u8(packet + 36, byte - 1);
-                byte = r_u8(packet + 37);
-                w_u8(packet + 29, v_bottom - 1);
-                w_u8(packet + 37, byte - 1);
+                width = (sint32)(width * 55) >> 5;
+                height = (sint32)(height * 55) >> 5;
+                byte = poly->p[3].uv.u;
+                poly->p[1].uv.u = u_right - 1;
+                v_bottom = poly->p[2].uv.v;
+                poly->p[3].uv.u = byte - 1;
+                byte = poly->p[3].uv.v;
+                poly->p[2].uv.v = v_bottom - 1;
+                poly->p[3].uv.v = byte - 1;
             }
             right = x + width;
             top = y;
             if (glyph == 30)
                 top += character == 95 ? 5 : 2;
             bottom = top + height;
-            w_u16(packet + 8, x);
-            w_u16(packet + 10, top);
-            w_u16(packet + 16, right);
-            w_u16(packet + 18, top);
-            w_u16(packet + 24, x);
-            w_u16(packet + 26, bottom);
-            w_u16(packet + 32, right);
-            w_u16(packet + 34, bottom);
-            projected = r_u8(row + 16);
-            buffer = r_u32(0x800FF660);
-            bucket = buffer + (projected ? depth & 0x3FFC : 0) + 112;
-            tag = r_u32(packet);
-            head = r_u32(bucket);
-            w_u32(packet, (tag & 0xFF000000) | (head & 0xFFFFFF));
-            head = r_u32(bucket);
-            w_u32(bucket, (head & 0xFF000000) | (packet & 0xFFFFFF));
+            setXY4(poly, x, top, right, top, x, bottom, right, bottom);
+            projected = row->projected;
+            setaddr(poly, getaddr(scene_render.cur->ot + (projected ? (depth & 0x3FFC) >> 2 : 0)));
+            setaddr(scene_render.cur->ot + (projected ? (depth & 0x3FFC) >> 2 : 0), gpu_packet_link((uintptr_t)poly));
             x += 3 + width;
             if ((sint32)width < 4)
                 ++x;
         }
     }
+    return 1;
 }
 
-
-
-uint32 AllocateAnimatedHudTextNode()
+static AnimatedHudText *AllocateAnimatedHudTextNode()
 {
-    uint32 node, previous;
     FUNCTION_MARKER(0x8001B654, "SLUS_003.73");
-    node = AllocateHeapBlock(20, 0, 1);
-    previous = r_u32(0x800FF1AC);
-    w_u32(node + 16, 0);
-    w_u32(0x800FF1AC, node);
-    w_u32(node + 12, previous);
-    if (previous)
-        w_u32(previous + 16, node);
+    AnimatedHudText *node = (AnimatedHudText *)malloc(sizeof(AnimatedHudText));
+    if (!node)
+    {
+        GameDiagnostic("Cannot allocate animated HUD text\n");
+        abort();
+    }
+    AnimatedHudText *prev = animated_hud_text;
+    node->prev = 0;
+    animated_hud_text = node;
+    node->next = prev;
+    if (prev)
+        prev->prev = node;
     return node;
 }
 
-uint32 RemoveAnimatedHudTextNode(uint32 node)
+static void RemoveAnimatedHudTextNode(AnimatedHudText *node)
 {
-    uint32 next, previous, head;
     FUNCTION_MARKER(0x8001B694, "SLUS_003.73");
-    next = r_u32(node + 12);
+    AnimatedHudText *next = node->next;
     if (next)
-    {
-        previous = r_u32(node + 16);
-        w_u32(next + 16, previous);
-    }
-    previous = r_u32(node + 16);
-    if (previous)
-    {
-        next = r_u32(node + 12);
-        w_u32(previous + 12, next);
-    }
-    head = r_u32(0x800FF1AC);
-    if (node == head)
-    {
-        next = r_u32(node + 12);
-        w_u32(0x800FF1AC, next);
-    }
-    return ReleaseHeapBlock(node);
+        next->prev = node->prev;
+    AnimatedHudText *prev = node->prev;
+    if (prev)
+        prev->next = node->next;
+    if (node == animated_hud_text)
+        animated_hud_text = node->next;
+    free(node);
 }
 
 void ClearAnimatedHudText()
 {
-    uint32 current, next;
     FUNCTION_MARKER(0x8001B708, "SLUS_003.73");
-    current = r_u32(0x800FF1AC);
-    if (current)
+    AnimatedHudText *node = animated_hud_text;
+    while (node)
     {
-        next = r_u32(current + 12);
-        for (;;)
-        {
-            ReleaseHeapBlock(current);
-            current = next;
-            if (!next)
-                break;
-            next = r_u32(next + 12);
-        }
+        AnimatedHudText *next = node->next;
+        free(node);
+        node = next;
     }
-    w_u32(0x800FF1AC, 0);
+    animated_hud_text = 0;
 }
 
-uint32 AddAnimatedHudText(uint32 text, uint32 animation)
+void AddAnimatedHudText(const char *text, const HudTextAnimation *animation)
 {
-    uint32 node;
     FUNCTION_MARKER(0x8001B788, "SLUS_003.73");
-    // The text queue retains the original string and animation addresses
-    node = AllocateAnimatedHudTextNode();
-    w_u32(node, text);
-    w_u32(node + 8, animation);
-    w_u16(node + 4, 0);
-    return node;
+    AnimatedHudText *node = AllocateAnimatedHudTextNode();
+    node->text = text;
+    node->animation = animation;
+    node->age = 0;
 }
-
-
-
-
-
-
-
-
 
 uint32 UpdateAnimatedHudText()
 {
-    uint32 node, next, animation, age, duration, timer;
-    sint32 step;
     FUNCTION_MARKER(0x8001B7C4, "SLUS_003.73");
-    node = r_u32(0x800FF1AC);
-    if (node)
+    AnimatedHudText *node = animated_hud_text;
+    while (node)
     {
-        next = r_u32(node + 12);
-        for (;;)
+        AnimatedHudText *next = node->next;
+        const HudTextAnimation *animation = node->animation;
+        uint32 age = node->age;
+        if (age < animation->duration)
+            node->age = (uint16)(age + 1);
+        else
         {
-            animation = r_u32(node + 8);
-            age = r_u16(node + 4);
-            duration = r_u16(animation);
-            if (age < duration)
-                w_u16(node + 4, age + 1);
-            else
+            sint32 step = animation->step;
+            if (!step)
+                RemoveAnimatedHudTextNode(node);
+            else if (step != 127)
             {
-                step = (sint8)r_u8(animation + 27);
-                if (!step)
-                    RemoveAnimatedHudTextNode(node);
-                else if (step != 127)
-                {
-                    w_u32(node + 8, animation + (uint32)step * 28);
-                    w_u16(node + 4, 0);
-                }
+                node->animation = animation + step;
+                node->age = 0;
             }
-            node = next;
-            if (!next)
-                break;
-            next = r_u32(next + 12);
         }
+        node = next;
     }
-    timer = r_u32(0x800FF1C8);
+    uint32 timer = hud_text_glow.timer;
     if (timer)
     {
-        timer -= 1;
-        w_u32(0x800FF1C8, timer);
+        --timer;
+        hud_text_glow.timer = timer;
     }
     else
     {
-        timer = r_u32(0x800FF1CC) ? RandomRange(16) + 16 : RandomRange(24);
-        w_u32(0x800FF1C8, timer);
-        w_u32(0x800FF1CC, 0);
+        timer = hud_text_glow.alternate ? RandomRange(16) + 16 : RandomRange(24);
+        hud_text_glow.timer = timer;
+        hud_text_glow.alternate = 0;
     }
     return timer;
 }
@@ -465,63 +495,33 @@ static uint32 InterpolateHudText(uint32 first, uint32 last, uint32 age, uint32 d
 
 void DrawAnimatedHudText()
 {
-    uint32 node, animation, period, age, duration, first, last, value, red, green, blue, rgb, x, y, size, text;
     FUNCTION_MARKER(0x8001B8BC, "SLUS_003.73");
-    node = r_u32(0x800FF1AC);
+    AnimatedHudText *node = animated_hud_text;
     while (node)
     {
-        animation = r_u32(node + 8);
-        period = r_u8(animation + 26);
-        if (period)
+        const HudTextAnimation *animation = node->animation;
+        uint32 period = animation->blink;
+        if (period && !((node->age / period) & 1))
         {
-            age = r_u16(node + 4);
-            if (!((age / period) & 1))
-            {
-                node = r_u32(node + 12);
-                continue;
-            }
+            node = node->next;
+            continue;
         }
-        last = r_u16(animation + 6);
-        first = r_u16(animation + 4);
-        age = r_u16(node + 4);
-        duration = r_u16(animation);
-        value = InterpolateHudText(first, last, age, duration);
-        value &= 65535;
-        w_u8(0x800FF1B0, r_u8(animation + 3));
-        w_u16(0x800FF1B8, value);
-        last = r_u8(animation + 11);
-        first = r_u8(animation + 8);
-        age = r_u16(node + 4);
-        red = InterpolateHudText(first, last, age, duration) & 255;
-        first = r_u8(animation + 9);
-        last = r_u8(animation + 12);
-        green = InterpolateHudText(first, last, age, duration) & 255;
-        last = r_u8(animation + 13);
-        first = r_u8(animation + 10);
-        blue = InterpolateHudText(first, last, age, duration) & 255;
-        rgb = red | (green << 8) | (blue << 16);
-        w_u32(0x800FF1B4, rgb);
-        value = r_u8(animation + 2);
-        w_u32(0x800FF1B4, rgb | (value ? 0x2E000000 : 0x2C000000));
-        first = (uint32)(sint32)(sint16)r_u16(animation + 18);
-        last = (uint32)(sint32)(sint16)r_u16(animation + 22);
-        age = r_u16(node + 4);
-        x = InterpolateHudText(first, last, age, duration);
-        first = (uint32)(sint32)(sint16)r_u16(animation + 20);
-        last = (uint32)(sint32)(sint16)r_u16(animation + 24);
-        y = InterpolateHudText(first, last, age, duration);
-        first = r_u16(animation + 14);
-        last = r_u16(animation + 16);
-        size = InterpolateHudText(first, last, age, duration);
-        text = r_u32(node);
-        DrawStyledHudText(x, y, (const char *)psx_addr(text, 1), size, 0, 256);
-        node = r_u32(node + 12);
+        uint32 duration = animation->duration;
+        hud_text_style.align = animation->align;
+        hud_text_style.scale = (uint16)InterpolateHudText(animation->scale[0], animation->scale[1], node->age, duration);
+        uint32 r = InterpolateHudText(animation->rgb[0][0], animation->rgb[1][0], node->age, duration) & 255;
+        uint32 g = InterpolateHudText(animation->rgb[0][1], animation->rgb[1][1], node->age, duration) & 255;
+        uint32 b = InterpolateHudText(animation->rgb[0][2], animation->rgb[1][2], node->age, duration) & 255;
+        uint32 rgb = r | (g << 8) | (b << 16);
+        hud_text_style.color.rgbc = rgb;
+        hud_text_style.color.rgbc = rgb | (animation->semi ? 0x2E000000 : 0x2C000000);
+        uint32 x = InterpolateHudText((uint32)(sint32)animation->scr_pos[0][0], (uint32)(sint32)animation->scr_pos[1][0], node->age, duration);
+        uint32 y = InterpolateHudText((uint32)(sint32)animation->scr_pos[0][1], (uint32)(sint32)animation->scr_pos[1][1], node->age, duration);
+        uint32 filter = InterpolateHudText(animation->filter[0], animation->filter[1], node->age, duration);
+        DrawStyledHudText(x, y, node->text, filter, 0, 256);
+        node = node->next;
     }
 }
-
-
-
-
 
 sint32 GetHudGlyphIndex(uint32 character)
 {
@@ -534,19 +534,19 @@ sint32 GetHudGlyphIndex(uint32 character)
 void SetHudTextAlignment(uint32 alignment)
 {
     FUNCTION_MARKER(0x8001A7B0, "SLUS_003.73");
-    w_u8(0x800FF1B0, alignment);
+    hud_text_style.align = (uint8)(alignment);
 }
 
 void SetHudTextScale(uint32 scale)
 {
     FUNCTION_MARKER(0x8001A7BC, "SLUS_003.73");
-    w_u16(0x800FF1B8, scale);
+    hud_text_style.scale = (uint16)(scale);
 }
 
 void SetHudTextDepth(uint32 depth)
 {
     FUNCTION_MARKER(0x8001A7C8, "SLUS_003.73");
-    w_u16(0x800FF1BA, depth);
+    hud_text_style.depth = (uint16)(depth);
 }
 
 uint32 SetHudTextColor(uint32 red, uint32 green, uint32 blue, uint32 semi_transparent)
@@ -554,21 +554,11 @@ uint32 SetHudTextColor(uint32 red, uint32 green, uint32 blue, uint32 semi_transp
     uint32 rgb, result;
     FUNCTION_MARKER(0x8001A7D4, "SLUS_003.73");
     rgb = ((blue & 255) << 16) | ((green & 255) << 8) | (red & 255);
-    w_u32(0x800FF1B4, rgb);
+    hud_text_style.color.rgbc = rgb;
     result = rgb | (semi_transparent ? 0x2E000000 : 0x2C000000);
-    w_u32(0x800FF1B4, result);
+    hud_text_style.color.rgbc = result;
     return result;
 }
-
-
-
-
-
-
-
-
-
-
 
 void LoadHudTextGlowResource()
 {
@@ -583,10 +573,10 @@ uint32 InitializeHudTextGlowCurve()
     for (index = 0; index < 40; ++index)
     {
         value = RandomRange(10);
-        w_u32(0x800A57FC + index * 4, value + 10);
-        w_u32(0x800A593C + index * 4, 40);
+        hud_text_glow.amplitude[index] = value + 10;
+        hud_text_glow.curve[index] = 40;
         value = RandomRange(30);
-        w_u32(0x800A589C + index * 4, value + 30);
+        hud_text_glow.rate[index] = value + 30;
     }
     return 0;
 }
@@ -598,15 +588,15 @@ uint32 UpdateHudTextGlowCurve()
     FUNCTION_MARKER(0x8001A8E8, "SLUS_003.73");
     for (index = 0; index < 40; ++index)
     {
-        rate = r_u32(0x800A589C + index * 4);
-        tick = r_u32(0x800FF64C);
+        rate = hud_text_glow.rate[index];
+        tick = game_clock.vblank_frame;
         phase = (rate * tick) & 4095;
         sine = rsin(phase);
-        amplitude = r_u32(0x800A57FC + index * 4);
+        amplitude = hud_text_glow.amplitude[index];
         product = amplitude * (uint32)sine;
         if ((sint32)product < 0)
             product += 4095;
-        w_u32(0x800A593C + index * 4, (uint32)((sint32)product >> 12) + 40);
+        hud_text_glow.curve[index] = (uint32)((sint32)product >> 12) + 40;
     }
     // Original updates40 entries while the packet owner cycles through41 indices
     return 0;
@@ -614,13 +604,13 @@ uint32 UpdateHudTextGlowCurve()
 
 uint32 MeasureStyledHudText(const char *text)
 {
-    uint32 mapped = GuestMemoryAddress(text), cursor = 0, character, width = 0, count = 0;
+    uint32 cursor = 0, character, width = 0, count = 0;
     uint32 advance, bearing, scale;
     sint32 index;
     FUNCTION_MARKER(0x8001A97C, "SLUS_003.73");
     for (;;)
     {
-        character = mapped ? r_u8(mapped + cursor) : (uint8)text[cursor];
+        character = (uint8)text[cursor];
         if (!character)
             break;
         index = GetHudGlyphIndex(character);
@@ -636,29 +626,16 @@ uint32 MeasureStyledHudText(const char *text)
         }
         cursor += 1;
     }
-    scale = r_u16(0x800FF1B8);
+    scale = hud_text_style.scale;
     return (uint32)((sint32)(width * scale) >> 8) + count * 3;
 }
 
-
-
-
-
-
-
-
-
-extern "C" uint32 apocalypse_text_width(const char *text)
-{
-    return MeasureStyledHudText(text);
-}
-
-void SetHudTextShadowColor(uint32 red, uint32 green, uint32 blue)
+static void SetHudTextShadowColor(uint32 red, uint32 green, uint32 blue)
 {
     FUNCTION_MARKER(0x8001A838, "SLUS_003.73");
-    w_u32(0x800FF1BC, red & 255);
-    w_u32(0x800FF1C0, green & 255);
-    w_u32(0x800FF1C4, blue & 255);
+    hud_text_style.shadow.r = red & 255;
+    hud_text_style.shadow.g = green & 255;
+    hud_text_style.shadow.b = blue & 255;
 }
 
 void ResetHudTextShadowColor()

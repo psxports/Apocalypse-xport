@@ -1,13 +1,11 @@
-extern "C" {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include <string.h>
+
+#include "record_data.h"
+#include "game_diagnostics.h"
 #include "enemy_list.h"
 #include "visual_object.h"
 #include "vector_distance.h"
 #include "record_factory.h"
-#include "native_object_storage.h"
-#include <string.h>
 
 uint32 FinishSelectedEnemies()
 {
@@ -24,8 +22,15 @@ uint32 FinishSelectedEnemies()
         {
             switch (kind)
             {
-                case 200: case 201: case 202: case 204: case 205:
-                case 207: case 208: case 209: case 210:
+                case 200:
+                case 201:
+                case 202:
+                case 204:
+                case 205:
+                case 207:
+                case 208:
+                case 209:
+                case 210:
                     result = object.Finish();
                     break;
                 default:
@@ -40,8 +45,6 @@ uint32 FinishSelectedEnemies()
     return result;
 }
 
-
-
 void ActivateObjectsByIndex(ModelInstance *instance, uint32 index)
 {
     FUNCTION_MARKER(0x80064E10, "SLUS_003.73");
@@ -54,78 +57,34 @@ void ActivateObjectsByIndex(ModelInstance *instance, uint32 index)
     }
 }
 
-
-
-uint32 ActivateEnemyIndices(const uint16 *indices)
+uint32 ActivateEnemyIndices(RecordCursor indices)
 {
-    uint32 guest, count, index, identifier, table, record, kind;
-    ModelInstance *head;
-    uint16 half;
+    RecordDataBorrow record_borrow;
     FUNCTION_MARKER(0x80064E50, "SLUS_003.73");
-    guest = GuestMemoryAddress(indices);
-    if (guest)
-        count = r_u16(guest);
-    else
+    uint32 count = indices.Read16();
+    indices.Require(2 + count * 2);
+    for (uint32 index = 0; index < count; ++index)
     {
-        memcpy(&half, indices, 2);
-        count = half;
-    }
-    for (index = 0; index < count; ++index)
-    {
-        if (guest)
-            identifier = r_u16(guest + 2 + index * 2);
-        else
-        {
-            memcpy(&half, (const uint8 *)indices + 2 + index * 2, 2);
-            identifier = half;
-        }
-        table = r_u32(0x800FF624);
-        record = r_u32(table + identifier * 4);
-        kind = (uint32)(sint32)(sint16)r_u16(record);
+        uint32 identifier = (indices + 2 + index * 2).Read16();
+        sint32 kind = (sint16)GetLevelRecord(identifier).Read16();
         if (kind == 1 || kind == 7)
         {
-            head = visual_lists.actors;
-            ActivateObjectsByIndex(head, identifier);
-            head = visual_lists.solids;
-            ActivateObjectsByIndex(head, identifier);
+            ActivateObjectsByIndex(visual_lists.actors, identifier);
+            ActivateObjectsByIndex(visual_lists.solids, identifier);
         }
     }
     return 0;
 }
 
-
-
-uint32 SpawnEnemyIndices(const uint16 *indices)
+uint32 SpawnEnemyIndices(RecordCursor indices)
 {
-    uint32 guest, count, index, identifier;
-    uint16 half;
+    RecordDataBorrow record_borrow;
     FUNCTION_MARKER(0x80064A08, "SLUS_003.73");
-    guest = GuestMemoryAddress(indices);
-    if (guest)
-        count = r_u16(guest);
-    else
-    {
-        memcpy(&half, indices, 2);
-        count = half;
-    }
-    for (index = 0; index < count; ++index)
-    {
-        if (guest)
-            identifier = r_u16(guest + 2 + index * 2);
-        else
-        {
-            memcpy(&half, (const uint8 *)indices + 2 + index * 2, 2);
-            identifier = half;
-        }
-        SpawnRecord(identifier);
-    }
+    uint32 count = indices.Read16();
+    indices.Require(2 + count * 2);
+    for (uint32 index = 0; index < count; ++index)
+        SpawnRecord((indices + 2 + index * 2).Read16());
     return 0;
-}
-
-extern "C" uint32 sub_80064A08(uint32 indices)
-{
-    FUNCTION_MARKER(0x80064A08, "SLUS_003.73");
-    return SpawnEnemyIndices((const uint16 *)psx_addr(indices, 2));
 }
 
 void ClearObjectActivationFlags(ModelInstance *instance)
@@ -151,13 +110,10 @@ void RestoreNearbySuspendedObjects()
         uint32 flags = object.lifecycle_flags;
         if (flags & 2)
         {
-            uint32 distance = MeasurePositionDistance(visual_lists.players->pos, instance->pos);
-            if (r_u32(0x800FF5EC) >= distance)
+            uint32 distance = MeasurePositionDistance(visual_lists.players->pos.words, instance->pos.words);
+            if (visual_activation_distance >= distance)
                 object.RestoreList();
         }
         instance = next;
     }
 }
-
-
-

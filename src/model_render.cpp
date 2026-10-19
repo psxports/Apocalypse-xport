@@ -1,25 +1,47 @@
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "geometry_commands.h"
+#include "vector_distance.h"
+#include "scene_lifecycle.h"
+#include "level_session.h"
+#include "game_tick.h"
+#include "game_lighting.h"
+#include "record_scripts.h"
 #include "model_render_view.h"
 #include "character.h"
 #include "model_resources.h"
 #include "effect_lifecycle.h"
 #include "model_render.h"
+#include "model_matrix.h"
+static void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count);
+static uint32 RenderPosedModelObject(ModelInstance &instance);
+#include "model_subdivision.h"
 #include "model_lighting.h"
 #include "model_projection.h"
 #include "model_animation.h"
 #include "model_shadow.h"
 #include "model_clipping.h"
 #include "angle_math.h"
-#include "native_object_storage.h"
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-extern "C"
+#include "game_diagnostics.h"
+
+static const ModelViewport initial_viewport = {512, 240, 0, 0, 10, 30000, 256, 120, 256};
+ModelViewport model_viewport = {512, 240, 0, 0, 10, 30000, 256, 120, 256};
+ModelRenderState model_render_state = {0};
+
+void ResetModelRenderState()
 {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
+    ModelRenderState empty = {0};
+    model_render_state = empty;
+    model_viewport = initial_viewport;
+    ResetModelLightingValues();
+    ResetScratchProjectionVertices();
+    ResetModelProjectionVertices();
 }
 
 static const uint32 polygon_material_mask = 0xFFFF0000;
+static MATRIX unlit_matrix = {0};
 
 struct ModelClipPlane
 {
@@ -34,48 +56,40 @@ static uint32 PackClipPlaneHalves(sint16 low, sint16 high)
     return (uint16)low | ((uint32)(uint16)high << 16);
 }
 
-static uint32 ProjectAndClipModelVertices(const SVECTOR *vertices, uint32 count);
-
 static void RenderClippedModel(const ModelGeometry &geometry, uint32 translated)
 {
-    uint32 count, x, y, z;
+    uint32 count;
     count = geometry.vertex_count;
-    w_u32(0x800FFA9C, translated);
+    model_render_state.translated = translated;
     if (ProjectModelClippedVertices(geometry.vertices, count) & 191)
         return;
-    sub_8008793C(0x800EE710);
-    x = (uint32)(sint32)(sint16)r_u16(0x800FFA8C);
-    y = (uint32)(sint32)(sint16)r_u16(0x800FFA8E);
-    z = (uint32)(sint32)(sint16)r_u16(0x800FFA90);
-    sub_800879AC(x, y, z);
-    x = (uint32)(sint32)(sint16)r_u16(0x800FFA94);
-    y = (uint32)(sint32)(sint16)r_u16(0x800FFA96);
-    z = (uint32)(sint32)(sint16)r_u16(0x800FFA98);
-    sub_8008798C(x, y, z);
+    SetColorMatrix(&game_lighting.colors);
+    SetFarColor(game_lighting.far_color.r, game_lighting.far_color.g, game_lighting.far_color.b);
+    SetBackColor(game_lighting.background_color.r, game_lighting.background_color.g, game_lighting.background_color.b);
     BuildModelPolygonPackets(geometry.polys, geometry.poly_count);
 }
 
-void RenderTranslatedClippedModel(const ModelGeometry &geometry)
+static void RenderTranslatedClippedModel(const ModelGeometry &geometry)
 {
     FUNCTION_MARKER(0x8007FA7C, "SLUS_003.73");
     RenderClippedModel(geometry, 1);
 }
 
-void RenderScratchModel(const ModelGeometry &geometry)
+static void RenderScratchModel(const ModelGeometry &geometry)
 {
     uint32 count, result;
     FUNCTION_MARKER(0x8007FBD4, "SLUS_003.73");
     count = geometry.vertex_count;
-    w_u32(0x800FFA9C, 1);
+    model_render_state.translated = 1;
     result = ProjectModelScratchVertices(geometry.vertices, count);
-    if (r_u32(0x800FFB38))
+    if (model_render_state.part_hidden)
         return;
     if (result & 0x60006000)
         return;
     EmitScratchModelPackets(geometry.polys, geometry.poly_count);
 }
 
-void RenderUntranslatedClippedModel(const ModelGeometry &geometry)
+static void RenderUntranslatedClippedModel(const ModelGeometry &geometry)
 {
     FUNCTION_MARKER(0x8007FD3C, "SLUS_003.73");
     RenderClippedModel(geometry, 0);
@@ -83,294 +97,38 @@ void RenderUntranslatedClippedModel(const ModelGeometry &geometry)
 
 // TODO Classify original render V0 consumers beyond the current void render callers
 
-
-
-
-extern "C" void nullsub_18(void)
+static void RenderProjectedModel(const ModelGeometry &model)
 {
-    FUNCTION_MARKER(0x8006FAE4, "SLUS_003.73");
-}
-
-void RenderProjectedModel(const ModelGeometry &model)
-{
-    uint32 count, flags, far_x, far_y, far_z;
+    uint32 count, flags;
     FUNCTION_MARKER(0x8007F904, "SLUS_003.73");
     count = model.vertex_count;
-    w_u32(0x800FFA9C, 1);
+    model_render_state.translated = 1;
     flags = ProjectAndClipModelVertices(model.vertices, count);
-    if (r_u32(0x800FFB3C))
-        UpdateProjectedVertexDepthFlags(count);
+    if (model_render_state.water_clip_enabled)
+        UpdateModelWaterClipFlags(count);
     if (flags & 191)
         return;
-    SetLightMatrix((MATRIX *)psx_addr(0x800F3E10, 20));
-    sub_8008793C(0x800EE710);
-    far_x = (uint32)(sint32)(sint16)r_u16(0x800FFA8C);
-    far_y = (uint32)(sint32)(sint16)r_u16(0x800FFA8E);
-    far_z = (uint32)(sint32)(sint16)r_u16(0x800FFA90);
-    sub_800879AC(far_x, far_y, far_z);
-    far_x = (uint32)(sint32)(sint16)r_u16(0x800FFA94);
-    far_y = (uint32)(sint32)(sint16)r_u16(0x800FFA96);
-    far_z = (uint32)(sint32)(sint16)r_u16(0x800FFA98);
-    sub_8008798C(far_x, far_y, far_z);
+    SetLightMatrix(&unlit_matrix);
+    SetColorMatrix(&game_lighting.colors);
+    SetFarColor(game_lighting.far_color.r, game_lighting.far_color.g, game_lighting.far_color.b);
+    SetBackColor(game_lighting.background_color.r, game_lighting.background_color.g, game_lighting.background_color.b);
     BuildModelPolygonPackets(model.polys, model.poly_count);
 }
 
-
-
-void RenderOffsetScratchModel(const ModelGeometry &model, const sint32 position[3])
+static void RenderOffsetScratchModel(const ModelGeometry &model, const sint32 position[3])
 {
-    uint32 count, flags, red, green, blue;
+    uint32 count, flags;
     FUNCTION_MARKER(0x8007F9E0, "SLUS_003.73");
     count = model.vertex_count;
-    w_u32(0x800FFA9C, 1);
+    model_render_state.translated = 1;
     flags = ProjectOffsetScratchVertices(model.vertices, count, position);
     if (flags & 0x60006000)
         return;
-    red = (uint32)(sint32)(sint16)r_u16(0x800FFA8C);
-    green = (uint32)(sint32)(sint16)r_u16(0x800FFA8E);
-    blue = (uint32)(sint32)(sint16)r_u16(0x800FFA90);
-    sub_800879AC(red, green, blue);
+    SetFarColor(game_lighting.far_color.r, game_lighting.far_color.g, game_lighting.far_color.b);
     EmitScratchModelPackets(model.polys, model.poly_count);
 }
 
 // TODO Classify V0 consumers beyond the current callers that discard the render result
-
-
-
-static uint32 ReadModelVertexWord(const uint32 *vertices, uint32 address, uint32 offset)
-{
-    if (address)
-        return r_u32(address + offset);
-    uint32 value;
-    memcpy(&value, (const uint8 *)vertices + offset, 4);
-    return value;
-}
-
-static uint32 ProjectAndClipModelVertices(const SVECTOR *vertices, uint32 count)
-{
-    uint32 bounds_source, packed, bounds[6], output, transformed, aggregate = 0xFFFF;
-    uint32 vertex_xy, vertex_z, next_xy, next_z, screen, clip;
-    sint32 x, y, z;
-    FUNCTION_MARKER(0x80080D84, "SLUS_003.73");
-    if (!count)
-        return 0xFF;
-    uint32 offset = 0;
-    bounds_source = r_u32(0x800FFB08);
-    packed = r_u32(bounds_source);
-    bounds[0] = packed & 0xFFFF;
-    bounds[2] = packed >> 16;
-    packed = r_u32(bounds_source + 4);
-    bounds[1] = packed & 0xFFFF;
-    bounds[3] = packed >> 16;
-    packed = r_u32(bounds_source + 8);
-    bounds[4] = packed & 0xFFFF;
-    bounds[5] = packed >> 16;
-    output = r_u32(0x800FFAC0);
-    transformed = r_u32(0x800FFAC4);
-    vertex_xy = xport_load_le32((const uint8 *)vertices + offset);
-    vertex_z = xport_load_le32((const uint8 *)vertices + offset + 4);
-    do
-    {
-        xport_gte_write_data(0, vertex_xy);
-        xport_gte_write_data(1, vertex_z);
-        offset += 8;
-        --count;
-        xport_gte_execute(0x180001);
-        // Original prefetch reads the following vertex even on the final iteration
-        next_xy = count ? xport_load_le32((const uint8 *)vertices + offset) : 0;
-        next_z = count ? xport_load_le32((const uint8 *)vertices + offset + 4) : 0;
-        x = (sint32)xport_gte_read_data(9);
-        y = (sint32)xport_gte_read_data(10);
-        z = (sint32)xport_gte_read_data(11);
-        w_u32(transformed, ((uint32)x & 0xFFFF) | ((uint32)y << 16));
-        screen = xport_gte_read_data(14);
-        w_u16(output + 4, (uint32)z);
-        w_u32(output, screen);
-        x = (sint16)screen;
-        y = (sint32)screen >> 16;
-        clip = ((sint32)bounds[0] < x) | ((uint32)(x < (sint32)bounds[1]) << 1) | ((uint32)((sint32)bounds[2] < y) << 2) | ((uint32)(y < (sint32)bounds[3]) << 3) | ((uint32)(z < (sint32)bounds[4]) << 4) | ((uint32)((sint32)bounds[5] < z) << 5);
-        if (z < 0)
-            clip ^= 15;
-        clip |= (clip << 8) ^ 0xFF00;
-        w_u16(output + 6, clip);
-        aggregate &= clip;
-        output += 8;
-        transformed += 8;
-        vertex_xy = next_xy;
-        vertex_z = next_z;
-    } while (count);
-    w_u32(0x1F8001D4, output);
-    return aggregate;
-}
-
-
-
-static void WriteModelMatrixWord(uint32 *matrix, uint32 address, uint32 offset, uint32 value)
-{
-    if (address)
-        w_u32(address + offset, value);
-    else
-        memcpy((uint8 *)matrix + offset, &value, 4);
-}
-
-static void LoadModelRotationAndTransformIr(const uint32 *matrix)
-{
-    uint32 words[5], axis, address = GuestMemoryAddress(matrix);
-    FUNCTION_MARKER(0x80085C94, "SLUS_003.73");
-    for (axis = 0; axis < 5; ++axis)
-        words[axis] = ReadModelVertexWord(matrix, address, axis * 4);
-    // Original reads IR1 before loading the control bank
-    (void)xport_gte_read_data(9);
-    for (axis = 0; axis < 5; ++axis)
-        xport_gte_write_control(axis, words[axis]);
-    xport_gte_execute(0x49E012);
-}
-
-static void TransformPackedModelMatrix(const uint32 *input, uint32 *output)
-{
-    FUNCTION_MARKER(0x800854F4, "SLUS_003.73");
-    uint32 source = GuestMemoryAddress(input), destination = GuestMemoryAddress(output);
-    uint32 first0 = ReadModelVertexWord(input, source, 0), first1 = ReadModelVertexWord(input, source, 4), first3 = ReadModelVertexWord(input, source, 12);
-    uint32 first2, first4, column0[3], column1[3], column2[3];
-    xport_gte_write_data(9, first0);
-    xport_gte_write_data(10, first1 >> 16);
-    xport_gte_write_data(11, first3);
-    xport_gte_execute(0x49E012);
-    first2 = ReadModelVertexWord(input, source, 8);
-    column0[0] = xport_gte_read_data(25);
-    column0[1] = xport_gte_read_data(26);
-    column0[2] = xport_gte_read_data(27);
-    xport_gte_write_data(9, first0 >> 16);
-    xport_gte_write_data(10, first2);
-    xport_gte_write_data(11, first3 >> 16);
-    xport_gte_execute(0x49E012);
-    first4 = ReadModelVertexWord(input, source, 16);
-    column1[0] = xport_gte_read_data(25);
-    column1[1] = xport_gte_read_data(26);
-    column1[2] = xport_gte_read_data(27);
-    xport_gte_write_data(9, first1);
-    xport_gte_write_data(10, first2 >> 16);
-    xport_gte_write_data(11, first4);
-    xport_gte_execute(0x49E012);
-    WriteModelMatrixWord(output, destination, 0, (column0[0] & 0xFFFF) | (column1[0] << 16));
-    WriteModelMatrixWord(output, destination, 12, (column0[2] & 0xFFFF) | (column1[2] << 16));
-    column2[0] = xport_gte_read_data(25);
-    column2[1] = xport_gte_read_data(26);
-    column2[2] = xport_gte_read_data(27);
-    WriteModelMatrixWord(output, destination, 4, (column2[0] & 0xFFFF) | (column0[1] << 16));
-    WriteModelMatrixWord(output, destination, 8, (column1[1] & 0xFFFF) | (column2[1] << 16));
-    WriteModelMatrixWord(output, destination, 16, column2[2]);
-}
-
-
-
-extern "C" uint32 xport_draft_host_sub_800854F4_p12(const void *input, void *output)
-{
-    FUNCTION_MARKER(0x800854F4, "SLUS_003.73");
-    TransformPackedModelMatrix((const uint32 *)input, (uint32 *)output);
-    return 0;
-}
-
-static uint32 ReadModelMatrixHalf(const uint32 *matrix, uint32 address, uint32 offset)
-{
-    if (address)
-        return r_u16(address + offset);
-    uint16 value;
-    memcpy(&value, (const uint8 *)matrix + offset, 2);
-    return value;
-}
-
-static void SetupModelGteMatrices(const uint32 *rotation, const uint32 *lighting, const uint32 *local)
-{
-    uint32 rotation_address = GuestMemoryAddress(rotation), lighting_address = GuestMemoryAddress(lighting), local_address = GuestMemoryAddress(local);
-    uint32 words[5], input[5], composed[5], output[5], translation[3], index;
-    uint32 first_x, first_y, first_z, second_y, second_z, third_x, third_y, third_z;
-    FUNCTION_MARKER(0x80084578, "SLUS_003.73");
-    for (index = 0; index < 5; ++index)
-        words[index] = ReadModelVertexWord(rotation, rotation_address, index * 4);
-    for (index = 0; index < 5; ++index)
-        xport_gte_write_control(index, words[index]);
-    for (index = 0; index < 3; ++index)
-        translation[index] = ReadModelVertexWord(rotation, rotation_address, 20 + index * 4);
-    for (index = 0; index < 3; ++index)
-        xport_gte_write_control(5 + index, translation[index]);
-    for (index = 0; index < 5; ++index)
-        words[index] = ReadModelVertexWord(lighting, lighting_address, index * 4);
-    for (index = 0; index < 5; ++index)
-        xport_gte_write_control(8 + index, words[index]);
-    for (index = 0; index < 5; ++index)
-        input[index] = ReadModelVertexWord(local, local_address, index * 4);
-    xport_gte_write_data(0, (input[0] & 0xFFFF) | (input[1] & 0xFFFF0000));
-    xport_gte_write_data(1, input[3]);
-    xport_gte_write_data(2, (input[0] >> 16) | (input[2] << 16));
-    xport_gte_write_data(3, input[3] >> 16);
-    xport_gte_write_data(4, (input[1] & 0xFFFF) | (input[2] & 0xFFFF0000));
-    xport_gte_write_data(5, input[4]);
-    xport_gte_execute(0x4A6012);
-    first_x = xport_gte_read_data(9);
-    first_y = xport_gte_read_data(10);
-    first_z = xport_gte_read_data(11);
-    xport_gte_execute(0x4AE012);
-    composed[0] = (first_x & 0xFFFF) | (xport_gte_read_data(9) << 16);
-    second_y = xport_gte_read_data(10);
-    second_z = xport_gte_read_data(11);
-    composed[3] = (first_z & 0xFFFF) | (second_z << 16);
-    xport_gte_execute(0x4B6012);
-    third_x = xport_gte_read_data(9);
-    composed[1] = (first_y << 16) | (third_x & 0xFFFF);
-    third_y = xport_gte_read_data(10);
-    composed[2] = (second_y & 0xFFFF) | (third_y << 16);
-    composed[4] = xport_gte_read_data(11);
-    for (index = 0; index < 5; ++index)
-        xport_gte_write_control(8 + index, composed[index]);
-    xport_gte_execute(0x486012);
-    first_x = xport_gte_read_data(9);
-    first_y = xport_gte_read_data(10);
-    first_z = xport_gte_read_data(11);
-    xport_gte_execute(0x48E012);
-    third_x = xport_gte_read_data(9);
-    second_y = xport_gte_read_data(10);
-    second_z = xport_gte_read_data(11);
-    xport_gte_execute(0x496012);
-    output[0] = (first_x & 0xFFFF) | (third_x << 16);
-    output[3] = (first_z & 0xFFFF) | (second_z << 16);
-    third_x = xport_gte_read_data(9);
-    third_y = xport_gte_read_data(10);
-    third_z = xport_gte_read_data(11);
-    output[1] = (first_y << 16) | (third_x & 0xFFFF);
-    output[2] = (second_y & 0xFFFF) | (third_y << 16);
-    output[4] = third_z;
-    translation[0] = ReadModelMatrixHalf(local, local_address, 18);
-    translation[1] = (uint32)(sint32)(sint16)ReadModelMatrixHalf(local, local_address, 20);
-    translation[2] = (uint32)(sint32)(sint16)ReadModelMatrixHalf(local, local_address, 22);
-    xport_gte_write_data(0, translation[0] | (translation[1] << 16));
-    xport_gte_write_data(1, translation[2]);
-    xport_gte_execute(0x480012);
-    for (index = 0; index < 3; ++index)
-        translation[index] = xport_gte_read_data(9 + index);
-    for (index = 0; index < 5; ++index)
-        xport_gte_write_control(index, output[index]);
-    for (index = 0; index < 3; ++index)
-        xport_gte_write_control(5 + index, translation[index]);
-}
-
-
-
-extern "C" void apocalypse_model_gte_setup_native(const void *rotation, const void *lighting, uint32 local)
-{
-    SetupModelGteMatrices((const uint32 *)rotation, (const uint32 *)lighting, (const uint32 *)psx_addr(local, 24));
-}
-
-void InitializeModelIdentityMatrix(uint32 *matrix)
-{
-    FUNCTION_MARKER(0x800854D8, "SLUS_003.73");
-    uint32 address = GuestMemoryAddress(matrix);
-    WriteModelMatrixWord(matrix, address, 0, 4096);
-    WriteModelMatrixWord(matrix, address, 4, 0);
-    WriteModelMatrixWord(matrix, address, 8, 4096);
-    WriteModelMatrixWord(matrix, address, 12, 0);
-    WriteModelMatrixWord(matrix, address, 16, 4096);
-}
 
 void RenderModelObjectList(ModelInstance *object)
 {
@@ -382,7 +140,7 @@ void RenderModelObjectList(ModelInstance *object)
     MATRIX rotation, combined;
     if (!object)
         return;
-    w_u32(0x1F800164, 0x7FFFFFFF);
+    model_render_state.draw.fog_start = 0x7FFFFFFF;
     do
     {
         flags = object->flags;
@@ -393,140 +151,82 @@ void RenderModelObjectList(ModelInstance *object)
             {
                 render_flags = (render_flags & 0xFFFB0000) | 8;
                 color = object->color;
-                w_u32(0x800FFB20, color & 0xFFFFFF);
-                w_u32(0x1F800154, color & 0xFFFFFF);
-                w_u32(0x1F8001A4, (color & 255) << 6);
-                w_u32(0x1F8001B4, (color & 0xFF00) >> 2);
-                w_u32(0x1F8001C4, ((color & 0xFFFFFF) >> 10) & 0x3FC0);
+
+                model_render_state.draw.light.x = (color & 255) << 6;
+                model_render_state.draw.light.y = (color & 0xFF00) >> 2;
+                model_render_state.draw.light.z = ((color & 0xFFFFFF) >> 10) & 0x3FC0;
             }
             if (object->flags & 0x800)
                 render_flags = (render_flags & 0xFFFFFE7F) | (object->render_mode & 0x180) | 0x40;
             matrix = &GetConfiguredModelRenderView();
-            w_u32(0x1F800144, render_flags);
+            model_render_state.draw.mode = render_flags;
             SetRotMatrix((MATRIX *)&matrix->projection);
-            if (((uint32)object->angles[0] | ((uint32)object->angles[1] << 16)) || object->angles[2])
+            if (((uint32)object->angles.words[0] | ((uint32)object->angles.words[1] << 16)) || object->angles.words[2])
             {
-                BuildModelRotationMatrix(object->angles, (uint16 *)&rotation);
-                TransformPackedModelMatrix((const uint32 *)&rotation, (uint32 *)&combined);
+                BuildModelRotationMatrix(object->angles.words, rotation);
+                TransformModelMatrix(rotation, combined);
                 SetRotMatrix(&combined);
             }
             else
-                InitializeModelIdentityMatrix((uint32 *)&rotation);
+                InitializeModelIdentityMatrix(rotation);
             SelectModelPalette(GetModelBank(object->bank).colors);
             index = object->model_idx;
 
-            packed_angles = ((uint32)object->angles[0] | ((uint32)object->angles[1] << 16));
+            packed_angles = ((uint32)object->angles.words[0] | ((uint32)object->angles.words[1] << 16));
             const ModelGeometry &geometry = GetModelGeometry(object->bank, index);
-            if (packed_angles || object->angles[2])
+            if (packed_angles || object->angles.words[2])
                 RenderTranslatedClippedModel(geometry);
             else
                 RenderUntranslatedClippedModel(geometry);
         }
         object = object->next;
     } while (object);
-    w_u32(0x1F800164, proj_cfg.fog_start);
+    model_render_state.draw.fog_start = proj_cfg.fog_start;
 }
 
-
-extern "C" uint32 xport_draft_host_sub_800854D8_p1(void *output)
-{
-    FUNCTION_MARKER(0x800854D8, "SLUS_003.73");
-    InitializeModelIdentityMatrix((uint32 *)output);
-    return 0;
-}
-
-void RenderTranslatedModel(const ModelGeometry &geometry)
+static void RenderTranslatedModel(const ModelGeometry &geometry)
 {
     FUNCTION_MARKER(0x8007FB34, "SLUS_003.73");
     uint32 count = geometry.vertex_count;
-    w_u32(0x800FFA9C, 1);
+    model_render_state.translated = 1;
     uint32 flags = ProjectModelReferenceVertices(geometry.vertices, count);
-    if (r_u32(0x800FFB3C))
-        UpdateProjectedVertexDepthFlags(count);
-    if (!r_u32(0x800FFB38) && !(flags & 191))
+    if (model_render_state.water_clip_enabled)
+        UpdateModelWaterClipFlags(count);
+    if (!model_render_state.part_hidden && !(flags & 191))
     {
         BuildModelPolygonPackets(geometry.polys, geometry.poly_count);
     }
 }
 
-void TransposeModelMatrix(const uint32 *input, uint32 *output)
-{
-    FUNCTION_MARKER(0x80085C34, "SLUS_003.73");
-    uint32 source = GuestMemoryAddress(input), destination = GuestMemoryAddress(output);
-    uint32 first = ReadModelVertexWord(input, source, 0);
-    uint32 second = ReadModelVertexWord(input, source, 4);
-    uint32 third = ReadModelVertexWord(input, source, 8);
-    uint32 fourth = ReadModelVertexWord(input, source, 12);
-    uint32 tail = ReadModelMatrixHalf(input, source, 16);
-    WriteModelMatrixWord(output, destination, 0, ((first ^ second) & 65535) ^ second);
-    WriteModelMatrixWord(output, destination, 4, ((fourth ^ first) & 65535) ^ first);
-    WriteModelMatrixWord(output, destination, 8, ((third ^ fourth) & 65535) ^ fourth);
-    WriteModelMatrixWord(output, destination, 12, ((second ^ third) & 65535) ^ third);
-    if (destination)
-        w_u16(destination + 16, tail);
-    else
-    {
-        uint16 last = (uint16)tail;
-        memcpy((uint8 *)output + 16, &last, 2);
-    }
-}
-
-
-
-
-
-
-
 /* Native helper for the post-projection portion of the original owner */
 static void RenderOffsetModelPolygons(const ModelGeometry &model, uint32 count, uint32 flags)
 {
-    uint32 bank[5], index;
-    if (r_u32(0x800FFB3C))
-        UpdateProjectedVertexDepthFlags(count);
+    if (model_render_state.water_clip_enabled)
+        UpdateModelWaterClipFlags(count);
     flags &= 0xBF;
     if (flags)
         return;
-    for (index = 0; index < 5; ++index)
-        bank[index] = r_u32(0x800EE6F0 + index * 4);
-    for (index = 0; index < 5; ++index)
-        xport_gte_write_control(8 + index, bank[index]);
-    for (index = 0; index < 5; ++index)
-        bank[index] = r_u32(0x800EE710 + index * 4);
-    for (index = 0; index < 5; ++index)
-        xport_gte_write_control(16 + index, bank[index]);
-    for (index = 0; index < 3; ++index)
-        bank[index] = (uint32)(sint32)(sint16)r_u16(0x800FFA8C + index * 2) << 4;
-    for (index = 0; index < 3; ++index)
-        xport_gte_write_control(21 + index, bank[index]);
-    for (index = 0; index < 3; ++index)
-        bank[index] = (uint32)(sint32)(sint16)r_u16(0x800FFA94 + index * 2) << 4;
-    for (index = 0; index < 3; ++index)
-        xport_gte_write_control(13 + index, bank[index]);
-    {
-        (void)(BuildModelPolygonPackets(model.polys, model.poly_count));
-        return;
-    }
+    SetLightMatrix(&game_lighting.directions);
+    SetColorMatrix(&game_lighting.colors);
+    SetFarColor(game_lighting.far_color.r, game_lighting.far_color.g, game_lighting.far_color.b);
+    SetBackColor(game_lighting.background_color.r, game_lighting.background_color.g, game_lighting.background_color.b);
+    BuildModelPolygonPackets(model.polys, model.poly_count);
 }
 
-void RenderOffsetModel(const ModelGeometry &model, const sint32 vector[3])
+static void RenderOffsetModel(const ModelGeometry &model, const sint32 vector[3])
 {
     uint32 count = model.vertex_count, flags;
     FUNCTION_MARKER(0x8007FC60, "SLUS_003.73");
-    w_u32(0x800FFA9C, 0);
+    model_render_state.translated = 0;
     flags = ProjectOffsetModelVertices(model.vertices, count, vector);
     RenderOffsetModelPolygons(model, count, flags);
 }
 
-
-
-
-
-
-static uint32 PackModelPolygonCommand(uint32 packet, uint32 color, uint32 command, uint32 flags)
+static void PackModelPolygonCommand(uint8 *packet, uint32 color, uint32 command, uint32 flags)
 {
     FUNCTION_MARKER(0x80082188, "SLUS_003.73");
-    w_u32(packet + 4, color | command | ((flags & 0x40) << 19));
-    return packet;
+    P_TAG *header = (P_TAG *)packet;
+    header->rgbc.rgbc = color | command | ((flags & 0x40) << 19);
 }
 
 static uint32 ReadModelTableColor(uint32 index, const ModelPalette *table)
@@ -546,9 +246,7 @@ static void LoadModelTableColor(uint32 index, const ModelPalette *table, uint32 
     xport_gte_write_data(6, color);
 }
 
-
-static const sint16 model_uv_waves[16][64] =
-{
+static const sint16 model_uv_waves[16][64] = {
 #include "model_uv_waves.inc"
 };
 
@@ -583,7 +281,7 @@ static void WrapModelTextureCoordinates(uint32 values[4], uint32 adjustment)
     }
 }
 
-void UpdateModelTextureCoordinates(uint32 bank_index)
+static void UpdateModelTextureCoordinates(uint32 bank_index)
 {
     FUNCTION_MARKER(0x8007FF70, "SLUS_003.73");
     if (bank_index == 0xFFFFFFFF)
@@ -597,7 +295,7 @@ void UpdateModelTextureCoordinates(uint32 bank_index)
         if (!(object.flags & 0x8000))
         {
             uint32 speed_x = (uint32)(sint32)track.scroll_x;
-            uint32 tick = r_u32(0x800FFB40);
+            uint32 tick = model_render_state.frame;
             uint32 scroll_x = (uint32)((sint32)(tick * speed_x) >> 4);
             uint32 phase_product = tick * track.phase_speed;
             uint32 bank = object.bank;
@@ -648,40 +346,30 @@ void UpdateModelTextureCoordinates(uint32 bank_index)
     return;
 }
 
-
-
-
-uint32 SetModelDrawArea(uint32 bounds, uint32 ordering_table)
+static void SetModelDrawArea(const ModelViewport &bounds, uint32 *ordering_table)
 {
-    sint16 rectangle[4];
-    uint32 frame, top, offset, right, left, bottom, packet, next_packet, tag, result;
+    PSX_RECT rectangle;
+    uint32 top, offset, right, left, bottom;
+    uint8 *packet, *next_packet;
     FUNCTION_MARKER(0x8007E57C, "SLUS_003.73");
-    rectangle[0] = (sint16)r_u16(bounds + 4);
-    frame = r_u32(0x800FF660);
-    top = r_u16(bounds + 6);
-    offset = r_u16(frame + 2);
-    rectangle[1] = (sint16)(top + offset);
-    right = r_u16(bounds);
-    left = r_u16(bounds + 4);
-    packet = r_u32(0x800FF668);
-    rectangle[2] = (sint16)(right - left);
-    bottom = r_u16(bounds + 2);
-    top = r_u16(bounds + 6);
-    rectangle[3] = (sint16)(bottom - top);
-    xport_draft_host_sub_800890BC_p2(packet, rectangle);
-    tag = r_u32(packet);
-    result = r_u32(ordering_table + 0x3FFC);
-    w_u32(packet, (tag & 0xFF000000) | (result & 0xFFFFFF));
-    next_packet = packet + 12;
-    result = r_u32(ordering_table + 0x3FFC);
-    result = (result & 0xFF000000) | (packet & 0xFFFFFF);
-    w_u32(ordering_table + 0x3FFC, result);
-    w_u32(0x800FF668, next_packet);
-    return result;
+    rectangle.x = (sint16)bounds.left;
+    top = bounds.top;
+    offset = (uint16)scene_render.cur->draw.clip.y;
+    rectangle.y = (sint16)(top + offset);
+    right = bounds.right;
+    left = bounds.left;
+    packet = scene_render.cursor;
+    rectangle.w = (sint16)(right - left);
+    bottom = bounds.bottom;
+    top = bounds.top;
+    rectangle.h = (sint16)(bottom - top);
+    DR_AREA *draw_area = (DR_AREA *)packet;
+    SetDrawArea(draw_area, &rectangle);
+    next_packet = packet + sizeof(DR_AREA);
+    setaddr(draw_area, getaddr(ordering_table + 4095));
+    setaddr(ordering_table + 4095, gpu_packet_link((uintptr_t)draw_area));
+    scene_render.cursor = next_packet;
 }
-
-
-
 
 static uint32 DivideRenderViewScalar(uint32 numerator, uint32 denominator)
 {
@@ -695,7 +383,8 @@ static uint32 DivideRenderViewScalar(uint32 numerator, uint32 denominator)
 
 static void RotateRenderViewNormal(const MATRIX &matrix, const ModelClipPlane &input, sint16 output[3])
 {
-    uint32 words[5], axis, result[3];
+    uint32 words[5], axis;
+    Vector3 result;
     for (axis = 0; axis < 5; ++axis)
         words[axis] = ReadModelRenderMatrixWord(matrix, axis);
     for (axis = 0; axis < 5; ++axis)
@@ -704,103 +393,98 @@ static void RotateRenderViewNormal(const MATRIX &matrix, const ModelClipPlane &i
     xport_gte_write_data(1, PackClipPlaneHalves(input.nz, input.offset));
     xport_gte_execute(0x486012);
     for (axis = 0; axis < 3; ++axis)
-        result[axis] = xport_gte_read_data(9 + axis);
+        result.words[axis] = xport_gte_read_data(9 + axis);
     for (axis = 0; axis < 3; ++axis)
-        output[axis] = (sint16)result[axis];
+        output[axis] = (sint16)result.words[axis];
 }
 
-static void TransposeRenderViewMatrix(const MATRIX &input, MATRIX &output)
-{
-    TransposeRotationMatrix((const uint16 *)&input, (uint16 *)&output);
-}
-
-static void ConfigureModelClipPlanes(ModelRenderView &camera, uint32 bounds)
+static void ConfigureModelClipPlanes(ModelRenderView &camera, const ModelViewport &bounds)
 {
     uint32 depth, difference, length, axis, result, first, second;
     model_clip_planes[0].nx = (sint16)(0);
     model_clip_planes[0].ny = (sint16)(0);
     model_clip_planes[0].nz = (sint16)(0xF000);
-    result = r_u16(bounds + 10);
+    result = bounds.far_depth;
     model_clip_planes[1].nx = (sint16)(0);
     model_clip_planes[1].ny = (sint16)(0);
     model_clip_planes[1].nz = (sint16)(0x1000);
     model_clip_planes[0].offset = (sint16)(result);
-    model_clip_planes[1].offset = (sint16)(0 - r_u16(bounds + 8));
+    model_clip_planes[1].offset = (sint16)(0 - bounds.near_depth);
 
-    first = r_u16(bounds + 14);
-    second = r_u16(bounds + 6);
+    first = bounds.center_y;
+    second = bounds.top;
     difference = first - second;
-    depth = r_u16(bounds + 16);
-    length = sub_80085B54(difference * difference + depth * depth);
+    depth = bounds.distance;
+    length = LookupDistanceRoot(difference * difference + depth * depth);
     model_clip_planes[2].nx = (sint16)(0);
-    model_clip_planes[2].ny = (sint16)(DivideRenderViewScalar(r_u16(bounds + 16) << 12, length));
-    first = r_u16(bounds + 6);
-    second = r_u16(bounds + 14);
+    model_clip_planes[2].ny = (sint16)(DivideRenderViewScalar(bounds.distance << 12, length));
+    first = bounds.top;
+    second = bounds.center_y;
     difference = first - second;
     model_clip_planes[2].offset = (sint16)(0);
     model_clip_planes[2].nz = (sint16)(DivideRenderViewScalar(0 - (difference << 12), length));
 
-    first = r_u16(bounds + 2);
-    second = r_u16(bounds + 14);
+    first = bounds.bottom;
+    second = bounds.center_y;
     difference = first - second;
-    depth = r_u16(bounds + 16);
-    length = sub_80085B54(difference * difference + depth * depth);
+    depth = bounds.distance;
+    length = LookupDistanceRoot(difference * difference + depth * depth);
     model_clip_planes[3].nx = (sint16)(0);
-    model_clip_planes[3].ny = (sint16)(DivideRenderViewScalar(0 - (r_u16(bounds + 16) << 12), length));
-    first = r_u16(bounds + 14);
-    second = r_u16(bounds + 2);
+    model_clip_planes[3].ny = (sint16)(DivideRenderViewScalar(0 - (bounds.distance << 12), length));
+    first = bounds.center_y;
+    second = bounds.bottom;
     difference = first - second;
     model_clip_planes[3].offset = (sint16)(0);
     model_clip_planes[3].nz = (sint16)(DivideRenderViewScalar(0 - (difference << 12), length));
 
-    first = r_u16(bounds + 12);
-    second = r_u16(bounds + 4);
+    first = bounds.center_x;
+    second = bounds.left;
     difference = first - second;
-    depth = r_u16(bounds + 16);
-    length = sub_80085B54(difference * 25 * difference + depth * (depth << 6));
+    depth = bounds.distance;
+    length = LookupDistanceRoot(difference * 25 * difference + depth * (depth << 6));
     model_clip_planes[4].ny = (sint16)(0);
-    model_clip_planes[4].nx = (sint16)(DivideRenderViewScalar(r_u16(bounds + 16) << 15, length));
-    first = r_u16(bounds + 4);
-    second = r_u16(bounds + 12);
+    model_clip_planes[4].nx = (sint16)(DivideRenderViewScalar(bounds.distance << 15, length));
+    first = bounds.left;
+    second = bounds.center_x;
     difference = first - second;
     model_clip_planes[4].offset = (sint16)(0);
     model_clip_planes[4].nz = (sint16)(DivideRenderViewScalar(0 - ((difference * 5) << 12), length));
 
-    first = r_u16(bounds);
-    second = r_u16(bounds + 12);
+    first = bounds.right;
+    second = bounds.center_x;
     difference = first - second;
-    depth = r_u16(bounds + 16);
-    length = sub_80085B54(difference * 25 * difference + depth * (depth << 6));
+    depth = bounds.distance;
+    length = LookupDistanceRoot(difference * 25 * difference + depth * (depth << 6));
     model_clip_planes[5].ny = (sint16)(0);
-    model_clip_planes[5].nx = (sint16)(DivideRenderViewScalar(0 - (r_u16(bounds + 16) << 15), length));
-    first = r_u16(bounds + 12);
-    second = r_u16(bounds);
+    model_clip_planes[5].nx = (sint16)(DivideRenderViewScalar(0 - (bounds.distance << 15), length));
+    first = bounds.center_x;
+    second = bounds.right;
     difference = first - second;
     model_clip_planes[5].offset = (sint16)(0);
     model_clip_planes[5].nz = (sint16)(DivideRenderViewScalar(0 - ((difference * 5) << 12), length));
 
-    first = r_u16(bounds + 12);
-    second = r_u16(bounds + 4);
+    first = bounds.center_x;
+    second = bounds.left;
     difference = first - second;
-    depth = r_u16(bounds + 16);
-    length = sub_80085B54(difference * difference + depth * depth);
+    depth = bounds.distance;
+    length = LookupDistanceRoot(difference * difference + depth * depth);
     model_clip_planes[6].ny = (sint16)(0);
-    model_clip_planes[6].nx = (sint16)(DivideRenderViewScalar(r_u16(bounds + 16) << 12, length));
-    first = r_u16(bounds + 4);
-    second = r_u16(bounds + 12);
+    model_clip_planes[6].nx = (sint16)(DivideRenderViewScalar(bounds.distance << 12, length));
+    first = bounds.left;
+    second = bounds.center_x;
     difference = first - second;
     model_clip_planes[6].offset = (sint16)(0);
     model_clip_planes[6].nz = (sint16)(DivideRenderViewScalar(0 - (difference << 12), length));
 
-    first = r_u16(bounds);
-    second = r_u16(bounds + 12);
+    first = bounds.right;
+    second = bounds.center_x;
     difference = first - second;
-    depth = r_u16(bounds + 16);
-    length = sub_80085B54(difference * difference + depth * depth);
+    depth = bounds.distance;
+    length = LookupDistanceRoot(difference * difference + depth * depth);
     model_clip_planes[7].ny = (sint16)(0);
-    model_clip_planes[7].nx = (sint16)(DivideRenderViewScalar(0 - (r_u16(bounds + 16) << 12), length));
-    first = r_u16(bounds + 12);
-    second = r_u16(bounds);
+    model_clip_planes[7].nx = (sint16)(DivideRenderViewScalar(0 - (bounds.distance << 12), length));
+    first = bounds.center_x;
+    second = bounds.right;
     difference = first - second;
     model_clip_planes[7].offset = (sint16)(0);
     model_clip_planes[7].nz = (sint16)(DivideRenderViewScalar(0 - (difference << 12), length));
@@ -811,7 +495,7 @@ static void ConfigureModelClipPlanes(ModelRenderView &camera, uint32 bounds)
     }
 }
 
-uint32 ConfigureModelRenderView(ModelRenderView &camera, uint32 bounds, uint32 ordering_table)
+uint32 ConfigureModelRenderView(ModelRenderView &camera, ModelViewport &bounds, uint32 *ordering_table)
 {
     const ModelProjectionConfig &proj_cfg = GetModelProjectionConfig();
     ModelRenderView *owner;
@@ -819,19 +503,19 @@ uint32 ConfigureModelRenderView(ModelRenderView &camera, uint32 bounds, uint32 o
     uint32 first, second, animation_bank, next_tick;
     FUNCTION_MARKER(0x8007E63C, "SLUS_003.73");
     ConfigureModelClipPlanes(camera, bounds);
-    sub_800879EC(r_u16(bounds + 16));
-    first = r_u16(bounds + 12);
-    second = r_u16(bounds + 14);
-    sub_800879CC(first, second);
+    SetGeomScreen(bounds.distance);
+    first = bounds.center_x;
+    second = bounds.center_y;
+    SetGeomOffset(first, second);
     SetModelDrawArea(bounds, ordering_table);
     result = (uint16)proj_cfg.near_depth;
     depth = (uint16)proj_cfg.far_depth;
     SetConfiguredModelRenderView(camera);
-    w_u32(0x800FFB08, bounds);
-    w_u32(0x800FFB30, ordering_table);
-    w_u16(bounds + 8, result);
-    w_u16(bounds + 10, depth);
-    TransposeRenderViewMatrix(camera.rotation, camera.inverse);
+    model_render_state.viewport = &bounds;
+    model_render_state.ordering_table = ordering_table;
+    bounds.near_depth = result;
+    bounds.far_depth = depth;
+    TransposeRotationMatrix(camera.rotation, camera.inverse);
     for (axis = 0; axis < 3; ++axis)
     {
         sint32 scaled = 8 * (sint32)(sint16)((uint32)(uint16)camera.inverse.m[0][axis]);
@@ -845,127 +529,124 @@ uint32 ConfigureModelRenderView(ModelRenderView &camera, uint32 bounds, uint32 o
     animation_bank = GetActiveModelBank(0);
     result = (uint32)texture.clut << 16;
     depth = (uint32)texture.tpage << 16;
-    difference = r_u32(0x800FFB40);
-    w_u32(0x800FFB24, result);
-    w_u32(0x800FFB28, depth);
+    difference = model_render_state.frame;
+    model_render_state.reflection_clut = result;
+    model_render_state.reflection_tpage = depth;
     first = texture.uv[0].u;
     second = texture.uv[0].v;
-    next_tick = r_u32(0x800FF650);
+    next_tick = game_clock.active_frame;
     result = first | (second << 8);
-    w_u32(0x800FFAB4, difference);
-    w_u32(0x800FFB40, next_tick);
-    w_u32(0x800FFB2C, result);
+    model_render_state.previous_frame = difference;
+    model_render_state.frame = next_tick;
+    model_render_state.reflection_uv = result;
     UpdateModelColorAnimation(animation_bank);
     UpdateModelColorAnimation(GetActiveModelBank(1));
-    UpdateModelColorAnimation(r_u8(0x800FF644));
-    UpdateModelTextureCoordinates(r_u8(0x800FF644));
+    UpdateModelColorAnimation(GetRecordModelBankSlot());
+    UpdateModelTextureCoordinates(GetRecordModelBankSlot());
     owner = &GetConfiguredModelRenderView();
-    w_u16(0x800FFB10, 0 - ((uint32)(uint16)owner->rotation.m[1][0]));
-    w_u16(0x800FFB12, 0 - ((uint32)(uint16)owner->rotation.m[1][1]));
-    w_u16(0x800FFB14, 0 - ((uint32)(uint16)owner->rotation.m[1][2]));
-    first = r_u32(0x800FF37C);
-    second = ((uint32)(uint16)owner->pos[1]);
+    model_render_state.water_plane.normal.x = -owner->rotation.m[1][0];
+    model_render_state.water_plane.normal.y = -owner->rotation.m[1][1];
+    model_render_state.water_plane.normal.z = -owner->rotation.m[1][2];
+    first = (uint32)level_environment.water_y;
+    second = ((uint32)(uint16)owner->pos.words[1]);
     result = (uint32)((sint32)first >> 12) - second;
-    w_u16(0x800FFB16, result);
+    model_render_state.water_plane.distance = result;
     return result;
 }
-
-
-
 
 uint32 AdvanceModelRenderCounter()
 {
     uint32 counter;
     FUNCTION_MARKER(0x8007EBC4, "SLUS_003.73");
-    counter = r_u32(0x800FFAA8) + 1;
-    w_u32(0x800FFAA8, counter);
+    counter = model_render_state.pass_count + 1;
+    model_render_state.pass_count = counter;
     return counter;
 }
-
-
 
 static void SelectModelBoxCorners(uint32 bank, uint32 corners[3])
 {
     uint32 words[5];
     for (uint32 index = 0; index < 5; ++index)
-        words[index] = xport_draft_gte_control_read(bank + index);
-    corners[0] = 0x1F800000 + ((words[0] >> 12) & 8 | (words[0] >> 27) & 16 | (words[1] >> 10) & 32);
-    corners[1] = 0x1F800000 + ((words[1] >> 28) & 8 | (words[2] >> 11) & 16 | (words[2] >> 26) & 32);
-    corners[2] = 0x1F800000 + ((words[3] >> 12) & 8 | (words[3] >> 27) & 16 | (words[4] >> 10) & 32);
+        words[index] = ReadGeometryControl(bank + index);
+    corners[0] = ((words[0] >> 15) & 1) | ((words[0] >> 30) & 2) | ((words[1] >> 13) & 4);
+    corners[1] = ((words[1] >> 31) & 1) | ((words[2] >> 14) & 2) | ((words[2] >> 29) & 4);
+    corners[2] = ((words[3] >> 15) & 1) | ((words[3] >> 30) & 2) | ((words[4] >> 13) & 4);
 }
 
-static void WriteModelBoxAxis(uint32 axis, sint32 position, uint32 bounds)
+static void WriteModelBoxAxis(Vector3 corners[8], uint32 axis, sint32 position, uint32 bounds)
 {
     sint32 lower = (sint16)((uint32)position + bounds) >> 1;
     sint32 upper = (sint32)((uint32)position + (uint32)((sint32)bounds >> 16)) >> 1;
-    const uint32 offsets[3][8] = {
-        {0, 16, 32, 48, 8, 24, 40, 56},
-        {2, 10, 34, 42, 18, 26, 50, 58},
-        {4, 12, 20, 28, 36, 44, 52, 60}
-    };
-    for (uint32 index = 0; index < 4; ++index)
-        w_u16(0x1F800000 + offsets[axis][index], lower);
-    for (uint32 index = 4; index < 8; ++index)
-        w_u16(0x1F800000 + offsets[axis][index], upper);
+    for (uint32 index = 0; index < 8; ++index)
+    {
+        sint16 value = index & (1 << axis) ? upper : lower;
+        if (axis == 0)
+            corners[index].x = value;
+        else if (axis == 1)
+            corners[index].y = value;
+        else
+            corners[index].z = value;
+    }
 }
 
-static bool IsModelBoxOutside(const uint32 light_corners[3], const uint32 color_corners[3])
+static void LoadModelBoxCorner(uint32 slot, const Vector3 &corner)
 {
-    xport_gte_write_data(0, r_u32(light_corners[0]));
-    xport_gte_write_data(1, r_u32(light_corners[0] + 4));
+    xport_gte_write_data(slot, (uint16)corner.x | ((uint32)(uint16)corner.y << 16));
+    xport_gte_write_data(slot + 1, (uint32)(uint16)corner.z);
+}
+
+static bool IsModelBoxOutside(const Vector3 corners[8], const uint32 light_corners[3], const uint32 color_corners[3])
+{
+    LoadModelBoxCorner(0, corners[light_corners[0]]);
     xport_gte_execute(0x4A2012);
     sint32 plane = (sint32)xport_gte_read_data(9);
-    xport_gte_write_data(2, r_u32(light_corners[1]));
-    xport_gte_write_data(3, r_u32(light_corners[1] + 4));
+    LoadModelBoxCorner(2, corners[light_corners[1]]);
     if (plane < 0)
         return true;
     xport_gte_execute(0x4AA012);
     plane = (sint32)xport_gte_read_data(10);
-    xport_gte_write_data(4, r_u32(light_corners[2]));
-    xport_gte_write_data(5, r_u32(light_corners[2] + 4));
+    LoadModelBoxCorner(4, corners[light_corners[2]]);
     if (plane < 0)
         return true;
     xport_gte_execute(0x4B2012);
     plane = (sint32)xport_gte_read_data(11);
-    xport_gte_write_data(0, r_u32(color_corners[0]));
-    xport_gte_write_data(1, r_u32(color_corners[0] + 4));
+    LoadModelBoxCorner(0, corners[color_corners[0]]);
     if (plane < 0)
         return true;
     xport_gte_execute(0x4C6012);
     plane = (sint32)xport_gte_read_data(9);
-    xport_gte_write_data(2, r_u32(color_corners[1]));
-    xport_gte_write_data(3, r_u32(color_corners[1] + 4));
+    LoadModelBoxCorner(2, corners[color_corners[1]]);
     if (plane < 0)
         return true;
     xport_gte_execute(0x4CE012);
     plane = (sint32)xport_gte_read_data(10);
-    xport_gte_write_data(4, r_u32(color_corners[2]));
-    xport_gte_write_data(5, r_u32(color_corners[2] + 4));
+    LoadModelBoxCorner(4, corners[color_corners[2]]);
     if (plane < 0)
         return true;
     xport_gte_execute(0x4D6012);
     return (sint32)xport_gte_read_data(11) < 0;
 }
 
-uint32 CullModelObjectList(ModelInstance *object)
+static void CullModelObjectList(ModelInstance *object)
 {
     ModelBorrow borrow;
     FUNCTION_MARKER(0x80080560, "SLUS_003.73");
     if (!object)
-        return 0x1F800000;
+        return;
     uint32 light_corners[3], color_corners[3];
+    Vector3 corners[8];
     SelectModelBoxCorners(8, light_corners);
     SelectModelBoxCorners(16, color_corners);
     ModelRenderView *camera = &GetConfiguredModelRenderView();
-    uint32 camera_x = camera->pos[0];
-    uint32 camera_y = camera->pos[1];
-    uint32 camera_z = camera->pos[2];
+    uint32 camera_x = camera->pos.words[0];
+    uint32 camera_y = camera->pos.words[1];
+    uint32 camera_z = camera->pos.words[2];
     do
     {
         uint32 flags = object->flags;
-        uint32 position_x = object->pos[0];
-        uint32 position_y = object->pos[1];
-        uint32 position_z = object->pos[2];
+        uint32 position_x = object->pos.words[0];
+        uint32 position_y = object->pos.words[1];
+        uint32 position_z = object->pos.words[2];
         bool outside = true;
         do
         {
@@ -985,9 +666,9 @@ uint32 CullModelObjectList(ModelInstance *object)
             uint32 radius = geometry.radius >> 13;
             if (flags & 512)
             {
-                sint32 scale_x = (sint16)object->scale[0];
-                sint32 scale_y = (sint16)object->scale[1];
-                sint32 scale_z = (sint16)object->scale[2];
+                sint32 scale_x = (sint16)object->scale.words[0];
+                sint32 scale_y = (sint16)object->scale.words[1];
+                sint32 scale_z = (sint16)object->scale.words[2];
                 sint32 scale = scale_x;
                 if (scale_y > scale)
                     scale = scale_y;
@@ -1007,17 +688,17 @@ uint32 CullModelObjectList(ModelInstance *object)
             third = (sint32)xport_gte_read_data(27);
             if (first < threshold || second < threshold || third < threshold)
                 break;
-            uint32 rotation_xy = ((uint32)object->angles[0] | ((uint32)object->angles[1] << 16));
-            uint32 rotation_z = object->angles[2];
+            uint32 rotation_xy = ((uint32)object->angles.words[0] | ((uint32)object->angles.words[1] << 16));
+            uint32 rotation_z = object->angles.words[2];
             uint32 bounds_x = ((uint16)geometry.bounds[0].max | ((uint32)(uint16)geometry.bounds[0].min << 16));
             if (!(rotation_xy | rotation_z | (flags & 514)))
             {
                 uint32 bounds_y = ((uint16)geometry.bounds[1].max | ((uint32)(uint16)geometry.bounds[1].min << 16));
                 uint32 bounds_z = ((uint16)geometry.bounds[2].max | ((uint32)(uint16)geometry.bounds[2].min << 16));
-                WriteModelBoxAxis(0, x, bounds_x);
-                WriteModelBoxAxis(1, y, bounds_y);
-                WriteModelBoxAxis(2, z, bounds_z);
-                if (IsModelBoxOutside(light_corners, color_corners))
+                WriteModelBoxAxis(corners, 0, x, bounds_x);
+                WriteModelBoxAxis(corners, 1, y, bounds_y);
+                WriteModelBoxAxis(corners, 2, z, bounds_z);
+                if (IsModelBoxOutside(corners, light_corners, color_corners))
                     break;
             }
             outside = false;
@@ -1026,18 +707,7 @@ uint32 CullModelObjectList(ModelInstance *object)
         object->flags = outside ? flags | 32768 : flags & 32767;
         object = next;
     } while (object);
-    return 0x1F800000;
-}
-
-
-
-static void LoadVisibleModelMatrix(uint32 address, uint32 bank)
-{
-    uint32 words[5];
-    for (uint32 index = 0; index < 5; ++index)
-        words[index] = r_u32(address + index * 4);
-    for (uint32 index = 0; index < 5; ++index)
-        xport_gte_write_control(bank + index, words[index]);
+    return;
 }
 
 static void LoadVisibleModelMatrix(const MATRIX &matrix, uint32 bank)
@@ -1087,15 +757,15 @@ void RenderVisibleModelObjectList(ModelInstance *owner)
     }
     while (owner)
     {
-    ModelRenderView *camera;
-    uint32 flags = owner->flags, mode, axis;
+        ModelRenderView *camera;
+        uint32 flags = owner->flags, mode, axis;
         const ModelGeometry *geometry;
-        sint32 position[3];
-        uint32 transformed[4], matrix[8], combined[8];
+        Vector3 position, transformed;
+        MATRIX matrix, combined;
         uint32 render_limit, depth_shift, fog_scale, fog_bias, far_start, far_end;
         uint32 vertex_index, object_value, camera_value, geometry_flags;
         uint32 rotation_xy, rotation_z, attributes, attribute_end, vertex_count;
-        uint32 packet_start, packet_end, secondary_flags, callback_flags;
+        uint32 secondary_flags, callback_flags;
         bool transform_matrix;
         if (flags & 0x8001)
             goto NextObject;
@@ -1104,61 +774,51 @@ void RenderVisibleModelObjectList(ModelInstance *owner)
         render_limit = proj_cfg.fog_start;
         mode = polygon_material_mask;
         depth_shift = proj_cfg.fog_shift;
-        fog_scale = r_u32(0x800FFB24);
-        fog_bias = r_u32(0x800FFB28);
-        far_start = (uint32)(sint32)(sint16)r_u16(0x800FFAAC);
-        far_end = (uint32)(sint32)(sint16)r_u16(0x800FFAAE);
+        fog_scale = model_render_state.reflection_clut;
+        fog_bias = model_render_state.reflection_tpage;
+        far_start = model_render_state.depth_bias[0];
+        far_end = model_render_state.depth_bias[1];
         flags = owner->flags;
-        w_u32(0x1F800164, render_limit);
-        w_u32(0x1F800174, depth_shift);
-        w_u32(0x1F800184, fog_scale);
-        w_u32(0x1F800194, fog_bias);
-        w_u32(0x1F800204, far_start);
-        w_u32(0x1F800214, far_end);
+        model_render_state.draw.fog_start = render_limit;
+        model_render_state.draw.fog_shift = depth_shift;
+        model_render_state.draw.clut = fog_scale;
+        model_render_state.draw.tpage = fog_bias;
+        model_render_state.draw.near_bias = far_start;
+        model_render_state.draw.far_bias = far_end;
         if (flags & 0x80)
         {
             mode = (flags & 0x1000) ? (mode & 0xFFF70000) : (mode | 12);
             if (owner->flags & 0x400)
             {
                 uint32 color = owner->color;
-                w_u32(0x800FFB20, color & 0xFFFFFF);
-                w_u16(0x800FFA96, (color & 0xFF00) >> 2);
-                uint32 red = r_u8(0x800FFB20);
-                w_u16(0x800FFA98, ((color & 0xFFFFFF) >> 10) & 0x3FC0);
-                w_u16(0x800FFA94, red << 6);
+
+                game_lighting.background_color.g = (color & 0xFF00) >> 2;
+                uint32 red = color & 255;
+                game_lighting.background_color.b = ((color & 0xFFFFFF) >> 10) & 0x3FC0;
+                game_lighting.background_color.r = red << 6;
             }
         }
         else if (flags & 0x400)
         {
             uint32 color = owner->color;
             mode = (mode & 0xFFFB0000) | 8;
-            w_u32(0x800FFB20, color & 0xFFFFFF);
-            w_u32(0x1F800154, color & 0xFFFFFF);
-            w_u32(0x1F8001A4, (color & 0xFF) << 6);
-            w_u32(0x1F8001B4, (color & 0xFF00) >> 2);
-            w_u32(0x1F8001C4, ((color & 0xFFFFFF) >> 10) & 0x3FC0);
+
+            model_render_state.draw.light.x = (color & 0xFF) << 6;
+            model_render_state.draw.light.y = (color & 0xFF00) >> 2;
+            model_render_state.draw.light.z = ((color & 0xFFFFFF) >> 10) & 0x3FC0;
         }
         if (owner->flags & 0x800)
             mode = (mode & 0xFFFFFE7F) | (owner->render_mode & 0x180) | 0x40;
         callback_flags = owner->flags;
-        w_u32(0x1F800144, mode);
+        model_render_state.draw.mode = mode;
         if (callback_flags & 0x80)
             static_cast<VisualObject *>(owner->owner)->UpdateLighting();
         flags = owner->flags;
         secondary_flags = owner->flags;
-        w_u32(0x800FFB3C, (flags >> 3) & 1);
+        model_render_state.water_clip_enabled = (flags & 8) != 0;
         if (secondary_flags & 2)
         {
-            packet_start = r_u32(0x800FF668);
             RenderPosedModelObject(*owner);
-            if (owner->flags & 64)
-            {
-                packet_end = r_u32(0x800FF668);
-                // Original hook discards object and packet range arguments
-                (void)packet_start;
-                (void)packet_end;
-                nullsub_18();
-            }
             goto NextObject;
         }
         vertex_index = owner->model_idx;
@@ -1172,37 +832,37 @@ void RenderVisibleModelObjectList(ModelInstance *owner)
         camera = &GetConfiguredModelRenderView();
         for (axis = 0; axis < 3; ++axis)
         {
-            object_value = owner->pos[axis];
-            camera_value = camera->pos[axis];
-            position[axis] = (sint32)((uint32)((sint32)object_value >> 12) - camera_value);
+            object_value = owner->pos.words[axis];
+            camera_value = camera->pos.words[axis];
+            position.components[axis] = (sint32)((uint32)((sint32)object_value >> 12) - camera_value);
         }
-        xport_gte_write_data(0, ((uint32)position[0] & 65535) | ((uint32)position[1] << 16));
-        xport_gte_write_data(1, (uint32)position[2]);
+        xport_gte_write_data(0, ((uint32)position.components[0] & 65535) | ((uint32)position.components[1] << 16));
+        xport_gte_write_data(1, (uint32)position.components[2]);
         xport_gte_execute(0x486012);
         for (axis = 0; axis < 3; ++axis)
-            transformed[axis] = xport_gte_read_data(25 + axis);
-        rotation_xy = ((uint32)owner->angles[0] | ((uint32)owner->angles[1] << 16));
-        w_u32(0x800FFB44, 0);
-        rotation_z = rotation_xy ? 0 : owner->angles[2];
+            transformed.words[axis] = xport_gte_read_data(25 + axis);
+        rotation_xy = ((uint32)owner->angles.words[0] | ((uint32)owner->angles.words[1] << 16));
+        model_render_state.use_scratch = 0;
+        rotation_z = rotation_xy ? 0 : owner->angles.words[2];
         transform_matrix = rotation_xy || rotation_z;
         if (transform_matrix)
-            BuildModelRotationMatrix(owner->angles, (uint16 *)matrix);
+            BuildModelRotationMatrix(owner->angles.words, matrix);
         else
             InitializeModelIdentityMatrix(matrix);
         if (owner->flags & 512)
         {
-            ScaleModelRotationMatrix(owner->scale, (uint16 *)matrix);
+            ScaleModelRotationMatrix(owner->scale.words, matrix);
             transform_matrix = true;
         }
         if (transform_matrix)
         {
-            TransformPackedModelMatrix(matrix, combined);
-            SetRotMatrix((MATRIX *)combined);
+            TransformModelMatrix(matrix, combined);
+            SetRotMatrix(&combined);
         }
         geometry_flags = geometry->flags;
         SelectModelPalette(GetModelBank((uint32)owner->bank).colors);
         if (geometry_flags & 1)
-            GenerateModelReflectionCoordinates(matrix, transformed, 0x800F3E70, *geometry);
+            GenerateModelReflectionCoordinates(matrix, transformed.words, *geometry);
         else if (owner->flags & 128)
         {
             attributes = geometry->n_count;
@@ -1212,100 +872,104 @@ void RenderVisibleModelObjectList(ModelInstance *owner)
                 attributes = vertex_count;
             GenerateModelNormalColors(geometry->normals, attributes);
         }
-        if (r_u32(0x800FFB44))
-            RenderOffsetScratchModel(*geometry, position);
-        else if (((uint32)owner->angles[0] | ((uint32)owner->angles[1] << 16)) || owner->angles[2] || (owner->flags & 0x200))
+        if (model_render_state.use_scratch)
+            RenderOffsetScratchModel(*geometry, position.components);
+        else if (((uint32)owner->angles.words[0] | ((uint32)owner->angles.words[1] << 16)) || owner->angles.words[2] || (owner->flags & 0x200))
         {
             for (axis = 0; axis < 3; ++axis)
-                xport_gte_write_control(5 + axis, transformed[axis]);
+                xport_gte_write_control(5 + axis, transformed.words[axis]);
             RenderProjectedModel(*geometry);
         }
         else
-            RenderOffsetModel(*geometry, position);
+            RenderOffsetModel(*geometry, position.components);
     NextObject:
         owner = owner->next;
     }
 }
 
-
-
-static void MultiplyPosedModelMatrix(uint32 left, const uint8 *right, void *output)
+static void MultiplyPosedModelMatrix(const MATRIX &left, const MATRIX &right, MATRIX &output)
 {
     MATRIX local;
     memset(&local, 0, sizeof(local));
-    memcpy(&local, right, 20);
-    MulMatrix0((MATRIX *)psx_addr(left, 20), &local, (MATRIX *)output);
+    for (uint32 row = 0; row < 3; ++row)
+        for (uint32 col = 0; col < 3; ++col)
+            local.m[row][col] = right.m[row][col];
+    MulMatrix0((MATRIX *)&left, &local, &output);
 }
 
-uint32 RenderPosedModelObject(ModelInstance &instance)
+static void MultiplyPosedModelMatrix(const MATRIX &left, const ModelPose &right, MATRIX &output)
+{
+    MATRIX local;
+    memset(&local, 0, sizeof(local));
+    for (uint32 row = 0; row < 3; ++row)
+        for (uint32 col = 0; col < 3; ++col)
+            local.m[row][col] = right.rotation[row].words[col];
+    MulMatrix0((MATRIX *)&left, &local, &output);
+}
+
+static uint32 RenderPosedModelObject(ModelInstance &instance)
 {
     ModelBorrow borrow;
     FUNCTION_MARKER(0x8007F340, "SLUS_003.73");
-    const uint32 object = NativeObjectGuestAddress(instance.owner);
+    Character &character = *static_cast<Character *>(instance.owner);
     ModelRenderView *camera;
     uint32 flags = instance.flags, count;
-    const uint8 *pose;
+    const ModelPose *pose;
     uint32 index, mode, rgb = 0, uv0 = 0, uv1 = 0;
     const TextureGroup *animation = 0;
     sint32 animation_frame = 0;
-    uint32 rotation[8], light[8], matrix[8], transformed[3], relative[3];
-    uint32 far_x, far_y, far_z, object_value, camera_value;
+    MATRIX rotation, light, matrix;
+    Vector3 transformed, relative;
+    uint32 object_value, camera_value;
     // The unlit branch uses the approved zero light matrix
     uint32 axis;
-    w_u32(0x800FFB44, (flags & 0xC80) ? 0 : 1);
+    model_render_state.use_scratch = (flags & 0xC80) ? 0 : 1;
     camera = &GetConfiguredModelRenderView();
-    w_u32(0x800FFB44, 0);
+    model_render_state.use_scratch = 0;
     SetRotMatrix((MATRIX *)&camera->projection);
-    TransformPackedModelMatrix((const uint32 *)psx_addr(object + 324, 20), rotation);
+    TransformModelMatrix(character.world_transform, rotation);
     camera = &GetConfiguredModelRenderView();
     for (axis = 0; axis < 3; ++axis)
     {
-        object_value = instance.pos[axis];
-        camera_value = camera->pos[axis];
-        relative[axis] = (uint32)((sint32)object_value >> 12) - camera_value;
+        object_value = instance.pos.words[axis];
+        camera_value = camera->pos.words[axis];
+        relative.words[axis] = (uint32)((sint32)object_value >> 12) - camera_value;
     }
     for (axis = 0; axis < 3; ++axis)
-        xport_gte_write_data(9 + axis, relative[axis]);
+        xport_gte_write_data(9 + axis, relative.words[axis]);
     xport_gte_execute(0x49E012);
     const ModelGeometrySet &models = GetModelBank(instance.bank).geometry;
     count = models.count;
     for (axis = 0; axis < 3; ++axis)
     {
-        transformed[axis] = xport_gte_read_data(25 + axis);
-        rotation[5 + axis] = transformed[axis];
+        transformed.words[axis] = xport_gte_read_data(25 + axis);
+        rotation.t[axis] = transformed.words[axis];
     }
     if (flags & 4)
-        pose = (const uint8 *)static_cast<Character *>(instance.owner)->GetModelPoses(0, count);
+        pose = static_cast<Character *>(instance.owner)->GetModelPoses(0, count);
     else
     {
         const ModelAnimation &animation_data = GetModelAnimation(GetModelBank(instance.bank).animations, instance.animation);
         if (animation_data.interval)
         {
-            UpdateModelAnimationData(object);
-            pose = (const uint8 *)GetModelPoseWorkspace(count);
+            static_cast<Character *>(instance.owner)->UpdateModelAnimationData();
+            pose = GetModelPoseWorkspace(count);
         }
         else
-            pose = (const uint8 *)GetModelAnimationPoses(animation_data, instance.frame * count, count);
+            pose = GetModelAnimationPoses(animation_data, instance.frame * count, count);
     }
     if (flags & 0x80)
     {
-        sub_8008793C(0x800EE710);
-        far_x = (uint32)(sint32)(sint16)r_u16(0x800FFA8C);
-        far_y = (uint32)(sint32)(sint16)r_u16(0x800FFA8E);
-        far_z = (uint32)(sint32)(sint16)r_u16(0x800FFA90);
-        sub_800879AC(far_x, far_y, far_z);
-        far_x = (uint32)(sint32)(sint16)r_u16(0x800FFA94);
-        far_y = (uint32)(sint32)(sint16)r_u16(0x800FFA96);
-        far_z = (uint32)(sint32)(sint16)r_u16(0x800FFA98);
-        sub_8008798C(far_x, far_y, far_z);
-        MultiplyPosedModelMatrix(0x800EE6F0, (const uint8 *)psx_addr(object + 324, 20), light);
+        SetColorMatrix(&game_lighting.colors);
+        SetFarColor(game_lighting.far_color.r, game_lighting.far_color.g, game_lighting.far_color.b);
+        SetBackColor(game_lighting.background_color.r, game_lighting.background_color.g, game_lighting.background_color.b);
+        MultiplyPosedModelMatrix(game_lighting.directions, character.world_transform, light);
     }
     else
     {
-        for (axis = 0; axis < 8; ++axis)
-            light[axis] = 0;
+        memset(&light, 0, sizeof(light));
     }
-    mode = r_u8(object + 179);
+    mode = character.model_effect.color_mode >> 24;
     if (mode & 0x7F)
     {
         sint32 divisor, dividend, remainder;
@@ -1318,35 +982,38 @@ uint32 RenderPosedModelObject(ModelInstance &instance)
             GameDiagnostic("Missing model effect texture group\n");
             abort();
         }
-        uint32 tick = r_u32(0x800FF650);
-        uint32 previous_tick = r_u32(0x800FFAB8);
+        uint32 tick = game_clock.active_frame;
+        uint32 previous_tick = model_render_state.effect_frame;
         if (previous_tick != tick)
         {
-            uint32 render_counter = r_u32(0x800FFAA8);
-            uint32 next_tick = r_u32(0x800FF650);
-            w_u32(0x800FFABC, render_counter);
-            w_u32(0x800FFAB8, next_tick);
+            uint32 render_counter = model_render_state.pass_count;
+            uint32 next_tick = game_clock.active_frame;
+            model_render_state.effect_pass = render_counter;
+            model_render_state.effect_frame = next_tick;
         }
-        dividend = (sint32)r_u32(0x800FFABC);
+        dividend = (sint32)model_render_state.effect_pass;
         divisor = (sint32)animation->count;
         remainder = divisor == 0 ? dividend : (dividend == (sint32)0x80000000 && divisor == -1 ? 0 : dividend % divisor);
-        uv0 = r_u16(object + 180);
-        uv1 = r_u16(object + 182);
-        rgb = r_u32(object + 176) & 0xFFFFFF;
+        uv0 = character.model_effect.scale;
+        uv1 = character.model_effect.depth_bias;
+        rgb = character.model_effect.color_mode & 0xFFFFFF;
         animation_frame = remainder;
     }
-    w_u32(0x800FFB18, r_u32(0x800FFB44) ? 0x1F8003F8 : r_u32(0x800FFAC0) + 7992);
+    if (model_render_state.use_scratch)
+        model_render_state.scratch_cache_index = MODEL_SCRATCH_VERTEX_COUNT - 1;
+    else
+        model_render_state.cache_index = MODEL_PROJECTION_VERTEX_COUNT - 1;
     SelectModelPalette(GetModelBank((uint32)instance.bank).colors);
-    for (index = 0; index < count; ++index, pose += 24)
+    for (index = 0; index < count; ++index, ++pose)
     {
         uint32 effects;
-        w_u32(0x800FFB38, (r_u32(object + 372) & ((uint32)1 << (index & 31))) != 0);
+        model_render_state.part_hidden = (character.hidden_models & ((uint32)1 << (index & 31))) != 0;
         const ModelGeometry &model = models.models[index];
-        SetupModelGteMatrices(rotation, light, (const uint32 *)pose);
+        SetupModelGteMatrices(rotation, light, *pose);
         if (model.flags & 1)
         {
-            MultiplyPosedModelMatrix(object + 324, pose, matrix);
-            GenerateModelReflectionCoordinates(matrix, transformed, 0x800F3E70, model);
+            MultiplyPosedModelMatrix(character.world_transform, *pose, matrix);
+            GenerateModelReflectionCoordinates(matrix, transformed.words, model);
         }
         else if (flags & 128)
         {
@@ -1359,80 +1026,39 @@ uint32 RenderPosedModelObject(ModelInstance &instance)
         }
         if (!(mode & 0x80))
         {
-            if (r_u32(0x800FFB44))
+            if (model_render_state.use_scratch)
                 RenderScratchModel(model);
             else
                 RenderTranslatedModel(model);
         }
-        if (r_u32(0x800FFB38))
+        if (model_render_state.part_hidden)
             continue;
-        effects = r_u8(object + 314) != 0;
+        effects = character.projection.enabled;
         if ((mode & 0x7F) || effects)
         {
-            MultiplyPosedModelMatrix(object + 324, pose, matrix);
-            uint32 translation[3];
+            MultiplyPosedModelMatrix(character.world_transform, *pose, matrix);
+            Vector3 translation;
             for (axis = 0; axis < 3; ++axis)
-                translation[axis] = xport_load_le16(pose + 18 + axis * 2);
+                translation.words[axis] = pose->translation.words[axis];
             for (axis = 0; axis < 3; ++axis)
-                xport_gte_write_data(9 + axis, translation[axis]);
-            LoadModelRotationAndTransformIr((const uint32 *)psx_addr(object + 324, 20));
+                xport_gte_write_data(9 + axis, translation.words[axis]);
+            LoadModelRotationAndTransformIr(character.world_transform);
             for (axis = 0; axis < 3; ++axis)
-                translation[axis] = xport_gte_read_data(25 + axis);
+                translation.words[axis] = xport_gte_read_data(25 + axis);
             for (axis = 0; axis < 3; ++axis)
-                matrix[5 + axis] = translation[axis] + (uint32)((sint32)instance.pos[axis] >> 12);
+                matrix.t[axis] = translation.words[axis] + (uint32)((sint32)instance.pos.words[axis] >> 12);
         }
-        if ((mode & 0x7F) && (!r_u32(0x800FFB3C) || (sint32)matrix[6] < ((sint32)r_u32(0x800FF37C) >> 12) - 40))
+        if ((mode & 0x7F) && (!model_render_state.water_clip_enabled || matrix.t[1] < (level_environment.water_y >> 12) - 40))
             RenderModelShadow(model, matrix, rgb, uv0, (uint32)(sint32)(sint16)uv1, *GetTextureFrame(animation, animation_frame).tex);
         if (effects)
         {
-            uint32 effect_index = 0;
-            while (effect_index < r_u8(object + 314))
-            {
-                uint32 effect = r_u32(object + 316) + 8 * effect_index;
-                uint32 colors = r_u32(object + 320);
-                uint32 color = r_u32(colors + effect_index * 4);
-                RenderModelProjectionEffect(model, matrix, object + 164, object + 184, effect, color);
-                ++effect_index;
-            }
+            RenderModelProjectionEffect(model, matrix, character.surface.n, character.surface.pos.words, character.projection.dir, character.projection.color);
         }
     }
     return 0;
 }
 
-
-
-void CopyModelRotationMatrix(const uint32 *input, uint32 *output)
-{
-    FUNCTION_MARKER(0x80085C04, "SLUS_003.73");
-    uint32 source = GuestMemoryAddress(input), destination = GuestMemoryAddress(output);
-    uint32 words[4];
-    for (uint32 index = 0; index < 4; ++index)
-        words[index] = ReadModelVertexWord(input, source, index * 4);
-    uint32 tail = ReadModelMatrixHalf(input, source, 16);
-    for (uint32 index = 0; index < 4; ++index)
-        WriteModelMatrixWord(output, destination, index * 4, words[index]);
-    if (destination)
-        w_u16(destination + 16, tail);
-    else
-        xport_store_le16((uint8 *)output + 16, (uint16)tail);
-}
-
-void ClearModelRotationMatrix(uint32 *output)
-{
-    FUNCTION_MARKER(0x80085BE8, "SLUS_003.73");
-    uint32 destination = GuestMemoryAddress(output);
-    for (uint32 index = 0; index < 4; ++index)
-        WriteModelMatrixWord(output, destination, index * 4, 0);
-    if (destination)
-        w_u16(destination + 16, 0);
-    else
-        xport_store_le16((uint8 *)output + 16, 0);
-}
-
-
-
-
-static void ReadModelPolygonUvs(const ModelPolygon *descriptor, uint32 flags, uint32 normals, uint32 scratch, const uint32 offsets[4], uint32 vertices, uint32 uv[4])
+static void ReadModelPolygonUvs(const ModelPolygon *descriptor, uint32 flags, const uint32 offsets[4], uint32 vertices, uint32 uv[4])
 {
     if (flags & 1)
     {
@@ -1442,14 +1068,14 @@ static void ReadModelPolygonUvs(const ModelPolygon *descriptor, uint32 flags, ui
     }
     else
     {
-        uint32 page = r_u32(scratch + 0x184);
-        uv[0] = r_u32(normals + offsets[0] + 4);
-        uv[1] = r_u32(normals + offsets[1] + 4);
+        uint32 page = model_render_state.draw.clut;
+        uv[0] = GetModelLightingValue(offsets[0] >> 3).uv;
+        uv[1] = GetModelLightingValue(offsets[1] >> 3).uv;
         uv[0] |= page;
-        page = r_u32(scratch + 0x194);
-        uv[2] = r_u32(normals + offsets[2] + 4);
+        page = model_render_state.draw.tpage;
+        uv[2] = GetModelLightingValue(offsets[2] >> 3).uv;
         if (vertices == 4)
-            uv[2] |= r_u32(normals + offsets[3] + 4) << 16;
+            uv[2] |= GetModelLightingValue(offsets[3] >> 3).uv << 16;
         uv[1] |= page;
     }
     uv[1] |= (flags & 0x180) << 14;
@@ -1458,20 +1084,52 @@ static void ReadModelPolygonUvs(const ModelPolygon *descriptor, uint32 flags, ui
 }
 
 /* Native helper for the original eight packet-format branches */
-static uint32 StoreModelPolygonPacket(uint32 packet, const ModelPolygon *descriptor, uint32 flags, uint32 normals, uint32 scratch, const uint32 offsets[4], uint32 vertices, uint32 colored, uint32 textured, uint32 first_color)
+static uint32 StoreModelPolygonPacket(uint8 *packet, const ModelPolygon *descriptor, uint32 flags, const uint32 offsets[4], uint32 vertices, uint32 colored, uint32 textured, uint32 first_color)
 {
-    uint32 uv[4], i, stride, command;
+    uint32 uv[4], i, command;
+    POINT_CT *colored_tex_points = 0;
+    POINT_C *colored_points = 0;
+    POINT_T *tex_points = 0;
+    XY *flat_points = 0;
+    if (colored && textured)
+        colored_tex_points = vertices == 3 ? ((POLY_GT3 *)packet)->p : ((POLY_GT4 *)packet)->p;
+    else if (colored)
+        colored_points = vertices == 3 ? ((POLY_G3 *)packet)->p : ((POLY_G4 *)packet)->p;
+    else if (textured)
+        tex_points = vertices == 3 ? ((POLY_FT3 *)packet)->p : ((POLY_FT4 *)packet)->p;
+    else
+        flat_points = vertices == 3 ? ((POLY_F3 *)packet)->p : ((POLY_F4 *)packet)->p;
     if (!colored && textured)
-        ReadModelPolygonUvs(descriptor, flags, normals, scratch, offsets, vertices, uv);
-    stride = colored ? (textured ? 12 : 8) : (textured ? 8 : 4);
+        ReadModelPolygonUvs(descriptor, flags, offsets, vertices, uv);
     for (i = 1; i < vertices; ++i)
-        w_u32(packet + 8 + i * stride, xport_gte_read_data(11 + i));
+    {
+        uint32 scr = xport_gte_read_data(11 + i);
+        if (colored_tex_points)
+            colored_tex_points[i].xy.xy = scr;
+        else if (colored_points)
+            colored_points[i].xy.xy = scr;
+        else if (tex_points)
+            tex_points[i].xy.xy = scr;
+        else
+            flat_points[i].xy = scr;
+    }
     if (textured)
     {
         if (colored)
-            ReadModelPolygonUvs(descriptor, flags, normals, scratch, offsets, vertices, uv);
+            ReadModelPolygonUvs(descriptor, flags, offsets, vertices, uv);
         for (i = 0; i < vertices; ++i)
-            w_u32(packet + 12 + i * stride, uv[i]);
+        {
+            if (colored_tex_points)
+            {
+                colored_tex_points[i].uv.uv = uv[i];
+                colored_tex_points[i].attr = uv[i] >> 16;
+            }
+            else
+            {
+                tex_points[i].uv.uv = uv[i];
+                tex_points[i].attr = uv[i] >> 16;
+            }
+        }
     }
     if (!colored)
         first_color = xport_gte_read_data(22);
@@ -1482,26 +1140,30 @@ static uint32 StoreModelPolygonPacket(uint32 packet, const ModelPolygon *descrip
     if (colored)
     {
         for (i = 1; i < vertices; ++i)
-            w_u32(packet + 4 + i * stride, xport_gte_read_data((vertices == 3 ? 20 : 19) + i));
+        {
+            uint32 color = xport_gte_read_data((vertices == 3 ? 20 : 19) + i);
+            if (colored_tex_points)
+                colored_tex_points[i].rgbc.rgbc = color;
+            else
+                colored_points[i].rgbc.rgbc = color;
+        }
         return (vertices * (textured ? 3 : 2)) << 24;
     }
     return (1 + vertices * (textured ? 2 : 1)) << 24;
 }
 
-void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
+static void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
 {
     FUNCTION_MARKER(0x800817FC, "SLUS_003.73");
     /* TODO Validate near-plane and subdivision carrier composition */
-    const uint32 scratch = 0x1F800000;
-    const uint32 normals = 0x800F3E70;
-    uint32 packet, projection, ordering, limit;
+    uint8 *packet, *limit;
+    uint32 *ordering;
     if (!count)
         return;
-    ordering = r_u32(0x800FFB30);
-    packet = r_u32(0x800FF668) & 0xFFFFFF;
-    projection = r_u32(0x800FFAC0);
+    ordering = model_render_state.ordering_table;
+    packet = scene_render.cursor;
     const ModelPalette *table = GetCurrentModelPalette();
-    limit = r_u32(0x800FF374) - 100;
+    limit = scene_render.limit - 100;
     xport_gte_write_control(5, 0);
     xport_gte_write_control(6, 0);
     xport_gte_write_control(7, 0);
@@ -1510,29 +1172,34 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
     ResetModelPolygonQueue();
     for (;;)
     {
-        uint32 offsets[4], points[4], depths[4], flags, clipping, area, fourth_screen;
+        uint32 offsets[4], depths[4], flags, clipping, area, fourth_screen;
+        const ModelProjectedVertex *points[4];
         uint32 packed = (((uint32)descriptor->v[0] << 3) | ((uint32)descriptor->v[1] << 19));
         uint32 packed2 = (((uint32)descriptor->v[2] << 3) | ((uint32)descriptor->v[3] << 19));
-        uint32 mask = r_u32(scratch + 0x144);
+        uint32 mask = model_render_state.draw.mode;
         uint32 depth, fog = 0, fog_shift, vertices, colored, textured, tag;
         uint32 first_color = 0, normal[3], index[4];
-        uint32 i, bucket, previous, bytes, chain_head = packet;
+        uint32 i, previous, bytes;
+        uint32 *bucket;
+        POINT_C *first_point;
+        uint8 *chain_head = packet;
         offsets[0] = packed & 0xFFFF;
         offsets[1] = packed >> 16;
         offsets[2] = packed2 & 0xFFFF;
         offsets[3] = packed2 >> 16;
         flags = ((((uint32)descriptor->source_stride << 16) | descriptor->flags) & (uint32)((sint32)mask >> 16)) | (mask & 0xFFFF);
         for (i = 0; i < 4; ++i)
-            points[i] = projection + offsets[i];
+            points[i] = &GetModelProjectionVertex(offsets[i] >> 3);
         for (i = 0; i < 3; ++i)
-            xport_gte_write_data(12 + i, r_u32(points[i]));
+            xport_gte_write_data(12 + i, points[i]->screen);
         if (!(flags & 0xC0))
             goto next_descriptor;
         xport_gte_execute(0x1400006);
-        fourth_screen = r_u32(points[3]);
+        fourth_screen = points[3]->screen;
         for (i = 0; i < 4; ++i)
-            depths[i] = r_u32(points[i] + 4);
-        w_u32(packet + 8, xport_gte_read_data(12));
+            depths[i] = points[i]->depth_flags;
+        first_point = (POINT_C *)(packet + sizeof(uint32));
+        first_point->xy.xy = xport_gte_read_data(12);
         clipping = ((depths[0] & depths[1] & depths[2] & depths[3]) >> 16) ^ 0xFF00;
         xport_gte_write_data(15, fourth_screen);
         area = xport_gte_read_data(24);
@@ -1541,19 +1208,20 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
             goto next_descriptor;
         if (clipping & 0x5000)
         {
-            uint32 geometry0 = points[0] + 0x1F40;
-            uint32 geometry1 = points[1] + 0x1F40;
-            uint32 geometry2 = points[2] + 0x1F40;
-            uint32 cross[3], magnitude = 0, geometry_depth;
+            const ModelProjectedVertex *geometry0 = points[0];
+            const ModelProjectedVertex *geometry1 = points[1];
+            const ModelProjectedVertex *geometry2 = points[2];
+            uint32 magnitude = 0, geometry_depth;
+            Vector3 cross;
             if (!(flags & 0x1000))
                 goto next_descriptor;
-            packed = r_u32(geometry0);
-            geometry_depth = r_u32(points[0] + 4);
+            packed = geometry0->xy;
+            geometry_depth = points[0]->depth_flags;
             xport_gte_write_control(0, packed);
             xport_gte_write_control(2, packed >> 16);
             xport_gte_write_control(4, geometry_depth);
-            packed = r_u32(geometry1);
-            geometry_depth = r_u32(points[1] + 4);
+            packed = geometry1->xy;
+            geometry_depth = points[1]->depth_flags;
             xport_gte_write_data(9, packed);
             xport_gte_write_data(10, packed >> 16);
             xport_gte_write_data(11, geometry_depth);
@@ -1563,18 +1231,18 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
                 uint32 shift;
                 for (i = 0; i < 3; ++i)
                 {
-                    cross[i] = xport_gte_read_data(25 + i);
-                    magnitude |= (sint32)cross[i] < 0 ? 0 - cross[i] : cross[i];
+                    cross.words[i] = xport_gte_read_data(25 + i);
+                    magnitude |= (sint32)cross.words[i] < 0 ? 0 - cross.words[i] : cross.words[i];
                 }
                 xport_gte_write_data(30, magnitude);
                 shift = (17 - xport_gte_read_data(31)) & 31;
                 for (i = 0; i < 3; ++i)
-                    cross[i] = xport_gte_read_data(25 + i);
+                    cross.words[i] = xport_gte_read_data(25 + i);
                 for (i = 0; i < 3; ++i)
-                    xport_gte_write_data(9 + i, (uint32)((sint32)cross[i] >> shift));
+                    xport_gte_write_data(9 + i, (uint32)((sint32)cross.words[i] >> shift));
             }
-            packed = r_u32(geometry2);
-            geometry_depth = r_u32(points[2] + 4);
+            packed = geometry2->xy;
+            geometry_depth = points[2]->depth_flags;
             xport_gte_write_control(0, packed);
             xport_gte_write_control(1, geometry_depth);
             xport_gte_execute(0x41E012);
@@ -1594,7 +1262,7 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
             break;
         if (clipping & 0x8000)
         {
-            QueueNearPlanePolygon(descriptor, scratch, projection, flags, offsets, depths);
+            QueueWaterPlanePolygon(descriptor, flags, offsets, depths);
             goto next_descriptor;
         }
         depth = depths[0] << 16;
@@ -1605,8 +1273,8 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
                 depth = candidate;
         }
         depth = (uint32)((sint32)depth >> 16);
-        packed = r_u32(scratch + 0x164);
-        fog_shift = r_u32(scratch + 0x174);
+        packed = model_render_state.draw.fog_start;
+        fog_shift = model_render_state.draw.fog_shift;
         packed = depth - packed;
         if ((sint32)packed > 0)
             fog = (sint32)fog_shift >= 0 ? packed << (fog_shift & 31) : (uint32)((sint32)packed >> ((0 - fog_shift) & 31));
@@ -1646,21 +1314,21 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
             {
                 if (!(flags & 4))
                 {
-                    normal[0] = r_u32(scratch + 0x1A4);
-                    normal[1] = r_u32(scratch + 0x1B4);
-                    normal[2] = r_u32(scratch + 0x1C4);
+                    normal[0] = model_render_state.draw.light.x;
+                    normal[1] = model_render_state.draw.light.y;
+                    normal[2] = model_render_state.draw.light.z;
                 }
                 else if (!(flags & 8))
-                    ReadRendererNormal(normals + (((uint32)descriptor->n << 3) | ((uint32)descriptor->surface << 16)), normal);
+                    ReadRendererNormal(GetModelLightingValue((((uint32)descriptor->n << 3) | ((uint32)descriptor->surface << 16)) >> 3), normal);
                 for (i = 0; i < vertices; ++i)
                 {
                     if ((flags & 12) == 12)
-                        LoadRendererVertexLighting(index[i], table, normals + offsets[i]);
+                        LoadRendererVertexLighting(index[i], table, GetModelLightingValue(offsets[i] >> 3));
                     else
                         LoadModelTableColor(index[i], table, normal[0], normal[1], normal[2]);
                     if (i == 3)
                         first_color = xport_gte_read_data(20);
-                    xport_draft_gte_execute(0x680029);
+                    ExecuteGeometryCommand(0x680029);
                 }
             }
         }
@@ -1671,27 +1339,28 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
             {
                 for (i = 0; i < vertices; ++i)
                 {
-                    LoadPackedProjectionIr(normals + offsets[i]);
+                    LoadPackedProjectionIr(GetModelLightingValue(offsets[i] >> 3));
                     if (i == 3)
                         first_color = xport_gte_read_data(20);
-                    xport_draft_gte_execute(0x680029);
+                    ExecuteGeometryCommand(0x680029);
                 }
             }
             else
             {
                 if (flags & 4)
-                    LoadPackedProjectionIr(normals + (((uint32)descriptor->n << 3) | ((uint32)descriptor->surface << 16)));
+                    LoadPackedProjectionIr(GetModelLightingValue((((uint32)descriptor->n << 3) | ((uint32)descriptor->surface << 16)) >> 3));
                 else if (flags & 8)
-                    LoadRendererScratchLighting(scratch);
-                xport_draft_gte_execute(flags & 12 ? 0x680029 : 0x780010);
+                    LoadModelDrawLighting();
+                ExecuteGeometryCommand(flags & 12 ? 0x680029 : 0x780010);
             }
         }
-        tag = StoreModelPolygonPacket(packet, descriptor, flags, normals, scratch, offsets, vertices, colored, textured, first_color);
+        tag = StoreModelPolygonPacket(packet, descriptor, flags, offsets, vertices, colored, textured, first_color);
         if ((flags & 0x1000) && (sint32)(0x800 - xport_gte_read_data(24)) < 0)
         {
             if ((flags & 1) && ((flags & 0x800) || ((flags & 12) == 12)))
             {
-                uint32 last_stride, end = apocalypse_model_subdivide_textured_native(packet, limit, scratch, points, xport_gte_read_data(24), !(flags & 0x10), &last_stride);
+                uint32 last_stride;
+                uint8 *end = SubdivideColoredTexturedPolygon(packet, limit, points, xport_gte_read_data(24), !(flags & 0x10), &last_stride);
                 if (end == packet)
                     goto next_descriptor;
                 packet = end - last_stride;
@@ -1699,7 +1368,8 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
             }
             else if (textured && !(flags & 0x10))
             {
-                uint32 last_stride = 40, end = apocalypse_model_subdivide_flat_textured_quad_native(packet, limit, scratch, points, xport_gte_read_data(24), &last_stride);
+                uint32 last_stride = 40;
+                uint8 *end = SubdivideFlatTexturedQuad(packet, limit, points, xport_gte_read_data(24), &last_stride);
                 if (end == packet)
                     goto next_descriptor;
                 packet = end - last_stride;
@@ -1707,7 +1377,8 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
             }
             else if (!(flags & (0x10 | 0x800)) && ((flags & 12) != 12) && !textured)
             {
-                uint32 last_stride = 24, end = apocalypse_model_subdivide_flat_quad_native(packet, limit, scratch, points, xport_gte_read_data(24), &last_stride);
+                uint32 last_stride = 24;
+                uint8 *end = SubdivideFlatQuad(packet, limit, points, xport_gte_read_data(24), &last_stride);
                 if (end == packet)
                     goto next_descriptor;
                 packet = end - last_stride;
@@ -1715,11 +1386,12 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
             }
             else
             {
-                uint32 last_stride, end;
+                uint32 last_stride;
+                uint8 *end;
                 if (colored)
-                    end = apocalypse_model_subdivide_colored_native(packet, limit, scratch, points, xport_gte_read_data(24), vertices == 4, &last_stride);
+                    end = SubdivideColoredPolygon(packet, limit, points, xport_gte_read_data(24), vertices == 4, &last_stride);
                 else
-                    end = apocalypse_model_subdivide_flat_triangle_native(packet, limit, scratch, points, xport_gte_read_data(24), textured, &last_stride);
+                    end = SubdivideFlatTriangle(packet, limit, points, xport_gte_read_data(24), textured, &last_stride);
                 if (end == packet)
                     goto next_descriptor;
                 packet = end - last_stride;
@@ -1728,39 +1400,47 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
         }
         if (flags & 0x6000)
         {
-            uint32 bias = r_u32(scratch + 0x204);
+            uint32 bias = model_render_state.draw.near_bias;
             if (!(flags & 0x2000))
-                bias = r_u32(scratch + 0x214);
+                bias = model_render_state.draw.far_bias;
             depth += bias;
         }
-        bucket = ordering + (depth < 0x4000 ? depth & 0xFFFC : 0x3FFC);
-        previous = r_u32(bucket);
+        bucket = ordering + ((depth < 0x4000 ? depth & 0xFFFC : 0x3FFC) >> 2);
+        previous = *bucket;
         if (flags & 0x20)
         {
-            uint32 end, window_command = GetModelPolygonWindow(*descriptor);
+            uint32 window_command = GetModelPolygonWindow(*descriptor);
+            uint8 *end;
             tag += 0x03000000;
-            w_u32(packet, previous | tag);
+            P_TAG *header = (P_TAG *)packet;
+            header->addr = previous;
+            header->len = (previous | tag) >> 24;
             end = packet + (tag >> 22) + 4;
-            w_u32(bucket, end);
-            w_u32(end - 12, 0);
-            w_u32(end - 8, 0xE2000000);
-            w_u32(end - 4, 0);
-            w_u32(end, chain_head | 0x02000000);
-            w_u32(end + 4, window_command);
-            w_u32(end + 8, 0);
+            *bucket = gpu_packet_link((uintptr_t)end);
+            DR_TWIN *reset_window = (DR_TWIN *)(end - sizeof(DR_TWIN));
+            reset_window->tag = 0;
+            reset_window->code[0] = 0xE2000000;
+            reset_window->code[1] = 0;
+            DR_TWIN *apply_window = (DR_TWIN *)end;
+            apply_window->tag = gpu_packet_link((uintptr_t)chain_head) | 0x02000000;
+            apply_window->code[0] = window_command;
+            apply_window->code[1] = 0;
             packet = end + 12;
         }
         else
         {
-            w_u32(bucket, chain_head);
-            w_u32(packet, previous | tag);
+            *bucket = gpu_packet_link((uintptr_t)chain_head);
+            P_TAG *header = (P_TAG *)packet;
+            header->addr = previous;
+            header->len = (previous | tag) >> 24;
             bytes = (tag >> 22) + 4;
             if ((flags & 0x41) == 0x40)
             {
-                uint32 end = packet + bytes;
-                w_u32(end + 4, 0xE1000200 | ((flags & 0x180) >> 2));
-                w_u32(end, packet | 0x01000000);
-                w_u32(bucket, end);
+                uint8 *end = packet + bytes;
+                DR_TPAGE *mode = (DR_TPAGE *)end;
+                mode->code[0] = 0xE1000200 | ((flags & 0x180) >> 2);
+                mode->tag = gpu_packet_link((uintptr_t)packet) | 0x01000000;
+                *bucket = gpu_packet_link((uintptr_t)end);
                 packet = end + 8;
             }
             else
@@ -1773,24 +1453,7 @@ void BuildModelPolygonPackets(const ModelPolygon *descriptor, uint32 count)
         descriptor = ReadQueuedModelPolygons(count);
         if (!count)
             break;
-
     }
-    w_u32(0x800FF668, packet);
+    scene_render.cursor = packet;
     return;
 }
-
-
-
-extern "C" uint32 sub_800878AC(uint32 matrix, uint32 position)
-{
-    FUNCTION_MARKER(0x800878AC, "SLUS_003.73");
-    uint32 x = r_u32(position);
-    uint32 y = r_u32(position + 4);
-    uint32 z = r_u32(position + 8);
-    w_u32(matrix + 20, x);
-    w_u32(matrix + 24, y);
-    w_u32(matrix + 28, z);
-    return matrix;
-}
-
-

@@ -3,17 +3,26 @@
 
 #include "effect_object.h"
 
+class AnimatedSprite;
+
 class FireCycle : public EffectController
 {
 public:
     FireCycle(const uint32 *position, uint32 size, uint32 enabled, uint32 count);
-    virtual ~FireCycle() {}
-    static FireCycle &Attach(uint32 object);
+    virtual ~FireCycle();
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
-    uint32 SpawnSprite(uint32 index);
+    virtual void Update();
+
+private:
+    void SpawnSprite(uint32 idx);
+    uint16 age;
+    uint16 lifetime;
+    uint16 spawn_age;
+    uint8 damage;
+    uint8 enabled;
+    ObjectReference<AnimatedSprite> sprites[20];
 };
 
-uint32 SpawnFireCycle(const uint32 *position, uint32 size, uint32 enabled, uint32 count);
+FireCycle *SpawnFireCycle(const uint32 *position, uint32 size, uint32 enabled, uint32 count);
 
 #endif

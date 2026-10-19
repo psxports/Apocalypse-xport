@@ -1,278 +1,173 @@
+#include <new>
+#include <stdlib.h>
+
+#include "game_heap.h"
+#include "game_diagnostics.h"
 #include "visual_object.h"
-#include "object_damage.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "player.h"
 #include "fire_cycle.h"
 #include "palette_resources.h"
 #include "effect_lifecycle.h"
 #include "game_random.h"
 #include "vector_distance.h"
 #include "effect_sprite.h"
-#include "native_object_storage.h"
-#include <new>
-#include <string.h>
 
-FireCycle::FireCycle(const uint32 *position, uint32 size, uint32 enabled, uint32 count) : EffectController()
+FireCycle::FireCycle(const uint32 *position, uint32 size, uint32 enabled, uint32 count) : EffectController(), age(0), lifetime(size), spawn_age(0), damage(count), enabled(enabled)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    const uint32 address = GuestMemoryAddress(position);
-    uint32 values[3], axis;
     FUNCTION_MARKER(0x8001DB68, "SLUS_003.73");
-    w_u32(object + 68, 0x800A116C);
-    for (axis = 0; axis < 3; ++axis)
-    {
-        if (address)
-            values[axis] = r_u32(address + axis * 4);
-        else
-            memcpy(&values[axis], (const uint8 *)position + axis * 4, 4);
-    }
-    w_u32(object + 24, values[0]);
-    w_u32(object + 28, values[1]);
-    w_u32(object + 32, values[2]);
-    w_u16(object + 10, size);
-    w_u8(object + 75, enabled);
-    w_u8(object + 74, count);
+    SetPosition(position);
     SpawnSprite(0);
+}
+
+FireCycle::~FireCycle()
+{
+    for (uint32 idx = 0; idx < 20; ++idx)
+        if (sprites[idx])
+            sprites[idx]->Destroy(3);
 }
 
 uint32 FireCycle::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 index, child, table, target, receiver;
     FUNCTION_MARKER(0x8001DBFC, "SLUS_003.73");
-    w_u32(object + 68, 0x800A116C);
-    for (index = 0; index < 20; ++index)
+    for (uint32 idx = 0; idx < 20; ++idx)
     {
-        child = r_u32(object + 76 + index * 4);
-        if (child)
-        {
-            table = r_u32(child + 68);
-            receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-            target = r_u32(table + 12);
-            apocalypse_object_cleanup(target, receiver, 3);
-        }
+        if (sprites[idx])
+            sprites[idx]->Destroy(3);
+        sprites[idx] = 0;
     }
     EffectController::Destroy(0);
-    return (reason & 1) ? ReleaseEffectStorage(object) : 0;
+    return reason & 1 ? ReleaseEffectStorage(this) : 0;
 }
 
-uint32 FireCycle::SpawnSprite(uint32 index)
+void FireCycle::SpawnSprite(uint32 idx)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 position[3], value, child, scale, clut, texture;
     FUNCTION_MARKER(0x8001DCA8, "SLUS_003.73");
-    value = r_u16(object + 8);
-    w_u16(object + 72, value);
-    position[0] = r_u32(object + 24);
-    position[1] = r_u32(object + 28);
-    position[2] = r_u32(object + 32);
-    value = RandomRange(200);
-    position[0] += (value - 100) << 12;
-    value = RandomRange(200);
-    w_u32(0x800FF3AC, 0);
-    position[2] += (value - 100) << 12;
-    child = AllocateEffectStorage(120);
-    if (child)
+    spawn_age = age;
+    Vector3 position = pos;
+    position.words[0] += (RandomRange(200) - 100) << 12;
+    uint32 random = RandomRange(200);
+    use_small_effect_pool = false;
+    position.words[2] += (random - 100) << 12;
+    GameHeapBlock *allocation = AllocateEffectStorage(120);
+    AnimatedSprite *sprite = 0;
+    if (allocation)
     {
-        void *dram_addr = AllocateNativeObjectStorage(child, sizeof(AnimatedSprite));
-        new (dram_addr) AnimatedSprite(position, (const char *)psx_addr(0x800A10CC, 1), 3072, 1, 0, (uint32)-1);
+        sprite = new (allocation) AnimatedSprite(position.words, "firecycl", 3072, 1, 0, (uint32)-1);
     }
-    w_u32(0x800FF3AC, 1);
-    w_u8(child + 66, 1);
-    w_u16(child + 92, 0);
-    value = RandomRange(2048);
-    scale = value + 3072;
-    value = RandomRange(1024);
-    scale += (value + 1024) << 16;
-    w_u32(child + 104, scale);
-    AnimatedSprite::Attach(child).AddFlags(8);
-    value = RandomRange(4096);
-    clut = (uint16)GetLargePalettePos().y;
-    w_u16(child + 96, value);
-    w_u16(child + 10, 4096);
-    texture = GetLargePalettePos().x;
-    clut = (clut << 6) | (((uint32)((sint32)texture >> 4)) & 63);
-    value = r_u32(child + 76);
-    w_u16(child + 110, clut);
-    w_u32(child + 76, value & 0xFF000000);
-    value = object + index * 4;
-    w_u32(value + 76, child);
-    return value;
+    use_small_effect_pool = true;
+    if (!sprite)
+    {
+        GameDiagnostic("FireCycle sprite allocation failed\n");
+        abort();
+    }
+    sprite->persistent = 1;
+    sprite->frame_step = 0;
+    sprite->scale[0] = RandomRange(2048) + 3072;
+    sprite->scale[1] = RandomRange(1024) + 1024;
+    sprite->AddFlags(8);
+    sprite->angle = RandomRange(4096);
+    uint32 clut = (uint16)GetLargePalettePos().y;
+    sprite->lifetime = 4096;
+    uint32 texture = GetLargePalettePos().x;
+    sprite->clut = (clut << 6) | ((uint32)((sint32)texture >> 4) & 63);
+    sprite->color &= 0xFF000000;
+    sprites[idx] = sprite;
 }
 
-uint32 FireCycle::Update()
+void FireCycle::Update()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 player, player_y, y, distance, table, target, receiver, damage;
-    uint32 index, slot, child, value, color, random, clut, texture, base, scale, width, height, age, lifetime;
-    sint32 empty = -1, delta;
     FUNCTION_MARKER(0x8001DE24, "SLUS_003.73");
-    if (r_u8(object + 75))
+    ObjectBorrow object_borrow;
+    if (enabled)
     {
-        player = visual_lists.players;
-        if (player)
+        ModelInstance *player = visual_lists.players;
+        if (player && (sint32)player->pos.words[1] < (sint32)pos.words[1])
         {
-            player_y = r_u32(player + 8);
-            y = r_u32(object + 28);
-            if ((sint32)player_y < (sint32)y)
+            if (MeasureHorizontalDistance(pos.words, player->pos.words) < 256)
             {
-                distance = MeasureHorizontalDistance((const uint32 *)psx_addr(object + 24, 12), (const uint32 *)psx_addr(player + 4, 12));
-                if (distance < 256)
-                {
-                    player = visual_lists.players;
-                    receiver = player;
-                    damage = r_u8(object + 74);
-                    ApplyObjectDamage(receiver, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
-                }
+                player = visual_lists.players;
+                const sint32 zero[3] = {0, 0, 0};
+                static_cast<Player *>(player->owner)->Damage(damage, zero, 0);
             }
         }
     }
-    for (index = 0; index < 20; ++index)
+    sint32 empty = -1;
+    for (uint32 idx = 0; idx < 20; ++idx)
     {
-        slot = object + 76 + index * 4;
-        child = r_u32(slot);
-        if (!child)
+        AnimatedSprite *sprite = sprites[idx].Get();
+        if (!sprite)
         {
             if (empty == -1)
-                empty = (sint32)index;
+                empty = idx;
             continue;
         }
-        value = r_u16(child + 10);
+        uint32 value = sprite->lifetime;
         if (value >= 97)
         {
-            value = 4096 - r_u16(child + 10);
+            value = 4096 - sprite->lifetime;
             if ((sint32)value < 1024)
             {
                 value = (uint32)((sint32)value >> 3);
-                color = r_u32(child + 76);
-                w_u32(child + 76, (color & 0xFF000000) | (value << 16) | (value << 8) | value);
+                sprite->color = (sprite->color & 0xFF000000) | (value << 16) | (value << 8) | value;
             }
-            random = RandomRange(64);
-            child = r_u32(slot);
-            value = r_u16(child + 10);
-            w_u16(child + 10, value - (random + 32));
-            clut = GetLargePalettePos().y;
-            texture = GetLargePalettePos().x;
-            child = r_u32(slot);
-            base = (clut << 6) | ((uint32)((sint32)texture >> 4) & 63);
-            clut = r_u16(child + 110);
-            delta = (sint32)(clut - base);
+            uint32 random = RandomRange(64);
+            sprite->lifetime -= random + 32;
+            uint32 clut = GetLargePalettePos().y;
+            uint32 texture = GetLargePalettePos().x;
+            uint32 base = (clut << 6) | ((uint32)((sint32)texture >> 4) & 63);
+            sint32 delta = (sint32)((uint32)sprite->clut - base);
             if (delta < 2)
             {
                 if (!RandomRange(9))
-                {
-                    child = r_u32(slot);
-                    value = r_u16(child + 110);
-                    w_u16(child + 110, value + 1);
-                }
+                    ++sprite->clut;
             }
             else if (delta < 15 && !RandomRange(3))
             {
-                child = r_u32(slot);
-                value = r_u16(child + 110);
-                w_u16(child + 110, value + 1);
+                ++sprite->clut;
                 if (delta == 12)
-                    w_u8(r_u32(slot) + 109, 64);
+                    sprite->blend_mode = 64;
             }
         }
         else
         {
-            value = r_u8(child + 76);
+            value = sprite->color & 255;
             if (value < 5)
             {
-                table = r_u32(child + 68);
-                receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-                target = r_u32(table + 12);
-                apocalypse_object_cleanup(target, receiver, 3);
-                w_u32(slot, 0);
+                sprite->Destroy(3);
+                sprites[idx] = 0;
                 continue;
             }
-            random = RandomRange(3);
-            child = r_u32(slot);
-            value -= 2 + random;
-            color = r_u32(child + 76);
-            w_u32(child + 76, (color & 0xFF000000) | (value << 16) | (value << 8) | value);
+            value -= 2 + RandomRange(3);
+            sprite->color = (sprite->color & 0xFF000000) | (value << 16) | (value << 8) | value;
         }
-        child = r_u32(slot);
-        scale = r_u32(child + 104);
-        width = scale & 65535;
-        height = scale >> 16;
+        uint32 width = sprite->scale[0];
+        uint32 height = sprite->scale[1];
         if (width > 1024)
             width -= 83;
         if (height < 2048)
             height += 33;
-        value = r_u32(child + 28);
-        w_u32(child + 28, value - 49152);
-        child = r_u32(slot);
-        w_u32(child + 104, width + (height << 16));
-        child = r_u32(slot);
-        value = r_u16(child + 96);
-        w_u16(child + 96, (index & 1) ? value + 123 : value - 123);
+        sprite->pos.words[1] -= 49152;
+        sprite->scale[0] = width;
+        sprite->scale[1] = height;
+        sprite->angle += idx & 1 ? 123 : -123;
     }
-    age = r_u16(object + 8);
-    lifetime = r_u16(object + 10);
     ++age;
-    w_u16(object + 8, age);
     if ((sint32)lifetime < (sint16)age)
-        return Finish();
-    random = RandomRange(8);
-    if (random)
     {
-        age = (uint32)(sint32)(sint16)r_u16(object + 8);
-        value = r_u16(object + 72);
-        if ((sint32)(age - value) < 9)
-            return (uint32)-1;
+        Finish();
+        return;
     }
-    return empty == -1 ? (uint32)-1 : SpawnSprite((uint32)empty);
+    if (RandomRange(8) && (sint32)((uint32)(sint32)(sint16)age - spawn_age) < 9)
+        return;
+    if (empty != -1)
+        SpawnSprite(empty);
 }
 
-FireCycle &FireCycle::Attach(uint32 object)
+FireCycle *SpawnFireCycle(const uint32 *position, uint32 size, uint32 enabled, uint32 count)
 {
-    return *static_cast<FireCycle *>(FindNativeObjectStorage(object));
-}
-
-
-
-extern "C" uint32 apocalypse_fire_cycle_construct_native(uint32 object, const uint32 *position, uint32 size, uint32 enabled, uint32 count)
-{
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(FireCycle));
-    new (dram_addr) FireCycle(position, size, enabled, count);
-    return object;
-}
-
-
-
-extern "C" uint32 sub_8001DBFC(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x8001DBFC, "SLUS_003.73");
-    return FireCycle::Attach(object).FireCycle::Destroy(reason);
-}
-
-extern "C" uint32 sub_8001DE24(uint32 object)
-{
-    FUNCTION_MARKER(0x8001DE24, "SLUS_003.73");
-    return FireCycle::Attach(object).FireCycle::Update();
-}
-
-uint32 SpawnFireCycle(const uint32 *position, uint32 size, uint32 enabled, uint32 count)
-{
-    uint32 object;
     FUNCTION_MARKER(0x8001E400, "SLUS_003.73");
-    object = AllocateEffectStorage(156);
-    if (object)
-    {
-        void *dram_addr = AllocateNativeObjectStorage(object, sizeof(FireCycle));
-        new (dram_addr) FireCycle(position, size, enabled, count);
-    }
-    return object;
-}
-
-
-
-extern "C" uint32 apocalypse_fire_cycle_spawn_native(const uint32 position[3], uint32 size, uint32 enabled, uint32 count)
-{
-    return SpawnFireCycle(position, size, enabled, count);
+    GameHeapBlock *allocation = AllocateEffectStorage(156);
+    if (!allocation)
+        return 0;
+    return new (allocation) FireCycle(position, size, enabled, count);
 }

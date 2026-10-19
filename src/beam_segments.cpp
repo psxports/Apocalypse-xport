@@ -1,99 +1,76 @@
-extern "C" {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include <new>
+#include <stdlib.h>
+
+#include "scene_lifecycle.h"
+#include "game_diagnostics.h"
 #include "beam_segments.h"
 #include "model_projection.h"
-#include "native_object_storage.h"
-#include "game_heap.h"
 #include "effect_lifecycle.h"
-#include <new>
 
-BeamSegments::BeamSegments(uint32 count, uint32 mode) : RenderableEffect()
+struct BeamSegments::Projection
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 storage;
+    uint32 scr;
+    uint32 n[2];
+    sint32 depth;
+    uint32 width;
+    uint32 clipped;
+};
+
+BeamSegments::BeamSegments(uint32 count, uint32 mode) : RenderableEffect(), mode(mode), point_count(count), points(0), projected(0)
+{
     FUNCTION_MARKER(0x800260FC, "SLUS_003.73");
-    w_u32(object + 68, 0x800A15B8);
-    w_u32(object + 76, count);
-    storage = AllocateHeapBlock(count * 36, 0, 1);
-    w_u32(object + 80, storage);
-    w_u32(object + 72, mode);
+    if (count < 2 || count > 0x7FFFFFFF || count > 0xFFFFFFFF / 36 || count > (size_t)-1 / sizeof(*points) || count > (size_t)-1 / sizeof(*projected))
+    {
+        GameDiagnostic("Invalid beam point count %u\n", count);
+        abort();
+    }
+    points = (BeamPoint *)malloc((size_t)count * sizeof(*points));
+    projected = (Projection *)malloc((size_t)count * sizeof(*projected));
+    if (!points || !projected)
+    {
+        GameDiagnostic("Beam geometry allocation failed\n");
+        abort();
+    }
+    // Only RGB is consumed from secondary packet colors
+    for (uint32 i = 0; i < count; ++i)
+        points[i].rgbc.code = 0;
+}
+
+BeamSegments::~BeamSegments()
+{
+    free(projected);
+    free(points);
 }
 
 uint32 BeamSegments::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 storage, result;
     FUNCTION_MARKER(0x8002616C, "SLUS_003.73");
-    storage = r_u32(object + 80);
-    w_u32(object + 68, 0x800A15B8);
-    ReleaseHeapBlock(storage);
-    result = RenderableEffect::Destroy(0);
-    if (reason & 1)
-        result = ReleaseEffectStorage(object);
-    return result;
+    free(projected);
+    free(points);
+    projected = 0;
+    points = 0;
+    uint32 result = RenderableEffect::Destroy(0);
+    return reason & 1 ? ReleaseEffectStorage(this) : result;
 }
 
-uint32 BeamSegments::SetColors(uint32 red, uint32 green, uint32 blue)
+uint32 BeamSegments::SetColors(uint32 r, uint32 g, uint32 b)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 result, index = 0, offset = 0, storage;
     FUNCTION_MARKER(0x800261CC, "SLUS_003.73");
-    result = r_u32(object + 76);
-    if ((sint32)result > 0)
+    for (uint32 i = 0; i < point_count; ++i)
     {
-        do
-        {
-            storage = r_u32(object + 80);
-            w_u8(storage + offset + 12, red);
-            storage = r_u32(object + 80);
-            w_u8(storage + offset + 13, green);
-            storage = r_u32(object + 80);
-            ++index;
-            w_u8(storage + offset + 14, blue);
-            result = (sint32)index < (sint32)r_u32(object + 76);
-            offset += 36;
-        } while (result);
+        points[i].rgbc.r = r;
+        points[i].rgbc.g = g;
+        points[i].rgbc.b = b;
     }
-    return result;
+    return 0;
 }
 
 uint32 BeamSegments::SetSize(uint32 size)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 result, index = 0, offset = 0, storage;
     FUNCTION_MARKER(0x8002622C, "SLUS_003.73");
-    result = r_u32(object + 76);
-    if ((sint32)result > 0)
-    {
-        do
-        {
-            storage = r_u32(object + 80);
-            ++index;
-            w_u16(storage + offset + 16, size);
-            result = (sint32)index < (sint32)r_u32(object + 76);
-            offset += 36;
-        } while (result);
-    }
-    return result;
-}
-
-
-
-extern "C" uint32 sub_8002616C(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x8002616C, "SLUS_003.73");
-    return BeamSegments::Attach(object).BeamSegments::Destroy(reason);
-}
-
-
-
-
-
-BeamSegments &BeamSegments::Attach(uint32 object)
-{
-    return *static_cast<BeamSegments *>(FindNativeObjectStorage(object));
+    for (uint32 i = 0; i < point_count; ++i)
+        points[i].size = size;
+    return 0;
 }
 
 static sint32 DivideBeamScalar(uint32 numerator, uint32 denominator)
@@ -105,329 +82,186 @@ static sint32 DivideBeamScalar(uint32 numerator, uint32 denominator)
     return (sint32)numerator / (sint32)denominator;
 }
 
-static uint32 ReadBeamNormal(uint32 guest, const sint32 *native)
+void BeamSegments::CalculateNormal(const Projection *p, sint32 *x, sint32 *y, uint32 min_len)
 {
-    return native ? (uint32)*native : r_u32(guest);
-}
-
-static void WriteBeamNormal(uint32 guest, sint32 *native, uint32 value)
-{
-    if (native)
-        *native = (sint32)value;
-    else
-        w_u32(guest, value);
-}
-
-uint32 CalculateBeamNormal(uint32 vertices, uint32 guest_x, sint32 *native_x, uint32 guest_y, sint32 *native_y, uint32 minimum_length)
-{
-    uint32 result, current_x, current_y, next_x, next_y, horizontal, vertical, norm;
     FUNCTION_MARKER(0x80026370, "SLUS_003.73");
-    result = r_u32(vertices + 24);
-    if (!result)
+    if (!p[0].clipped && !p[1].clipped)
     {
-        result = r_u32(vertices + 52);
-        if (!result)
+        uint32 x0 = (sint16)p[0].scr;
+        uint32 y0 = (sint16)(p[0].scr >> 16);
+        uint32 x1 = (sint16)p[1].scr;
+        uint32 y1 = (sint16)(p[1].scr >> 16);
+        uint32 dx = DivideBeamScalar((x1 - x0) * 320, 512);
+        uint32 dy = y1 - y0;
+        *x = (sint32)dy;
+        *y = (sint32)(0 - dx);
+        if ((sint32)dx < 0)
+            dx = 0 - dx;
+        if ((sint32)dy < 0)
+            dy = 0 - dy;
+        uint32 norm = (sint32)dy < (sint32)dx ? dx + (uint32)((sint32)dy / 2) : dy + (uint32)((sint32)dx / 2);
+        if ((sint32)norm >= (sint32)min_len)
         {
-            current_x = (uint32)(sint32)(sint16)r_u16(vertices);
-            current_y = (uint32)(sint32)(sint16)r_u16(vertices + 2);
-            next_x = (uint32)(sint32)(sint16)r_u16(vertices + 28);
-            next_y = (uint32)(sint32)(sint16)r_u16(vertices + 30);
-            horizontal = (uint32)DivideBeamScalar((next_x - current_x) * 320, 512);
-            vertical = next_y - current_y;
-            WriteBeamNormal(guest_x, native_x, vertical);
-            WriteBeamNormal(guest_y, native_y, 0 - horizontal);
-            if ((sint32)horizontal < 0)
-                horizontal = 0 - horizontal;
-            if ((sint32)vertical < 0)
-                vertical = 0 - vertical;
-            if ((sint32)vertical < (sint32)horizontal)
-                norm = horizontal + (uint32)((sint32)vertical / 2);
-            else
-                norm = vertical + (uint32)((sint32)horizontal / 2);
-            result = (sint32)norm < (sint32)minimum_length;
-            if (!result)
-            {
-                result = (uint32)DivideBeamScalar(ReadBeamNormal(guest_x, native_x) << 6, norm);
-                WriteBeamNormal(guest_x, native_x, result);
-                result = (uint32)DivideBeamScalar(ReadBeamNormal(guest_y, native_y) << 6, norm);
-                WriteBeamNormal(guest_y, native_y, result);
-                result = (uint32)DivideBeamScalar(ReadBeamNormal(guest_x, native_x) << 9, 320);
-                WriteBeamNormal(guest_x, native_x, result);
-                return result;
-            }
+            *x = DivideBeamScalar((uint32)*x << 6, norm);
+            *y = DivideBeamScalar((uint32)*y << 6, norm);
+            *x = DivideBeamScalar((uint32)*x << 9, 320);
+            return;
         }
     }
-    WriteBeamNormal(guest_y, native_y, 0);
-    WriteBeamNormal(guest_x, native_x, 0);
-    return result;
+    *y = 0;
+    *x = 0;
 }
 
 uint32 BeamSegments::Render()
 {
-    const ModelProjectionConfig &proj_cfg = GetModelProjectionConfig();
-    uint32 a1 = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80026488, "SLUS_003.73");
-    uint32 v2;
-    uint32 v3;
-    sint32 v4;
-    uint32 v5;
-    sint32 v6;
-    sint32 v7;
-    sint32 v8;
-    uint32 v9;
-    uint32 v10;
-    sint32 v11;
-    sint32 v12;
-    sint32 v13;
-    sint32 v14;
-    sint32 v15;
-    uint32 v16;
-    uint32 v17;
-    uint32 v18;
-    uint32 v19;
-    uint32 v20;
-    sint32 v21;
-    uint32 v22;
-    uint32 v23;
-    sint32 v24;
-    sint32 v25;
-    uint32 delta_x, delta_y, previous_x, previous_y, width, current_x, depth, bias, draw_word;
-    sint32 v27;
-    sint32 v28;
-    sint32 v29;
-    uint32 v30;
-    sint32 v31;
-    sint32 v32;
-    uint32 v33;
-    uint32 v34;
-    uint32 v35;
-    uint32 v36;
-    uint32 v37;
-    sint32 v38;
-    sint32 v39;
-    sint32 v40;
-    sint32 v41;
-    sint32 v42;
-    uint32 v43;
-    sint32 v44;
-    sint32 result;
-    uint32 v46;
-    sint32 v47;
-    uint32 v48;
-    sint32 v49;
-    sint32 v50;
-    sint32 v51;
-    sint32 v52;
-    sint32 v53;
-    sint32 v54;
-    v2 = 528482304;
-    depth = r_u32(a1 + 76);
-    v3 = r_u32(((uint32)((a1 + 80))));
-    v4 = 0;
-    if ((sint32)depth > 0)
+    const ModelProjectionConfig &proj_cfg = GetModelProjectionConfig();
+    for (uint32 i = 0; i < point_count; ++i)
     {
-        v5 = 528482320;
-        do
+        Projection *p = projected + i;
+        p->depth = ProjectWorldPoint(points[i].pos.words, &p->scr);
+        p->clipped = p->depth < (sint32)proj_cfg.near_depth || (sint32)proj_cfg.max_distance < p->depth;
+        // Clipped normals are zero, so this width contributes to no packet
+        p->width = 0;
+        if (!p->clipped)
+            p->width = DivideBeamScalar(400 * points[i].size, p->depth);
+    }
+    sint32 nx, ny;
+    CalculateNormal(projected, &nx, &ny, 2);
+    projected[0].n[0] = nx;
+    projected[0].n[1] = ny;
+    for (uint32 i = 1; i < point_count - 1; ++i)
+    {
+        sint32 x, y;
+        CalculateNormal(projected + i, &x, &y, 2);
+        projected[i].n[0] = (sint32)((uint32)x + (uint32)nx) / 2;
+        projected[i].n[1] = (sint32)((uint32)y + (uint32)ny) / 2;
+        nx = x;
+        ny = y;
+    }
+    projected[point_count - 1].n[0] = nx;
+    projected[point_count - 1].n[1] = ny;
+    uint32 dx = projected[0].n[0];
+    uint32 dy = projected[0].n[1];
+    uint32 width = projected[0].width;
+    sint32 offset_x = (sint32)(dx * width) >> 6;
+    sint32 offset_y = (sint32)(dy * width) >> 6;
+    uint32 x = (sint32)(sint16)projected[0].scr;
+    sint32 y = (sint16)(projected[0].scr >> 16);
+    uint32 prev_plus = (((uint32)y + (uint32)offset_y) << 16) | ((x + (uint32)offset_x) & 65535);
+    uint32 prev_minus = (((uint32)y - (uint32)offset_y) << 16) | ((x - (uint32)offset_x) & 65535);
+    for (uint32 i = 1; i < point_count; ++i)
+    {
+        dx = projected[i].n[0];
+        dy = projected[i].n[1];
+        if ((dx | dy) && (projected[i - 1].n[0] | projected[i - 1].n[1]))
         {
-            v6 = (sint32)ProjectWorldPoint((const uint32 *)psx_addr((uint32)v3, 12), (uint32 *)psx_addr((uint32)v2, 4));
-            v7 = (v6 < (sint32)proj_cfg.near_depth);
-            w_u32(((uint32)((v5 - 4))), v6);
-            if ((v7 || ((sint32)proj_cfg.max_distance < v6)))
+            width = projected[i].width;
+            offset_x = (sint32)(dx * width) >> 6;
+            offset_y = (sint32)(dy * width) >> 6;
+            x = (sint32)(sint16)projected[i].scr;
+            y = (sint16)(projected[i].scr >> 16);
+            uint32 depth = projected[i].depth;
+            uint32 *bucket = scene_render.cur->ot + (((depth - depth_bias) & 0x3FFC) >> 2);
+            uint32 cur_plus = (((uint32)y + (uint32)offset_y) << 16) | ((x + (uint32)offset_x) & 65535);
+            uint32 cur_minus = (((uint32)y - (uint32)offset_y) << 16) | ((x - (uint32)offset_x) & 65535);
+            uint8 *packet, *limit, *minus_packet, *history_packet, *state_packet;
+            uint32 draw_word, draw_param;
+            sint32 history_mode;
+            uint32 header, color, minus_color, tag, state_header;
+            packet = scene_render.cursor;
+            limit = scene_render.limit;
+            if (limit - packet < (sint32)(2 * sizeof(POLY_G4) + sizeof(DR_TPAGE)))
+                break;
+            minus_packet = packet + sizeof(POLY_G4);
+            state_packet = packet + 2 * sizeof(POLY_G4);
+            history_packet = state_packet + sizeof(DR_TPAGE);
+            draw_word = GetEffectDrawMode().tag;
+            draw_param = GetEffectDrawMode().code[0];
+            DR_TPAGE *state = (DR_TPAGE *)state_packet;
+            state->tag = draw_word;
+            state->code[0] = draw_param;
+            history_mode = mode;
+            scene_render.cursor = history_packet;
+            if (history_mode >= 3)
             {
-                w_u32(((uint32)((v5 + 8))), 1);
+                if (limit - history_packet < (sint32)sizeof(POLY_G4))
+                    break;
+                scene_render.cursor = history_packet + sizeof(POLY_G4);
+                POLY_G4 *history_poly = (POLY_G4 *)history_packet;
+                history_poly->tag = 0;
+                setPolyG4(history_poly);
+                history_poly->p[0].rgbc.rgbc = 0x3A000000;
+                history_poly->p[1].rgbc.rgbc = 0;
+                history_poly->p[3].rgbc.rgbc = points[i - 1].rgbc.rgbc;
+                history_poly->p[2].rgbc.rgbc = points[i].rgbc.rgbc;
+                history_poly->p[1].xy.xy = points[i - 1].history[1];
+                history_poly->p[0].xy.xy = points[i].history[1];
+                history_poly->p[3].xy.xy = projected[i - 1].scr;
+                history_poly->p[2].xy.xy = projected[i].scr;
+                depth = history_poly->tag;
+                draw_word = *bucket;
+                history_poly->tag = (depth & 0xFF000000) | (draw_word & 0xFFFFFF);
+                *bucket = ((*bucket & 0xFF000000) | gpu_packet_link((uintptr_t)history_packet));
+            }
+            POLY_G4 *minus_poly = (POLY_G4 *)minus_packet;
+            POLY_G4 *plus_poly = (POLY_G4 *)packet;
+            minus_poly->tag = 0;
+            setPolyG4(minus_poly);
+            plus_poly->tag = 0;
+            setPolyG4(plus_poly);
+            minus_poly->p[0].rgbc.rgbc = 0x3A000000;
+            plus_poly->p[0].rgbc.rgbc = 0x3A000000;
+            plus_poly->p[1].rgbc.rgbc = 0;
+            draw_word = points[i - 1].rgbc.rgbc;
+            header = plus_poly->tag;
+            plus_poly->p[3].rgbc.rgbc = draw_word;
+            color = points[i].rgbc.rgbc;
+            plus_poly->p[0].xy.xy = cur_plus;
+            plus_poly->p[1].xy.xy = prev_plus;
+            plus_poly->p[2].rgbc.rgbc = color;
+            plus_poly->p[2].xy.xy = projected[i].scr;
+            plus_poly->p[3].xy.xy = projected[i - 1].scr;
+            plus_poly->tag = ((header & 0xFF000000) | (*bucket & 0xFFFFFF));
+            *bucket = ((*bucket & 0xFF000000) | gpu_packet_link((uintptr_t)packet));
+            minus_poly->p[1].rgbc.rgbc = 0;
+            minus_poly->p[3].rgbc.rgbc = points[i - 1].rgbc.rgbc;
+            minus_color = points[i].rgbc.rgbc;
+            minus_poly->p[0].xy.xy = cur_minus;
+            minus_poly->p[1].xy.xy = prev_minus;
+            minus_poly->p[2].rgbc.rgbc = minus_color;
+            minus_poly->p[2].xy.xy = projected[i].scr;
+            prev_minus = cur_minus;
+            minus_poly->p[3].xy.xy = projected[i - 1].scr;
+            depth = minus_poly->tag;
+            draw_word = *bucket;
+            minus_poly->tag = (depth & 0xFF000000) | (draw_word & 0xFFFFFF);
+            tag = ((*bucket & 0xFF000000) | gpu_packet_link((uintptr_t)minus_packet));
+            *bucket = tag;
+            state_header = state->tag;
+            prev_plus = cur_plus;
+            state->tag = ((state_header & 0xFF000000) | (tag & 0xFFFFFF));
+            *bucket = ((*bucket & 0xFF000000) | gpu_packet_link((uintptr_t)state_packet));
+        }
+    }
+    uint32 result = mode;
+    if (mode)
+    {
+        for (uint32 i = 0; i < point_count; ++i)
+        {
+            if (mode == 1)
+            {
+                points[i].history[0] = projected[i].scr;
+                points[i].history[1] = projected[i].scr;
             }
             else
             {
-                w_u32(((uint32)((v5 + 8))), 0);
-                w_u32(((uint32)(v5)), DivideBeamScalar(400 * r_u16((uint32)v3 + 16), r_u32((uint32)v5 - 4)));
-            }
-            v5 += 28;
-            v2 += 28;
-            ++v4;
-            v3 += 36;
-        } while ((v4 < (sint32)r_u32(a1 + 76)));
-    }
-    CalculateBeamNormal(0x1F800000, 0, &v50, 0, &v51, 2);
-    v8 = 1;
-    v9 = 528482340;
-    w_u32(0x1F800004, v50);
-    w_u32(0x1F800008, v51);
-    v10 = 528482332;
-    while ((v8 < (sint32)(r_u32(a1 + 76) - 1)))
-    {
-        CalculateBeamNormal((uint32)v10, 0, &v52, 0, &v53, 2);
-        v10 += 28;
-        ++v8;
-        v11 = v52;
-        v12 = v53;
-        v13 = v51;
-        w_u32(((uint32)((v9 - 4))), ((sint32)((uint32)v52 + (uint32)v50) / 2));
-        w_u32(((uint32)(v9)), ((sint32)((uint32)v12 + (uint32)v13) / 2));
-        v9 += 28;
-        v50 = v11;
-        v51 = v12;
-    }
-
-    v14 = v51;
-    w_u32(((uint32)((v10 + 4))), v50);
-    w_u32(((uint32)((v10 + 8))), v14);
-    v15 = 1;
-    v16 = 528482304;
-    v17 = 528482348;
-    v18 = 528482312;
-    v19 = 528482332;
-    delta_x = r_u32(0x1F800004);
-    width = r_u32(0x1F800010);
-    v21 = (sint32)(delta_x * width) >> 6;
-    delta_y = r_u32(0x1F800008);
-    v24 = (sint32)(delta_y * width) >> 6;
-    current_x = (uint32)(sint32)(sint16)r_u16(0x1F800000);
-    v29 = (sint16)r_u16(0x1F800002);
-    v20 = r_u32(a1 + 80);
-    v22 = ((uint32)((v20 + 48)));
-    v23 = ((uint32)((v20 + 12)));
-    v54 = (((uint32)v29 + (uint32)v24) << 16) | ((current_x + (uint32)v21) & 65535);
-    v25 = (((uint32)v29 - (uint32)v24) << 16) | ((current_x - (uint32)v21) & 65535);
-    while ((v15 < (sint32)r_u32(a1 + 76)))
-    {
-        delta_x = r_u32(v17 - 12);
-        delta_y = r_u32(v17 - 8);
-        if (delta_x | delta_y)
-        {
-            previous_x = r_u32(v18 - 4);
-            previous_y = r_u32(v18);
-            if (previous_x | previous_y)
-            {
-                width = r_u32(v17);
-                v28 = (sint32)(delta_x * width) >> 6;
-                current_x = (uint32)(sint32)(sint16)r_u16(v19);
-                v27 = (sint32)(delta_y * width);
-                bias = r_u16(a1 + 64);
-                depth = r_u32(v17 - 4);
-                v29 = (sint32)(short)r_u16((uint32)v19 + 2);
-                v30 = r_u32(0x800FF660) + ((depth - bias) & 0x3FFC) + 112;
-                v31 = ((((uint32)v29 + (uint32)(v27 >> 6)) << 16) | ((unsigned short)((current_x + v28))));
-                v32 = ((((uint32)v29 - (uint32)(v27 >> 6)) << 16) | ((unsigned short)((current_x - v28))));
-                v33 = r_u32(0x800FF668);
-                v34 = r_u32(0x800FF374);
-                v35 = v33 + 36;
-                v36 = v33 + 80;
-                v37 = v33 + 72;
-                if (v34 < v36)
-                    break;
-                draw_word = r_u32(0x800FF468);
-                v38 = r_u32(0x800FF46C);
-                w_u32(v37, draw_word);
-                w_u32(v37 + 4, v38);
-                v39 = r_u32(((uint32)((a1 + 72))));
-                w_u32(0x800FF668, v36);
-                if ((v39 >= 3))
-                {
-                    if ((v34 < (v33 + 116)))
-                        break;
-                    w_u32(0x800FF668, (v33 + 116));
-                    w_u32(((uint32)((v33 + 80))), 0x8000000);
-                    w_u32(((uint32)((v36 + 4))), 973078528);
-                    w_u32(((uint32)((v36 + 12))), 0);
-                    w_u32(((uint32)((v36 + 28))), r_u32(v23));
-                    w_u32(((uint32)((v36 + 20))), r_u32(v22));
-                    w_u32(((uint32)((v36 + 16))), r_u32((v23 + (4) * 4)));
-                    w_u32(((uint32)((v36 + 8))), r_u32((v22 + (4) * 4)));
-                    w_u32(((uint32)((v36 + 32))), r_u32(((uint32)(v16))));
-                    w_u32(((uint32)((v36 + 24))), r_u32(((uint32)(v19))));
-                    depth = r_u32(v33 + 80);
-                    draw_word = r_u32(v30);
-                    w_u32(v33 + 80, (depth & 0xFF000000) | (draw_word & 0xFFFFFF));
-                    w_u32(v30, ((r_u32(v30) & 0xFF000000) | (v36 & 0xFFFFFF)));
-                }
-                w_u32(((uint32)((v33 + 36))), 0x8000000);
-                w_u32(((uint32)(v33)), 0x8000000);
-                w_u32(((uint32)((v35 + 4))), 973078528);
-                w_u32(((uint32)((v33 + 4))), 973078528);
-                w_u32(((uint32)((v33 + 12))), 0);
-                draw_word = r_u32(v23);
-                v40 = r_u32(((uint32)(v33)));
-                w_u32(((uint32)((v33 + 28))), draw_word);
-                v41 = r_u32(v22);
-                w_u32(((uint32)((v33 + 8))), v31);
-                w_u32(((uint32)((v33 + 16))), v54);
-                w_u32(((uint32)((v33 + 20))), v41);
-                w_u32(((uint32)((v33 + 24))), r_u32(((uint32)(v19))));
-                w_u32(((uint32)((v33 + 32))), r_u32(((uint32)(v16))));
-                w_u32(((uint32)(v33)), ((v40 & 0xFF000000) | (r_u32(v30) & 0xFFFFFF)));
-                w_u32(v30, ((r_u32(v30) & 0xFF000000) | (v33 & 0xFFFFFF)));
-                w_u32(((uint32)((v35 + 12))), 0);
-                w_u32(((uint32)((v35 + 28))), r_u32(v23));
-                v42 = r_u32(v22);
-                w_u32(((uint32)((v35 + 8))), v32);
-                w_u32(((uint32)((v35 + 16))), v25);
-                w_u32(((uint32)((v35 + 20))), v42);
-                w_u32(((uint32)((v35 + 24))), r_u32(((uint32)(v19))));
-                v25 = v32;
-                w_u32(((uint32)((v35 + 32))), r_u32(((uint32)(v16))));
-                depth = r_u32(v33 + 36);
-                draw_word = r_u32(v30);
-                w_u32(v33 + 36, (depth & 0xFF000000) | (draw_word & 0xFFFFFF));
-                v43 = ((r_u32(v30) & 0xFF000000) | (v35 & 0xFFFFFF));
-                w_u32(v30, v43);
-                v44 = r_u32(((uint32)((v33 + 72))));
-                v54 = v31;
-                w_u32(((uint32)((v33 + 72))), ((v44 & 0xFF000000) | (v43 & 0xFFFFFF)));
-                w_u32(v30, ((r_u32(v30) & 0xFF000000) | (v37 & 0xFFFFFF)));
+                points[i].history[1] = points[i].history[0];
+                points[i].history[0] = projected[i].scr;
             }
         }
-        v18 += 28;
-        v16 += 28;
-        v17 += 28;
-        v19 += 28;
-        v23 += (9) * 4;
-        v22 += (9) * 4;
-        ++v15;
-    }
-
-    result = r_u32(((uint32)((a1 + 72))));
-    v46 = 528482304;
-    if (result)
-    {
-        v47 = 0;
-        depth = r_u32(a1 + 76);
-        v48 = r_u32(a1 + 80) + 24;
-        if ((sint32)depth > 0)
-        {
-            do
-            {
-                if ((r_u32(((uint32)((a1 + 72)))) == 1))
-                {
-                    v49 = r_u32(((uint32)(v46)));
-                    w_u32(v48, v49);
-                    w_u32((v48 + (1) * 4), v49);
-                }
-                else
-                {
-                    w_u32((v48 + (1) * 4), r_u32(v48));
-                    v49 = r_u32(v46);
-                    w_u32(v48, v49);
-                }
-                v48 += (9) * 4;
-                ++v47;
-                v46 += 28;
-            } while ((v47 < (sint32)r_u32(a1 + 76)));
-        }
-        result = (r_u32(((uint32)((a1 + 72)))) + 1);
-        w_u32(((uint32)((a1 + 72))), result);
+        result = mode + 1;
+        mode = result;
     }
     return result;
 }
-
-extern "C" uint32 sub_80026488(uint32 object)
-{
-    FUNCTION_MARKER(0x80026488, "SLUS_003.73");
-    return BeamSegments::Attach(object).BeamSegments::Render();
-}
-
-extern "C" uint32 apocalypse_segment_normal(uint32 vertices, sint32 *x, sint32 *y, uint32 minimum_length)
-{
-    return CalculateBeamNormal(vertices, 0, x, 0, y, minimum_length);
-}
-
-

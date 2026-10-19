@@ -1,536 +1,514 @@
+#include <new>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "effect_lifecycle.h"
+#include "level_session.h"
+#include "record_scripts.h"
+
+#include "object_initializers.h"
+
+#include "flamethrower.h"
+#include "projectile_line.h"
 #include "visual_object.h"
 #include "angle_math.h"
 #include "object_damage.h"
 #include "model_animation.h"
-#include "game_sdk_bindings.h"
+#include "model_attachment.h"
+#include "game_diagnostics.h"
 #include "player.h"
 #include "game_random.h"
 #include "audio_session.h"
 #include "ring_burst_effect.h"
 #include "model_resources.h"
 #include "fire_cycle.h"
-extern "C" {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
-#include "turret.h"
-#include "object_parameters.h"
-#include "native_object_storage.h"
-#include "game_object_allocation.h"
-#include <new>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
-Turret::Turret(const uint8 *record_data, uint32 index) : Enemy()
+#include "turret.h"
+#include "swat.h"
+#include "vector_arithmetic.h"
+#include "record_data.h"
+#include "game_object_allocation.h"
+#include "game_heap.h"
+
+Turret::Turret(const RecordCursor &record_data, uint32 index) : Enemy()
 {
-    const uint32 data = GuestMemoryAddress(record_data);
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 cursor;
+    RecordDataBorrow record_borrow;
+    RecordCursor cursor;
     FUNCTION_MARKER(0x80057FAC, "SLUS_003.73");
-    if (!data)
-    {
-        // TODO Support native record data in the original parser adapter
-        GameDiagnostic("Turret record data is outside guest memory\n");
-        abort();
-    }
-    w_u32(object + 68, 0x800A2960);
-    cursor = sub_80062B0C(object, data);
-    cursor = sub_80062B50(object, cursor);
-    w_u32(object + 400, cursor);
-    w_u8(object + 380, 1);
+    aim_bones[0] = aim_bones[1] = 0;
+    aim_pos.words[0] = aim_pos.words[1] = aim_pos.words[2] = 0;
+    aim_offset.words[0] = aim_offset.words[1] = aim_offset.words[2] = 0;
+
+    cursor = ReadPosition(record_data);
+    cursor = ReadAngles(cursor);
+    script_cursor = cursor;
+    this->control.script_active = 1;
     this->record_idx = index;
     Init();
-    sub_8004BE90(object, r_u32(object + 400));
+    ExecuteScript(script_cursor);
 }
 
 uint32 Turret::SetMode(uint32 mode)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 count, level, flags, model, subtype, result;
+    uint32 count, level, flags, subtype, result;
+    const char *model_name;
     const ModelHierarchyTable *hierarchy;
     const ModelAttachmentTable *attachments;
-    FUNCTION_MARKER(0x800580ACu, "SLUS_003.73");
-    w_u16(object + 390u, mode);
+    FUNCTION_MARKER(0x800580AC, "SLUS_003.73");
+    this->control.variant = mode;
     if (mode == 0u)
     {
         flags = this->model.flags;
         this->model.flags = flags | 16u;
         AddToList(visual_lists.solids);
-        count = r_u32(0x800FF308u);
-        level = r_u32(0x800FF378u);
-        w_u32(0x800FF308u, count - 1u);
+        count = game_progress.level.enemy_total;
+        level = level_environment.area_kind;
+        game_progress.level.enemy_total = count - 1u;
         if (level == 4u)
         {
-            model = 0x800A2760u;
+            model_name = "turret01";
             attachments = &TurretLevel4Attachments;
             hierarchy = &TurretLevel4Hierarchy;
-            subtype = 1u;
+            subtype = 1;
             result = 2u;
         }
         else
         {
-            model = 0x800FF56Cu;
+            model_name = "turret";
             attachments = &TurretDefaultAttachments;
             hierarchy = &TurretDefaultHierarchy;
-            subtype = 0u;
+            subtype = 0;
             result = 3u;
         }
     }
     else if (mode == 16u || mode == 32u)
     {
-        this->kind = 211u;
+        this->kind = 211;
         AddToList(visual_lists.actors);
         if (mode == 16u)
         {
-            level = r_u32(0x800FF378u);
-            w_u16(object + 218u, 64u);
+            level = level_environment.area_kind;
+            this->health = (sint16)(uint16)(64u);
         }
         else
         {
-            flags = r_u32(object + 396u);
-            w_u16(object + 218u, 64u);
-            level = r_u32(0x800FF378u);
-            w_u32(object + 396u, flags | 64u);
+            flags = this->control.flags;
+            this->health = (sint16)(uint16)(64u);
+            level = level_environment.area_kind;
+            this->control.flags = flags | 64u;
         }
         if (level == 10u)
         {
-            model = 0x800A276Cu;
+            model_name = "turret02";
             attachments = &TurretLevel10Attachments;
             hierarchy = &TurretLevel10Hierarchy;
-            subtype = 1u;
+            subtype = 1;
             result = 2u;
         }
         else
         {
-            model = 0x800A2778u;
+            model_name = "unturret";
             attachments = &TurretRaisedAttachments;
             hierarchy = &TurretRaisedHierarchy;
-            subtype = 0u;
+            subtype = 0;
             result = 3u;
         }
     }
     else
         return (sint32)mode < 17 ? 1u : 32u;
-    sub_800626C8(object, model);
+    SetModelBank(model_name);
     SetModelBoneTable(this->model.bank, *attachments);
     InitializeModelAnimation(*hierarchy);
-    w_u16(object + 496u, subtype);
-    w_u16(object + 498u, result);
+    aim_bones[0] = subtype;
+    aim_bones[1] = result;
     return result;
 }
 
 uint32 Turret::Init()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 count = r_u32(0x800FF308u);
-    FUNCTION_MARKER(0x800582D4u, "SLUS_003.73");
-    this->kind = 206u;
-    w_u32(0x800FF308u, count + 1u);
-    sub_8004BD04(object, 1u, 5u);
-    w_u16(object + 218u, 100u);
-    w_u16(object + 436u, 16u);
-    w_u8(object + 382u, 0u);
-    w_u16(object + 472u, 0u);
-    w_u16(object + 474u, 0u);
-    w_u8(object + 381u, 0u);
-    w_u16(object + 438u, 32u);
-    sub_8004BDCC(object, 0u, 0u, 0u);
-    sub_8004BDCC(object, 0u, 1u, 30u);
-    sub_8004BDCC(object, 0u, 2u, 160u);
-    sub_8004BDCC(object, 0u, 3u, 32u);
-    return sub_8004BDCC(object, 0u, 4u, 64u);
+    uint32 count = game_progress.level.enemy_total;
+    FUNCTION_MARKER(0x800582D4, "SLUS_003.73");
+    this->kind = 206;
+    game_progress.level.enemy_total = count + 1u;
+    AllocateBehaviorTable(1, 5);
+    this->health = (sint16)(uint16)(100u);
+    ai.parameters[0] = 16;
+    this->control.gravity_enabled = 0;
+    ai.state = 0;
+    ai.phase = 0;
+    this->control.hierarchy_ready = 0;
+    ai.parameters[1] = 32;
+    SetBehaviorValue(0, 0, 0);
+    SetBehaviorValue(0, 1, 30);
+    SetBehaviorValue(0, 2, 160);
+    SetBehaviorValue(0, 3, 32);
+    SetBehaviorValue(0, 4, 64);
+    return 0;
 }
 
 uint32 Turret::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 mode;
     FUNCTION_MARKER(0x800583A8, "SLUS_003.73");
-    mode = r_u16(object + 390);
-    w_u32(object + 68, 0x800A2960);
+    mode = (uint32)this->control.variant;
     RemoveFromList(mode ? visual_lists.actors : visual_lists.solids);
     Enemy::FreeBehaviorTable();
     Turret::ReleaseResources();
     Enemy::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(object) : 0;
+    return (reason & 1) ? ReleaseObjectStorage(this) : 0;
+}
+
+Turret::~Turret()
+{
+    if (weapon)
+        weapon->Destroy(3);
 }
 
 uint32 Turret::ReleaseResources()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, receiver, target;
     FUNCTION_MARKER(0x8005843C, "SLUS_003.73");
-    child = r_u32(object + 552);
-    if (!child)
-        return 0;
-    table = r_u32(child);
-    receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-    target = r_u32(table + 12);
-    (void)apocalypse_object_cleanup(target, receiver, 3);
-    w_u32(object + 552, 0);
+    if (weapon)
+        weapon->Destroy(3);
+    weapon = 0;
     return 0;
 }
 
 uint32 Turret::Update()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 position[3], flags, hits, timer, linked, y, height, yaw, base_yaw, weapon, damage;
-    FUNCTION_MARKER(0x8005848Cu, "SLUS_003.73");
-    position[0] = r_u32(0x800A71CCu);
-    position[1] = r_u32(0x800A71D0u);
-    position[2] = r_u32(0x800A71D4u);
-    motion.acceleration[0] = position[0];
-    motion.acceleration[1] = position[1];
-    motion.acceleration[2] = position[2];
+    RecordDataBorrow record_borrow;
+    uint32 flags, hits, timer, height, yaw, base_yaw, damage;
+    Vector3 position;
+    FUNCTION_MARKER(0x8005848C, "SLUS_003.73");
+    position = zero_vector;
+    motion.acceleration = position;
     flags = this->activation_flags;
-    w_u16(object + 388u, flags);
+    this->control.prev_activation_flags = flags;
     if (flags & 1u)
     {
-        hits = r_u8(object + 384u);
+        hits = (uint32)this->control.activation_count;
         this->activation_flags = flags & 0xFFFEu;
-        w_u8(object + 384u, hits + 1u);
+        this->control.activation_count = hits + 1u;
     }
-    if (!r_u8(object + 381u))
+    if (!(uint32)this->control.hierarchy_ready)
     {
         flags = this->model.flags;
-        w_u8(object + 381u, 1u);
+        this->control.hierarchy_ready = 1;
         this->model.flags = flags | 4u;
-        SetAnimationRange(0u, 0u, 0xFFFFFFFFu);
+        SetAnimationRange(0u, 0u, 0xFFFFFFFF);
     }
-    if (r_u8(object + 380u))
+    if ((uint32)this->control.script_active)
     {
-        timer = r_u16(object + 476u);
+        timer = (uint32)this->control.script_delay;
         if (timer)
-            w_u16(object + 476u, timer - 1u);
+            this->control.script_delay = timer - 1u;
         else
-            sub_8004BE90(object, r_u32(object + 400u));
+            ExecuteScript(script_cursor);
     }
     else
         UpdateState();
     if (!(this->model.flags & 4u))
-        return 0u;
-    flags = r_u32(object + 396u);
+        return 0;
+    flags = this->control.flags;
     if (flags & 16u)
     {
-        linked = r_u32(object + 548u);
-        position[0] = r_u32(linked + 4u);
-        position[1] = r_u32(linked + 8u);
-        position[2] = r_u32(linked + 12u);
-        w_u32(object + 500u, position[0]);
-        w_u32(object + 504u, position[1]);
-        w_u32(object + 508u, position[2]);
+        ModelInstance *subject = tracked_target.GetObject();
+        if (subject)
+        {
+            aim_pos.words[0] = subject->pos.words[0];
+            aim_pos.words[1] = subject->pos.words[1];
+            aim_pos.words[2] = subject->pos.words[2];
+        }
+        else
+            control.flags &= ~16;
         Aim();
     }
     else if (flags & 8u)
     {
-        xport_draft_host_sub_8006C34C_p1(position, object + 4u, object + 512u);
-        w_u32(object + 500u, position[0]);
-        w_u32(object + 504u, position[1]);
-        w_u32(object + 508u, position[2]);
+        AddVectors(position.words, model.pos.words, this->aim_offset.words);
+        this->aim_pos = position;
         Aim();
     }
     else if (flags & 4u)
         Aim();
-    sub_8004B9A4(object);
-    sub_8006C730(object + 524u, object + 530u);
-    sub_8006C624(object + 524u);
-    sub_8006C730(object + 530u, object + 536u);
-    DampAngles((uint16 *)psx_addr(object + 530u, 6), motion.angular_drag);
-    sub_8006C64C(object + 530u);
-    sub_8007FDF0(object);
+    IntegrateMotion();
+    AddAngleVector(joint.angles.words, joint.velocity.words);
+    NormalizeAngles(joint.angles.words);
+    AddAngleVector(joint.velocity.words, joint.acceleration.words);
+    DampAngles(joint.velocity.words, motion.angular_drag);
+    SnapSmallAngles(joint.velocity.words);
+    UpdateWorldTransform();
     BuildModelPose(*this);
-    linked = r_u32(object + 544u);
-    if (linked)
+    Swat *operator_actor = operator_object.Get();
+    if (operator_actor)
     {
-        if (r_u16(linked + 78u) & 64u)
+        if (operator_actor->lifecycle_flags & 64)
         {
-            flags = r_u32(object + 396u);
-            w_u32(object + 544u, 0u);
-            w_u32(object + 396u, flags & 0xFFFFFFDFu);
+            operator_object = 0;
+            control.flags &= 0xFFFFFFDF;
         }
         else
         {
-            xport_draft_host_sub_8007CC10_p1(position, object, 1u);
-            linked = r_u32(object + 544u);
-            w_u32(linked + 4u, position[0]);
-            w_u32(linked + 8u, position[1]);
-            w_u32(linked + 12u, position[2]);
-            linked = r_u32(object + 544u);
-            height = (uint32)(sint32)(sint16)r_u16(linked + 456u);
-            y = r_u32(linked + 8u);
-            w_u32(linked + 8u, y - (height << 12u));
-            yaw = r_u16(object + 526u);
-            base_yaw = this->model.angles[1];
-            linked = r_u32(object + 544u);
-            w_u16(linked + 18u, yaw + base_yaw);
+            GetModelAttachment(position.words, *this, 1);
+            operator_actor->model.pos.words[0] = position.words[0];
+            operator_actor->model.pos.words[1] = position.words[1];
+            operator_actor->model.pos.words[2] = position.words[2];
+            height = (uint32)(sint32)(sint16)operator_actor->ground_offset;
+            operator_actor->model.pos.words[1] -= height << 12;
+            yaw = joint.angles.words[1];
+            base_yaw = model.angles.words[1];
+            operator_actor->model.angles.words[1] = yaw + base_yaw;
         }
     }
-    if (!(sub_8004BDFC(object, 0u, 0u) & 0xFFFFu))
+    if (!(GetBehaviorValue(0, 0) & 0xFFFFu))
     {
-        if (r_u32(object + 552u))
+        if (weapon)
             Fire(0u);
-        return 0u;
+        return 0;
     }
-    if (!(r_u32(object + 396u) & 64u))
+    if (!(this->control.flags & 64u))
     {
-        timer = sub_8004BDFC(object, 0u, 3u) & 0xFFFFu;
+        timer = GetBehaviorValue(0, 3) & 0xFFFFu;
         if (!RandomRange(timer))
             Fire(1u);
-        return 0u;
+        return 0;
     }
-    weapon = r_u32(object + 552u);
     if (!weapon)
     {
-        weapon = sub_8002FED8(72u);
-        if (weapon)
-            weapon = sub_80024428(weapon, 0x800FF5A0u, 0x800FF4E8u);
-        w_u32(object + 552u, weapon);
-        damage = sub_8004BDFC(object, 0u, 1u) & 0xFFFFu;
-        weapon = r_u32(object + 552u);
-        /* The original writes through address 0x28 even when allocation returned0 */
-        w_u32(weapon + 40u, damage);
-        weapon = r_u32(object + 552u);
+        GameHeapBlock *allocation = AllocateZeroedHeapBlock(72);
+        if (allocation)
+        {
+            weapon = new (allocation) Flamethrower(&visual_lists.players, &visual_lists.actors);
+        }
+        damage = GetBehaviorValue(0, 1) & 0xFFFF;
         if (!weapon)
-            return 0u;
+        {
+            GameDiagnostic("Turret flamethrower allocation failed\n");
+            abort();
+        }
+        weapon->damage = damage;
     }
     Fire(1u);
     // The legacy behavior caller discards the original return carrier
-    return 0u;
+    return 0;
 }
 
 uint32 Turret::DetachAndDestroy()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 flags, receiver;
     FUNCTION_MARKER(0x80058814, "SLUS_003.73");
-    flags = r_u32(object + 396);
-    w_u32(object + 544, 0);
-    w_u32(object + 396, flags & 0xFFFFFFDF);
-    receiver = object;
-    return ApplyObjectDamage(receiver, 10000, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+    operator_object = 0;
+    control.flags &= 0xFFFFFFDF;
+    return Damage(10000, zero_vector.components, 0);
 }
 
 void Turret::Fire(uint32 fire)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 position[3], pitch, yaw, base_yaw, weapon, table, receiver, target;
-    uint32 child, speed, damage, random;
-    uint16 angles[3];
-    FUNCTION_MARKER(0x80058868u, "SLUS_003.73");
-    yaw = r_u16(object + 526u);
-    base_yaw = this->model.angles[1];
-    pitch = r_u16(object + 524u);
-    angles[0] = (uint16)pitch;
-    angles[1] = (uint16)(yaw + base_yaw);
-    angles[2] = 0u;
-    xport_draft_host_sub_8007CC10_p1(position, object, 2u);
-    weapon = r_u32(object + 552u);
+    uint32 pitch, yaw, base_yaw;
+    Vector3 position;
+    GameHeapBlock *child;
+    uint32 speed;
+    uint32 damage;
+    uint32 random;
+    ShortVector3 angles;
+    FUNCTION_MARKER(0x80058868, "SLUS_003.73");
+    yaw = joint.angles.words[1];
+    base_yaw = this->model.angles.words[1];
+    pitch = joint.angles.words[0];
+    angles.words[0] = (uint16)pitch;
+    angles.words[1] = (uint16)(yaw + base_yaw);
+    angles.words[2] = 0;
+    GetModelAttachment(position.words, *this, 2u);
     if (weapon)
     {
-        table = r_u32(weapon);
-        receiver = weapon + (uint32)(sint32)(sint16)r_u16(table + (fire ? 16u : 24u));
-        target = r_u32(table + (fire ? 20u : 28u));
-        if (fire && target == 0x80024598u)
-            (void)apocalypse_beam_24598_native(receiver, position, angles);
-        else if (!fire && target == 0x80024FDCu)
-            sub_80024FDC(receiver);
+        if (fire)
+            weapon->Fire(position.words, angles.components);
         else
-        {
-            /* TODO Audit additional class206 weapon callbacks before routing them */
-            GameDiagnostic("Unsupported class206 weapon callback %08X\n", target);
-            abort();
-        }
+            weapon->Update(0, 0);
         return;
     }
     if (!fire)
         return;
-    child = sub_80032DC0(268u);
+    child = AllocateEffectStorage(268);
     if (child)
     {
-        speed = sub_8004BDFC(object, 0u, 2u) & 0xFFFFu;
-        damage = sub_8004BDFC(object, 0u, 1u) & 0xFFFFu;
-        apocalypse_line_projectile_native(child, position, angles, speed, damage,
-            0x800FF5A0u, 255u, 64u, 0u, 1u);
+        speed = GetBehaviorValue(0, 2) & 0xFFFFu;
+        damage = GetBehaviorValue(0, 1) & 0xFFFFu;
+        new (child) LineProjectile(position.words, angles.components, speed, damage, &visual_lists.players, 255, 64, 0, 1);
     }
-    random = RandomRange(3u);
-    xport_draft_host_sub_8001D320_p1(position, 32u, 240u, 64u, 64u, random + 5u, 1u, 32u);
-    sub_80069EF4(20u, object + 4u, 0u);
+    random = RandomRange(3);
+    SpawnExplosionRing(position.words, 32, 240, 64, 64, random + 5, 1, 32);
+    PlayPositionedSound(20, model.pos.words, 0);
 }
 
 uint32 Turret::Damage(uint32 damage, const sint32 *, uint32)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 tick, health, remaining, player, flags, node, table, receiver, target;
-    uint32 position[3], random, name, key, bank, yaw, chained_damage;
+    uint32 tick, health, remaining, flags;
+    ModelInstance *player, *node;
+    uint32 random, key, bank, yaw, chained_damage;
+    Vector3 position;
     sint32 signed_health;
     FUNCTION_MARKER(0x80058A14, "SLUS_003.73");
-    tick = r_u8(object + 383);
-    w_u8(object + 383, tick + 1);
-    signed_health = (sint16)r_u16(object + 218);
-    health = r_u16(object + 218);
+    tick = (uint32)this->control.damage_phase;
+    this->control.damage_phase = tick + 1;
+    signed_health = this->health;
+    health = (uint16)this->health;
     remaining = health - damage;
     if (signed_health <= 0)
         return 1;
-    w_u16(object + 218, remaining);
+    this->health = (sint16)(uint16)(remaining);
     if ((sint16)(uint16)remaining > 0)
     {
         SetColor(3, 255, 255, 255);
         return 1;
     }
-    if (r_u16(object + 390))
+    if ((uint32)this->control.variant)
     {
         player = visual_lists.players;
         if (player)
-            TryPlayPlayerKillQuote((const uint32 *)psx_addr(player + 4, 12));
+            TryPlayPlayerKillQuote(player->pos.words);
     }
-    position[0] = this->model.pos[0];
-    position[1] = this->model.pos[1];
-    position[2] = this->model.pos[2];
-    position[1] += 0x80000;
+    position = this->model.pos;
+    position.words[1] += 0x80000;
     random = RandomRange(2);
-    PlayPositionedSound(random ? 1 : 2, (const uint32 *)this->model.pos, 0);
-    SpawnExplosionRing((const uint32 *)this->model.pos, 300, 240, 160, 40, 5, 0, 100);
-    SpawnFireCycle(position, 120, 0, 2);
-    flags = r_u32(object + 396);
+    PlayPositionedSound(random ? 1 : 2, this->model.pos.words, 0);
+    SpawnExplosionRing(this->model.pos.words, 300, 240, 160, 40, 5, 0, 100);
+    SpawnFireCycle(position.words, 120, 0, 2);
+    flags = this->control.flags;
     node = visual_lists.actors;
-    w_u32(object + 396, flags | 32);
+    this->control.flags = flags | 32;
     while (node)
     {
-        if (r_u16(node + 58) == 200 && r_u32(node + 616) == object)
+        if (static_cast<VisualObject *>(node->owner)->kind == 200 && static_cast<Swat *>(node->owner)->mounted_object.GetObject() == &model)
         {
-            if (!sub_80062F48(node))
+            if (!static_cast<VisualObject *>(node->owner)->IsFinished())
             {
-                chained_damage = (uint32)(sint32)(sint16)r_u16(node + 218) << 1;
-                receiver = node;
-                ApplyObjectDamage(receiver, chained_damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+                chained_damage = (uint32)(sint32) static_cast<VisualObject *>(node->owner)->health << 1;
+                static_cast<VisualObject *>(node->owner)->Damage(chained_damage, zero_vector.components, 0);
             }
             break;
         }
-        node = r_u32(node + 28);
+        node = node->next;
     }
-    if (r_u32(object + 480))
+    if (ai.script_data)
     {
         flags = this->lifecycle_flags;
-        w_u16(object + 212, 0);
-        w_u8(object + 380, 0);
+        this->collision_radius = 0;
+        this->control.script_active = 0;
         this->lifecycle_flags = flags & 0xFFEF;
         ReleaseResources();
-        name = r_u32(0x800FF62C);
-        w_u16(object + 472, 2);
-        w_u16(object + 474, 0);
-        SetModelBank((const char *)psx_addr(name, 1));
-        key = r_u32(object + 480);
-        bank = r_u8(0x800FF644);
+        ai.state = 2;
+        ai.phase = 0;
+        SetModelBank(GetRecordModelBankName());
+        key = ai.script_data;
+        bank = GetRecordModelBankSlot();
         this->model.model_idx = FindModelResourceIndex(key, bank);
         flags = this->model.flags;
-        yaw = r_u16(object + 526);
+        yaw = joint.angles.words[1];
         this->model.flags = flags & 0xFFF9;
-        this->model.angles[1] = yaw;
+        this->model.angles.words[1] = yaw;
     }
     else
     {
-        table = r_u32(object + 68);
-        receiver = object + (uint32)(sint32)(sint16)r_u16(table + 16);
-        target = r_u32(table + 20);
-        apocalypse_object_virtual20(target, receiver);
+        Finish();
     }
     return 1;
 }
 
 uint32 Turret::UpdateState()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 state, phase, flags, player, result;
-    FUNCTION_MARKER(0x80058C80u, "SLUS_003.73");
-    state = r_u16(object + 472u);
+    uint32 state, phase, flags, result;
+    ModelInstance *player;
+    FUNCTION_MARKER(0x80058C80, "SLUS_003.73");
+    state = ai.state;
     if (state == 1u)
     {
-        phase = r_u16(object + 474u);
+        phase = ai.phase;
         if (phase)
             return phase;
         player = visual_lists.players;
         if (player)
         {
-            SetTargetObject(player);
-            return sub_8004BDCC(object, 0u, 0u, 1u);
+            SetTargetObject(visual_lists.players);
+            SetBehaviorValue(0, 0, 1);
+            return 0;
         }
         ClearTarget();
-        return sub_8004BDCC(object, 0u, 0u, 0u);
+        SetBehaviorValue(0, 0, 0);
+        return 0;
     }
     if (state >= 2u)
-        return 0u;
-    phase = r_u16(object + 474u);
+        return 0;
+    phase = ai.phase;
     if (!phase)
     {
-        flags = r_u32(object + 396u) & 32u;
+        flags = this->control.flags & 32u;
         if (flags)
-            w_u16(object + 474u, 1u);
+            ai.phase = 1;
         return flags;
     }
     if (phase != 1u)
         return phase;
-    flags = r_u32(object + 396u) & 32u;
+    flags = this->control.flags & 32u;
     if (flags)
     {
         player = visual_lists.players;
-        SetTargetObject(player);
-        return sub_8004BDCC(object, 0u, 0u, 1u);
+        SetTargetObject(visual_lists.players);
+        SetBehaviorValue(0, 0, 1);
+        return 0;
     }
     ClearTarget();
-    result = sub_8004BDCC(object, 0u, 0u, 0u);
-    w_u16(object + 474u, 0u);
+    SetBehaviorValue(0, 0, 0);
+    result = 0;
+    ai.phase = 0;
     return result;
 }
 
 uint32 Turret::ExecuteCommand(uint32 command)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 cursor, value, table, receiver, target;
-    FUNCTION_MARKER(0x80058DB8u, "SLUS_003.73");
+    RecordDataBorrow record_borrow;
+    uint32 value;
+    RecordCursor cursor;
+    FUNCTION_MARKER(0x80058DB8, "SLUS_003.73");
     command &= 0xFFFFu;
     switch (command)
     {
-        case 0x4206u:
-            cursor = r_u32(object + 400u);
-            value = r_u16(cursor);
-            w_u32(object + 400u, cursor + 2u);
+        case 0x4206:
+            cursor = script_cursor;
+            value = cursor.Read16();
+            script_cursor = cursor + 2u;
             SetMode(value);
-            return 1u;
-        case 0x4262u:
-            cursor = r_u32(object + 400u);
-            value = r_u16(cursor);
-            w_u32(object + 400u, cursor + 2u);
+            return 1;
+        case 0x4262:
+            cursor = script_cursor;
+            value = cursor.Read16();
+            script_cursor = cursor + 2u;
             if (!value)
                 Fire(1u);
-            return 1u;
-        case 0x4406u:
-            cursor = r_u32(object + 400u);
-            value = r_u16(cursor);
-            w_u32(object + 400u, cursor + 2u);
+            return 1;
+        case 0x4406:
+            cursor = script_cursor;
+            value = cursor.Read16();
+            script_cursor = cursor + 2u;
             if (value)
                 SetTargetObject(visual_lists.players);
             else
                 ClearTarget();
-            return 1u;
-        case 0x4407u:
-            cursor = r_u32(object + 400u);
-            value = r_u16(cursor);
-            w_u32(object + 400u, cursor + 2u);
+            return 1;
+        case 0x4407:
+            cursor = script_cursor;
+            value = cursor.Read16();
+            script_cursor = cursor + 2u;
             if (!value)
             {
                 ClearTarget();
-                return 1u;
+                return 1;
             }
             if (value & 0x2000u)
             {
-                table = r_u32(object + 68u);
-                receiver = object + (uint32)(sint32)(sint16)r_u16(table + 80u);
-                target = r_u32(table + 84u);
-                value = DispatchObjectParameterGetter(target, receiver, value);
+                value = ResolveParameter(value);
             }
             SetTargetRecord(value & 0xFFFFu);
-            return 1u;
+            return 1;
         default:
             return Enemy::ExecuteCommand(command);
     }
@@ -538,118 +516,54 @@ uint32 Turret::ExecuteCommand(uint32 command)
 
 void Turret::Aim()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 position[3], current_xy, current_z, desired_xy, scale, joint, value;
-    uint16 angles[3];
-    FUNCTION_MARKER(0x80058F24u, "SLUS_003.73");
-    xport_draft_host_sub_8007CC10_p1(position, object, 0u);
-    xport_draft_host_sub_80066B8C_p12(angles, position, object + 500u);
-    angles[1] = (uint16)((angles[1] - this->model.angles[1]) & 4095u);
-    current_xy = r_u32(object + 524u);
-    current_z = r_u16(object + 528u);
-    desired_xy = (uint32)angles[0] | ((uint32)angles[1] << 16u);
-    scale = r_u16(object + 438u);
-    sub_80066CF0(current_xy, current_z, object + 530u, object + 536u,
-        desired_xy, angles[2], scale);
-    joint = r_u16(object + 496u);
-    value = r_u16(object + 526u);
-    GetModelJointAngles(joint).rotation[1] = (uint16)value;
-    joint = r_u16(object + 498u);
-    value = r_u16(object + 524u);
-    GetModelJointAngles(joint).rotation[0] = (uint16)value;
+    FUNCTION_MARKER(0x80058F24, "SLUS_003.73");
+    Vector3 pos;
+    ShortVector3 desired;
+    GetModelAttachment(pos.words, *this, 0);
+    CalculateDirectionAngles(desired.words, pos.words, aim_pos.words);
+    desired.words[1] = (desired.words[1] - model.angles.words[1]) & 4095;
+    UpdateAngleAcceleration(joint.angles, joint.velocity, joint.acceleration, desired, ai.parameters[1]);
+    GetModelJointAngles(aim_bones[0]).rotation.words[1] = joint.angles.words[1];
+    GetModelJointAngles(aim_bones[1]).rotation.words[0] = joint.angles.words[0];
 }
 
 uint32 Turret::SetTargetRecord(uint32 index)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
+    RecordDataBorrow record_borrow;
     uint32 flags;
-    FUNCTION_MARKER(0x80059010u, "SLUS_003.73");
-    sub_8006613C(object + 500u, index & 0xFFFFu);
-    flags = r_u32(object + 396u) | 4u;
-    w_u32(object + 396u, flags);
+    FUNCTION_MARKER(0x80059010, "SLUS_003.73");
+    ReadRecordPosition(this->aim_pos.words, index & 0xFFFFu);
+    flags = this->control.flags | 4u;
+    this->control.flags = flags;
     return flags;
 }
 
-uint32 Turret::SetTargetObject(uint32 target)
+uint32 Turret::SetTargetObject(ModelInstance *target)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 result = sub_80062F48(target);
-    FUNCTION_MARKER(0x8005907Cu, "SLUS_003.73");
-    if (!result)
-    {
-        result = r_u32(object + 396u);
-        w_u32(object + 548u, target);
-        result |= 16u;
-        w_u32(object + 396u, result);
-    }
+    FUNCTION_MARKER(0x8005907C, "SLUS_003.73");
+    uint32 result = static_cast<VisualObject *>(target->owner)->IsFinished();
+    if (result)
+        return result;
+    tracked_target.SetObject(target);
+    result = control.flags | 16;
+    control.flags = result;
     return result;
 }
 
 uint32 Turret::ClearTarget()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 flags = r_u32(object + 396u) & 0xFFFFFFE3u;
-    FUNCTION_MARKER(0x800590C8u, "SLUS_003.73");
-    w_u32(object + 396u, flags);
+    uint32 flags = this->control.flags & 0xFFFFFFE3;
+    FUNCTION_MARKER(0x800590C8, "SLUS_003.73");
+    this->control.flags = flags;
     return flags;
 }
 
-Turret &Turret::Attach(uint32 object)
+uint32 Turret::AttachOperator(Swat *operator_actor)
 {
-    return *static_cast<Turret *>(FindNativeObjectStorage(object));
-}
-
-// Compatibility entry points retain the guest call contract
-uint32 sub_80057FAC(uint32 object, uint32 data, uint32 index)
-{
-    FUNCTION_MARKER(0x80057FAC, "SLUS_003.73");
-    void *native_instance_storage = AllocateNativeObjectStorage(object, sizeof(Turret));
-    new (native_instance_storage) Turret((const uint8 *)psx_addr(data, 1), index);
-    return object;
-}
-
-uint32 sub_800583A8(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x800583A8, "SLUS_003.73");
-    return Turret::Attach(object).Turret::Destroy(reason);
-}
-
-
-
-void sub_8005848C(uint32 object)
-{
-    FUNCTION_MARKER(0x8005848C, "SLUS_003.73");
-    Turret::Attach(object).Turret::Update();
-}
-
-uint32 sub_80058814(uint32 object)
-{
-    FUNCTION_MARKER(0x80058814, "SLUS_003.73");
-    return Turret::Attach(object).DetachAndDestroy();
-}
-
-uint32 sub_80058A14(uint32 object, uint32 damage)
-{
-    FUNCTION_MARKER(0x80058A14, "SLUS_003.73");
-    return Turret::Attach(object).Turret::Damage(damage, 0, 0);
-}
-
-uint32 sub_80058DB8(uint32 object, uint32 command)
-{
-    FUNCTION_MARKER(0x80058DB8, "SLUS_003.73");
-    return Turret::Attach(object).Turret::ExecuteCommand(command);
-}
-
-uint32 Turret::AttachOperator(uint32 operator_object)
-{
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800587E8, "SLUS_003.73");
-    if (r_u32(object + 544))
+    if (operator_object)
         return 0;
-    uint32 flags = r_u32(object + 396);
-    w_u32(object + 544, operator_object);
-    w_u32(object + 396, flags | 32);
+    operator_object = operator_actor;
+    control.flags |= 32;
     return 1;
 }
-
-

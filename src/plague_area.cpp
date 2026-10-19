@@ -1,71 +1,70 @@
+#include <new>
+
+#include "game_heap.h"
+#include "object_initializers.h"
 #include "visual_object.h"
 #include "plague_area.h"
-#include "native_object_storage.h"
 #include "effect_lifecycle.h"
 #include "vector_distance.h"
 #include "object_damage.h"
 #include "game_random.h"
 #include "panel_particle.h"
-#include <new>
 
 // Recovered inline base construction and table assignment at 800464EC..80046504
-PlagueArea::PlagueArea() : TexturedQuad()
+PlagueArea::PlagueArea() : TexturedQuad(), age(0), lifetime(0), radius(0)
 {
-    w_u32(NativeObjectGuestAddress(this) + 68, 0x800A2514);
-}
-
-PlagueArea &PlagueArea::Attach(uint32 object)
-{
-    return *static_cast<PlagueArea *>(FindNativeObjectStorage(object));
+    center.x = center.y = center.z = 0;
 }
 
 uint32 PlagueArea::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80047A54, "SLUS_003.73");
     uint32 result = TexturedQuad::Destroy(0);
     if (reason & 1)
-        return ReleaseEffectStorage(object);
+        return ReleaseEffectStorage(this);
     return result;
 }
 
 void PlagueArea::Update()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 age, player, distance, radius, lifetime, count, random, child;
-    uint32 position[3];
-    sint16 direction[3];
+    uint32 age;
+    uint32 distance;
+    uint32 radius;
+    uint32 lifetime;
+    uint32 count;
+    uint32 random;
+    GameHeapBlock *child;
+    ModelInstance *player;
+    Vector3 position;
+    ShortVector3 direction;
     FUNCTION_MARKER(0x80047844, "SLUS_003.73");
-    age = r_u16(object + 8);
+    age = this->age;
     player = visual_lists.players;
-    w_u16(object + 8, age + 1);
+    this->age = age + 1;
     if (player)
     {
-        distance = MeasureHorizontalDistance((const uint32 *)psx_addr(object + 156, 12), (const uint32 *)psx_addr(player + 4, 12));
-        radius = r_u32(object + 168);
+        distance = MeasureHorizontalDistance(center.words, player->pos.words);
+        radius = this->radius;
         radius = (uint32)((sint32)(radius << 7) >> 7);
         if (distance < radius)
         {
             player = visual_lists.players;
-            if (r_u16(player + 216) & 2)
-                ApplyObjectDamage(player, 1, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
+            if (static_cast<VisualObject *>(player->owner)->contact_flags & 2)
+                static_cast<VisualObject *>(player->owner)->Damage(1, zero_vector.components, 0);
         }
     }
-    age = (uint32)(sint32)(sint16)r_u16(object + 8);
+    age = (uint32)(sint32)(sint16)this->age;
     if ((sint32)age < 38)
     {
-        radius = r_u32(object + 168);
-        w_u32(object + 168, radius + 4);
-        direction[2] = 0;
-        direction[0] = 0;
-        direction[1] = -4096;
-        radius = r_u32(object + 168);
-        uint32 second_scale = radius;
-        uint32 first_scale = r_u32(object + 168);
-        SetPosition((const uint32 *)psx_addr(object + 156, 12), direction, first_scale, second_scale);
+        radius = this->radius;
+        this->radius = radius + 4;
+        direction.components[2] = 0;
+        direction.components[0] = 0;
+        direction.components[1] = -4096;
+        SetPosition(center.words, direction.components, this->radius, this->radius);
     }
-    age = (uint32)(sint32)(sint16)r_u16(object + 8);
-    lifetime = r_u16(object + 10);
+    age = (uint32)(sint32)(sint16)this->age;
+    lifetime = this->lifetime;
     if ((sint32)age >= (sint32)lifetime)
     {
         Finish();
@@ -73,50 +72,34 @@ void PlagueArea::Update()
     }
     if ((sint32)age >= (sint32)(lifetime - 30))
     {
-        radius = r_u32(object + 168);
+        radius = this->radius;
         if ((sint32)radius < 9)
         {
             Finish();
             return;
         }
-        w_u32(object + 168, radius - 6);
-        direction[2] = 0;
-        direction[0] = 0;
-        direction[1] = -4096;
-        radius = r_u32(object + 168);
-        uint32 second_scale = radius;
-        uint32 first_scale = r_u32(object + 168);
-        SetPosition((const uint32 *)psx_addr(object + 156, 12), direction, first_scale, second_scale);
+        this->radius = radius - 6;
+        direction.components[2] = 0;
+        direction.components[0] = 0;
+        direction.components[1] = -4096;
+        SetPosition(center.words, direction.components, this->radius, this->radius);
         return;
     }
     count = RandomRange(3);
     while (count)
     {
-        position[0] = r_u32(object + 156);
-        position[1] = r_u32(object + 160);
-        position[2] = r_u32(object + 164);
+        position.words[0] = center.x;
+        position.words[1] = center.y;
+        position.words[2] = center.z;
         random = RandomRange(140);
-        position[0] += (random - 70) << 12;
+        position.words[0] += (random - 70) << 12;
         random = RandomRange(140);
-        position[2] += (random - 70) << 12;
+        position.words[2] += (random - 70) << 12;
         child = AllocateEffectStorage(116);
         if (child)
         {
-            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(PanelParticle));
-            new (dram_addr) PanelParticle(position);
+            new (child) PanelParticle(position.words);
         }
         count -= 1;
     }
-}
-
-extern "C" uint32 sub_80047A54(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x80047A54, "SLUS_003.73");
-    return PlagueArea::Attach(object).PlagueArea::Destroy(reason);
-}
-
-extern "C" void sub_80047844(uint32 object)
-{
-    FUNCTION_MARKER(0x80047844, "SLUS_003.73");
-    PlagueArea::Attach(object).PlagueArea::Update();
 }

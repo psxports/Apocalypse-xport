@@ -1,35 +1,17 @@
 APP_SOURCES := \
 	../../game_main.cpp \
-	../../game_pad_serial.cpp \
-	../../game_sequence_timer.cpp \
 	../../scene_effect_packets.cpp \
-	../../object_callbacks.cpp \
 	../../death_effects.cpp \
 	../../plague_area.cpp \
 	../../game_boot.cpp \
-	../../game_draft_adapters.cpp \
+	../../geometry_commands.cpp \
 	../../game_graphics_init.cpp \
-	../../game_sdk_failures.cpp \
-	../../game_sdk_diagnostics.cpp \
-	../../game_startup_adapters.cpp \
-	../../game_bios_bootstrap.cpp \
-	../../game_pad_startup.cpp \
-	../../game_sound_tick_startup.cpp \
-	../../game_spu_startup.cpp \
-	../../game_cd_startup.cpp \
-	../../game_cd_mix.cpp \
-	../../game_video_adapters.cpp \
+	../../game_diagnostics.cpp \
+	../../movie_stream.cpp \
 	../../game_image_resource.cpp \
 	../../game_pad_poll.cpp \
 	../../game_gpu_present.cpp \
 	../../menu_lifecycle.cpp \
-	../../game_sound_voice.cpp \
-	../../game_sound_pitch.cpp \
-	../../game_sound_queue.cpp \
-	../../game_sequence_open.cpp \
-	../../game_sequence_controls.cpp \
-	../../game_sequence_tick.cpp \
-	../../object_parameters.cpp \
 	../../object_initializers.cpp \
 	../../spiral_ray_weapon.cpp \
 	../../machine_gun.cpp \
@@ -46,7 +28,6 @@ APP_SOURCES := \
 	../../items.cpp \
 	../../hovr_swat.cpp \
 	../../swat.cpp \
-	../../model_deformation.cpp \
 	../../enemy_list.cpp \
 	../../expanding_ring.cpp \
 	../../point_segments.cpp \
@@ -59,7 +40,6 @@ APP_SOURCES := \
 	../../projectile_ballistic.cpp \
 	../../projectile_base.cpp \
 	../../projectile_weaving.cpp \
-	../../projectile_trace.cpp \
 	../../projectile_line.cpp \
 	../../projectile_launch.cpp \
 	../../effect_launch_explosion.cpp \
@@ -84,7 +64,7 @@ APP_SOURCES := \
 	../../war_effects.cpp \
 	../../ribbon_segments.cpp \
 	../../beam_endpoint.cpp \
-	../../native_object_storage.cpp \
+	../../object.cpp \
 	../../particle_debris.cpp \
 	../../model_animation.cpp \
 	../../model_pose.cpp \
@@ -98,9 +78,9 @@ APP_SOURCES := \
 	../../object_force.cpp \
 	../../object_fragments.cpp \
 	../../object_damage.cpp \
-	../../object_cleanup.cpp \
-	../../object_collision_events.cpp \
+	../../collision.cpp \
 	../../pickup_effects.cpp \
+	../../model_matrix.cpp \
 	../../model_projection.cpp \
 	../../main_menu.cpp \
 	../../model_render_view.cpp \
@@ -170,6 +150,7 @@ APP_SOURCES := \
 	../../particle_settings.cpp \
 	../../player_save_state.cpp \
 	../../game_settings.cpp \
+	../../game_tuning.cpp \
 	../../level_session.cpp \
 	../../record_commands.cpp \
 	../../plague_ground_effects.cpp \
@@ -197,5 +178,4 @@ APP_SOURCES := \
 	../../orbit_camera.cpp \
 	../../visual_object.cpp \
 	../../character.cpp \
-	../../object_storage.cpp \
 	../../effect_object.cpp

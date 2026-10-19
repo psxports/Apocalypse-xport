@@ -2,12 +2,11 @@
 #define HOUND_RAT_H
 #include "enemy.h"
 
-// Hound and rat resources use the same guest object methods
+// Hound and rat resources share movement and behavior methods
 class HoundRat : public Enemy
 {
 public:
-    HoundRat(const uint8 *record_data, uint32 index, uint32 mode);
-    static HoundRat &Attach(uint32 object);
+    HoundRat(const RecordCursor &record_data, uint32 index, uint32 mode);
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Update();
     virtual uint32 ExecuteCommand(uint32 command);
@@ -18,8 +17,7 @@ public:
 private:
     uint32 Init();
     // Native extraction of the original adjusted slot16 call
-    void FinishFromTable();
-    void Orbit(uint32 point[3], uint32 angle, uint32 reload_angle);
+    void Orbit(Vector3 &point, uint32 angle, uint32 reload_angle);
 };
 
 #endif

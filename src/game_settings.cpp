@@ -1,119 +1,98 @@
-extern "C"
-{
-#include "draft_first_signatures.h"
-}
-#include "game_settings.h"
-#include "native_object_storage.h"
+#include <stdlib.h>
 #include <string.h>
 
-static void StoreSettingsWord(uint8 *record, uint32 mapped, uint32 offset, uint32 value)
+#include "game_pad_poll.h"
+#include "game_diagnostics.h"
+#include "game_settings.h"
+
+GameSettings game_settings;
+
+void ResetGameSettings()
 {
-    if (mapped)
-        w_u32(mapped + offset, value);
-    else
-        memcpy(record + offset, &value, 4);
+    game_settings = GameSettings();
 }
 
-static void StoreSettingsByte(uint8 *record, uint32 mapped, uint32 offset, uint8 value)
+void DecodeGamePreferences(const uint8 *data, uint32 bytes)
 {
-    if (mapped)
-        w_u8(mapped + offset, value);
-    else
-        record[offset] = value;
+    if (!data || bytes < 10)
+    {
+        GameDiagnostic("Truncated game preferences\n");
+        abort();
+    }
+    game_settings.music_volume = xport_load_le16(data + 4);
+    game_settings.effects_volume = xport_load_le16(data + 6);
+    game_settings.voice_volume = xport_load_le16(data + 8);
 }
 
-static uint32 ReadSettingsWord(const uint8 *record, uint32 mapped, uint32 offset)
+ControlBindings::ControlBindings()
 {
-    uint32 value;
-    if (mapped)
-        return r_u32(mapped + offset);
-    memcpy(&value, record + offset, 4);
-    return value;
+    for (uint32 index = 0; index < 4; ++index)
+        digital[index] = analog[index] = 0;
 }
 
-static uint16 ReadSettingsHalf(const uint8 *record, uint32 mapped, uint32 offset)
+void RestoreDefaultControlBindings()
 {
-    uint16 value;
-    if (mapped)
-        return r_u16(mapped + offset);
-    memcpy(&value, record + offset, 2);
-    return value;
+    static const uint8 defaults[4] = {1, 4, 8, 2};
+    for (uint32 index = 0; index < 4; ++index)
+        game_settings.bindings.digital[(index + 3) & 3] = defaults[index];
+    for (uint32 index = 0; index < 4; ++index)
+        game_settings.bindings.analog[(index + 3) & 3] = defaults[index];
 }
 
-static uint8 ReadSettingsByte(const uint8 *record, uint32 mapped, uint32 offset)
+void DecodeControlBindings(const uint8 *data, uint32 bytes)
 {
-    return mapped ? r_u8(mapped + offset) : record[offset];
+    if (!data || bytes < 40)
+    {
+        GameDiagnostic("Truncated controller bindings\n");
+        abort();
+    }
+    for (uint32 index = 0; index < 4; ++index)
+    {
+        game_settings.bindings.digital[index] = (sint16)xport_load_le16(data + index * 2);
+        game_settings.bindings.analog[index] = (sint16)xport_load_le16(data + 32 + index * 2);
+    }
 }
 
-static const uint32 settings_byte_globals[8] =
+uint32 SaveGameSettings(SavedGameSettings &record)
 {
-    0x800EC47A, 0x800EC474, 0x800EC476, 0x800EC478,
-    0x800EC49A, 0x800EC494, 0x800EC496, 0x800EC498
-};
-
-uint32 SaveGameSettings(uint8 *record)
-{
-    uint32 mapped, value, index;
+    uint32 value, index;
     FUNCTION_MARKER(0x80015F7C, "SLUS_003.73");
-    mapped = GuestMemoryAddress(record);
-    value = r_u32(0x800FF384);
-    StoreSettingsWord(record, mapped, 0, value);
-    value = (uint32)(sint32)(sint16)r_u16(0x800ECC7A);
-    StoreSettingsWord(record, mapped, 4, value);
-    value = (uint32)(sint32)(sint16)r_u16(0x800ECC78);
-    StoreSettingsWord(record, mapped, 8, value);
-    value = (uint32)(sint32)(sint16)r_u16(0x800ECC7C);
-    StoreSettingsWord(record, mapped, 12, value);
+    value = game_settings.difficulty;
+    record.difficulty = value;
+    value = (uint32)(sint32)(sint16)game_settings.effects_volume;
+    record.effects_volume = value;
+    value = (uint32)(sint32)(sint16)game_settings.music_volume;
+    record.music_volume = value;
+    value = (uint32)(sint32)(sint16)game_settings.voice_volume;
+    record.voice_volume = value;
     for (index = 0; index < 8; ++index)
     {
-        value = r_u8(settings_byte_globals[index]);
-        StoreSettingsByte(record, mapped, 16 + index, (uint8)value);
+        value = (uint8)(index < 4 ? game_settings.bindings.digital[(index + 3) & 3] : game_settings.bindings.analog[(index + 3) & 3]);
+        record.bindings[index] = value;
     }
     return value;
 }
 
-uint32 RestoreGameSettings(const uint8 *record)
+uint32 RestoreGameSettings(const SavedGameSettings &record)
 {
-    uint32 mapped, flags, value, height, x, y, width, index;
-    uint32 clip_x, clip_y, clip_width, clip_height;
+    uint32 difficulty, value, index;
     FUNCTION_MARKER(0x80016014, "SLUS_003.73");
-    mapped = GuestMemoryAddress(record);
-    flags = ReadSettingsWord(record, mapped, 0);
-    value = ReadSettingsHalf(record, mapped, 4);
-    w_u16(0x800ECC7A, value);
-    value = ReadSettingsHalf(record, mapped, 8);
-    w_u16(0x800ECC78, value);
-    value = ReadSettingsHalf(record, mapped, 12);
-    w_u32(0x800FF384, flags);
-    w_u16(0x800ECC7C, value);
-    height = ReadSettingsByte(record, mapped, 16);
-    w_u16(0x800EC47A, height);
-    x = ReadSettingsByte(record, mapped, 17);
-    w_u16(0x800EC474, x);
-    y = ReadSettingsByte(record, mapped, 18);
-    w_u16(0x800EC476, y);
-    width = ReadSettingsByte(record, mapped, 19);
-    w_u16(0x800EC478, width);
-    for (index = 4; index < 8; ++index)
+    difficulty = record.difficulty;
+    value = (uint16)record.effects_volume;
+    game_settings.effects_volume = value;
+    value = (uint16)record.music_volume;
+    game_settings.music_volume = value;
+    value = (uint16)record.voice_volume;
+    game_settings.difficulty = difficulty;
+    game_settings.voice_volume = value;
+    for (index = 0; index < 8; ++index)
     {
-        value = ReadSettingsByte(record, mapped, 16 + index);
-        w_u16(settings_byte_globals[index], value);
+        value = record.bindings[index];
+        if (index < 4)
+            game_settings.bindings.digital[(index + 3) & 3] = value;
+        else
+            game_settings.bindings.analog[(index + 3) & 3] = value;
     }
-    sub_8006FDFC(0x800EC0F8, x, y, width, height);
-    clip_x = (uint32)(sint32)(sint16)r_u16(0x800EC494);
-    clip_y = (uint32)(sint32)(sint16)r_u16(0x800EC496);
-    clip_width = (uint32)(sint32)(sint16)r_u16(0x800EC498);
-    clip_height = (uint32)(sint32)(sint16)r_u16(0x800EC49A);
-    return sub_8006FE14(0x800EC0F8, 3, 2, 1, 0, clip_x, clip_y, clip_width, clip_height);
-}
-
-extern "C" uint32 sub_80015F7C(uint32 record)
-{
-    FUNCTION_MARKER(0x80015F7C, "SLUS_003.73");
-    return SaveGameSettings((uint8 *)psx_addr(record, 24));
-}
-extern "C" uint32 sub_80016014(uint32 record)
-{
-    FUNCTION_MARKER(0x80016014, "SLUS_003.73");
-    return RestoreGameSettings((const uint8 *)psx_addr(record, 24));
+    game_pads[0].SetButtonMasks(game_settings.bindings.digital[0], game_settings.bindings.digital[1], game_settings.bindings.digital[2], game_settings.bindings.digital[3]);
+    return game_pads[0].SetAxes(3, 2, 1, 0, game_settings.bindings.analog[0], game_settings.bindings.analog[1], game_settings.bindings.analog[2], game_settings.bindings.analog[3]);
 }

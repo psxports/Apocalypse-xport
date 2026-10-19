@@ -1,243 +1,181 @@
+#include <new>
+#include <string.h>
+#include <stdlib.h>
+
+#include "game_heap.h"
+#include "object_initializers.h"
+
 #include "visual_object.h"
 #include "object_damage.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
 #include "beam_barrier.h"
 #include "game_object_allocation.h"
-#include "object_collision_events.h"
+#include "collision.h"
 #include "particle_settings.h"
 #include "effect_lifecycle.h"
 #include "fading_particle.h"
 #include "player.h"
 #include "beam_endpoint.h"
-#include "native_object_storage.h"
-#include <new>
-#include <string.h>
-
-// Native input bridge preserves the original sequential record-word loads
-static uint32 ReadBeamBarrierWord(const uint32 *data, uint32 axis)
-{
-    uint32 address = GuestMemoryAddress(data), value;
-    if (address)
-        return r_u32(address + axis * 4);
-    memcpy(&value, (const uint8 *)data + axis * 4, 4);
-    return value;
-}
+#include "record_data.h"
+#include "vector_arithmetic.h"
+#include "vector_distance.h"
 
 void BeamBarrier::SetMode(uint32 mode)
 {
-    uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8001A144, "SLUS_003.73");
-    w_u32(object + 324, mode);
+    this->mode = mode;
 }
 
-uint32 BeamBarrier::Initialize(uint32 mode)
+void BeamBarrier::Initialize(uint32 mode)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 flags, secondary_flags, left, right, upper, value, effect, green, blue;
-    uint32 difference[3];
-    sint32 count;
     FUNCTION_MARKER(0x80019ED0, "SLUS_003.73");
-    flags = this->model.flags;
-    secondary_flags = this->lifecycle_flags;
-    this->model.flags = flags | 1;
-    this->lifecycle_flags = secondary_flags & 0xFFEF;
+    model.flags |= 1;
+    lifecycle_flags &= 0xFFEF;
     AddToList(visual_lists.actors);
-    left = this->model.pos[0];
-    right = r_u32(object + 296);
-    upper = right;
+    uint32 left = model.pos.words[0];
+    uint32 right = target.words[0];
     if ((sint32)left < (sint32)right)
-        w_u32(object + 308, left);
+    {
+        bounds[0] = left;
+        bounds[1] = right;
+    }
     else
     {
-        upper = this->model.pos[0];
-        w_u32(object + 308, right);
+        bounds[0] = right;
+        bounds[1] = model.pos.words[0];
     }
-    w_u32(object + 312, upper);
-    left = this->model.pos[2];
-    right = r_u32(object + 304);
-    upper = right;
+    left = model.pos.words[2];
+    right = target.words[2];
     if ((sint32)left < (sint32)right)
-        w_u32(object + 316, left);
+    {
+        bounds[2] = left;
+        bounds[3] = right;
+    }
     else
     {
-        upper = this->model.pos[2];
-        w_u32(object + 316, right);
+        bounds[2] = right;
+        bounds[3] = model.pos.words[2];
     }
-    w_u32(object + 320, upper);
-    value = r_u32(object + 308);
-    w_u32(object + 308, value - 0x100000);
-    left = r_u32(object + 312);
-    right = r_u32(object + 320);
-    w_u32(object + 312, left + 0x100000);
-    value = r_u32(object + 316);
-    w_u32(object + 320, right + 0x100000);
-    w_u32(object + 316, value - 0x100000);
-    xport_draft_host_sub_8006C3AC_p1(difference, object + 296, object + 4);
-    count = (sint32)xport_draft_host_sub_8006BF04_p1(difference) / 512;
+    bounds[0] -= 0x100000;
+    bounds[1] += 0x100000;
+    bounds[3] += 0x100000;
+    bounds[2] -= 0x100000;
+    Vector3 difference;
+    SubtractVectors(difference.words, target.words, model.pos.words);
+    sint32 count = (sint32)MeasureVectorLength(difference.words) / 512;
     if (count < 4)
         count = 4;
-    green = mode ? 32 : 128;
-    blue = mode ? 128 : 32;
-    effect = sub_80032DC0(164);
-    if (effect)
+    uint32 green = mode ? 32 : 128;
+    uint32 blue = mode ? 128 : 32;
+    GameHeapBlock *allocation = AllocateEffectStorage(164);
+    if (!allocation)
     {
-        void *dram_addr = AllocateNativeObjectStorage(effect, sizeof(EndpointBeam));
-        new (dram_addr) EndpointBeam(32, green, blue, (uint32)count, 700, 32, 48, 440, 110, 800, 147);
+        GameDiagnostic("Beam barrier effect allocation failed\n");
+        abort();
     }
-    w_u32(object + 328, effect);
-    EndpointBeam::Attach(effect).SetEndpoints((const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 296, 12));
-    w_u8(r_u32(object + 328) + 66, 1);
-    this->kind = 404;
+    effect = new (allocation) EndpointBeam(32, green, blue, count, 700, 32, 48, 440, 110, 800, 147);
+    effect->SetEndpoints(model.pos.words, target.words);
+    effect->persistent = 1;
+    kind = 404;
     SetMode(mode);
-    return 404;
 }
 
-BeamBarrier::BeamBarrier(const uint32 *data, uint32 index, uint32 mode) : VisualObject()
+BeamBarrier::BeamBarrier(const uint32 *data, uint32 index, uint32 mode) : VisualObject(), mode(0), effect()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 value, cursor;
+    RecordDataBorrow record_borrow;
+    uint32 value;
+    RecordCursor cursor;
     FUNCTION_MARKER(0x80019DA0, "SLUS_003.73");
-    w_u32(object + 68, 0x800A0740);
-    value = ReadBeamBarrierWord(data, 0);
-    this->model.pos[0] = value << 12;
-    value = ReadBeamBarrierWord(data, 1);
-    this->model.pos[1] = value << 12;
-    value = ReadBeamBarrierWord(data, 2);
+    value = data[0];
+    this->model.pos.words[0] = value << 12;
+    value = data[1];
+    this->model.pos.words[1] = value << 12;
+    value = data[2];
     this->record_idx = index;
-    this->model.pos[2] = value << 12;
-    cursor = sub_80066088(index);
-    sub_8006613C(object + 296, r_u16(cursor + 2));
+    this->model.pos.words[2] = value << 12;
+    cursor = GetRecordPayload(index);
+    ReadRecordPosition(target.words, (cursor + 2).Read16());
     Initialize(mode);
 }
 
-BeamBarrier::BeamBarrier(const uint32 *position, const uint32 *target) : VisualObject()
+BeamBarrier::BeamBarrier(const uint32 *position, const uint32 *target) : VisualObject(), mode(0), effect()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     uint32 x, y, z;
     FUNCTION_MARKER(0x80019E48, "SLUS_003.73");
-    w_u32(object + 68, 0x800A0740);
-    x = ReadBeamBarrierWord(position, 0);
-    y = ReadBeamBarrierWord(position, 1);
-    z = ReadBeamBarrierWord(position, 2);
-    this->model.pos[0] = x;
-    this->model.pos[1] = y;
-    this->model.pos[2] = z;
-    x = ReadBeamBarrierWord(target, 0);
-    y = ReadBeamBarrierWord(target, 1);
-    z = ReadBeamBarrierWord(target, 2);
-    w_u32(object + 296, x);
-    w_u32(object + 300, y);
-    w_u32(object + 304, z);
+    x = position[0];
+    y = position[1];
+    z = position[2];
+    this->model.pos.words[0] = x;
+    this->model.pos.words[1] = y;
+    this->model.pos.words[2] = z;
+    x = target[0];
+    y = target[1];
+    z = target[2];
+    this->target.words[0] = x;
+    this->target.words[1] = y;
+    this->target.words[2] = z;
     Initialize(1);
+}
+
+BeamBarrier::~BeamBarrier()
+{
+    if (effect)
+        effect->Destroy(3);
 }
 
 uint32 BeamBarrier::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, receiver, target;
     FUNCTION_MARKER(0x8001A0B4, "SLUS_003.73");
-    w_u32(object + 68, 0x800A0740);
     RemoveFromList(visual_lists.actors);
-    child = r_u32(object + 328);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, receiver, 3);
-    }
+    if (effect)
+        effect->Destroy(3);
+    effect = 0;
     VisualObject::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(object) : 0;
+    return reason & 1 ? ReleaseObjectStorage(this) : 0;
 }
 
 uint32 BeamBarrier::Update()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 player, coordinate, bound, result, receiver, value, index;
-    uint32 collision[4];
-    uint16 angles[3];
     FUNCTION_MARKER(0x8001A14C, "SLUS_003.73");
-    // The current virtual caller supplies the callback target in V0
-    result = 0x8001A14C;
-    player = visual_lists.players;
+    ObjectBorrow object_borrow;
+    ModelInstance *player = visual_lists.players;
     if (!player)
-        return result;
-    coordinate = r_u32(player + 4);
-    bound = r_u32(object + 308);
-    result = (sint32)bound < (sint32)coordinate;
-    if (!result)
-        return result;
-    bound = r_u32(object + 312);
-    result = (sint32)coordinate < (sint32)bound;
-    if (!result)
-        return result;
-    coordinate = r_u32(player + 12);
-    bound = r_u32(object + 316);
-    result = (sint32)bound < (sint32)coordinate;
-    if (!result)
-        return result;
-    bound = r_u32(object + 320);
-    result = (sint32)coordinate < (sint32)bound;
-    if (!result)
-        return result;
-    result = IntersectObjectSpheres((const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 296, 12), collision, player, 0);
+        return 0;
+    uint32 coord = player->pos.words[0];
+    if (!((sint32)bounds[0] < (sint32)coord))
+        return 0;
+    if (!((sint32)coord < (sint32)bounds[1]))
+        return 0;
+    coord = player->pos.words[2];
+    if (!((sint32)bounds[2] < (sint32)coord))
+        return 0;
+    if (!((sint32)coord < (sint32)bounds[3]))
+        return 0;
+    Vector3 collision;
+    ModelInstance *hit = IntersectObjectSpheres(model.pos.words, target.words, collision.words, player, 0);
     player = visual_lists.players;
-    if (result != player)
-        return result;
-    receiver = result;
-    ApplyObjectDamage(receiver, 10, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
-    result = r_u32(object + 324);
-    if (!result)
-        return result;
-    Player::Attach(visual_lists.players).Player::ApplyBeamContactImpulse(object);
-    SetParticleDirection((const sint16 *)psx_addr(0x800FF5E4, 6));
-    angles[0] = 512;
-    angles[1] = 4096;
-    angles[2] = 0;
-    SetParticleSpread((const sint16 *)angles);
+    if (hit != player)
+        return hit != 0;
+    const Vector3 zero = {0};
+    static_cast<VisualObject *>(hit->owner)->Damage(10, zero.components, 0);
+    if (!mode)
+        return 0;
+    static_cast<Player *>(visual_lists.players->owner)->Player::ApplyBeamContactImpulse(*this);
+    SetParticleAngles(zero_angles.components);
+    ShortVector3 angles = {{{512, ONE, 0}}};
+    SetParticleSpread(angles.components);
     SetParticleSize(2);
     SetParticleColor(32, 32, 128);
     SetParticleColorStep(1, 1, 4);
-    w_u32(0x800FF3AC, 0);
-    for (index = 0; index < 32; ++index)
+    use_small_effect_pool = false;
+    for (uint32 i = 0; i < 32; ++i)
     {
-        value = AllocateEffectStorage(88);
-        if (value)
+        GameHeapBlock *allocation = AllocateEffectStorage(88);
+        if (allocation)
         {
-            uint32 position = visual_lists.players + 4;
-            void *dram_addr = AllocateNativeObjectStorage(value, sizeof(FadingParticle));
-            new (dram_addr) FadingParticle((const uint32 *)psx_addr(position, 12), 16, 8192, 32);
+            new (allocation) FadingParticle(visual_lists.players->pos.words, 16, 8192, 32);
         }
     }
-    w_u32(0x800FF3AC, 1);
+    use_small_effect_pool = true;
     return 1;
-}
-
-
-
-
-
-
-
-extern "C" uint32 sub_8001A0B4(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x8001A0B4, "SLUS_003.73");
-    return BeamBarrier::Attach(object).BeamBarrier::Destroy(reason);
-}
-
-
-
-extern "C" uint32 sub_8001A14C(uint32 object)
-{
-    FUNCTION_MARKER(0x8001A14C, "SLUS_003.73");
-    return BeamBarrier::Attach(object).BeamBarrier::Update();
-}
-
-BeamBarrier &BeamBarrier::Attach(uint32 object)
-{
-    return *static_cast<BeamBarrier *>(FindNativeObjectStorage(object));
 }

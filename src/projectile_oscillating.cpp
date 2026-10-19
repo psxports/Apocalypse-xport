@@ -1,20 +1,19 @@
+#include <new>
+#include <stdlib.h>
+
+#include "game_heap.h"
 #include "visual_object.h"
 #include "model_resources.h"
-extern "C" {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
 #include "projectile_oscillating.h"
 #include "ring_effect.h"
 #include "object_damage.h"
-#include "object_collision_events.h"
-#include "native_object_storage.h"
+#include "collision.h"
 #include "vector_arithmetic.h"
 #include "effect_lifecycle.h"
 #include "audio_session.h"
 #include "ring_burst_effect.h"
 #include "angle_math.h"
-#include <new>
 
 static uint32 DivideOscillatingScalar(uint32 numerator, uint32 denominator)
 {
@@ -25,227 +24,141 @@ static uint32 DivideOscillatingScalar(uint32 numerator, uint32 denominator)
     return (uint32)((sint32)numerator / (sint32)denominator);
 }
 
-OscillatingProjectile::OscillatingProjectile(const uint32 *position, const sint16 *angles, uint32 damage, uint32 lifetime, uint32 speed, uint32 amplitude, uint32 red1, uint32 green1, uint32 blue1, uint32 red2, uint32 green2, uint32 blue2) : EffectController()
+OscillatingProjectile::OscillatingProjectile(const uint32 *position, const sint16 *angles, uint32 damage, uint32 lifetime, uint32 speed, uint32 amplitude, uint32 r0, uint32 g0, uint32 b0, uint32 r1, uint32 g1, uint32 b1) : EffectController(), age(0), lifetime(0), damage(damage), ring(), fade_tick(lifetime), base_radius(amplitude), phase_step(370), phase(0)
 {
-    CollisionRay &shared_ray = GetSharedCollisionRay();
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 guest_position = GuestMemoryAddress(position);
-    const uint32 *native_position = guest_position ? 0 : position;
-    uint32 child, x, y, z, green, red, blue, green_tail, red_tail, blue_tail, duration, velocity, coordinate, distance;
-    ModelInstance *hit;
-    ModelInstance *candidate;
     FUNCTION_MARKER(0x8001C158, "SLUS_003.73");
-    red1 &= 255;
-    green1 &= 255;
-    blue1 &= 255;
-    red2 &= 255;
-    green2 &= 255;
-    blue2 &= 255;
-    w_u32(object + 68, 0x800A109C);
-    w_u8(object + 67, 1);
-    w_u8(object + 104, (red1 + red2) >> 1);
-    w_u8(object + 105, (green1 + green2) >> 1);
-    w_u8(object + 106, (blue1 + blue2) >> 1);
-    child = AllocateEffectStorage(124);
-    if (child)
+    kind = 1;
+    r0 &= 255;
+    g0 &= 255;
+    b0 &= 255;
+    r1 &= 255;
+    g1 &= 255;
+    b1 &= 255;
+    rgb.code = 0;
+    rgb.r = (r0 + r1) >> 1;
+    rgb.g = (g0 + g1) >> 1;
+    rgb.b = (b0 + b1) >> 1;
+    GameHeapBlock *allocation = AllocateEffectStorage(124);
+    if (allocation)
     {
-        green = r_u8(object + 105);
-        red = r_u8(object + 104);
-        blue = r_u8(object + 106);
-        red_tail = r_u8(object + 104);
-        green_tail = r_u8(object + 105);
-        blue_tail = r_u8(object + 106);
-        duration = amplitude << 1;
-        void *dram_addr = AllocateNativeObjectStorage(child, sizeof(RingBurstEffect));
-        new (dram_addr) RingBurstEffect(position, 4, red, green, blue, 2, red_tail, green_tail, blue_tail, 20, duration, 0, 0, duration, 0, duration, 0, 0, 0);
+        uint32 extent = amplitude << 1;
+        new (allocation) RingBurstEffect(position, 4, rgb.r, rgb.g, rgb.b, 2, rgb.r, rgb.g, rgb.b, 20, extent, 0, 0, extent, 0, extent, 0, 0, 0);
     }
-    x = native_position ? native_position[0] : r_u32(guest_position);
-    y = native_position ? native_position[1] : r_u32(guest_position + 4);
-    z = native_position ? native_position[2] : r_u32(guest_position + 8);
-    w_u32(object + 24, x);
-    w_u32(object + 28, y);
-    w_u32(object + 32, z);
-    BuildDirectionVector((uint32 *)psx_addr(object + 36, 12), speed, (const uint16 *)angles);
-    w_u32(object + 72, damage);
-    w_u32(object + 84, amplitude);
-    w_u32(object + 80, lifetime);
-    w_u32(object + 88, 370);
-    child = AllocateEffectStorage(104);
-    if (child)
+    uint32 x = position[0];
+    uint32 y = position[1];
+    uint32 z = position[2];
+    pos.words[0] = x;
+    pos.words[1] = y;
+    pos.words[2] = z;
+    BuildDirectionVector(velocity.words, speed, (const uint16 *)angles);
+    allocation = AllocateEffectStorage(104);
+    if (!allocation)
     {
-        void *dram_addr = AllocateNativeObjectStorage(child, sizeof(RingEffect));
-        new (dram_addr) RingEffect(2, 1);
+        GameDiagnostic("Oscillating projectile ring allocation failed\n");
+        abort();
     }
-    w_u32(object + 76, child);
-    RingEffect::Attach(child).SetCenterColor(red1, green1, blue1);
-    RingEffect::Attach(r_u32(object + 76)).SetRingColors(red2, green2, blue2);
-    RingEffect::Attach(r_u32(object + 76)).SetRowColors(0, 0, 0, 0);
-    RingEffect::Attach(r_u32(object + 76)).SetOddRadii(amplitude);
-    RingEffect::Attach(r_u32(object + 76)).SetEvenRadii(amplitude);
-    RingEffect::Attach(r_u32(object + 76)).SetRowExtent(0, (uint32)((sint32)(42 * amplitude) / 16));
-    RingEffect::Attach(r_u32(object + 76)).SetPosition((const uint32 *)psx_addr(object + 24, 12));
-    w_u8(r_u32(object + 76) + 66, 1);
-    w_u16(object + 10, r_u16(object + 80) + 26);
-    shared_ray.pos[0][0] = (r_u32(object + 24));
-    shared_ray.pos[0][1] = (r_u32(object + 28));
-    shared_ray.pos[0][2] = (r_u32(object + 32));
-    duration = r_u16(object + 10);
-    velocity = r_u32(object + 36);
-    coordinate = r_u32(object + 24);
-    shared_ray.pos[1][0] = (coordinate + duration * velocity);
-    duration = r_u16(object + 10);
-    velocity = r_u32(object + 40);
-    coordinate = r_u32(object + 28);
-    shared_ray.pos[1][1] = (coordinate + duration * velocity);
-    duration = r_u16(object + 10);
-    velocity = r_u32(object + 44);
-    coordinate = r_u32(object + 32);
-    shared_ray.pos[1][2] = (coordinate + duration * velocity);
+    ring = new (allocation) RingEffect(2, 1);
+    ring->SetCenterColor(r0, g0, b0);
+    ring->SetRingColors(r1, g1, b1);
+    ring->SetRowColors(0, 0, 0, 0);
+    ring->SetOddRadii(amplitude);
+    ring->SetEvenRadii(amplitude);
+    ring->SetRowExtent(0, (sint32)(42 * amplitude) / 16);
+    ring->SetPosition(pos.words);
+    ring->persistent = 1;
+    this->lifetime = (uint16)lifetime + 26;
+    CollisionRay &shared_ray = GetSharedCollisionRay();
+    for (uint32 axis = 0; axis < 3; ++axis)
+        shared_ray.endpoints[0].words[axis] = pos.words[axis];
+    for (uint32 axis = 0; axis < 3; ++axis)
+        shared_ray.endpoints[1].words[axis] = pos.words[axis] + this->lifetime * velocity.words[axis];
     InitializeCollisionRay(shared_ray);
-    w_u32(0x800FF974, 1);
+    collision_query.reject_surface40 = true;
     QueryCollisionRay(shared_ray, 0);
-    hit = shared_ray.hit.GetObject();
-    w_u32(0x800FF974, 0);
+    ModelInstance *hit = shared_ray.hit.GetObject();
+    collision_query.reject_surface40 = false;
     if (hit)
     {
-        candidate = GetModelSceneObjects();
+        ModelInstance *candidate = GetModelSceneObjects();
         while (candidate && candidate != hit)
             candidate = candidate->next;
         impact = shared_ray.hit;
-        distance = shared_ray.distance;
-        w_u16(object + 10, DivideOscillatingScalar(distance, speed));
+        this->lifetime = DivideOscillatingScalar(shared_ray.distance, speed);
     }
-    if (r_u16(object + 10) >= 151)
-        w_u16(object + 10, 150);
+    if (this->lifetime >= 151)
+        this->lifetime = 150;
+}
+
+OscillatingProjectile::~OscillatingProjectile()
+{
+    if (ring)
+        ring->Destroy(3);
 }
 
 uint32 OscillatingProjectile::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, target, result;
-    sint32 adjustment;
     FUNCTION_MARKER(0x8001C51C, "SLUS_003.73");
-    child = r_u32(object + 76);
-    w_u32(object + 68, 0x800A109C);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        adjustment = (sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, child + (uint32)adjustment, 3);
-    }
+    if (ring)
+        ring->Destroy(3);
+    ring = 0;
     EffectController::Destroy(0);
-    result = reason & 1;
-    if (result)
-        result = ReleaseEffectStorage(object);
-    return result;
+    return reason & 1 ? ReleaseEffectStorage(this) : 0;
 }
 
-uint32 OscillatingProjectile::Update()
+void OscillatingProjectile::Update()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 position = object + 24, velocity = object + 36;
-    uint32 old_position[3], hit_record[4], hit_vector[4];
-    uint32 child, base, phase, increment, hit, result, damage;
-    ModelInstance *trigger;
-    uint32 red1, green1, blue1, red2, green2, blue2, head;
-    sint32 amplitude, oscillation, scale, threshold;
-    sint16 tick;
     FUNCTION_MARKER(0x8001C598, "SLUS_003.73");
-    old_position[0] = r_u32(position);
-    old_position[1] = r_u32(position + 4);
-    old_position[2] = r_u32(position + 8);
-    AddVectors((uint32 *)psx_addr(position, 12), (const uint32 *)psx_addr(velocity, 12));
-    RingEffect::Attach(r_u32(object + 76)).SetPosition((const uint32 *)psx_addr(position, 12));
-    child = r_u32(object + 76);
-    w_u16(child + 96, r_u16(child + 96) + 140);
-    base = r_u32(object + 84);
-    phase = r_u32(object + 92);
-    increment = r_u32(object + 88);
-    phase += increment;
-    w_u32(object + 92, phase);
-    amplitude = (sint32)(6 * base) / 16;
-    oscillation = (sint32)((uint32)amplitude * (uint32)rsin(phase & 4095)) / 4096;
-    scale = (sint32)(base + (uint32)oscillation);
-    RingEffect::Attach(r_u32(object + 76)).SetOddRadii((uint32)scale);
-    RingEffect::Attach(r_u32(object + 76)).SetEvenRadii((uint32)scale);
-    RingEffect::Attach(r_u32(object + 76)).SetRowExtent(0, (uint32)((sint32)(42 * (uint32)scale) / 16));
-    head = visual_lists.players;
-    hit = IntersectObjectSpheres(old_position, (const uint32 *)psx_addr(position, 12), hit_record, head, 0);
+    Vector3 old_pos = pos;
+    AddVectors(pos.words, velocity.words);
+    if (ring)
+    {
+        ring->SetPosition(pos.words);
+        ring->angle += 140;
+    }
+    phase += phase_step;
+    sint32 amplitude = (sint32)(6 * base_radius) / 16;
+    sint32 oscillation = (sint32)((uint32)amplitude * (uint32)rsin(phase & 4095)) / 4096;
+    uint32 radius = base_radius + (uint32)oscillation;
+    if (ring)
+    {
+        ring->SetOddRadii(radius);
+        ring->SetEvenRadii(radius);
+        ring->SetRowExtent(0, (sint32)(42 * radius) / 16);
+    }
+    Vector3 hit_rec;
+    ModelInstance *hit = IntersectObjectSpheres(old_pos.words, pos.words, hit_rec.words, visual_lists.players, 0);
     if (hit)
     {
-        NormalizeFixedVector(hit_vector, (const uint32 *)psx_addr(velocity, 12));
-        damage = r_u32(object + 72);
-        ApplyObjectDamage(hit, damage, (const sint32 *)hit_vector, 29);
-        child = AllocateEffectStorage(124);
-        if (child)
+        Vector3 hit_vector;
+        NormalizeFixedVector(hit_vector.words, velocity.words);
+        static_cast<VisualObject *>(hit->owner)->Damage(damage, hit_vector.components, 29);
+        GameHeapBlock *allocation = AllocateEffectStorage(124);
+        if (allocation)
         {
-            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(RingBurstEffect));
-            new (dram_addr) RingBurstEffect((const uint32 *)psx_addr(hit + 4, 12), 4, 255, 100, 0, 2, 255, 100, 0, 20, 80, 0, 0, 30, 30, 15, 15, 0, 0);
-        }
-        return Finish();
-    }
-    tick = (sint16)(r_u16(object + 8) + 1);
-    threshold = (sint32)r_u32(object + 80);
-    w_u16(object + 8, (uint16)tick);
-    if (threshold < tick)
-    {
-        RingEffect::Attach(r_u32(object + 76)).FadeCenter(10);
-        RingEffect::Attach(r_u32(object + 76)).FadeRing(10);
-    }
-    tick = (sint16)r_u16(object + 8);
-    result = r_u16(object + 10);
-    if (tick >= (sint32)result)
-    {
-        child = AllocateEffectStorage(124);
-        if (child)
-        {
-            green1 = r_u8(object + 105);
-            red1 = r_u8(object + 104);
-            blue1 = r_u8(object + 106);
-            red2 = r_u8(object + 104);
-            green2 = r_u8(object + 105);
-            blue2 = r_u8(object + 106);
-            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(RingBurstEffect));
-            new (dram_addr) RingBurstEffect((const uint32 *)psx_addr(position, 12), 3, red1, green1, blue1, 2, red2, green2, blue2, 20, 40, 0, 0, 50, 50, 25, 25, 0, 0);
+            new (allocation) RingBurstEffect(hit->pos.words, 4, 255, 100, 0, 2, 255, 100, 0, 20, 80, 0, 0, 30, 30, 15, 15, 0, 0);
         }
         Finish();
-        PlayPositionedSound(24, (const uint32 *)psx_addr(position, 12), 0);
-        trigger = impact.GetObject();
-        if (trigger)
-        {
-            damage = r_u32(object + 72);
-            DamageLevelObject(trigger, impact.GetPolygon(), (sint32)damage);
-        }
+        return;
     }
-    result = r_u32(r_u32(object + 76) + 88) & 0xFFFFFF;
-    if (!result)
-        return Finish();
-    return result;
-}
-
-OscillatingProjectile &OscillatingProjectile::Attach(uint32 object)
-{
-    return *static_cast<OscillatingProjectile *>(FindNativeObjectStorage(object));
-}
-
-
-
-extern "C" uint32 apocalypse_projectile_construct_1C158(uint32 object, const void *position, const void *angles, uint32 damage, uint32 lifetime, uint32 speed, uint32 amplitude, uint32 red1, uint32 green1, uint32 blue1, uint32 red2, uint32 green2, uint32 blue2)
-{
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(OscillatingProjectile));
-    new (dram_addr) OscillatingProjectile((const uint32 *)position, (const sint16 *)angles, damage, lifetime, speed, amplitude, red1, green1, blue1, red2, green2, blue2);
-    return object;
-}
-
-extern "C" uint32 sub_8001C51C(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x8001C51C, "SLUS_003.73");
-    return OscillatingProjectile::Attach(object).OscillatingProjectile::Destroy(reason);
-}
-
-extern "C" uint32 sub_8001C598(uint32 object)
-{
-    FUNCTION_MARKER(0x8001C598, "SLUS_003.73");
-    return OscillatingProjectile::Attach(object).OscillatingProjectile::Update();
+    ++age;
+    if ((sint32)fade_tick < (sint16)age && ring)
+    {
+        ring->FadeCenter(10);
+        ring->FadeRing(10);
+    }
+    if ((sint16)age >= lifetime)
+    {
+        GameHeapBlock *allocation = AllocateEffectStorage(124);
+        if (allocation)
+        {
+            new (allocation) RingBurstEffect(pos.words, 3, rgb.r, rgb.g, rgb.b, 2, rgb.r, rgb.g, rgb.b, 20, 40, 0, 0, 50, 50, 25, 25, 0, 0);
+        }
+        Finish();
+        PlayPositionedSound(24, pos.words, 0);
+        ModelInstance *target = impact.GetObject();
+        if (target)
+            DamageLevelObject(target, impact.GetPolygon(), (sint32)damage);
+    }
+    if (!ring || !(ring->center_color & 0xFFFFFF))
+        Finish();
 }

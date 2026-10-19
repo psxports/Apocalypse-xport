@@ -1,924 +1,1743 @@
 <?xml version='1.0' encoding='utf-8'?>
+
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build">
+
   <ItemGroup Label="ProjectConfigurations">
+
     <ProjectConfiguration Include="Debug|Win32">
+
       <Configuration>Debug</Configuration>
+
       <Platform>Win32</Platform>
+
     </ProjectConfiguration>
+
     <ProjectConfiguration Include="Release|Win32">
+
       <Configuration>Release</Configuration>
+
       <Platform>Win32</Platform>
+
     </ProjectConfiguration>
+
   </ItemGroup>
+
   <PropertyGroup Label="Globals">
+
     <VCProjectVersion>17.0</VCProjectVersion>
+
     <ProjectGuid>{DF35D829-79D7-4DEA-882A-365C76861111}</ProjectGuid>
+
     <RootNamespace>A</RootNamespace>
+
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+
   </PropertyGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+
     <ConfigurationType>Application</ConfigurationType>
+
     <UseDebugLibraries>true</UseDebugLibraries>
+
     <PlatformToolset>v143</PlatformToolset>
+
     <CharacterSet>MultiByte</CharacterSet>
+
   </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+
     <ConfigurationType>Application</ConfigurationType>
+
     <UseDebugLibraries>false</UseDebugLibraries>
+
     <PlatformToolset>v143</PlatformToolset>
+
     <CharacterSet>MultiByte</CharacterSet>
+
     <WholeProgramOptimization>true</WholeProgramOptimization>
+
   </PropertyGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
   <ImportGroup Label="ExtensionSettings">
+
     <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
+
   </ImportGroup>
+
   <PropertyGroup>
+
     </PropertyGroup>
+
   <PropertyGroup>
+
     <OutDir>$(ProjectDir)..\..\..\bin\</OutDir>
+
     <IntDir>$(ProjectDir)..\..\..\_build\x86\$(Configuration)\</IntDir>
+
     <LocalDebuggerWorkingDirectory>$(OutDir)</LocalDebuggerWorkingDirectory>
+
     <LocalDebuggerCommand>$(TargetPath)</LocalDebuggerCommand>
+
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+
     <LinkIncremental>false</LinkIncremental>
+
   </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+
     <TargetName>A_debug</TargetName>
+
   </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+
     <TargetName>A</TargetName>
+
   </PropertyGroup>
+
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+
     <ClCompile>
+
       <WarningLevel>Level3</WarningLevel>
+
       <TreatWarningAsError>true</TreatWarningAsError>
+
       <DisableSpecificWarnings>4100;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>GAPI_OGL;XPORT_ENABLE_AUDIT;XPORT_MEMORY_DIAGNOSTICS;_CRT_SECURE_NO_WARNINGS;FULL_NAME="Apocalypse";WND_TITLE="Apocalypse (xport)";WND_WIDTH=960;WND_HEIGHT=720;FIELD_RATE=50;MDEC_CUSTOM=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+
+      <PreprocessorDefinitions>GAPI_OGL;XPORT_ENABLE_AUDIT;XPORT_MEMORY_DIAGNOSTICS;_CRT_SECURE_NO_WARNINGS;FULL_NAME="Apocalypse";WND_TITLE="Apocalypse (xport)";WND_WIDTH=960;WND_HEIGHT=720;FIELD_RATE=50;XPORT_AUDIO_VBLANK_QUEUE=1;MDEC_CUSTOM=1;XPORT_NATIVE_VAB=1;XPORT_NATIVE_SEQUENCE=1;XPORT_NATIVE_VM=1;XPORT_NATIVE_CD=1;XPORT_NATIVE_CALLBACK_BOOTSTRAP=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+
       <AdditionalIncludeDirectories>$(ProjectDir)..\..;$(ProjectDir)..\..\..\..\xport\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+
       <CompileAs>CompileAsC</CompileAs>
+
       <Optimization>Disabled</Optimization>
+
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+
       <ProgramDataBaseFileName>$(IntDir)A-compile.pdb</ProgramDataBaseFileName>
+
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+
     </ClCompile>
+
     <Link>
+
       <SubSystem>Windows</SubSystem>
+
       <GenerateDebugInformation>true</GenerateDebugInformation>
+
       <ProgramDatabaseFile>$(IntDir)A_debug.pdb</ProgramDatabaseFile>
+
       <ImportLibrary>$(IntDir)A_debug.lib</ImportLibrary>
+
       <AdditionalDependencies>opengl32.lib;user32.lib;gdi32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+
     </Link>
+
   </ItemDefinitionGroup>
+
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+
     <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <TreatWarningAsError>true</TreatWarningAsError>
-      <DisableSpecificWarnings>4100;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
-      <SDLCheck>false</SDLCheck>
-      <PreprocessorDefinitions>GAPI_OGL;_CRT_SECURE_NO_WARNINGS;FULL_NAME="Apocalypse";WND_TITLE="Apocalypse (xport)";WND_WIDTH=960;WND_HEIGHT=720;FIELD_RATE=50;MDEC_CUSTOM=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..;$(ProjectDir)..\..\..\..\xport\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <CompileAs>CompileAsC</CompileAs>
-      <Optimization>MinSpace</Optimization>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
-      <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <AdditionalOptions>/Gw /Gs2147483647 %(AdditionalOptions)</AdditionalOptions>
-      <ExceptionHandling>false</ExceptionHandling>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
-      <OmitFramePointers>true</OmitFramePointers>
-      <RuntimeTypeInfo>false</RuntimeTypeInfo>
-      <ControlFlowGuard>false</ControlFlowGuard>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>false</GenerateDebugInformation>
-      <ImportLibrary>$(IntDir)A.lib</ImportLibrary>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>opengl32.lib;user32.lib;gdi32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <RandomizedBaseAddress>false</RandomizedBaseAddress>
-      <FixedBaseAddress>true</FixedBaseAddress>
-      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
-      <GenerateManifest>false</GenerateManifest>
-      <DataExecutionPrevention>true</DataExecutionPrevention>
-    </Link>
-  </ItemDefinitionGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <GenerateManifest>false</GenerateManifest>
-  </PropertyGroup>
-  <ItemGroup>
-    </ItemGroup>
-  <PropertyGroup Label="XportTemplateSync">
-    <UseXcrt Condition="'$(UseXcrt)'==''">true</UseXcrt>
-    <XcrtEnabled>false</XcrtEnabled>
-    <XcrtEnabled Condition="'$(Configuration)|$(Platform)'=='Release|Win32' and '$(UseXcrt)'=='true' and '$(LockstepDebug)'!='true'">true</XcrtEnabled>
-    <OutDir>$(ProjectDir)..\..\..\bin\</OutDir>
-    <IntDir>$(ProjectDir)..\..\..\_build\x86\$(Configuration)\</IntDir>
-    <LinkIncremental>false</LinkIncremental>
-    <LocalDebuggerWorkingDirectory>$(OutDir)</LocalDebuggerWorkingDirectory>
-    <LocalDebuggerCommand>$(TargetPath)</LocalDebuggerCommand>
-    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="XportTemplateSync">
-    <TargetName>A_debug</TargetName>
-  </PropertyGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="XportTemplateSync">
-    <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <TreatWarningAsError>true</TreatWarningAsError>
-      <SDLCheck>true</SDLCheck>
-      <Optimization>Disabled</Optimization>
-      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <ProgramDataBaseFileName>$(IntDir)A-compile.pdb</ProgramDataBaseFileName>
-      <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <DisableSpecificWarnings>4100;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
-      <PreprocessorDefinitions>GAPI_OGL;_DEBUG;XPORT_ENABLE_AUDIT;XPORT_MEMORY_DIAGNOSTICS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <ProgramDatabaseFile>$(IntDir)A_debug.pdb</ProgramDatabaseFile>
-      <ImportLibrary>$(IntDir)A_debug.lib</ImportLibrary>
-      <AdditionalDependencies>opengl32.lib;user32.lib;gdi32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
-  </ItemDefinitionGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="XportTemplateSync">
-    <TargetName>A</TargetName>
-    <GenerateManifest>false</GenerateManifest>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
-  </PropertyGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="XportTemplateSync">
-    <ClCompile>
+
       <WarningLevel>Level3</WarningLevel>
+
       <TreatWarningAsError>true</TreatWarningAsError>
-      <SDLCheck>false</SDLCheck>
-      <Optimization>MinSpace</Optimization>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
-      <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <AdditionalOptions>/Gw /Gs2147483647 %(AdditionalOptions)</AdditionalOptions>
-      <ExceptionHandling>false</ExceptionHandling>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
-      <OmitFramePointers>true</OmitFramePointers>
-      <RuntimeTypeInfo>false</RuntimeTypeInfo>
-      <ControlFlowGuard>false</ControlFlowGuard>
+
       <DisableSpecificWarnings>4100;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
-      <PreprocessorDefinitions>GAPI_OGL;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <DebugInformationFormat>None</DebugInformationFormat>
-      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>false</GenerateDebugInformation>
-      <ImportLibrary>$(IntDir)A.lib</ImportLibrary>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
-      <RandomizedBaseAddress>false</RandomizedBaseAddress>
-      <FixedBaseAddress>true</FixedBaseAddress>
-      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
-      <GenerateManifest>false</GenerateManifest>
-      <DataExecutionPrevention>true</DataExecutionPrevention>
-      <AdditionalDependencies>opengl32.lib;user32.lib;gdi32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
-  </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32' and '$(LockstepDebug)'!='true'" Label="XportTemplateSync">
-    <ClCompile>
-      <PreprocessorDefinitions>XPORT_DISABLE_FUNCTION_MARKERS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    </ClCompile>
-  </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(XcrtEnabled)'=='true'" Label="XportTemplateSync">
-    <ClCompile>
-      <PreprocessorDefinitions>GAPI_OGL;XPORT_XCRT;_NO_CRT_STDIO_INLINE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <OmitDefaultLibName>true</OmitDefaultLibName>
-    </ClCompile>
-    <Link>
-      <AdditionalOptions>/MERGE:.rdata=.text %(AdditionalOptions)</AdditionalOptions>
-      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
-      <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
-      <AdditionalDependencies>kernel32.lib;opengl32.lib;user32.lib;gdi32.lib;winmm.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
-  </ItemDefinitionGroup>
-  <ItemGroup Label="XportTemplateSync">
-    <ResourceCompile Include="icon.rc">
-      <AdditionalIncludeDirectories>$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-    </ResourceCompile>
-    <Image Include="icon.ico" />
-    <ClCompile Include="..\..\..\..\xport\src\platform\win\xcrt.c">
-      <ExcludedFromBuild Condition="'$(XcrtEnabled)'!='true'">true</ExcludedFromBuild>
+
+      <SDLCheck>false</SDLCheck>
+
+      <PreprocessorDefinitions>GAPI_OGL;_CRT_SECURE_NO_WARNINGS;FULL_NAME="Apocalypse";WND_TITLE="Apocalypse (xport)";WND_WIDTH=960;WND_HEIGHT=720;FIELD_RATE=50;XPORT_AUDIO_VBLANK_QUEUE=1;MDEC_CUSTOM=1;XPORT_NATIVE_VAB=1;XPORT_NATIVE_SEQUENCE=1;XPORT_NATIVE_VM=1;XPORT_NATIVE_CD=1;XPORT_NATIVE_CALLBACK_BOOTSTRAP=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..;$(ProjectDir)..\..\..\..\xport\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+
       <CompileAs>CompileAsC</CompileAs>
-      <WholeProgramOptimization>false</WholeProgramOptimization>
-      <IntrinsicFunctions>false</IntrinsicFunctions>
-      <ForcedIncludeFiles />
+
+      <Optimization>MinSpace</Optimization>
+
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+
+      <AdditionalOptions>/Gw /Gs2147483647 %(AdditionalOptions)</AdditionalOptions>
+
+      <ExceptionHandling>false</ExceptionHandling>
+
+      <BufferSecurityCheck>false</BufferSecurityCheck>
+
+      <OmitFramePointers>true</OmitFramePointers>
+
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
+
+      <ControlFlowGuard>false</ControlFlowGuard>
+
     </ClCompile>
-  </ItemGroup>
+
+    <Link>
+
+      <SubSystem>Windows</SubSystem>
+
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(IntDir)A.pdb</ProgramDatabaseFile>
+
+      <ImportLibrary>$(IntDir)A.lib</ImportLibrary>
+
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+
+      <OptimizeReferences>true</OptimizeReferences>
+
+      <AdditionalDependencies>opengl32.lib;user32.lib;gdi32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+
+      <FixedBaseAddress>true</FixedBaseAddress>
+
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+
+      <GenerateManifest>false</GenerateManifest>
+
+      <DataExecutionPrevention>true</DataExecutionPrevention>
+
+    </Link>
+
+  </ItemDefinitionGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+
+    <GenerateManifest>false</GenerateManifest>
+
+  </PropertyGroup>
+
+  <ItemGroup>
+
+    </ItemGroup>
+
+  <PropertyGroup Label="XportTemplateSync">
+
+    <UseXcrt Condition="'$(UseXcrt)'==''">true</UseXcrt>
+
+    <XcrtEnabled>false</XcrtEnabled>
+
+    <XcrtEnabled Condition="'$(Configuration)|$(Platform)'=='Release|Win32' and '$(UseXcrt)'=='true' and '$(LockstepDebug)'!='true'">true</XcrtEnabled>
+
+    <OutDir>$(ProjectDir)..\..\..\bin\</OutDir>
+
+    <IntDir>$(ProjectDir)..\..\..\_build\x86\$(Configuration)\</IntDir>
+
+    <LinkIncremental>false</LinkIncremental>
+
+    <LocalDebuggerWorkingDirectory>$(OutDir)</LocalDebuggerWorkingDirectory>
+
+    <LocalDebuggerCommand>$(TargetPath)</LocalDebuggerCommand>
+
+    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="XportTemplateSync">
+
+    <TargetName>A_debug</TargetName>
+
+  </PropertyGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="XportTemplateSync">
+
+    <ClCompile>
+
+      <WarningLevel>Level3</WarningLevel>
+
+      <TreatWarningAsError>true</TreatWarningAsError>
+
+      <SDLCheck>true</SDLCheck>
+
+      <Optimization>Disabled</Optimization>
+
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+
+      <ProgramDataBaseFileName>$(IntDir)A-compile.pdb</ProgramDataBaseFileName>
+
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+
+      <DisableSpecificWarnings>4100;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
+      <PreprocessorDefinitions>GAPI_OGL;_DEBUG;XPORT_ENABLE_AUDIT;XPORT_MEMORY_DIAGNOSTICS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+
+    </ClCompile>
+
+    <Link>
+
+      <SubSystem>Windows</SubSystem>
+
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+
+      <ProgramDatabaseFile>$(IntDir)A_debug.pdb</ProgramDatabaseFile>
+
+      <ImportLibrary>$(IntDir)A_debug.lib</ImportLibrary>
+
+      <AdditionalDependencies>opengl32.lib;user32.lib;gdi32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+
+    </Link>
+
+  </ItemDefinitionGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="XportTemplateSync">
+
+    <TargetName>A</TargetName>
+
+    <GenerateManifest>false</GenerateManifest>
+
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+
+  </PropertyGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="XportTemplateSync">
+
+    <ClCompile>
+
+      <WarningLevel>Level3</WarningLevel>
+
+      <TreatWarningAsError>true</TreatWarningAsError>
+
+      <SDLCheck>false</SDLCheck>
+
+      <Optimization>MinSpace</Optimization>
+
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+
+      <AdditionalOptions>/Gw /Gs2147483647 %(AdditionalOptions)</AdditionalOptions>
+
+      <ExceptionHandling>false</ExceptionHandling>
+
+      <BufferSecurityCheck>false</BufferSecurityCheck>
+
+      <OmitFramePointers>true</OmitFramePointers>
+
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
+
+      <ControlFlowGuard>false</ControlFlowGuard>
+
+      <DisableSpecificWarnings>4100;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
+      <PreprocessorDefinitions>GAPI_OGL;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+
+    </ClCompile>
+
+    <Link>
+
+      <SubSystem>Windows</SubSystem>
+
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(IntDir)A.pdb</ProgramDatabaseFile>
+
+      <ImportLibrary>$(IntDir)A.lib</ImportLibrary>
+
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+
+      <OptimizeReferences>true</OptimizeReferences>
+
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+
+      <FixedBaseAddress>true</FixedBaseAddress>
+
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+
+      <GenerateManifest>false</GenerateManifest>
+
+      <DataExecutionPrevention>true</DataExecutionPrevention>
+
+      <AdditionalDependencies>opengl32.lib;user32.lib;gdi32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+
+    </Link>
+
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32' and '$(LockstepDebug)'!='true'" Label="XportTemplateSync">
+
+    <ClCompile>
+
+      <PreprocessorDefinitions>XPORT_DISABLE_FUNCTION_MARKERS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+
+    </ClCompile>
+
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(XcrtEnabled)'=='true'" Label="XportTemplateSync">
+
+    <ClCompile>
+
+      <PreprocessorDefinitions>GAPI_OGL;XPORT_XCRT;_NO_CRT_STDIO_INLINE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+
+      <OmitDefaultLibName>true</OmitDefaultLibName>
+
+    </ClCompile>
+
+    <Link>
+
+      <AdditionalOptions>/MERGE:.rdata=.text %(AdditionalOptions)</AdditionalOptions>
+
+      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
+
+      <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
+
+      <AdditionalDependencies>kernel32.lib;opengl32.lib;user32.lib;gdi32.lib;winmm.lib;shlwapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+
+    </Link>
+
+  </ItemDefinitionGroup>
+
   <ItemGroup Label="XportTemplateSync">
+
+    <ResourceCompile Include="icon.rc">
+
+      <AdditionalIncludeDirectories>$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+
+    </ResourceCompile>
+
+    <Image Include="icon.ico" />
+
+    <ClCompile Include="..\..\..\..\xport\src\platform\win\xcrt.c">
+
+      <ExcludedFromBuild Condition="'$(XcrtEnabled)'!='true'">true</ExcludedFromBuild>
+
+      <CompileAs>CompileAsC</CompileAs>
+
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+
+      <IntrinsicFunctions>false</IntrinsicFunctions>
+
+      <ForcedIncludeFiles />
+
+    </ClCompile>
+
+  </ItemGroup>
+
+  <ItemGroup Label="XportTemplateSync">
+
     <MASM Include="..\..\..\..\xport\src\platform\win\xcrt_x86.asm">
+
       <ExcludedFromBuild Condition="'$(XcrtEnabled)'!='true' or '$(Platform)'!='Win32'">true</ExcludedFromBuild>
+
     </MASM>
+
     <MASM Include="..\..\..\..\xport\src\platform\win\xcrt_x64.asm">
+
       <ExcludedFromBuild Condition="'$(XcrtEnabled)'!='true' or '$(Platform)'!='x64'">true</ExcludedFromBuild>
+
     </MASM>
+
   </ItemGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+
   <ImportGroup Label="ExtensionTargets">
+
     <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
+
   </ImportGroup>
+
   <ItemGroup>
+
     <ClCompile Include="..\..\game_main.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\..\..\xport\src\psx.c" />
+    
+    
+    
     <ClCompile Include="..\..\..\..\xport\src\psx_gpu.c" />
+
     <ClCompile Include="..\..\..\..\xport\src\vid_ogl.c">
+
       <PreprocessorDefinitions>GAPI_OGL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+
     </ClCompile>
+
     <ClCompile Include="..\..\..\..\xport\src\psx_spu.c" />
+    
+    
+    
+    
+    
+
     <ClCompile Include="..\..\..\..\xport\src\psx_xa.c" />
+
     <ClCompile Include="..\..\..\..\xport\src\xport_trace.c" />
+
     <ClCompile Include="..\..\..\..\xport\src\platform\win\main.c">
+
       <PreprocessorDefinitions>SHORT_NAME="A";%(PreprocessorDefinitions)</PreprocessorDefinitions>
+
       <ObjectFileName>$(IntDir)xport_main.obj</ObjectFileName>
+
     </ClCompile>
+
+    <ClInclude Include="..\..\geometry_commands.h" />
+    <ClInclude Include="..\..\game_diagnostics.h" />
+    <ClInclude Include="..\..\game_image_resource.h" />
+
     <ClInclude Include="..\..\..\..\xport\src\xport.h" />
+
     <ClInclude Include="..\..\..\..\xport\src\psx.h" />
+
     <ClInclude Include="..\..\..\..\xport\src\psx_gpu.h" />
+
     <ClInclude Include="..\..\..\..\xport\src\psx_spu.h" />
-    <ClCompile Include="..\..\game_pad_serial.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_sequence_timer.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
+
     <ClCompile Include="..\..\scene_effect_packets.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClInclude Include="..\..\scene_effect_packets.h" />
-    <ClCompile Include="..\..\object_callbacks.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
+
     <ClCompile Include="..\..\death_effects.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\death_effects.h" />
+
     <ClCompile Include="..\..\plague_area.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\plague_area.h" />
+
     <ClCompile Include="..\..\game_boot.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
-    <ClCompile Include="..\..\game_draft_adapters.cpp">
+
+    <ClCompile Include="..\..\geometry_commands.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\game_graphics_init.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
-    <ClCompile Include="..\..\game_sdk_failures.cpp">
+
+    <ClCompile Include="..\..\game_diagnostics.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
-    <ClCompile Include="..\..\game_sdk_diagnostics.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
+
     <ClInclude Include="..\..\game_sdk_bindings.h" />
-    <ClCompile Include="..\..\game_startup_adapters.cpp">
+
+    <ClCompile Include="..\..\movie_stream.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
-    <ClCompile Include="..\..\game_bios_bootstrap.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_pad_startup.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_sound_tick_startup.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_spu_startup.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_cd_startup.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_cd_mix.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_video_adapters.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
+
     <ClCompile Include="..\..\game_image_resource.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\game_pad_poll.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\game_gpu_present.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\menu_lifecycle.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\menu_lifecycle.h" />
+
     <ClCompile Include="..\..\..\..\xport\src\psx_mdec.c" />
+
     <ClCompile Include="..\..\..\..\xport\src\psx_press.c" />
+
     <ClCompile Include="..\..\..\..\xport\src\psx_vlc.c" />
+
     <ClCompile Include="..\..\..\..\xport\src\psx_stream.c" />
-    <ClCompile Include="..\..\game_sound_voice.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_sound_pitch.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_sound_queue.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClInclude Include="..\..\game_sound_native.h" />
-    <ClCompile Include="..\..\game_sequence_open.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_sequence_controls.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\game_sequence_tick.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="..\..\object_parameters.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
+
     <ClCompile Include="..\..\object_initializers.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\object_initializers.h" />
+
     <ClCompile Include="..\..\spiral_ray_weapon.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClCompile Include="..\..\machine_gun.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\flamethrower.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\enemy.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\croc.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\waving_beam.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\bat.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\hound_rat.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\mini_tank.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\turret.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\tank.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\chopper.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClCompile Include="..\..\items.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\hovr_swat.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\swat.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
-    <ClCompile Include="..\..\model_deformation.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
+
     <ClCompile Include="..\..\enemy_list.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\expanding_ring.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\point_segments.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\player.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClCompile Include="..\..\player_collision.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\camera.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClCompile Include="..\..\quaternion_math.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\weapon_nodes.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\projectile_tracking.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\projectile_ballistic.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\projectile_base.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\projectile_weaving.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
-    <ClCompile Include="..\..\projectile_trace.cpp">
+
+<ClCompile Include="..\..\projectile_line.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
-    <ClCompile Include="..\..\projectile_line.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
+
     <ClCompile Include="..\..\projectile_launch.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\effect_launch_explosion.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\effect_sprite.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\beam_segments.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\weapon_targeting.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\projectile_oscillating.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\textured_quad.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\visual_object_update.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\plague.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\the_beast.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClCompile Include="..\..\game_lighting.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\beast_effects.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\projectile_guided.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\ring_effect.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\war.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4018;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClCompile Include="..\..\death.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\game_heap.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\sequence_transport.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\sprite_trail.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\fire_cycle.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\war_effects.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\ribbon_segments.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\beam_endpoint.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
-    <ClCompile Include="..\..\native_object_storage.cpp">
+
+    <ClCompile Include="..\..\object.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\particle_debris.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_animation.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_pose.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_attachment.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\level_hazards.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\beam_trigger.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\effect_segments.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\traversal_rail.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\beam_barrier.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\effect_splash.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\object_force.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\object_fragments.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\object_damage.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
-    <ClCompile Include="..\..\object_cleanup.cpp">
+
+    <ClCompile Include="..\..\collision.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
-    <ClCompile Include="..\..\object_collision_events.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
+
     <ClCompile Include="..\..\pickup_effects.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
+    <ClCompile Include="..\..\model_matrix.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+    <ClInclude Include="..\..\model_matrix.h" />
+
     <ClCompile Include="..\..\model_projection.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4018;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClCompile Include="..\..\main_menu.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\main_menu.h" />
+
     <ClCompile Include="..\..\model_render_view.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
     <ClCompile Include="..\..\model_render.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_scratch_packets.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_shadow.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\angle_math.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\hud_text.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\cd_audio.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\menu_saves.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\card_save.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\card_save.h" />
+
     <ClInclude Include="..\..\menu_saves.h" />
+
     <ClCompile Include="..\..\credits_player.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\credits_player.h" />
+
     <ClCompile Include="..\..\credits.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\credits.h" />
+
     <ClCompile Include="..\..\menu_input.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\menu_input.h" />
+
     <ClCompile Include="..\..\loading_screen.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\loading_screen.h" />
+
     <ClCompile Include="..\..\record_groups.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
+    <ClInclude Include="..\..\input_recording.h" />
+
     <ClCompile Include="..\..\input_recording.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_clipping.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_lighting.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_subdivision.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+    <ClInclude Include="..\..\model_subdivision.h" />
+
     <ClCompile Include="..\..\visual_registry.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\cheat_input.h" />
+
     <ClCompile Include="..\..\cheat_input.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\beast_final_visual.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\scripted_level_object.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClCompile Include="..\..\level_interactions.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\textured_fragment.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\opaque_fragment.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\ring_burst_effect.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\exp_act_burst.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\explosion_effects.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\smoke_emitter.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\screen_flash.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\glow_effect.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\region_actions.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\spawn_points.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\record_factory.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\proximity_ring_emitter.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\oscillating_ring.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\path_particle_emitter.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\record_data.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\record_scripts.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\activation_record.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\vector_distance.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\scripted_effect_controller.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\vector_arithmetic.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\game_panel.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\hud_sprites.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_materials.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_geometry.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\texture_resources.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_keys.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_hierarchy.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_attachment_data.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_animation_data.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_grid.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_vram.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\model_resources.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\palette_resources.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\audio_session.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\audio_voice.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\resource_io.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\fireball_effects.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\fireball_effects.h" />
+
     <ClCompile Include="..\..\panel_particle.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\panel_particle.h" />
+
     <ClCompile Include="..\..\effect_lifecycle.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\effect_lifecycle.h" />
+
     <ClCompile Include="..\..\effect_color.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\effect_color.h" />
+
     <ClCompile Include="..\..\fading_particle.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\fading_particle.h" />
+
     <ClCompile Include="..\..\particle_settings.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\particle_settings.h" />
+
     <ClCompile Include="..\..\player_save_state.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\player_save_state.h" />
+
     <ClCompile Include="..\..\game_settings.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
+    <ClCompile Include="..\..\game_tuning.cpp">
+
+      <CompileAs>CompileAsCpp</CompileAs>
+
+    </ClCompile>
+
+    <ClInclude Include="..\..\game_tuning.h" />
+
     <ClInclude Include="..\..\game_settings.h" />
+
     <ClCompile Include="..\..\level_session.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\level_session.h" />
+
     <ClCompile Include="..\..\record_commands.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClInclude Include="..\..\record_commands.h" />
+
     <ClCompile Include="..\..\plague_ground_effects.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\plague_ground_effects.h" />
+
     <ClCompile Include="..\..\projectile_trail.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\projectile_trail.h" />
+
     <ClCompile Include="..\..\hud_text_packets.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+
     </ClCompile>
+
     <ClCompile Include="..\..\scene_lifecycle.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\scene_lifecycle.h" />
+
     <ClCompile Include="..\..\world_gravity.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\world_gravity.h" />
+
     <ClCompile Include="..\..\game_random.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\game_random.h" />
+
     <ClCompile Include="..\..\startup_resources.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\startup_resources.h" />
+
     <ClCompile Include="..\..\level_catalogue.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\level_catalogue.h" />
+
     <ClCompile Include="..\..\startup_image.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\movie_lifecycle.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\movie_lifecycle.h" />
+
     <ClInclude Include="..\..\game_lighting.h" />
+
     <ClCompile Include="..\..\mesh_ring_effect.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\mesh_ring_effect.h" />
+
     <ClCompile Include="..\..\ring_attack.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
+    <ClInclude Include="..\..\color32.h" />
     <ClInclude Include="..\..\ring_attack.h" />
+
     <ClCompile Include="..\..\bouncing_point_effect.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\bouncing_point_effect.h" />
+
     <ClCompile Include="..\..\pickup_factory.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\pickup_factory.h" />
+
     <ClCompile Include="..\..\pickup.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\pickup.h" />
+
     <ClInclude Include="..\..\game_object_allocation.h" />
+
     <ClCompile Include="..\..\cd_voice_event.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\cd_voice_event.h" />
+
     <ClInclude Include="..\..\model_animation.h" />
+
     <ClCompile Include="..\..\game_tick.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\game_tick.h" />
+
     <ClCompile Include="..\..\pause_menu.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\pause_menu.h" />
+
     <ClCompile Include="..\..\game_string.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\game_string.h" />
+
     <ClCompile Include="..\..\menu_window.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\menu_window.h" />
+
     <ClCompile Include="..\..\..\..\xport\src\psx_seq.c" />
+
     <ClCompile Include="..\..\debug_finish_repro.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\debug_finish_repro.h" />
+
     <ClCompile Include="..\..\game_data_io.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\game_data_io.h" />
+
     <ClCompile Include="..\..\orbit_camera.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\orbit_camera.h" />
+
     <ClCompile Include="..\..\visual_object.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClCompile Include="..\..\character.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
-    <ClCompile Include="..\..\object_storage.cpp">
-      <CompileAs>CompileAsCpp</CompileAs>
-    </ClCompile>
+
     <ClCompile Include="..\..\effect_object.cpp">
+
       <CompileAs>CompileAsCpp</CompileAs>
+
     </ClCompile>
+
     <ClInclude Include="..\..\..\..\xport\src\platform\win\xcrt.h" />
+
     <ClInclude Include="..\..\..\..\xport\src\xport_trace.h" />
+
   </ItemGroup>
+
   <ItemGroup>
+
     <ClInclude Include="..\..\object.h" />
+
   </ItemGroup>
+
   <Target Name="RejectNativeRefactoringLockstep" BeforeTargets="PrepareForBuild" Condition="'$(LockstepDebug)'=='true'">
+
     <Error Text="Native refactoring is outside lockstep; use the preserved decomp baseline" />
+
   </Target>
+
 </Project>
+

@@ -1,10 +1,12 @@
 #ifndef VISUAL_OBJECT_H
 #define VISUAL_OBJECT_H
 #include "scaled_object.h"
+#include "record_data.h"
+#include "vector3.h"
 
-void FlagObjectNearReference(uint32 object);
-// Native adapter retains the exact original target and adjusted receiver
-uint32 DispatchObjectFinish(uint32 target, uint32 receiver);
+class VisualObject;
+class TexturedQuad;
+void FlagObjectNearReference(VisualObject &object);
 
 struct VisualLists
 {
@@ -19,19 +21,19 @@ struct VisualLists
 };
 
 extern VisualLists visual_lists;
+extern uint32 visual_activation_distance;
 void ResetVisualLists();
 
 class VisualObject : public ScaledObject
 {
 public:
-    virtual ~VisualObject() {}
-    static VisualObject &Attach(uint32 object);
+    virtual ~VisualObject();
     ModelInstance *AddToList(ModelInstance *&head);
     ModelInstance *RemoveFromList(ModelInstance *&head);
     uint32 RestoreList();
     uint32 MoveToTemporaryList(ModelInstance *&head);
-    const uint8 *ReadPosition(const uint8 *data);
-    const uint8 *ReadAngles(const uint8 *data);
+    RecordCursor ReadPosition(RecordCursor data);
+    RecordCursor ReadAngles(RecordCursor data);
     uint32 SetModelBank(const char *name);
     uint32 SetColor(sint32 duration, uint32 red, uint32 green, uint32 blue);
     virtual uint32 Destroy(uint32 reason);
@@ -42,11 +44,45 @@ public:
     virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 reason);
     void UpdateAnimationPose();
     uint32 IsFinished();
+    uint32 DeactivateIfDistant(uint32 distance);
     uint32 AdvanceColor();
     uint32 UpdateEventLatch(uint32 active, uint32 mask);
     uint32 EnableShadow();
     uint32 RemoveShadow();
     uint32 UpdateShadow();
+    uint32 *ApplyContactImpulse(const VisualObject &object);
+
+    struct Surface
+    {
+        SVECTOR n;
+        Vector3 pos;
+    } surface;
+
+    struct Shadow
+    {
+        ObjectReference<TexturedQuad> effect;
+        uint16 radius;
+        uint16 height;
+        uint16 max_height;
+
+        Shadow() : radius(0), height(0), max_height(0)
+        {
+        }
+    } shadow;
+
+    uint32 contact_strength;
+    uint32 player_distance;
+
+    struct ModelEffect
+    {
+        uint32 color_mode;
+        uint16 scale;
+        uint16 depth_bias;
+
+        ModelEffect() : color_mode(0), scale(0), depth_bias(0)
+        {
+        }
+    } model_effect;
 
     uint16 kind;
     uint16 activation_flags;
@@ -54,6 +90,10 @@ public:
     uint8 target_mark;
     uint8 event_flags;
     uint16 record_idx;
+    uint16 collision_radius;
+    uint16 contact_flags;
+    sint16 health;
+    uint8 target_disabled;
 
 private:
     struct ColorTransition
@@ -72,35 +112,37 @@ private:
 public:
     struct Motion
     {
-        uint32 velocity[3];
-        uint32 acceleration[3];
+        Vector3 velocity;
+        Vector3 acceleration;
         uint8 drag[3];
-        uint16 angular_velocity[3];
-        uint16 angular_acceleration[3];
+        ShortVector3 angular_velocity;
+        ShortVector3 angular_acceleration;
         uint8 angular_drag[3];
+        Vector3 delta_velocity;
 
         void SetAngularVelocityXY(uint32 packed)
         {
-            angular_velocity[0] = packed;
-            angular_velocity[1] = packed >> 16;
+            angular_velocity.words[0] = packed;
+            angular_velocity.words[1] = packed >> 16;
         }
 
         void SetAngularAccelerationXY(uint32 packed)
         {
-            angular_acceleration[0] = packed;
-            angular_acceleration[1] = packed >> 16;
+            angular_acceleration.words[0] = packed;
+            angular_acceleration.words[1] = packed >> 16;
         }
 
         Motion()
         {
             for (uint32 axis = 0; axis < 3; ++axis)
             {
-                velocity[axis] = 0;
-                acceleration[axis] = 0;
+                velocity.words[axis] = 0;
+                acceleration.words[axis] = 0;
                 drag[axis] = 1;
-                angular_velocity[axis] = 0;
-                angular_acceleration[axis] = 0;
+                angular_velocity.words[axis] = 0;
+                angular_acceleration.words[axis] = 0;
                 angular_drag[axis] = 1;
+                delta_velocity.words[axis] = 0;
             }
         }
     } motion;
@@ -111,20 +153,21 @@ protected:
 
     struct PositionHistory
     {
-        uint32 prev[3];
-        uint32 saved[3];
+        Vector3 prev;
+        Vector3 saved;
 
         PositionHistory()
         {
             for (uint32 axis = 0; axis < 3; ++axis)
             {
-                prev[axis] = 0;
-                saved[axis] = 0;
+                prev.words[axis] = 0;
+                saved.words[axis] = 0;
             }
         }
     } pos_history;
 
 private:
+    ModelInstance **list_head;
     friend void SmoothObjectPositions(ModelInstance *instance);
     friend ModelInstance *SaveObjectPositions(ModelInstance *instance);
     friend ModelInstance *RestoreObjectPositions(ModelInstance *instance);
@@ -133,21 +176,21 @@ private:
     {
         uint8 count;
         uint8 step;
-        uint32 target_pos[3];
-        uint32 delta_pos[3];
-        uint16 prev_angles[3];
-        uint16 target_angles[3];
-        uint16 delta_angles[3];
+        Vector3 target_pos;
+        Vector3 delta_pos;
+        ShortVector3 prev_angles;
+        ShortVector3 target_angles;
+        ShortVector3 delta_angles;
 
         PoseInterpolation() : count(0), step(0)
         {
             for (uint32 axis = 0; axis < 3; ++axis)
             {
-                target_pos[axis] = 0;
-                delta_pos[axis] = 0;
-                prev_angles[axis] = 0;
-                target_angles[axis] = 0;
-                delta_angles[axis] = 0;
+                target_pos.words[axis] = 0;
+                delta_pos.words[axis] = 0;
+                prev_angles.words[axis] = 0;
+                target_angles.words[axis] = 0;
+                delta_angles.words[axis] = 0;
             }
         }
     } pose_interpolation;

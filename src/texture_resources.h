@@ -50,7 +50,6 @@ struct TextureGroupBlock
     TextureGroupBlock *owner_next;
 };
 
-TextureResource *AllocateModelResourceEntry(uint32 key);
 TextureResource *FindModelResourceEntry(uint32 key);
 TextureResource &GetTextureResource(uint32 key);
 uint32 PackTextureUv(const TextureResource &tex, uint32 word);
@@ -64,7 +63,6 @@ TextureResource &ReadTextureReference(const TextureReferences &refs, uint32 idx)
 void RegisterTextureGroups(TextureGroupBlock *&owner, const TextureReferences &refs, const uint8 *data, uint32 bytes);
 void ReleaseTextureGroups(TextureGroupBlock *&owner);
 const TextureGroup *FindModelTextureGroup(const char *name);
-const TextureGroup *FindModelTextureGroup(uint32 name);
 const TextureFrame &GetTextureFrame(const TextureGroup *grp, sint32 idx);
 
 #endif

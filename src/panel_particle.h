@@ -8,10 +8,16 @@ class PanelParticle : public Sprite
 {
 public:
     PanelParticle(const uint32 *position);
-    virtual ~PanelParticle() {}
-    static PanelParticle &Attach(uint32 object);
+
+    virtual ~PanelParticle()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
+
+private:
+    uint8 intensity;
 };
 
 #endif

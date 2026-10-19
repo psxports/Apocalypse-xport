@@ -15,7 +15,6 @@ uint32 GetResourceFileSize(const char *name);
 uint32 GetResourceReadPhase();
 uint32 GetResourceReadProgress();
 uint32 BeginResourceRead(void *dst);
-uint32 BeginResourceRead(uint32 destination);
 uint32 ProcessResourceRead();
 uint32 WaitForResourceRead();
 

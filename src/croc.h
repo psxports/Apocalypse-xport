@@ -2,12 +2,33 @@
 #define CROC_H
 #include "enemy.h"
 
-// A view of the Croc resource owner's existing guest storage
 class Croc : public Enemy
 {
 public:
-    Croc(const uint8 *record_data, uint32 index);
-    static Croc &Attach(uint32 object);
+    struct PhaseConfig
+    {
+        uint16 speed[4];
+        uint16 health_threshold[3];
+        uint16 opening_spawn[4];
+        uint16 reinforcement_count;
+        uint16 reinforcement_spawn[13];
+
+        PhaseConfig() : reinforcement_count(0)
+        {
+            uint32 index;
+            for (index = 0; index < 4; ++index)
+            {
+                speed[index] = 0;
+                opening_spawn[index] = 0;
+            }
+            for (index = 0; index < 3; ++index)
+                health_threshold[index] = 0;
+            for (index = 0; index < 13; ++index)
+                reinforcement_spawn[index] = 0;
+        }
+    } phase_config;
+
+    Croc(const RecordCursor &record_data, uint32 index);
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 kind);
     virtual uint32 Update();

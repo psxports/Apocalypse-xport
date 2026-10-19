@@ -1,8 +1,9 @@
-#include "game_sdk_bindings.h"
-#include "game_data_io.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "game_diagnostics.h"
+#include "game_data_io.h"
 
 struct DataCdFile
 {
@@ -56,7 +57,7 @@ bool FindDataCdFile(CdlFILE *result, const char *name)
         if (!file)
             return false;
         uint8 header[12];
-        bool valid = fread(header, 1, sizeof(header), file) == sizeof(header);
+        bool valid = xport_fread(header, 1, sizeof(header), file) == sizeof(header);
         uint32 payload = 0;
         if (valid && !memcmp(header, "RIFF", 4) && !memcmp(header + 8, "CDXA", 4))
         {
@@ -67,7 +68,7 @@ bool FindDataCdFile(CdlFILE *result, const char *name)
             while (valid && position <= end && end - position >= 8)
             {
                 uint8 chunk[8];
-                valid = fread(chunk, 1, 8, file) == 8;
+                valid = xport_fread(chunk, 1, 8, file) == 8;
                 if (!valid)
                     break;
                 uint32 size = xport_load_le32(chunk + 4);
@@ -107,7 +108,7 @@ bool FindDataCdFile(CdlFILE *result, const char *name)
     return true;
 }
 
-const void *PrepareDataCdLocation(uint32 command, const void *parameter, CdlLOC *location)
+static const void *PrepareDataCdLocation(uint32 command, const void *parameter, CdlLOC *location)
 {
     if (!parameter || (command != 2 && command != 21 && command != 22 && command != 27))
         return parameter;
@@ -131,7 +132,7 @@ const void *PrepareDataCdLocation(uint32 command, const void *parameter, CdlLOC 
     return 0;
 }
 
-void RebaseDataCdResponse(uint8 *response)
+static void RebaseDataCdResponse(uint8 *response)
 {
     if (response && data_cd_active)
     {
@@ -157,7 +158,32 @@ bool ReadDataResource(void *destination, uint32 offset, uint32 bytes)
     FILE *file = xport_fopen("DATA/CD.WAD", "rb");
     if (!file)
         return false;
-    bool success = offset <= 0x7FFFFFFF && fseek(file, (long)offset, SEEK_SET) == 0 && fread(destination, 1, bytes, file) == bytes;
+    bool success = offset <= 0x7FFFFFFF && fseek(file, (long)offset, SEEK_SET) == 0 && xport_fread(destination, 1, bytes, file) == bytes;
     fclose(file);
     return success;
+}
+
+uint32 ControlDataCd(uint32 command, const void *parameter, void *output)
+{
+    CdlLOC location;
+    FUNCTION_MARKER(0x80097DF8, "SLUS_003.73");
+    parameter = PrepareDataCdLocation(command, parameter, &location);
+    return CdControlB((uint8)command, (uint8 *)parameter, (uint8 *)output);
+}
+
+uint32 FastControlDataCd(uint32 command, const void *parameter)
+{
+    CdlLOC location;
+    FUNCTION_MARKER(0x80097F34, "SLUS_003.73");
+    parameter = PrepareDataCdLocation(command, parameter, &location);
+    return CdControlF((uint8)command, (uint8 *)parameter);
+}
+
+uint32 SyncDataCd(sint32 mode, uint8 *response)
+{
+    FUNCTION_MARKER(0x80097D90, "SLUS_003.73");
+    uint32 completion = CdSync(mode, response);
+    if (completion == CdlComplete && CdLastCom() == CdlGetlocP)
+        RebaseDataCdResponse(response);
+    return completion;
 }

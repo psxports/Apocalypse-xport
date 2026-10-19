@@ -1,7 +1,8 @@
+#include <stdlib.h>
+
 #include "startup_resources.h"
 #include "resource_io.h"
-#include "game_sdk_bindings.h"
-#include <stdlib.h>
+#include "game_diagnostics.h"
 
 struct StartupImage
 {
@@ -136,11 +137,3 @@ void LoadStartupImage(uint32 compressed, const char *name, uint32 height)
     DrawStartupImage(height);
     ReleaseStartupResources();
 }
-
-extern "C" void sub_8001024C(uint32 compressed, uint32 name, uint32 height)
-{
-    FUNCTION_MARKER(0x8001024C, "SLUS_003.73");
-    LoadStartupImage(compressed, (const char *)psx_addr(name, 1), height);
-}
-
-

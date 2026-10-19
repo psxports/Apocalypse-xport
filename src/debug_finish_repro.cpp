@@ -1,16 +1,27 @@
-#include "visual_object.h"
-#include "game_sdk_bindings.h"
-#include "debug_finish_repro.h"
-
-#if defined(_DEBUG)
-#include "menu_saves.h"
-#include "menu_window.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "input_recording.h"
+#include "visual_object.h"
+#include "game_diagnostics.h"
+#include "debug_finish_repro.h"
+
+#if defined(_DEBUG)
+    #include "menu_saves.h"
+    #include "menu_window.h"
+    #include "pause_menu.h"
+    #include "player_save_state.h"
+    #include "game_panel.h"
+
 static bool finish_repro_loaded;
 static bool finish_repro_applied;
+
+void ResetDebugFinishRepro()
+{
+    finish_repro_loaded = false;
+    finish_repro_applied = false;
+}
 
 static FILE *OpenFinishReproFile(const char *name)
 {
@@ -30,56 +41,114 @@ static FILE *OpenFinishReproFile(const char *name)
     return file;
 }
 
-void DebugLoadFinishPlayerSave(uint32 record)
+void DebugLoadFinishPlayerSave(PlayerSaveRecord &record)
 {
-    if (finish_repro_loaded || r_u32(0x800FF818))
+    if (finish_repro_loaded || input_recording.GetMode() != InputRecording::Live)
         return;
     FILE *file = OpenFinishReproFile("player-save.bin");
     if (!file)
         return;
-    if (fread(psx_addr(record, 136), 1, 136, file) != 136)
+    uint8 data[PlayerSaveSize];
+    if (xport_fread(data, 1, PlayerSaveSize, file) != PlayerSaveSize)
         abort();
     fclose(file);
+    DecodePlayerSave(record, data, sizeof(data));
     finish_repro_loaded = true;
 }
 
-static uint32 ReadFinishReproWord(const uint8 *memory, uint32 address)
+struct FinishReproContext
 {
-    uint32 value;
-    memcpy(&value, memory + (address & 0x1FFFFF), 4);
-    return value;
+    Vector3 player_pos;
+    Vector3 camera_pos;
+    uint32 enemy_total;
+    uint32 enemy_kills;
+    uint32 area_kind;
+    uint32 lives;
+    uint32 completion_value;
+    uint32 visible;
+    uint32 blink_ticks;
+    uint32 target_percent;
+    uint32 display_percent;
+    uint32 lives_timer;
+    uint32 selection;
+};
+
+static FinishReproContext ReadFinishReproContext()
+{
+    uint8 data[76], extra;
+    FILE *file = OpenFinishReproFile("finish-context.bin");
+    if (!file)
+        abort();
+    bool valid = xport_fread(data, 1, sizeof(data), file) == sizeof(data);
+    valid = valid && xport_fread(&extra, 1, 1, file) == 0 && !ferror(file);
+    fclose(file);
+    if (!valid || memcmp(data, "AFIN", 4) || xport_load_le32(data + 4) != 1 || xport_load_le32(data + 72) > 255)
+    {
+        GameDiagnostic("Invalid native finish test context\n");
+        abort();
+    }
+    FinishReproContext context;
+    for (uint32 axis = 0; axis < 3; ++axis)
+    {
+        context.player_pos.words[axis] = xport_load_le32(data + 8 + axis * 4);
+        context.camera_pos.words[axis] = xport_load_le32(data + 20 + axis * 4);
+    }
+    context.enemy_total = xport_load_le32(data + 32);
+    context.enemy_kills = xport_load_le32(data + 36);
+    context.area_kind = xport_load_le32(data + 40);
+    context.lives = xport_load_le32(data + 44);
+    context.completion_value = xport_load_le32(data + 48);
+    context.visible = xport_load_le32(data + 52);
+    context.blink_ticks = xport_load_le32(data + 56);
+    context.target_percent = xport_load_le32(data + 60);
+    context.display_percent = xport_load_le32(data + 64);
+    context.lives_timer = xport_load_le32(data + 68);
+    context.selection = xport_load_le32(data + 72);
+    return context;
 }
 
 void DebugRestoreFinishMenu()
 {
-    if (!finish_repro_loaded || finish_repro_applied || r_u32(0x800FF818))
+    if (!finish_repro_loaded || finish_repro_applied || input_recording.GetMode() != InputRecording::Live)
         return;
-    FILE *file = OpenFinishReproFile("game.ram");
-    uint8 *memory = (uint8 *)malloc(0x200000);
-    if (!memory || fread(memory, 1, 0x200000, file) != 0x200000)
-        abort();
-    fclose(file);
-    uint32 saved_player = ReadFinishReproWord(memory, 0x800FF5A0);
-    uint32 saved_camera = ReadFinishReproWord(memory, 0x800FF904);
-    uint32 player = visual_lists.players;
-    uint32 camera = visual_lists.cameras;
-    for (uint32 axis = 4; axis <= 12; axis += 4)
+    const char *phase = getenv("APOCALYPSE_DEBUG_FINISH_PHASE");
+    bool results = phase && !strcmp(phase, "results");
+    if (phase && !results && strcmp(phase, "save"))
     {
-        w_u32(player + axis, ReadFinishReproWord(memory, saved_player + axis));
-        w_u32(camera + axis, ReadFinishReproWord(memory, saved_camera + axis));
+        GameDiagnostic("Invalid finish reproduction phase\n");
+        abort();
     }
-    static const uint32 globals[4] = {0x800FF308, 0x800FF30C, 0x800FF378, 0x800FF874};
-    for (uint32 index = 0; index < 4; ++index)
-        w_u32(globals[index], ReadFinishReproWord(memory, globals[index]));
-    CompleteLevel(ReadFinishReproWord(memory, 0x800FF040));
-    EnterSaveSelectionMenu();
-    static const uint32 menu_globals[5] = {0x800FF034, 0x800FF044, 0x800FFB54, 0x800FFB58, 0x800FF758};
-    for (uint32 index = 0; index < 5; ++index)
-        w_u32(menu_globals[index], ReadFinishReproWord(memory, menu_globals[index]));
-    uint32 saved_menu = ReadFinishReproWord(memory, 0x800FF024);
-    MenuWindow::Attach(r_u32(0x800FF024)).ResetSelection(memory[(saved_menu + 6) & 0x1FFFFF]);
+    FinishReproContext context = ReadFinishReproContext();
+    ModelInstance *player = visual_lists.players;
+    ModelInstance *camera = visual_lists.cameras;
+    if (!player || !camera)
+    {
+        GameDiagnostic("Missing native finish test player/camera\n");
+        abort();
+    }
+    player->pos = context.player_pos;
+    camera->pos = context.camera_pos;
+    game_progress.level.enemy_total = context.enemy_total;
+    game_progress.level.enemy_kills = context.enemy_kills;
+    level_environment.area_kind = context.area_kind;
+    game_progress.lives = context.lives;
+    CompleteLevel(context.completion_value);
+    if (!results)
+    {
+        EnterSaveSelectionMenu();
+        panel_text.visible = context.visible;
+        game_progress.completion.blink_ticks = context.blink_ticks;
+        game_progress.completion.target_percent = context.target_percent;
+        game_progress.completion.display_percent = context.display_percent;
+        panel_text.lives_timer = context.lives_timer;
+        if (!menu_runtime.confirm)
+        {
+            GameDiagnostic("Missing native finish test confirmation menu\n");
+            abort();
+        }
+        menu_runtime.confirm->ResetSelection(context.selection);
+    }
     finish_repro_applied = true;
-    free(memory);
     GameDiagnostic("Finish-menu reproduction restored\n");
 }
 #endif

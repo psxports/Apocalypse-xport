@@ -1,13 +1,16 @@
 #ifndef OBJECT_INITIALIZERS_H
 #define OBJECT_INITIALIZERS_H
 
+#include "vector3.h"
+
 extern "C"
 {
 #include "psx.h"
 }
 
-uint32 InitializeObjectUpVector();
-uint32 InitializeObjectMotionConstants();
-uint32 InitializeObjectZeroVectors();
+void ResetGameConstructors();
+void InitializeGameConstructors();
+extern const Vector3 zero_vector;
+extern const ShortVector3 zero_angles;
 
 #endif

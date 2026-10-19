@@ -1,67 +1,52 @@
-#include "game_sdk_bindings.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
-#include "ribbon_segments.h"
-#include "game_heap.h"
-#include "model_resources.h"
-#include "model_projection.h"
-#include "effect_lifecycle.h"
-#include "native_object_storage.h"
 #include <new>
 #include <stdlib.h>
 
-RibbonSegments::RibbonSegments(uint32 segments, uint32 mode) : RenderableEffect(), tex(0)
+#include "scene_lifecycle.h"
+#include "game_tick.h"
+
+#include "game_diagnostics.h"
+
+#include "ribbon_segments.h"
+#include "model_resources.h"
+#include "model_projection.h"
+#include "effect_lifecycle.h"
+
+RibbonSegments::RibbonSegments(uint32 segments, uint32 mode) : RenderableEffect(), mode(mode), hidden(0), u_scroll(0), v_scroll(0), v_step(8), waving(0), point_count(segments), points(0), tex(0)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 buffer, count, index = 0, offset = 0;
     FUNCTION_MARKER(0x80026A44, "SLUS_003.73");
-    w_u32(object + 68, 0x800A1598);
-    w_u32(object + 100, segments);
-    buffer = AllocateHeapBlock(segments * 36, 0, 1);
-    count = r_u32(object + 100);
-    w_u32(object + 104, buffer);
-    if ((sint32)count > 0)
+    if (segments < 2 || segments > 0x7FFFFFFF || segments > 0xFFFFFFFF / 36 || segments > (size_t)-1 / sizeof(*points))
     {
-        do
-        {
-            buffer = r_u32(object + 104) + offset;
-            ++index;
-            w_u16(buffer + 18, 0);
-            w_u16(buffer + 16, 0);
-            count = r_u32(object + 100);
-            offset += 36;
-        } while ((sint32)index < (sint32)count);
+        GameDiagnostic("Invalid ribbon point count %u\n", segments);
+        abort();
     }
-    w_u8(object + 72, mode);
-    w_u32(object + 92, 8);
+    points = (RibbonPoint *)malloc((size_t)segments * sizeof(*points));
+    if (!points)
+    {
+        GameDiagnostic("Ribbon geometry allocation failed\n");
+        abort();
+    }
+    for (uint32 i = 0; i < segments; ++i)
+    {
+        points[i].height = 0;
+        points[i].width = 0;
+        // Packet command bytes are set after copying these colors
+        points[i].center.code = 0;
+        points[i].edge.code = 0;
+    }
 }
 
-RibbonSegments &RibbonSegments::Attach(uint32 object)
+RibbonSegments::~RibbonSegments()
 {
-    return *static_cast<RibbonSegments *>(FindNativeObjectStorage(object));
+    free(points);
 }
 
 uint32 RibbonSegments::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 buffer, result;
     FUNCTION_MARKER(0x80026AF4, "SLUS_003.73");
-    buffer = r_u32(object + 104);
-    w_u32(object + 68, 0x800A1598);
-    ReleaseHeapBlock(buffer);
-    result = RenderableEffect::Destroy(0);
-    if (reason & 1)
-        result = ReleaseEffectStorage(object);
-    return result;
-}
-
-extern "C" uint32 sub_80026AF4(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x80026AF4, "SLUS_003.73");
-    return RibbonSegments::Attach(object).RibbonSegments::Destroy(reason);
+    free(points);
+    points = 0;
+    uint32 result = RenderableEffect::Destroy(0);
+    return reason & 1 ? ReleaseEffectStorage(this) : result;
 }
 
 void RibbonSegments::SetMaterial(uint32 name)
@@ -70,83 +55,42 @@ void RibbonSegments::SetMaterial(uint32 name)
     tex = &GetTextureResource(name);
 }
 
-uint32 RibbonSegments::SetColors(uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue)
+uint32 RibbonSegments::SetColors(uint32 r, uint32 g, uint32 b, uint32 tail_r, uint32 tail_g, uint32 tail_b)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 result, index = 0, offset = 0;
     FUNCTION_MARKER(0x80026B80, "SLUS_003.73");
-    tail_red &= 255;
-    tail_green &= 255;
-    result = r_u32(object + 100);
-    tail_blue &= 255;
-    if ((sint32)result <= 0)
-        return result;
-    do
+    for (uint32 i = 0; i < point_count; ++i)
     {
-        w_u8(r_u32(object + 104) + offset + 12, red);
-        w_u8(r_u32(object + 104) + offset + 13, green);
-        w_u8(r_u32(object + 104) + offset + 14, blue);
-        w_u8(r_u32(object + 104) + offset + 20, tail_red);
-        w_u8(r_u32(object + 104) + offset + 21, tail_green);
-        ++index;
-        w_u8(r_u32(object + 104) + offset + 22, tail_blue);
-        result = (sint32)index < (sint32)r_u32(object + 100);
-        offset += 36;
-    } while (result);
-    return result;
+        RibbonPoint *point = points + i;
+        point->center.r = r;
+        point->center.g = g;
+        point->center.b = b;
+        point->edge.r = tail_r;
+        point->edge.g = tail_g;
+        point->edge.b = tail_b;
+    }
+    return 0;
 }
 
 uint32 RibbonSegments::SetSize(uint32 width, uint32 height)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 result, index = 0, offset = 0;
     FUNCTION_MARKER(0x80026C18, "SLUS_003.73");
-    result = r_u32(object + 100);
-    if ((sint32)result <= 0)
-        return result;
-    do
+    for (uint32 i = 0; i < point_count; ++i)
     {
-        w_u16(r_u32(object + 104) + offset + 16, width);
-        ++index;
-        w_u16(r_u32(object + 104) + offset + 18, height);
-        result = (sint32)index < (sint32)r_u32(object + 100);
-        offset += 36;
-    } while (result);
-    return result;
+        points[i].width = width;
+        points[i].height = height;
+    }
+    return 0;
 }
 
-
-
-
-
-
-
-
-
-static uint32 ReadRibbonNormal(const sint32 *output)
-{
-    uint32 address = GuestMemoryAddress(output);
-    return address ? r_u32(address) : (uint32)*output;
-}
-
-static void WriteRibbonNormal(sint32 *output, uint32 value)
-{
-    uint32 address = GuestMemoryAddress(output);
-    if (address)
-        w_u32(address, value);
-    else
-        *output = (sint32)value;
-}
-
-uint32 CalculateRibbonNormal(uint32 first, uint32 second, sint32 *output_x, sint32 *output_y, uint32 minimum)
+static uint32 CalculateRibbonNormal(uint32 first, uint32 second, sint32 *output_x, sint32 *output_y, uint32 minimum)
 {
     uint32 horizontal, vertical, norm, result;
     FUNCTION_MARKER(0x8002626C, "SLUS_003.73");
     horizontal = (uint32)(sint32)(sint16)second - (uint32)(sint32)(sint16)first;
     horizontal = (uint32)((sint32)(horizontal * 320) / 512);
     vertical = (uint32)((sint32)second >> 16) - (uint32)((sint32)first >> 16);
-    WriteRibbonNormal(output_x, vertical);
-    WriteRibbonNormal(output_y, 0 - horizontal);
+    *output_x = (sint32)(vertical);
+    *output_y = (sint32)(0 - horizontal);
     if ((sint32)horizontal < 0)
         horizontal = 0 - horizontal;
     if ((sint32)vertical < 0)
@@ -155,23 +99,21 @@ uint32 CalculateRibbonNormal(uint32 first, uint32 second, sint32 *output_x, sint
     result = (sint32)norm < (sint32)minimum;
     if (result)
     {
-        WriteRibbonNormal(output_y, 0);
-        WriteRibbonNormal(output_x, 0);
+        *output_y = (sint32)(0);
+        *output_x = (sint32)(0);
         return result;
     }
     // A minimum of zero can reach the original DIV by zero
-    result = ReadRibbonNormal(output_x) << 6;
+    result = (uint32)*output_x << 6;
     result = norm ? (uint32)((sint32)result / (sint32)norm) : ((sint32)result < 0 ? 1 : (uint32)-1);
-    WriteRibbonNormal(output_x, result);
-    result = ReadRibbonNormal(output_y) << 6;
+    *output_x = (sint32)(result);
+    result = (uint32)*output_y << 6;
     result = norm ? (uint32)((sint32)result / (sint32)norm) : ((sint32)result < 0 ? 1 : (uint32)-1);
-    WriteRibbonNormal(output_y, result);
-    result = (uint32)((sint32)(ReadRibbonNormal(output_x) << 9) / 320);
-    WriteRibbonNormal(output_x, result);
+    *output_y = (sint32)(result);
+    result = (uint32)((sint32)((uint32)*output_x << 9) / 320);
+    *output_x = (sint32)(result);
     return result;
 }
-
-
 
 // Native helpers retain the original inline packet and coordinate operations
 static uint32 PackRibbonOffset(uint32 center, uint32 x, uint32 y)
@@ -193,73 +135,82 @@ static void MakeRibbonEdges(uint32 center, uint32 normal_x, uint32 normal_y, uin
     edges[3] = PackRibbonOffset(center, 0 - x, 0 - y);
 }
 
-static uint32 LinkRibbonPacket(uint32 packet, uint32 ordering_table, uint32 tag, uint32 previous)
+static uint32 LinkRibbonPacket(uint8 *packet, uint32 *ordering_table, uint32 tag, uint32 previous)
 {
     uint32 next;
-    w_u32(packet, (tag & 0xFF000000) | (previous & 0xFFFFFF));
-    next = r_u32(ordering_table);
-    next = (next & 0xFF000000) | (packet & 0xFFFFFF);
-    w_u32(ordering_table, next);
+    P_TAG *header = (P_TAG *)packet;
+    header->addr = previous;
+    header->len = tag >> 24;
+    next = *ordering_table;
+    next = (next & 0xFF000000) | gpu_packet_link((uintptr_t)packet);
+    *ordering_table = next;
     return next;
 }
 
-static uint32 InsertRibbonPacket(uint32 packet, uint32 ordering_table)
+static uint32 InsertRibbonPacket(uint8 *packet, uint32 *ordering_table)
 {
-    uint32 tag = r_u32(packet);
-    uint32 previous = r_u32(ordering_table);
+    P_TAG *header = (P_TAG *)packet;
+    uint32 tag = header->addr | ((uint32)header->len << 24);
+    uint32 previous = *ordering_table;
     return LinkRibbonPacket(packet, ordering_table, tag, previous);
 }
 
 uint32 RibbonSegments::Render()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 result, current, next, current_colors, next_colors, index = 0, first = 1, phase;
+    Vector3 line_start, line_end;
+    ProjectedWorldLine line_projection;
+    uint32 result, index = 0, first = 1, phase;
+    const RibbonPoint *current, *next;
     uint32 normal_x = 0, normal_y = 0, start_x, start_y, end_x, end_y;
     uint32 current_depth, next_depth, current_width, current_height, next_width, next_height;
-    uint32 previous_edges[4], edges[4], packet, quad[4], ordering_table, depth, value, u, v, tick, width;
+    uint32 previous_edges[4], edges[4], depth, value, u, v, tick, width;
+    uint8 *packet, *quad_packet[4];
+    uint32 *ordering_table;
     sint32 computed_x, computed_y, wave;
+    POLY_GT4 *quad[4];
+    DR_TWIN *apply_window, *reset_window;
+    DR_TPAGE *draw_state;
+    uint8 *apply_packet, *reset_packet, *state_packet;
     FUNCTION_MARKER(0x80026C68, "SLUS_003.73");
-    result = r_u8(object + 80);
+    result = this->hidden;
     if (result)
         return result;
-    current = r_u32(object + 104);
-    next = current + 36;
-    w_u32(0x1F800000, r_u32(current));
-    w_u32(0x1F800004, r_u32(current + 4));
-    w_u32(0x1F800008, r_u32(current + 8));
-    current_colors = current + 20;
-    next_colors = next + 20;
-    phase = r_u32(object + 88);
+    current = this->points;
+    next = current + 1;
+    line_start.x = current->pos.words[0];
+    line_start.y = current->pos.words[1];
+    line_start.z = current->pos.words[2];
+    phase = this->v_scroll;
     for (;;)
     {
-        result = (sint32)index < (sint32)(r_u32(object + 100) - 1);
+        result = (sint32)index < (sint32)(this->point_count - 1);
         if (!result)
             return result;
-        w_u32(0x1F80000C, r_u32(next));
-        w_u32(0x1F800010, r_u32(next_colors - 16));
-        w_u32(0x1F800014, r_u32(next_colors - 12));
-        result = ProjectAndClipWorldLine(0x1F800000);
+        line_end.x = next->pos.words[0];
+        line_end.y = next->pos.words[1];
+        line_end.z = next->pos.words[2];
+        result = ProjectAndClipWorldLine(line_start, line_end, line_projection);
         if ((sint32)result < 0)
         {
             normal_x = 0;
             normal_y = 0;
             goto AdvanceSegment;
         }
-        current_depth = r_u32(0x1F800028);
+        current_depth = line_projection.depth[0];
         current_width = current_height = 0;
         if (current_depth)
         {
-            current_width = (uint32)((sint32)(400 * r_u16(current_colors - 4)) / (sint32)current_depth);
-            current_height = (uint32)((sint32)(400 * r_u16(current_colors - 2)) / (sint32)current_depth);
+            current_width = (uint32)((sint32)(400 * current->width) / (sint32)current_depth);
+            current_height = (uint32)((sint32)(400 * current->height) / (sint32)current_depth);
         }
-        next_depth = r_u32(0x1F80002C);
+        next_depth = line_projection.depth[1];
         next_width = next_height = 0;
         if (next_depth)
         {
-            next_width = (uint32)((sint32)(400 * r_u16(next_colors - 4)) / (sint32)next_depth);
-            next_height = (uint32)((sint32)(400 * r_u16(next_colors - 2)) / (sint32)next_depth);
+            next_width = (uint32)((sint32)(400 * next->width) / (sint32)next_depth);
+            next_height = (uint32)((sint32)(400 * next->height) / (sint32)next_depth);
         }
-        CalculateRibbonNormal(r_u32(0x1F800018), r_u32(0x1F80001C), &computed_x, &computed_y, 3);
+        CalculateRibbonNormal(line_projection.screen[0], line_projection.screen[1], &computed_x, &computed_y, 3);
         if (normal_x | normal_y)
         {
             start_x = normal_x;
@@ -288,11 +239,11 @@ uint32 RibbonSegments::Render()
             start_y = end_y = normal_y = (uint32)computed_y;
         }
         if (first)
-            MakeRibbonEdges(r_u32(0x1F800018), start_x, start_y, current_width, current_height, previous_edges);
-        MakeRibbonEdges(r_u32(0x1F80001C), end_x, end_y, next_width, next_height, edges);
-        if (r_u32(object + 96) && (sint32)index >= (sint32)r_u32(object + 100) / 2)
+            MakeRibbonEdges(line_projection.screen[0], start_x, start_y, current_width, current_height, previous_edges);
+        MakeRibbonEdges(line_projection.screen[1], end_x, end_y, next_width, next_height, edges);
+        if (this->waving && (sint32)index >= (sint32)this->point_count / 2)
         {
-            tick = r_u32(0x800FF2F0);
+            tick = game_clock.tick;
             wave = rsin((tick * 200 + 130) & 4095);
             edges[0] += (uint32)(wave / 2048) << 16;
             wave = rsin(((tick * 1000) & 0x3FF8) >> 2);
@@ -300,22 +251,29 @@ uint32 RibbonSegments::Render()
             wave = rsin((tick * 150 + 100) & 4095);
             edges[1] += (value + (uint32)(wave / 2048)) << 16;
         }
-        next_depth = r_u32(0x1F80002C);
-        current_depth = r_u32(0x1F800028);
+        next_depth = line_projection.depth[1];
+        current_depth = line_projection.depth[0];
         depth = (sint32)current_depth < (sint32)next_depth ? current_depth : next_depth;
-        ordering_table = r_u32(0x800FF660) + (depth & 0x3FFC) + 112;
-        packet = r_u32(0x800FF668);
-        quad[0] = packet;
-        quad[1] = packet + 52;
-        quad[2] = packet + 104;
-        quad[3] = packet + 156;
-        result = r_u32(0x800FF374) < packet + 240;
+        ordering_table = scene_render.cur->ot + ((depth & 0x3FFC) >> 2);
+        packet = scene_render.cursor;
+        result = scene_render.limit - packet < (sint32)(4 * sizeof(POLY_GT4) + 2 * sizeof(DR_TWIN) + sizeof(DR_TPAGE));
         if (result)
             return result;
-        w_u32(0x800FF668, packet + 240);
-        w_u8(packet + 223, 2);
-        w_u32(packet + 228, 0);
-        w_u32(packet + 224, 0xE2000000);
+        quad_packet[0] = packet;
+        quad_packet[1] = packet + sizeof(POLY_GT4);
+        quad_packet[2] = packet + 2 * sizeof(POLY_GT4);
+        quad_packet[3] = packet + 3 * sizeof(POLY_GT4);
+        apply_packet = packet + 4 * sizeof(POLY_GT4);
+        reset_packet = apply_packet + sizeof(DR_TWIN);
+        state_packet = reset_packet + sizeof(DR_TWIN);
+        scene_render.cursor = state_packet + sizeof(DR_TPAGE);
+        for (uint32 quad_idx = 0; quad_idx < 4; ++quad_idx)
+            quad[quad_idx] = (POLY_GT4 *)quad_packet[quad_idx];
+        reset_window = (DR_TWIN *)reset_packet;
+        apply_window = (DR_TWIN *)apply_packet;
+        setlen(reset_window, 2);
+        reset_window->code[1] = 0;
+        reset_window->code[0] = 0xE2000000;
         if (!tex)
         {
             GameDiagnostic("Ribbon texture is not selected\n");
@@ -323,142 +281,140 @@ uint32 RibbonSegments::Render()
         }
         u = tex->uv[0].u;
         v = tex->uv[0].v;
-        w_u8(packet + 211, 2);
-        w_u32(packet + 216, 0);
-        w_u32(packet + 212, 0xE2000318 | ((v >> 3) << 15) | ((u >> 3) << 10));
-        InsertRibbonPacket(packet + 220, ordering_table);
-        w_u32(quad[3], 0x0C000000);
-        w_u32(quad[2], 0x0C000000);
-        w_u32(quad[1], 0x0C000000);
-        w_u32(quad[0], 0x0C000000);
+        setlen(apply_window, 2);
+        apply_window->code[1] = 0;
+        apply_window->code[0] = 0xE2000318 | ((v >> 3) << 15) | ((u >> 3) << 10);
+        InsertRibbonPacket(reset_packet, ordering_table);
+        quad[3]->tag = 0;
+        setPolyGT4(quad[3]);
+        quad[2]->tag = 0;
+        setPolyGT4(quad[2]);
+        quad[1]->tag = 0;
+        setPolyGT4(quad[1]);
+        quad[0]->tag = 0;
+        setPolyGT4(quad[0]);
         value = tex->clut;
-        w_u16(quad[3] + 14, value);
-        w_u16(quad[2] + 14, value);
-        w_u16(quad[1] + 14, value);
-        w_u16(quad[0] + 14, value);
+        quad[3]->p[0].attr = value;
+        quad[2]->p[0].attr = value;
+        quad[1]->p[0].attr = value;
+        quad[0]->p[0].attr = value;
         value = tex->tpage;
-        w_u16(quad[3] + 26, value);
-        w_u16(quad[2] + 26, value);
-        w_u16(quad[1] + 26, value);
-        w_u16(quad[0] + 26, value);
-        value = r_u32(object + 84) & 63;
+        quad[3]->p[1].attr = value;
+        quad[2]->p[1].attr = value;
+        quad[1]->p[1].attr = value;
+        quad[0]->p[1].attr = value;
+        value = this->u_scroll & 63;
         u = tex->uv[0].u + value;
         v = tex->uv[0].v + (phase & 63);
         // Original texture strips are written in quad order 2, 0, 1, 3
-        w_u8(quad[2] + 12, u);
-        w_u8(quad[2] + 36, u + 16);
-        w_u8(quad[2] + 24, u);
-        w_u8(quad[2] + 13, v);
-        w_u8(quad[2] + 37, v);
-        value = r_u8(object + 92);
-        w_u8(quad[2] + 48, u + 16);
-        w_u8(quad[2] + 25, value + v);
-        w_u8(quad[2] + 49, r_u8(object + 92) + v);
-        w_u8(quad[0] + 12, u + 16);
-        w_u8(quad[0] + 13, v);
-        w_u8(quad[0] + 36, u + 32);
-        w_u8(quad[0] + 37, v);
-        w_u8(quad[0] + 24, u + 16);
-        w_u8(quad[0] + 25, r_u8(object + 92) + v);
-        w_u8(quad[0] + 48, u + 32);
-        w_u8(quad[0] + 49, r_u8(object + 92) + v);
-        w_u8(quad[1] + 12, u + 48);
-        w_u8(quad[1] + 13, v);
-        w_u8(quad[1] + 36, u + 32);
-        w_u8(quad[1] + 37, v);
-        w_u8(quad[1] + 24, u + 48);
-        value = r_u8(object + 92);
-        w_u8(quad[1] + 48, u + 32);
-        w_u8(quad[1] + 25, value + v);
-        w_u8(quad[1] + 49, r_u8(object + 92) + v);
-        w_u8(quad[3] + 12, u + 64);
-        w_u8(quad[3] + 13, v);
-        w_u8(quad[3] + 36, u + 48);
-        w_u8(quad[3] + 37, v);
-        w_u8(quad[3] + 24, u + 64);
-        value = r_u8(object + 92);
-        w_u8(quad[3] + 48, u + 48);
-        w_u8(quad[3] + 25, value + v);
-        w_u8(quad[3] + 49, r_u8(object + 92) + v);
-        value = r_u32(next_colors);
-        width = r_u32(object + 92);
-        w_u32(quad[0] + 4, value);
-        w_u32(quad[0] + 16, r_u32(current_colors));
-        w_u32(quad[0] + 28, r_u32(next_colors - 8));
-        value = r_u32(current_colors - 8);
-        w_u32(quad[0] + 8, edges[0]);
-        w_u32(quad[0] + 40, value);
-        w_u32(quad[0] + 20, previous_edges[0]);
-        w_u32(quad[0] + 32, r_u32(0x1F80001C));
-        w_u32(quad[0] + 44, r_u32(0x1F800018));
-        w_u32(quad[2] + 4, 0);
-        w_u32(quad[2] + 16, 0);
-        w_u32(quad[2] + 28, r_u32(next_colors));
-        value = r_u32(current_colors);
-        w_u32(quad[2] + 8, edges[2]);
-        w_u32(quad[2] + 20, previous_edges[2]);
-        w_u32(quad[2] + 32, edges[0]);
-        w_u32(quad[2] + 44, previous_edges[0]);
-        w_u32(quad[2] + 40, value);
-        w_u32(quad[1] + 4, r_u32(next_colors));
-        w_u32(quad[1] + 16, r_u32(current_colors));
-        w_u32(quad[1] + 28, r_u32(next_colors - 8));
-        value = r_u32(current_colors - 8);
-        w_u32(quad[1] + 8, edges[1]);
-        w_u32(quad[1] + 20, previous_edges[1]);
-        w_u32(quad[1] + 40, value);
-        w_u32(quad[1] + 32, r_u32(0x1F80001C));
-        w_u32(quad[1] + 44, r_u32(0x1F800018));
-        w_u32(quad[3] + 4, 0);
-        w_u32(quad[3] + 16, 0);
-        w_u32(quad[3] + 28, r_u32(next_colors));
-        w_u32(quad[3] + 40, r_u32(current_colors));
-        w_u32(quad[3] + 8, edges[3]);
-        w_u32(quad[3] + 20, previous_edges[3]);
-        w_u32(quad[3] + 32, edges[1]);
-        w_u32(quad[3] + 44, previous_edges[1]);
-        w_u8(quad[3] + 7, 62);
-        w_u8(quad[2] + 7, 62);
-        w_u8(quad[1] + 7, 62);
-        value = r_u32(quad[0]);
-        w_u8(quad[0] + 7, 62);
-        tick = r_u32(ordering_table);
-        tick = LinkRibbonPacket(quad[0], ordering_table, value, tick);
-        value = r_u32(quad[2]);
-        tick = LinkRibbonPacket(quad[2], ordering_table, value, tick);
-        value = r_u32(quad[1]);
-        tick = LinkRibbonPacket(quad[1], ordering_table, value, tick);
-        value = r_u32(quad[3]);
+        quad[2]->p[0].uv.u = u;
+        quad[2]->p[2].uv.u = u + 16;
+        quad[2]->p[1].uv.u = u;
+        quad[2]->p[0].uv.v = v;
+        quad[2]->p[2].uv.v = v;
+        value = (uint8)this->v_step;
+        quad[2]->p[3].uv.u = u + 16;
+        quad[2]->p[1].uv.v = value + v;
+        quad[2]->p[3].uv.v = (uint8)this->v_step + v;
+        quad[0]->p[0].uv.u = u + 16;
+        quad[0]->p[0].uv.v = v;
+        quad[0]->p[2].uv.u = u + 32;
+        quad[0]->p[2].uv.v = v;
+        quad[0]->p[1].uv.u = u + 16;
+        quad[0]->p[1].uv.v = (uint8)this->v_step + v;
+        quad[0]->p[3].uv.u = u + 32;
+        quad[0]->p[3].uv.v = (uint8)this->v_step + v;
+        quad[1]->p[0].uv.u = u + 48;
+        quad[1]->p[0].uv.v = v;
+        quad[1]->p[2].uv.u = u + 32;
+        quad[1]->p[2].uv.v = v;
+        quad[1]->p[1].uv.u = u + 48;
+        value = (uint8)this->v_step;
+        quad[1]->p[3].uv.u = u + 32;
+        quad[1]->p[1].uv.v = value + v;
+        quad[1]->p[3].uv.v = (uint8)this->v_step + v;
+        quad[3]->p[0].uv.u = u + 64;
+        quad[3]->p[0].uv.v = v;
+        quad[3]->p[2].uv.u = u + 48;
+        quad[3]->p[2].uv.v = v;
+        quad[3]->p[1].uv.u = u + 64;
+        value = (uint8)this->v_step;
+        quad[3]->p[3].uv.u = u + 48;
+        quad[3]->p[1].uv.v = value + v;
+        quad[3]->p[3].uv.v = (uint8)this->v_step + v;
+        value = next->edge.rgbc;
+        width = this->v_step;
+        quad[0]->p[0].rgbc.rgbc = value;
+        quad[0]->p[1].rgbc.rgbc = current->edge.rgbc;
+        quad[0]->p[2].rgbc.rgbc = next->center.rgbc;
+        value = current->center.rgbc;
+        quad[0]->p[0].xy.xy = edges[0];
+        quad[0]->p[3].rgbc.rgbc = value;
+        quad[0]->p[1].xy.xy = previous_edges[0];
+        quad[0]->p[2].xy.xy = line_projection.screen[1];
+        quad[0]->p[3].xy.xy = line_projection.screen[0];
+        quad[2]->p[0].rgbc.rgbc = 0;
+        quad[2]->p[1].rgbc.rgbc = 0;
+        quad[2]->p[2].rgbc.rgbc = next->edge.rgbc;
+        value = current->edge.rgbc;
+        quad[2]->p[0].xy.xy = edges[2];
+        quad[2]->p[1].xy.xy = previous_edges[2];
+        quad[2]->p[2].xy.xy = edges[0];
+        quad[2]->p[3].xy.xy = previous_edges[0];
+        quad[2]->p[3].rgbc.rgbc = value;
+        quad[1]->p[0].rgbc.rgbc = next->edge.rgbc;
+        quad[1]->p[1].rgbc.rgbc = current->edge.rgbc;
+        quad[1]->p[2].rgbc.rgbc = next->center.rgbc;
+        value = current->center.rgbc;
+        quad[1]->p[0].xy.xy = edges[1];
+        quad[1]->p[1].xy.xy = previous_edges[1];
+        quad[1]->p[3].rgbc.rgbc = value;
+        quad[1]->p[2].xy.xy = line_projection.screen[1];
+        quad[1]->p[3].xy.xy = line_projection.screen[0];
+        quad[3]->p[0].rgbc.rgbc = 0;
+        quad[3]->p[1].rgbc.rgbc = 0;
+        quad[3]->p[2].rgbc.rgbc = next->edge.rgbc;
+        quad[3]->p[3].rgbc.rgbc = current->edge.rgbc;
+        quad[3]->p[0].xy.xy = edges[3];
+        quad[3]->p[1].xy.xy = previous_edges[3];
+        quad[3]->p[2].xy.xy = edges[1];
+        quad[3]->p[3].xy.xy = previous_edges[1];
+        quad[3]->p[0].rgbc.code = 62;
+        quad[2]->p[0].rgbc.code = 62;
+        quad[1]->p[0].rgbc.code = 62;
+        value = quad[0]->tag;
+        quad[0]->p[0].rgbc.code = 62;
+        tick = *ordering_table;
+        tick = LinkRibbonPacket(quad_packet[0], ordering_table, value, tick);
+        value = quad[2]->tag;
+        tick = LinkRibbonPacket(quad_packet[2], ordering_table, value, tick);
+        value = quad[1]->tag;
+        tick = LinkRibbonPacket(quad_packet[1], ordering_table, value, tick);
+        value = quad[3]->tag;
         first = 0;
-        tick = LinkRibbonPacket(quad[3], ordering_table, value, tick);
+        tick = LinkRibbonPacket(quad_packet[3], ordering_table, value, tick);
         phase -= width;
         previous_edges[0] = edges[0];
         previous_edges[2] = edges[2];
         previous_edges[1] = edges[1];
-        value = r_u32(packet + 208);
-        LinkRibbonPacket(packet + 208, ordering_table, value, tick);
-        value = r_u32(0x800FF468);
-        tick = r_u32(0x800FF46C);
-        w_u32(packet + 232, value);
-        w_u32(packet + 236, tick);
-        InsertRibbonPacket(packet + 232, ordering_table);
+        value = apply_window->tag;
+        LinkRibbonPacket(apply_packet, ordering_table, value, tick);
+        value = GetEffectDrawMode().tag;
+        tick = GetEffectDrawMode().code[0];
+        draw_state = (DR_TPAGE *)state_packet;
+        draw_state->tag = value;
+        draw_state->code[0] = tick;
+        InsertRibbonPacket(state_packet, ordering_table);
         previous_edges[3] = edges[3];
-AdvanceSegment:
-        next_colors += 36;
-        current_colors += 36;
-        next += 36;
-        value = r_u32(0x1F80000C);
-        tick = r_u32(0x1F800010);
+    AdvanceSegment:
+        ++next;
+        ++current;
+        value = line_end.x;
+        tick = line_end.y;
         ++index;
-        depth = r_u32(0x1F800014);
-        w_u32(0x1F800000, value);
-        w_u32(0x1F800004, tick);
-        w_u32(0x1F800008, depth);
+        depth = line_end.z;
+        line_start.x = value;
+        line_start.y = tick;
+        line_start.z = depth;
     }
-}
-
-extern "C" uint32 sub_80026C68(uint32 object)
-{
-    FUNCTION_MARKER(0x80026C68, "SLUS_003.73");
-    return RibbonSegments::Attach(object).RibbonSegments::Render();
 }

@@ -1,7 +1,5 @@
-extern "C"
-{
-#include "draft_first_signatures.h"
-}
+#include "scene_lifecycle.h"
+#include "game_diagnostics.h"
 #include "screen_flash.h"
 
 struct ScreenFlash
@@ -140,46 +138,40 @@ uint32 DrawScreenFlash()
             return result;
     }
     uint32 depth = screen_flash.depth;
-    uint32 base = r_u32(0x800FF660);
-    uint32 packet = r_u32(0x800FF668);
-    uint32 entry = base + 4 * depth + 116;
-    uint32 limit = r_u32(0x800FF374);
-    uint32 next = packet + 32;
-    result = limit < next;
+    uint32 *entry = scene_render.cur->ot + depth + 1;
+    uint8 *packet = scene_render.cursor;
+    uint8 *limit = scene_render.limit;
+    result = limit - packet < (sint32)(sizeof(POLY_F4) + sizeof(DR_TPAGE));
     if (result)
         return result;
-    uint32 mode_packet = packet + 24;
-    w_u32(0x800FF668, next);
-    w_u8(packet + 3, 5);
-    w_u8(packet + 7, 42);
+    uint8 *next = packet + sizeof(POLY_F4) + sizeof(DR_TPAGE);
+    uint8 *mode_packet = packet + sizeof(POLY_F4);
+    scene_render.cursor = next;
+    POLY_F4 *poly = (POLY_F4 *)packet;
+    setPolyF4(poly);
+    poly->rgbc.code = 42;
     uint32 red = (screen_flash.color[0] >> 16);
-    w_u16(packet + 8, 0);
-    w_u16(packet + 10, 0);
-    w_u16(packet + 14, 0);
-    w_u16(packet + 16, 0);
-    w_u8(packet + 4, red);
+    poly->p[0].x = 0;
+    poly->p[0].y = 0;
+    poly->p[1].y = 0;
+    poly->p[2].x = 0;
+    poly->rgbc.r = red;
     uint32 green = (screen_flash.color[1] >> 16);
-    w_u16(packet + 12, 512);
-    w_u16(packet + 20, 512);
-    w_u8(packet + 5, green);
+    poly->p[1].x = 512;
+    poly->p[3].x = 512;
+    poly->rgbc.g = green;
     uint32 blue = (screen_flash.color[2] >> 16);
-    w_u16(packet + 18, 240);
-    w_u16(packet + 22, 240);
-    w_u8(packet + 6, blue);
-    uint32 tag = r_u32(packet);
-    uint32 head = r_u32(entry);
-    w_u32(packet, (tag & 0xFF000000) | (head & 0xFFFFFF));
-    head = r_u32(entry);
+    poly->p[2].y = 240;
+    poly->p[3].y = 240;
+    poly->rgbc.b = blue;
     uint32 fading = screen_flash.fading;
-    w_u32(entry, (head & 0xFF000000) | (packet & 0xFFFFFF));
-    w_u32(mode_packet, 0x1000000);
-    w_u32(mode_packet + 4, fading ? 0xE1000640 : 0xE1000620);
-    tag = r_u32(mode_packet);
-    head = r_u32(entry);
-    w_u32(mode_packet, (tag & 0xFF000000) | (head & 0xFFFFFF));
-    head = r_u32(entry);
-    result = (head & 0xFF000000) | (mode_packet & 0xFFFFFF);
-    w_u32(entry, result);
+    setaddr(poly, getaddr(entry));
+    setaddr(entry, gpu_packet_link((uintptr_t)poly));
+    DR_TPAGE *mode = (DR_TPAGE *)mode_packet;
+    mode->tag = 0x01000000;
+    mode->code[0] = fading ? 0xE1000640 : 0xE1000620;
+    setaddr(mode, getaddr(entry));
+    setaddr(entry, gpu_packet_link((uintptr_t)mode));
+    result = *entry;
     return result;
 }
-

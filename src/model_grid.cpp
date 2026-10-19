@@ -1,7 +1,8 @@
-#include "game_sdk_bindings.h"
-#include "model_grid.h"
 #include <stdlib.h>
 #include <string.h>
+
+#include "game_diagnostics.h"
+#include "model_grid.h"
 
 static ModelBankGrid model_grids[2];
 

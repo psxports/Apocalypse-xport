@@ -1,44 +1,51 @@
 #ifndef PROJECTILE_BASE_H
 #define PROJECTILE_BASE_H
 
+#include "vector3.h"
+
 #include "visual_object.h"
 
 struct ModelPolygon;
+void ResetProjectilePopulation();
+
+class RibbonTrail;
+class RingEffect;
 #include "mesh_ring_effect.h"
 
 struct ProjectileImpact
 {
     uint32 pending;
     ModelReference hit;
-    uint32 pos[3];
+    Vector3 pos;
     uint8 dynamic;
 
     ProjectileImpact() : pending(0), dynamic(0)
     {
-        pos[0] = pos[1] = pos[2] = 0;
+        pos.words[0] = pos.words[1] = pos.words[2] = 0;
     }
 };
 
 struct ProjectileState
 {
+    bool trace_movement;
     uint32 age;
     uint32 lifetime;
     ModelInstance **owner_list;
     uint16 damage;
     uint16 radius;
     uint32 damage_kind;
-    uint32 glow_object;
+    ObjectReference<RingEffect> glow_object;
     uint32 glow_distance;
-    uint32 glow_pos[3];
-    uint32 trail_object;
+    Vector3 glow_pos;
+    ObjectReference<RibbonTrail> trail_object;
     ProjectileImpact impact;
-    uint8 trail_rgb[3];
+    RGBC trail_color;
     uint8 trail_kind;
 
-    ProjectileState() : age(0), lifetime(0), owner_list(0), damage(0), radius(0), damage_kind(0), glow_object(0), glow_distance(0), trail_object(0), trail_kind(0)
+    ProjectileState() : trace_movement(false), age(0), lifetime(0), owner_list(0), damage(0), radius(0), damage_kind(0), glow_object(), glow_distance(0), trail_object(), trail_kind(0)
     {
-        glow_pos[0] = glow_pos[1] = glow_pos[2] = 0;
-        trail_rgb[0] = trail_rgb[1] = trail_rgb[2] = 0;
+        glow_pos.words[0] = glow_pos.words[1] = glow_pos.words[2] = 0;
+        trail_color.rgbc = 0;
     }
 };
 
@@ -47,18 +54,24 @@ class ExplosionRing : public MeshRingEffect
 {
 public:
     ExplosionRing();
-    virtual ~ExplosionRing() {}
+
+    virtual ~ExplosionRing()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
-    static ExplosionRing &Attach(uint32 object);
+    virtual void Update();
+    uint16 age;
+    uint16 lifetime;
+    sint16 radius_step;
+    sint16 width_step;
 };
 
 class ProjectileBase : public VisualObject
 {
 public:
     ProjectileBase();
-    virtual ~ProjectileBase() {}
-    static ProjectileBase &Attach(uint32 object);
+    virtual ~ProjectileBase();
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Explode();
     void PrepareTrajectory(uint32 scale);
@@ -72,7 +85,6 @@ public:
 
 protected:
     ProjectileState projectile;
-    static uint32 ReadAnglesWord(uint32 address);
 };
 
 #endif

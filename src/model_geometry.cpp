@@ -1,8 +1,9 @@
-#include "game_sdk_bindings.h"
-#include "model_geometry.h"
-#include "model_instance.h"
 #include <stdlib.h>
 #include <string.h>
+
+#include "game_diagnostics.h"
+#include "model_geometry.h"
+#include "model_instance.h"
 
 typedef char ModelVectorBoundarySize[sizeof(SVECTOR) == 8 ? 1 : -1];
 
@@ -33,9 +34,12 @@ uint32 PackModelPolygonUv(const ModelPolygon &poly, uint32 word)
 {
     switch (word)
     {
-        case 0: return poly.uv[0].uv | ((uint32)poly.clut << 16);
-        case 1: return poly.uv[1].uv | ((uint32)poly.tpage << 16);
-        case 2: return poly.uv[2].uv | ((uint32)poly.uv[3].uv << 16);
+        case 0:
+            return poly.uv[0].uv | ((uint32)poly.clut << 16);
+        case 1:
+            return poly.uv[1].uv | ((uint32)poly.tpage << 16);
+        case 2:
+            return poly.uv[2].uv | ((uint32)poly.uv[3].uv << 16);
     }
     GameDiagnostic("Invalid model polygon UV word %u\n", word);
     abort();

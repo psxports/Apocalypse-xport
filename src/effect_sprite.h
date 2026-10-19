@@ -6,9 +6,22 @@
 class Sprite : public TexturedEffect
 {
 public:
+    uint16 age;
+    uint16 lifetime;
+    uint16 angle;
+    uint16 angle_speed;
+    uint16 angle_accel;
+    uint16 scale[2];
+    uint8 forced_depth;
+    uint8 blend_mode;
+    uint16 clut;
+
     Sprite();
-    virtual ~Sprite() {}
-    static Sprite &Attach(uint32 object);
+
+    virtual ~Sprite()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
 };
 
@@ -16,9 +29,14 @@ public:
 class EndpointSprite : public TexturedEffect
 {
 public:
+    Vector3 endpoint[2];
+
     EndpointSprite();
-    virtual ~EndpointSprite() {}
-    static EndpointSprite &Attach(uint32 object);
+
+    virtual ~EndpointSprite()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
 };
 
@@ -26,10 +44,13 @@ class LoopingEndpointSprite : public EndpointSprite
 {
 public:
     LoopingEndpointSprite();
-    virtual ~LoopingEndpointSprite() {}
-    static LoopingEndpointSprite &Attach(uint32 object);
+
+    virtual ~LoopingEndpointSprite()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
 };
 
 class AnimatedSprite : public Sprite
@@ -37,30 +58,43 @@ class AnimatedSprite : public Sprite
 public:
     AnimatedSprite(const uint32 *position, const char *name, uint32 size, uint32 initialize, uint32 first, uint32 last);
     AnimatedSprite(const uint32 *position, uint32 resource, uint32 size, uint32 initialize, uint32 first, uint32 last);
-    virtual ~AnimatedSprite() {}
-    static AnimatedSprite &Attach(uint32 object);
+
+    virtual ~AnimatedSprite()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
+
+private:
+    uint32 finish_at_end;
+    uint32 last_frame;
 };
 
 class MovingSprite : public Sprite
 {
 public:
     MovingSprite(const uint32 *position, const uint32 *velocity, const char *name, uint32 size, uint32 lifetime, uint32 mode);
-    virtual ~MovingSprite() {}
-    static MovingSprite &Attach(uint32 object);
+
+    virtual ~MovingSprite()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
 };
 
 class ParticleSprite : public Sprite
 {
 public:
     ParticleSprite(const uint32 *position, uint32 red, uint32 green, uint32 blue, uint32 resource, uint32 size, uint32 initialize, uint32 spread, uint32 acceleration, uint32 lifetime);
-    virtual ~ParticleSprite() {}
-    static ParticleSprite &Attach(uint32 object);
+
+    virtual ~ParticleSprite()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
 };
 
 #endif

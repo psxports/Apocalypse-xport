@@ -1,7 +1,15 @@
 #ifndef GAME_GPU_PRESENT_H
 #define GAME_GPU_PRESENT_H
 #include "psx.h"
-void apocalypse_set_disp_mask(sint32 enabled);
-sint32 apocalypse_gpu_present(void);
-sint32 apocalypse_reset_graph(sint32 mode);
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+    uint32 SubmitActiveGpuFrame();
+    void SetDisplayMask(sint32 enabled);
+    sint32 PresentGpuFrame(void);
+    sint32 ResetGameGraphics(sint32 mode);
+#ifdef __cplusplus
+}
+#endif
 #endif

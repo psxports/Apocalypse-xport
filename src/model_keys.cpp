@@ -1,6 +1,7 @@
-#include "game_sdk_bindings.h"
-#include "model_keys.h"
 #include <stdlib.h>
+
+#include "game_diagnostics.h"
+#include "model_keys.h"
 
 void ReleaseModelKeys(ModelKeys &keys)
 {

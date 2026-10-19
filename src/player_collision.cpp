@@ -1,18 +1,16 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "level_session.h"
+#include "game_tuning.h"
 #include "visual_object.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
 #include "player.h"
 #include "scripted_level_object.h"
-#include "object_collision_events.h"
+#include "collision.h"
 #include "angle_math.h"
 #include "vector_arithmetic.h"
 #include "vector_distance.h"
-#include "native_object_storage.h"
-#include <stdio.h>
-#include <stdlib.h>
 
 static uint32 SquarePlayerVelocityComponent(uint32 velocity)
 {
@@ -30,361 +28,285 @@ static uint32 DividePlayerCollisionScalar(uint32 numerator, sint32 denominator)
     return (uint32)(value / denominator);
 }
 
-static void MarkPlayerCollisionLink(ModelInstance *hit)
-{
-    // Original helper ignores the other prepared contact arguments
-    static_cast<ScriptedLevelObject *>(hit->owner)->ActivateContact();
-}
-
-static void MarkPlayerCollisionOwner(ModelInstance *hit)
-{
-    static_cast<ScriptedLevelObject *>(hit->owner)->ApplyPlayerDamage();
-}
-
-uint32 ResolvePlayerCollisionMotion(uint32 a1)
+uint32 ResolvePlayerCollisionMotion(Player &player)
 {
     FUNCTION_MARKER(0x8003ACB8, "SLUS_003.73");
     CollisionRay collision;
-    Player &player = Player::Attach(a1);
+    Vector3 lateral_offset, probe_origin, probe_step, probe_end;
+    Vector3 ground_probe_velocity, ground_probe_scaled, ground_probe_offset;
+    Vector3 initial_velocity, probe_velocity;
+    Vector3 ledge_step_offset, ledge_scaled_velocity, ledge_velocity;
 
-    uint32 vector0[3], vector1[3], vector2[3], vector3[3];
-    sint8 v2;
-    sint32 v3;
-    sint32 v4;
-    sint32 v6;
-    sint32 v7;
-    sint32 v8;
-    sint32 v9;
-    sint32 v10;
-    sint32 v11;
-    sint32 v12;
-    sint32 v13;
-    sint32 v14;
-    sint32 v15;
-    sint32 v16;
-    sint32 v17;
-    sint32 v18;
-    sint32 v19;
-    sint32 v20;
-    sint32 v21;
-    sint32 v22;
-    sint32 v23;
-    sint32 v24;
-    sint32 v25;
-    sint32 v26;
-    sint32 v27;
-    sint32 v28;
-    sint32 v29;
-    sint32 v30;
-    sint32 v31;
-    sint32 v32;
-    sint32 v33;
-    ModelInstance *v34;
-    sint32 v35;
-    short v36;
-    sint32 v37;
-    sint32 v38;
-    sint32 v39;
-    short v40;
-    sint32 v41;
-    sint32 v42;
-    sint32 v43;
-    sint32 v44;
-    sint32 v45;
-    sint32 v46;
-    sint32 v47;
-    sint32 v48;
-    sint32 v49;
-    sint32 v50;
-    sint32 v51;
-    sint32 v53;
-    sint32 v54;
-    sint32 v55;
-    uint32 v57[4];
-    uint32 v58[4];
-    sint32 v85[3];
-    uint32 v86[4];
-    uint32 v87[4];
-    sint32 v88;
-    sint32 v89;
-    sint32 v90;
-    sint32 v91;
-    sint32 v92;
-    sint32 v93;
-    sint32 v94;
-    sint32 *v95;
-    uint32 *v96;
-    uint32 *v97;
+    sint8 probe_mask;
+    sint32 area_kind;
+    bool moving_outward;
+    sint32 fall_velocity;
+    uint32 velocity_sq[3];
+    sint32 attempt;
+    sint32 horizontal_speed;
+    sint32 sweep_radius;
+    sint32 move_speed_limit;
+    sint32 probe_size;
+    sint32 lateral_x;
+    sint32 lateral_z;
+    sint32 probe_origin_z;
+    sint32 probe_origin_y;
+    sint32 step_velocity_z;
+    bool edge_probe_enabled;
+    sint32 high_probe_y;
+    sint32 velocity_x;
+    sint32 normal_dot;
+    sint32 normal_step;
+    sint32 damped_velocity_z;
+    bool allow_horizontal_motion;
+    bool probe_ceiling;
+    ModelInstance *ground_object;
+    sint32 ceiling_probe_z;
+    sint16 ceiling_contact_flags;
+    sint32 ground_probe_z;
+    sint32 ground_offset;
+    sint32 ground_y;
+    sint16 ground_contact_flags;
+    sint32 slope_motion_x;
+    sint32 slope_offset_x;
+    sint32 slope_motion_z;
+    sint32 slope_offset_z;
+    sint32 cur_z;
+    sint32 ledge_probe_z0;
+    sint32 ledge_probe_y0;
+    sint32 ledge_probe_z1;
+    sint32 ledge_probe_y1;
+    sint32 ledge_step;
+    sint32 ledge_ray_x;
+    sint32 unsupported_y;
+    uint32 ledge_probe_radius;
+    uint32 speed;
+    uint32 ground_probe_radius;
+    uint32 probe_speed;
     uint32 vertical_velocity;
-    v2 = 15;
-    v3 = r_u32(0x800FF378);
-    v4 = (v3 == 12);
-    w_u16(((uint32)((a1 + 216))), 0);
-    if (v4)
-        goto LABEL_5;
-    if ((v3 == 3))
-    {
-        v2 = 11;
-    LABEL_6:
-
-        goto LABEL_7;
-    }
-    if ((v3 == 6))
-    {
-    LABEL_5:
-        v2 = 1;
-
-        goto LABEL_6;
-    }
-LABEL_7:
-    v57[0] = player.motion.velocity[0];
-    v6 = player.motion.velocity[1];
-    v7 = player.motion.velocity[2];
-    v57[1] = v6;
-    v57[2] = v7;
-    AddVectors(player.motion.velocity, player.motion.acceleration);
-    DampVector(player.motion.velocity, player.motion.drag);
-    SnapSmallVector(player.motion.velocity);
-    v8 = -1;
-    vertical_velocity = player.motion.velocity[1];
+    const uint32 probe_shift = 3;
+    const uint32 half_shift = 1;
+    probe_mask = 15;
+    area_kind = level_environment.area_kind;
+    player.contact_flags = 0;
+    if (area_kind == 12 || area_kind == 6)
+        probe_mask = 1;
+    else if (area_kind == 3)
+        probe_mask = 11;
+    initial_velocity = player.motion.velocity;
+    AddVectors(player.motion.velocity.words, player.motion.acceleration.words);
+    DampVector(player.motion.velocity.words, player.motion.drag);
+    SnapSmallVector(player.motion.velocity.words);
+    fall_velocity = -1;
+    vertical_velocity = player.motion.velocity.words[1];
     if ((sint32)vertical_velocity >= 0)
     {
-        v8 = (sint32)vertical_velocity;
-        player.motion.velocity[1] = 0;
+        fall_velocity = (sint32)vertical_velocity;
+        player.motion.velocity.words[1] = 0;
     }
-    v58[0] = player.motion.velocity[0];
-    v9 = player.motion.velocity[1];
-    v10 = player.motion.velocity[2];
-    v58[1] = v9;
-    v58[2] = v10;
-    v11 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[0]);
-    v12 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[1]);
-    v13 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[2]);
-    v14 = 0;
-    v95 = v85;
-    v96 = &vector1[0];
-    v97 = &vector0[0];
-    v93 = sub_80085B54((uint32)v11 + (uint32)v12 + (uint32)v13);
+    probe_velocity = player.motion.velocity;
+    velocity_sq[0] = SquarePlayerVelocityComponent(player.motion.velocity.words[0]);
+    velocity_sq[1] = SquarePlayerVelocityComponent(player.motion.velocity.words[1]);
+    velocity_sq[2] = SquarePlayerVelocityComponent(player.motion.velocity.words[2]);
+    attempt = 0;
+    probe_speed = LookupDistanceRoot(velocity_sq[0] + velocity_sq[1] + velocity_sq[2]);
     do
     {
-        v15 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[0]);
-        v12 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[1]);
-        v16 = (sint32)SquarePlayerVelocityComponent(player.motion.velocity[2]);
-        v90 = sub_80085B54((uint32)v15 + (uint32)v12 + (uint32)v16);
-        if (!v90)
+        velocity_sq[0] = SquarePlayerVelocityComponent(player.motion.velocity.words[0]);
+        velocity_sq[1] = SquarePlayerVelocityComponent(player.motion.velocity.words[1]);
+        velocity_sq[2] = SquarePlayerVelocityComponent(player.motion.velocity.words[2]);
+        speed = LookupDistanceRoot(velocity_sq[0] + velocity_sq[1] + velocity_sq[2]);
+        if (!speed)
             break;
-        v17 = sub_80085B54((uint32)v15 + (uint32)v16);
-        if (!v17)
+        horizontal_speed = LookupDistanceRoot(velocity_sq[0] + velocity_sq[2]);
+        if (!horizontal_speed)
             break;
-        v19 = (sint32)((uint32)(sint32)(sint16)r_u16(0x800EC4C0) << 2);
-        v18 = r_u16(a1 + 584);
-        if ((v19 < v17))
-            v18 = (sint32)((uint32)v18 + DividePlayerCollisionScalar((uint32)v18 * ((uint32)v17 - (uint32)v19), v19));
-        v20 = r_u16(((uint32)((a1 + 584))));
-        v21 = (sint32)DividePlayerCollisionScalar((uint32)v20 * (player.motion.velocity[2] << 2), v90);
-        v22 = (sint32)DividePlayerCollisionScalar((0 - (uint32)v20) * (player.motion.velocity[0] << 2), v90);
-        vector0[1] = 0;
-        vector0[0] = v21;
-        vector0[2] = v22;
-        vector1[0] = r_u32(a1 + 4);
-        v24 = r_u32(a1 + 8) + 0x10000;
-        v23 = r_u32(a1 + 12);
-        vector1[1] = v24;
-        vector1[2] = v23;
-        vector2[0] = (sint32)DividePlayerCollisionScalar((uint32)v18 * (player.motion.velocity[0] << 3), v17);
-        vector2[1] = (sint32)DividePlayerCollisionScalar((uint32)r_u16(a1 + 584) * (player.motion.velocity[1] << 3), v90);
-        v25 = (8 * player.motion.velocity[2]);
-        collision.pos[0][0] = (vector1[0] + v21);
-        collision.pos[0][1] = v24;
-        collision.pos[0][2] = (v23 + v22);
-        collision.pos[1][0] = ((vector1[0] + v21) + vector2[0]);
-        collision.pos[1][1] = (v24 + vector2[1]);
-        vector2[2] = (sint32)DividePlayerCollisionScalar((uint32)v18 * (uint32)v25, v17);
-        collision.pos[1][2] = ((v23 + v22) + vector2[2]);
+        move_speed_limit = (sint32)((uint32)(sint32)(sint16)GetGameTuning().player.move_speed << 2);
+        sweep_radius = player.collision_probe_size;
+        if (move_speed_limit < horizontal_speed)
+            sweep_radius = (sint32)((uint32)sweep_radius + DividePlayerCollisionScalar((uint32)sweep_radius * ((uint32)horizontal_speed - (uint32)move_speed_limit), move_speed_limit));
+        probe_size = player.collision_probe_size;
+        lateral_x = (sint32)DividePlayerCollisionScalar((uint32)probe_size * (player.motion.velocity.words[2] << 2), speed);
+        lateral_z = (sint32)DividePlayerCollisionScalar((0 - (uint32)probe_size) * (player.motion.velocity.words[0] << 2), speed);
+        lateral_offset.words[1] = 0;
+        lateral_offset.words[0] = lateral_x;
+        lateral_offset.words[2] = lateral_z;
+        probe_origin.words[0] = player.model.pos.words[0];
+        probe_origin_y = player.model.pos.words[1] + 0x10000;
+        probe_origin_z = player.model.pos.words[2];
+        probe_origin.words[1] = probe_origin_y;
+        probe_origin.words[2] = probe_origin_z;
+        probe_step.words[0] = (sint32)DividePlayerCollisionScalar((uint32)sweep_radius * (player.motion.velocity.words[0] << 3), horizontal_speed);
+        probe_step.words[1] = (sint32)DividePlayerCollisionScalar((uint32)player.collision_probe_size * (player.motion.velocity.words[1] << 3), speed);
+        step_velocity_z = (8 * player.motion.velocity.words[2]);
+        collision.endpoints[0].words[0] = (probe_origin.words[0] + lateral_x);
+        collision.endpoints[0].words[1] = probe_origin_y;
+        collision.endpoints[0].words[2] = (probe_origin_z + lateral_z);
+        collision.endpoints[1].words[0] = ((probe_origin.words[0] + lateral_x) + probe_step.words[0]);
+        collision.endpoints[1].words[1] = (probe_origin_y + probe_step.words[1]);
+        probe_step.words[2] = (sint32)DividePlayerCollisionScalar((uint32)sweep_radius * (uint32)step_velocity_z, horizontal_speed);
+        collision.endpoints[1].words[2] = ((probe_origin_z + lateral_z) + probe_step.words[2]);
         InitializeCollisionRay(collision);
         QueryCollisionRay(collision, 1);
-        ++v14;
+        ++attempt;
         if (collision.hit.GetObject())
-            goto LABEL_21;
-        collision.pos[0][0] = (vector1[0] - vector0[0]);
-        collision.pos[1][0] = ((vector1[0] - vector0[0]) + vector2[0]);
-        collision.pos[0][1] = vector1[1];
-        collision.pos[0][2] = (vector1[2] - vector0[2]);
-        collision.pos[1][2] = ((vector1[2] - vector0[2]) + vector2[2]);
-        collision.pos[1][1] = (vector1[1] + vector2[1]);
+            goto ResolveWallContact;
+        collision.endpoints[0].words[0] = (probe_origin.words[0] - lateral_offset.words[0]);
+        collision.endpoints[1].words[0] = ((probe_origin.words[0] - lateral_offset.words[0]) + probe_step.words[0]);
+        collision.endpoints[0].words[1] = probe_origin.words[1];
+        collision.endpoints[0].words[2] = (probe_origin.words[2] - lateral_offset.words[2]);
+        collision.endpoints[1].words[2] = ((probe_origin.words[2] - lateral_offset.words[2]) + probe_step.words[2]);
+        collision.endpoints[1].words[1] = (probe_origin.words[1] + probe_step.words[1]);
         InitializeCollisionRay(collision);
         QueryCollisionRay(collision, 1);
         if (collision.hit.GetObject())
-            goto LABEL_21;
-        v26 = (v2 & 4);
-        if (((v2 & 2) == 0))
-            goto LABEL_23;
-        vector1[0] = r_u32(((uint32)((a1 + 4))));
-        vector1[2] = r_u32(((uint32)((a1 + 12))));
-        v27 = ((r_u8(((uint32)((a1 + 26)))) == 12)) ? ((r_u32(((uint32)((a1 + 8)))) - 0x10000)) : ((r_u32(((uint32)((a1 + 8)))) - 0x40000));
-        vector1[1] = v27;
-        v88 = 3;
-        ShiftVectorLeft((uint32 *)v87, player.motion.velocity, (const uint32 *)&v88);
-        v89 = (r_u16(((uint32)((a1 + 584)))) - 16);
-        xport_draft_host_sub_8006C47C_p123(v86, &v89, v87);
-        xport_draft_host_sub_8006C4EC_p123(v95, v86, &v90);
-        xport_draft_host_sub_8006C34C_p123(vector3, vector1, v95);
-        vector2[0] = vector3[0];
-        vector2[1] = vector3[1];
-        vector2[2] = vector3[2];
-        collision.pos[0][0] = vector1[0];
-        collision.pos[0][1] = vector1[1];
-        collision.pos[0][2] = vector1[2];
-        collision.pos[1][0] = vector3[0];
-        collision.pos[1][1] = vector3[1];
-        collision.pos[1][2] = vector3[2];
+            goto ResolveWallContact;
+        edge_probe_enabled = (probe_mask & 4);
+        if (!(probe_mask & 2))
+            goto CheckEdgeProbes;
+        probe_origin.words[0] = player.model.pos.words[0];
+        probe_origin.words[2] = player.model.pos.words[2];
+        high_probe_y = ((player.model.animation == 12)) ? ((player.model.pos.words[1] - 0x10000)) : ((player.model.pos.words[1] - 0x40000));
+        probe_origin.words[1] = high_probe_y;
+
+        ShiftVectorLeft(ledge_velocity.words, player.motion.velocity.words, probe_shift);
+        ledge_probe_radius = (player.collision_probe_size - 16);
+        MultiplyScalarVector(ledge_scaled_velocity.words, ledge_probe_radius, ledge_velocity.words);
+        DivideVector(ledge_step_offset.words, ledge_scaled_velocity.words, speed);
+        AddVectors(probe_end.words, probe_origin.words, ledge_step_offset.words);
+        collision.endpoints[0] = probe_origin;
+        collision.endpoints[1] = probe_end;
         InitializeCollisionRay(collision);
         QueryCollisionRay(collision, 1);
-        v26 = (v2 & 4);
+        edge_probe_enabled = (probe_mask & 4);
         if (collision.hit.GetObject())
         {
-        LABEL_21:
-            uint32 contact_flags = r_u16(a1 + 216);
-            v28 = player.motion.velocity[0];
-            w_u16(a1 + 216, contact_flags | 1);
-            v29 = (sint32)((uint32)(v28 >> 6) * (uint32)(sint32)collision.n.vx + (uint32)((sint32)player.motion.velocity[2] >> 6) * (uint32)(sint32)collision.n.vz);
-            v4 = (v29 > 0);
-            v30 = (v29 >> 12);
-            if (!v4)
+        ResolveWallContact:
+            uint32 contact_flags = player.contact_flags;
+            velocity_x = player.motion.velocity.words[0];
+            player.contact_flags = contact_flags | 1;
+            normal_dot = (sint32)((uint32)(velocity_x >> 6) * (uint32)(sint32)collision.n.vx + (uint32)((sint32)player.motion.velocity.words[2] >> 6) * (uint32)(sint32)collision.n.vz);
+            moving_outward = (normal_dot > 0);
+            normal_step = (normal_dot >> 12);
+            if (!moving_outward)
             {
-                player.motion.velocity[0] = (uint32)v28 - (uint32)((sint32)((uint32)v30 * (uint32)(sint32)collision.n.vx) >> 6);
-                player.motion.velocity[2] = player.motion.velocity[2] - (uint32)((sint32)((uint32)v30 * (uint32)(sint32)collision.n.vz) >> 6);
-                uint32 velocity_x = player.motion.velocity[0];
-                v31 = (sint32)player.motion.velocity[2] >> 2;
-                player.motion.velocity[0] = (uint32)((sint32)velocity_x >> 2);
-                player.motion.velocity[2] = v31;
+                player.motion.velocity.words[0] = (uint32)velocity_x - (uint32)((sint32)((uint32)normal_step * (uint32)(sint32)collision.n.vx) >> 6);
+                player.motion.velocity.words[2] = player.motion.velocity.words[2] - (uint32)((sint32)((uint32)normal_step * (uint32)(sint32)collision.n.vz) >> 6);
+                uint32 slide_velocity_x = player.motion.velocity.words[0];
+                damped_velocity_z = (sint32)player.motion.velocity.words[2] >> 2;
+                player.motion.velocity.words[0] = (uint32)((sint32)slide_velocity_x >> 2);
+                player.motion.velocity.words[2] = damped_velocity_z;
             }
         }
         else
         {
-        LABEL_23:
-            if (v26)
+        CheckEdgeProbes:
+            if (edge_probe_enabled)
             {
-                vector1[0] = r_u32(((uint32)((a1 + 4))));
-                vector1[1] = (r_u32(((uint32)((a1 + 8)))) + 0x10000);
-                vector1[2] = r_u32(((uint32)((a1 + 12))));
-                xport_draft_host_sub_8006C34C_p123(vector3, v96, v97);
-                vector2[0] = vector3[0];
-                vector2[1] = vector3[1];
-                vector2[2] = vector3[2];
-                collision.pos[0][0] = vector1[0];
-                collision.pos[0][1] = vector1[1];
-                collision.pos[0][2] = vector1[2];
-                collision.pos[1][0] = vector3[0];
-                collision.pos[1][1] = vector3[1];
-                collision.pos[1][2] = vector3[2];
+                probe_origin.words[0] = player.model.pos.words[0];
+                probe_origin.words[1] = (player.model.pos.words[1] + 0x10000);
+                probe_origin.words[2] = player.model.pos.words[2];
+                AddVectors(probe_end.words, probe_origin.words, lateral_offset.words);
+                collision.endpoints[0] = probe_origin;
+                collision.endpoints[1] = probe_end;
                 InitializeCollisionRay(collision);
                 QueryCollisionRay(collision, 1);
                 if (!collision.hit.GetObject())
                 {
-                    vector1[0] = r_u32(((uint32)((a1 + 4))));
-                    vector1[1] = (r_u32(((uint32)((a1 + 8)))) + 0x10000);
-                    vector1[2] = r_u32(((uint32)((a1 + 12))));
-                    xport_draft_host_sub_8006C3AC_p123(vector3, v96, v97);
-                    vector2[0] = vector3[0];
-                    vector2[1] = vector3[1];
-                    vector2[2] = vector3[2];
-                    collision.pos[0][0] = vector1[0];
-                    collision.pos[0][1] = vector1[1];
-                    collision.pos[0][2] = vector1[2];
-                    collision.pos[1][0] = vector3[0];
-                    collision.pos[1][1] = vector3[1];
-                    collision.pos[1][2] = vector3[2];
+                    probe_origin.words[0] = player.model.pos.words[0];
+                    probe_origin.words[1] = (player.model.pos.words[1] + 0x10000);
+                    probe_origin.words[2] = player.model.pos.words[2];
+                    SubtractVectors(probe_end.words, probe_origin.words, lateral_offset.words);
+                    collision.endpoints[0] = probe_origin;
+                    collision.endpoints[1] = probe_end;
                     InitializeCollisionRay(collision);
                     QueryCollisionRay(collision, 1);
-                    v32 = (v14 < 3);
+                    allow_horizontal_motion = (attempt < 3);
                     if (!collision.hit.GetObject())
-                        goto LABEL_30;
+                        goto ApplyResolvedMotion;
                 }
-                player.motion.velocity[0] = (player.motion.velocity[0] + ((16 * collision.n.vx)));
-                player.motion.velocity[2] = (player.motion.velocity[2] + ((16 * collision.n.vz)));
+                player.motion.velocity.words[0] = (player.motion.velocity.words[0] + ((16 * collision.n.vx)));
+                player.motion.velocity.words[2] = (player.motion.velocity.words[2] + ((16 * collision.n.vz)));
                 collision.hit.SetObject(0);
             }
         }
-    } while ((collision.hit.GetObject() && (v14 < 3)));
-    v32 = (v14 < 3);
-LABEL_30:
-    if (v32)
-        AddVectors((uint32 *)psx_addr((a1 + 4), 12), player.motion.velocity);
+    } while (collision.hit.GetObject() && attempt < 3);
+    allow_horizontal_motion = (attempt < 3);
+ApplyResolvedMotion:
+    if (allow_horizontal_motion)
+        AddVectors(player.model.pos.words, player.motion.velocity.words);
     else
-        w_u32(((uint32)((a1 + 8))), (r_u32(((uint32)((a1 + 8)))) + (player.motion.velocity[1])));
+        player.model.pos.words[1] = (player.model.pos.words[1] + (player.motion.velocity.words[1]));
 
-    v33 = 0;
-    if (((((sint32)(player.motion.velocity[1])) < 0) || (((v34 = player.ground.GetObject()) != 0) && (((sint32)(static_cast<VisualObject *>(v34->owner)->motion.velocity[1])) < 0))))
-        v33 = 1;
-    if (v33)
+    probe_ceiling = false;
+    if ((sint32)player.motion.velocity.words[1] < 0 || ((ground_object = player.ground.GetObject()) && (sint32) static_cast<VisualObject *>(ground_object->owner)->motion.velocity.words[1] < 0))
+        probe_ceiling = true;
+    if (probe_ceiling)
     {
-        collision.pos[0][0] = r_u32(((uint32)((a1 + 4))));
-        collision.pos[0][1] = r_u32(((uint32)((a1 + 8))));
-        v35 = r_u32(((uint32)((a1 + 12))));
-        collision.pos[1][0] = collision.pos[0][0];
-        collision.pos[1][1] = (collision.pos[0][1] - 753664);
-        collision.pos[0][2] = v35;
-        collision.pos[1][2] = v35;
+        collision.endpoints[0].words[0] = player.model.pos.words[0];
+        collision.endpoints[0].words[1] = player.model.pos.words[1];
+        ceiling_probe_z = player.model.pos.words[2];
+        collision.endpoints[1].words[0] = collision.endpoints[0].words[0];
+        collision.endpoints[1].words[1] = (collision.endpoints[0].words[1] - 753664);
+        collision.endpoints[0].words[2] = ceiling_probe_z;
+        collision.endpoints[1].words[2] = ceiling_probe_z;
         InitializeCollisionRay(collision);
         QueryCollisionRay(collision, 1);
         if (collision.hit.GetObject())
         {
-            if ((sint32)(r_u32(a1 + 8) - 491520) < (sint32)collision.hit_pos[1])
+            if ((sint32)(player.model.pos.words[1] - 491520) < (sint32)collision.hit_pos.words[1])
             {
-                v36 = r_u16(((uint32)((a1 + 216))));
-                w_u32(((uint32)((a1 + 8))), (collision.hit_pos[1] + 491520));
-                player.motion.velocity[1] = 0;
-                w_u16(((uint32)((a1 + 216))), (v36 | 0x100));
+                ceiling_contact_flags = player.contact_flags;
+                player.model.pos.words[1] = (collision.hit_pos.words[1] + 491520);
+                player.motion.velocity.words[1] = 0;
+                player.contact_flags = (ceiling_contact_flags | 0x100);
             }
         }
     }
-    if ((v8 >= 0))
+    if (fall_velocity >= 0)
     {
-        collision.pos[0][0] = r_u32(((uint32)((a1 + 4))));
-        collision.pos[0][1] = (r_u32(((uint32)((a1 + 8)))) - (((uint32)(sint32)(sint16)r_u16(0x800EC4BA) - 64) << 12));
-        v37 = r_u32(((uint32)((a1 + 12))));
-        collision.pos[1][0] = collision.pos[0][0];
-        collision.pos[1][1] = ((collision.pos[0][1] + v8) + ((uint32)(sint32)(sint16)r_u16(0x800EC4BC) << 12));
-        collision.pos[0][2] = v37;
-        collision.pos[1][2] = v37;
+        collision.endpoints[0].words[0] = player.model.pos.words[0];
+        collision.endpoints[0].words[1] = (player.model.pos.words[1] - (((uint32)GetGameTuning().player.ground_probe_offset - 64) << 12));
+        ground_probe_z = player.model.pos.words[2];
+        collision.endpoints[1].words[0] = collision.endpoints[0].words[0];
+        collision.endpoints[1].words[1] = ((collision.endpoints[0].words[1] + fall_velocity) + ((uint32)GetGameTuning().player.ground_probe_length << 12));
+        collision.endpoints[0].words[2] = ground_probe_z;
+        collision.endpoints[1].words[2] = ground_probe_z;
         InitializeCollisionRay(collision);
         QueryCollisionRay(collision, 1);
         if (collision.hit.GetObject())
         {
-            Player::Attach(a1).SetContactColor(*collision.hit.GetPolygon(), collision.hit.GetObject());
-            if ((collision.n.vy >= -3072))
+            player.SetContactColor(*collision.hit.GetPolygon(), *collision.hit.GetObject());
+            if (collision.n.vy >= -3072)
             {
-                v41 = (v8 - (v8 >> (player.motion.drag[0] & 31)));
-                w_u32(((uint32)((a1 + 8))), (collision.hit_pos[1] - (r_u8(((uint32)((a1 + 582)))) << 12)));
-                v42 = (sint32)((uint32)(v41 >> 12) * (uint32)(sint32)collision.n.vx);
-                v43 = (v8 - (v8 >> (player.motion.drag[2] & 31)));
-                w_u32(((uint32)((a1 + 4))), (r_u32(((uint32)((a1 + 4)))) + (v42)));
-                v44 = (sint32)((uint32)(v43 >> 12) * (uint32)(sint32)collision.n.vz);
-                v45 = r_u32(((uint32)((a1 + 12))));
-                player.motion.velocity[1] = v8;
-                w_u32(((uint32)((a1 + 8))), (r_u32(((uint32)((a1 + 8)))) + ((v8 - (v8 >> (player.motion.drag[1] & 31))))));
-                w_u32(((uint32)((a1 + 12))), (v45 + v44));
+                slope_motion_x = (fall_velocity - (fall_velocity >> (player.motion.drag[0] & 31)));
+                player.model.pos.words[1] = (collision.hit_pos.words[1] - (player.ground_offset << 12));
+                slope_offset_x = (sint32)((uint32)(slope_motion_x >> 12) * (uint32)(sint32)collision.n.vx);
+                slope_motion_z = (fall_velocity - (fall_velocity >> (player.motion.drag[2] & 31)));
+                player.model.pos.words[0] = (player.model.pos.words[0] + (slope_offset_x));
+                slope_offset_z = (sint32)((uint32)(slope_motion_z >> 12) * (uint32)(sint32)collision.n.vz);
+                cur_z = player.model.pos.words[2];
+                player.motion.velocity.words[1] = fall_velocity;
+                player.model.pos.words[1] = (player.model.pos.words[1] + ((fall_velocity - (fall_velocity >> (player.motion.drag[1] & 31)))));
+                player.model.pos.words[2] = (cur_z + slope_offset_z);
             }
             else
             {
-                v38 = r_u8(((uint32)((a1 + 582))));
-                v39 = collision.hit_pos[1];
-                v40 = r_u16(((uint32)((a1 + 216))));
-                player.motion.velocity[1] = 0;
-                w_u32(((uint32)((a1 + 8))), (v39 - (v38 << 12)));
-                w_u16(((uint32)((a1 + 216))), (v40 | 2));
+                ground_offset = player.ground_offset;
+                ground_y = collision.hit_pos.words[1];
+                ground_contact_flags = player.contact_flags;
+                player.motion.velocity.words[1] = 0;
+                player.model.pos.words[1] = (ground_y - (ground_offset << 12));
+                player.contact_flags = (ground_contact_flags | 2);
             }
-            w_u16(((uint32)((a1 + 164))), collision.n.vx);
-            w_u16(((uint32)((a1 + 166))), collision.n.vy);
-            w_u16(((uint32)((a1 + 168))), collision.n.vz);
-            w_u32(((uint32)((a1 + 184))), collision.hit_pos[0]);
-            w_u32(((uint32)((a1 + 188))), collision.hit_pos[1]);
-            w_u32(((uint32)((a1 + 192))), collision.hit_pos[2]);
-            if (((collision.hit.GetObject()->flags & 0x100) != 0))
+            player.surface.n.vx = collision.n.vx;
+            player.surface.n.vy = collision.n.vy;
+            player.surface.n.vz = collision.n.vz;
+            player.surface.pos = collision.hit_pos;
+            if (collision.hit.GetObject()->flags & 0x100)
             {
-                MarkPlayerCollisionLink(collision.hit.GetObject());
-                MarkPlayerCollisionOwner(collision.hit.GetObject());
+                static_cast<ScriptedLevelObject *>(collision.hit.GetObject()->owner)->ActivateContact();
+                static_cast<ScriptedLevelObject *>(collision.hit.GetObject()->owner)->ApplyPlayerDamage();
                 player.ground.SetObject(collision.hit.GetObject());
             }
             else
@@ -394,99 +316,90 @@ LABEL_30:
         }
         else
         {
-            if (!v93)
-                goto LABEL_61;
-            v91 = 3;
-            xport_draft_host_sub_8006C5C4_p123(vector2, v58, &v91);
-            v92 = (r_u16(((uint32)((a1 + 584)))) + 8);
-            xport_draft_host_sub_8006C47C_p123(vector1, &v92, vector2);
-            xport_draft_host_sub_8006C4EC_p123(vector0, vector1, &v93);
-            collision.pos[0][0] = (r_u32(((uint32)((a1 + 4)))) + vector0[0]);
-            collision.pos[0][1] = (r_u32(((uint32)((a1 + 8)))) - ((uint32)(sint32)(sint16)r_u16(0x800EC4BA) << 12));
-            v46 = r_u32(((uint32)((a1 + 12))));
-            collision.pos[1][0] = collision.pos[0][0];
-            collision.pos[0][2] = (v46 + vector0[2]);
-            v47 = r_u32(((uint32)((a1 + 8))));
-            collision.pos[1][2] = (v46 + vector0[2]);
-            collision.pos[1][1] = (v47 + v8);
+            if (!probe_speed)
+                goto ContinueFalling;
+
+            ShiftVectorLeft(ground_probe_velocity.words, probe_velocity.words, probe_shift);
+            ground_probe_radius = (player.collision_probe_size + 8);
+            MultiplyScalarVector(ground_probe_scaled.words, ground_probe_radius, ground_probe_velocity.words);
+            DivideVector(ground_probe_offset.words, ground_probe_scaled.words, probe_speed);
+            collision.endpoints[0].words[0] = (player.model.pos.words[0] + ground_probe_offset.words[0]);
+            collision.endpoints[0].words[1] = (player.model.pos.words[1] - ((uint32)GetGameTuning().player.ground_probe_offset << 12));
+            ledge_probe_z0 = player.model.pos.words[2];
+            collision.endpoints[1].words[0] = collision.endpoints[0].words[0];
+            collision.endpoints[0].words[2] = (ledge_probe_z0 + ground_probe_offset.words[2]);
+            ledge_probe_y0 = player.model.pos.words[1];
+            collision.endpoints[1].words[2] = (ledge_probe_z0 + ground_probe_offset.words[2]);
+            collision.endpoints[1].words[1] = (ledge_probe_y0 + fall_velocity);
             InitializeCollisionRay(collision);
             QueryCollisionRay(collision, 1);
             if (!collision.hit.GetObject())
             {
-                v94 = 1;
-                xport_draft_host_sub_8006C1E8_p12(vector0, &v94);
-                collision.pos[0][0] = (r_u32(((uint32)((a1 + 4)))) + vector0[0]);
-                collision.pos[0][1] = (r_u32(((uint32)((a1 + 8)))) - ((uint32)(sint32)(sint16)r_u16(0x800EC4BA) << 12));
-                v48 = r_u32(((uint32)((a1 + 12))));
-                collision.pos[1][0] = collision.pos[0][0];
-                collision.pos[0][2] = (v48 + vector0[2]);
-                v49 = r_u32(((uint32)((a1 + 8))));
-                collision.pos[1][2] = (v48 + vector0[2]);
-                collision.pos[1][1] = (v49 + v8);
+                ShiftVectorRight(ground_probe_offset.words, half_shift);
+                collision.endpoints[0].words[0] = (player.model.pos.words[0] + ground_probe_offset.words[0]);
+                collision.endpoints[0].words[1] = (player.model.pos.words[1] - ((uint32)GetGameTuning().player.ground_probe_offset << 12));
+                ledge_probe_z1 = player.model.pos.words[2];
+                collision.endpoints[1].words[0] = collision.endpoints[0].words[0];
+                collision.endpoints[0].words[2] = (ledge_probe_z1 + ground_probe_offset.words[2]);
+                ledge_probe_y1 = player.model.pos.words[1];
+                collision.endpoints[1].words[2] = (ledge_probe_z1 + ground_probe_offset.words[2]);
+                collision.endpoints[1].words[1] = (ledge_probe_y1 + fall_velocity);
                 InitializeCollisionRay(collision);
                 QueryCollisionRay(collision, 1);
                 if (!collision.hit.GetObject())
-                    goto LABEL_61;
+                    goto ContinueFalling;
             }
-            if (((collision.hit.GetPolygon()->surface & 4) != 0))
+            if (collision.hit.GetPolygon()->surface & 4)
             {
-                if (((collision.hit.GetObject()->flags & 0x100) != 0))
+                if (collision.hit.GetObject()->flags & 0x100)
                     player.ground.SetObject(collision.hit.GetObject());
                 else
                     player.ground.Reset();
-                v50 = 1;
-                w_u16(((uint32)((a1 + 216))), (r_u16(((uint32)((a1 + 216)))) | (0x40)));
-                w_u32(((uint32)((a1 + 544))), collision.hit_pos[1]);
+                ledge_step = 1;
+                player.contact_flags = (player.contact_flags | (0x40));
+                player.ledge_pos[1] = collision.hit_pos.words[1];
                 while (1)
                 {
-                    collision.pos[0][0] = r_u32(((uint32)((a1 + 4))));
-                    collision.pos[0][1] = (r_u32(((uint32)((a1 + 544)))) + (v50 << 16));
-                    collision.pos[0][2] = r_u32(((uint32)((a1 + 12))));
-                    v51 = r_u32(((uint32)((a1 + 4))));
-                    collision.pos[1][1] = collision.pos[0][1];
-                    collision.pos[1][0] = (v51 + vector0[0]);
-                    collision.pos[1][2] = (r_u32(((uint32)((a1 + 12)))) + vector0[2]);
+                    collision.endpoints[0].words[0] = player.model.pos.words[0];
+                    collision.endpoints[0].words[1] = ((uint32)player.ledge_pos[1] + (ledge_step << 16));
+                    collision.endpoints[0].words[2] = player.model.pos.words[2];
+                    ledge_ray_x = player.model.pos.words[0];
+                    collision.endpoints[1].words[1] = collision.endpoints[0].words[1];
+                    collision.endpoints[1].words[0] = (ledge_ray_x + ground_probe_offset.words[0]);
+                    collision.endpoints[1].words[2] = (player.model.pos.words[2] + ground_probe_offset.words[2]);
                     InitializeCollisionRay(collision);
                     QueryCollisionRay(collision, 1);
-                    ++v50;
+                    ++ledge_step;
                     if (collision.hit.GetObject())
                         break;
-                    if ((v50 >= 7))
+                    if (ledge_step >= 7)
                     {
-                        goto LABEL_63;
+                        goto FinalizeMotion;
                     }
                 }
 
-                w_u16(((uint32)((a1 + 216))), (r_u16(((uint32)((a1 + 216)))) | (0x80)));
-                w_u32(((uint32)((a1 + 540))), collision.hit_pos[0]);
-                w_u32(((uint32)((a1 + 548))), collision.hit_pos[2]);
-                w_u32(((uint32)((a1 + 552))), collision.n.vx);
-                w_u32(((uint32)((a1 + 556))), collision.n.vy);
-                w_u32(((uint32)((a1 + 560))), collision.n.vz);
+                player.contact_flags = (player.contact_flags | (0x80));
+                player.ledge_pos[0] = collision.hit_pos.words[0];
+                player.ledge_pos[2] = collision.hit_pos.words[2];
+                player.ledge_normal[0] = collision.n.vx;
+                player.ledge_normal[1] = collision.n.vy;
+                player.ledge_normal[2] = collision.n.vz;
             }
             else
             {
-            LABEL_61:
-                v53 = r_u32(((uint32)((a1 + 8))));
+            ContinueFalling:
+                unsupported_y = player.model.pos.words[1];
 
-                player.motion.velocity[1] = v8;
-                w_u32(((uint32)((a1 + 8))), (v53 + v8));
+                player.motion.velocity.words[1] = fall_velocity;
+                player.model.pos.words[1] = (unsupported_y + fall_velocity);
             }
         }
     }
-LABEL_63:
-    SubtractVectors(vector0, player.motion.velocity, (const uint32 *)v57);
-
-    v54 = vector0[1];
-    v55 = vector0[2];
-    w_u32(((uint32)((a1 + 152))), vector0[0]);
-    w_u32(((uint32)((a1 + 156))), v54);
-    w_u32(((uint32)((a1 + 160))), v55);
-    AddAngleVector((uint16 *)psx_addr((a1 + 16), 6), player.motion.angular_velocity);
-    sub_8006C624((a1 + 16));
-    AddAngleVector(player.motion.angular_velocity, player.motion.angular_acceleration);
-    DampAngles(player.motion.angular_velocity, player.motion.angular_drag);
-    return SnapSmallAngles(player.motion.angular_velocity);
+FinalizeMotion:
+    SubtractVectors(player.motion.delta_velocity.words, player.motion.velocity.words, initial_velocity.words);
+    AddAngleVector(player.model.angles.words, player.motion.angular_velocity.words);
+    NormalizeAngles(player.model.angles.words);
+    AddAngleVector(player.motion.angular_velocity.words, player.motion.angular_acceleration.words);
+    DampAngles(player.motion.angular_velocity.words, player.motion.angular_drag);
+    return SnapSmallAngles(player.motion.angular_velocity.words);
 }
-
-

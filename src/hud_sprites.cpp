@@ -1,67 +1,44 @@
-extern "C"
-{
-#include "draft_first_signatures.h"
-}
-#include "hud_sprites.h"
-#include "texture_resources.h"
-#include "native_object_storage.h"
 #include <string.h>
 
+#include "scene_lifecycle.h"
+#include "game_diagnostics.h"
+#include "hud_sprites.h"
+#include "texture_resources.h"
 
-
-static uint32 ReadHudHalf(const uint8 *input, uint32 address, uint32 offset)
+POLY_FT4 *AllocateHudSprite(const TextureFrame &frame)
 {
-    uint16 value;
-    if (address)
-        return r_u16(address + offset);
-    memcpy(&value, input + offset, 2);
-    return value;
-}
-
-
-
-static void WriteHudHalf(uint8 *output, uint32 address, uint32 offset, uint32 value)
-{
-    uint16 half = (uint16)value;
-    if (address)
-        w_u16(address + offset, half);
-    else
-        memcpy(output + offset, &half, 2);
-}
-
-uint8 *AllocateHudSprite(const TextureFrame &frame)
-{
-    uint32 packet, next, limit, uv0, uv1, uv2, tail, buffer, tag, head;
+    uint8 *packet, *next, *limit;
+    uint32 uv0, uv1, uv2, tail;
     FUNCTION_MARKER(0x8006D028, "SLUS_003.73");
-    packet = r_u32(0x800FF668);
-    limit = r_u32(0x800FF374);
-    next = packet + 40;
-    if (limit < next)
+    packet = scene_render.cursor;
+    limit = scene_render.limit;
+    if (limit - packet < (sint32)sizeof(POLY_FT4))
         return 0;
-    w_u32(0x800FF668, next);
-    w_u32(packet, 0x09000000);
-    w_u32(packet + 4, 0x2C808080);
+    next = packet + sizeof(POLY_FT4);
+    scene_render.cursor = next;
+    POLY_FT4 *poly = (POLY_FT4 *)packet;
+    poly->tag = 0;
+    setPolyFT4(poly);
+    poly->rgbc.rgbc = 0x2C808080;
     const TextureResource &tex = *frame.tex;
     uv0 = PackTextureUv(tex, 0);
     uv1 = PackTextureUv(tex, 1);
     uv2 = PackTextureUv(tex, 2);
     tail = tex.uv[3].uv;
-    w_u32(packet + 20, uv1);
-    w_u32(packet + 12, uv0);
-    w_u32(packet + 28, uv2);
-    w_u16(packet + 36, tail);
-    buffer = r_u32(0x800FF660);
-    tag = r_u32(packet);
-    head = r_u32(buffer + 112);
-    w_u32(packet, (tag & 0xFF000000) | (head & 0xFFFFFF));
-    head = r_u32(buffer + 112);
-    w_u32(buffer + 112, (head & 0xFF000000) | (packet & 0xFFFFFF));
-    return (uint8 *)psx_addr(packet, 40);
+    poly->p[1].uv.uv = uv1;
+    poly->p[1].attr = uv1 >> 16;
+    poly->p[0].uv.uv = uv0;
+    poly->p[0].attr = uv0 >> 16;
+    poly->p[2].uv.uv = uv2;
+    poly->p[2].attr = uv2 >> 16;
+    poly->p[3].uv.uv = tail;
+    setaddr(poly, getaddr(scene_render.cur->ot));
+    setaddr(scene_render.cur->ot, gpu_packet_link((uintptr_t)poly));
+    return poly;
 }
 
-uint32 PlaceScaledHudSprite(uint32 x, uint32 y, uint8 *packet, const TextureFrame &frame)
+uint32 PlaceScaledHudSprite(uint32 x, uint32 y, POLY_FT4 *poly, const TextureFrame &frame)
 {
-    uint32 destination = GuestMemoryAddress(packet);
     uint32 offset, width, top, height, left, right, bottom;
     sint32 offset_high, width_high;
     FUNCTION_MARKER(0x8006D0D4, "SLUS_003.73");
@@ -71,134 +48,109 @@ uint32 PlaceScaledHudSprite(uint32 x, uint32 y, uint8 *packet, const TextureFram
     top = y + (uint32)(sint32)frame.oy;
     width_high = (sint32)(((sint64)(sint32)width * (sint64)0x66666667) >> 32);
     height = (uint32)frame.h;
-    WriteHudHalf(packet, destination, 10, top);
-    WriteHudHalf(packet, destination, 26, top + height);
+    poly->p[0].xy.y = top;
+    poly->p[2].xy.y = top + height;
     left = x + (uint32)(offset_high >> 7) - (uint32)((sint32)offset >> 31);
-    WriteHudHalf(packet, destination, 8, left);
+    poly->p[0].xy.x = left;
     right = left + (uint32)(width_high >> 7);
-    WriteHudHalf(packet, destination, 16, right);
-    bottom = ReadHudHalf(packet, destination, 26);
-    WriteHudHalf(packet, destination, 24, left);
-    WriteHudHalf(packet, destination, 18, top);
-    WriteHudHalf(packet, destination, 32, right);
-    WriteHudHalf(packet, destination, 34, bottom);
+    poly->p[1].xy.x = right;
+    bottom = (uint16)poly->p[2].xy.y;
+    poly->p[2].xy.x = left;
+    poly->p[1].xy.y = top;
+    poly->p[3].xy.x = right;
+    poly->p[3].xy.y = bottom;
     return bottom;
 }
 
-uint32 PlaceHudSprite(uint32 x, uint32 y, uint8 *packet, const TextureFrame &frame)
+uint32 PlaceHudSprite(uint32 x, uint32 y, POLY_FT4 *poly, const TextureFrame &frame)
 {
-    uint32 destination = GuestMemoryAddress(packet);
     uint32 width, height, left, top, right, bottom;
     FUNCTION_MARKER(0x8006D164, "SLUS_003.73");
     width = (uint32)frame.w;
     height = (uint32)frame.h;
     left = x + (uint32)(sint32)frame.ox;
     top = y + (uint32)(sint32)frame.oy;
-    WriteHudHalf(packet, destination, 8, left);
-    WriteHudHalf(packet, destination, 10, top);
-    WriteHudHalf(packet, destination, 16, left + width);
-    WriteHudHalf(packet, destination, 26, top + height);
-    right = ReadHudHalf(packet, destination, 16);
-    bottom = ReadHudHalf(packet, destination, 26);
-    WriteHudHalf(packet, destination, 18, top);
-    WriteHudHalf(packet, destination, 24, left);
-    WriteHudHalf(packet, destination, 32, right);
-    WriteHudHalf(packet, destination, 34, bottom);
+    poly->p[0].xy.x = left;
+    poly->p[0].xy.y = top;
+    poly->p[1].xy.x = left + width;
+    poly->p[2].xy.y = top + height;
+    right = (uint16)poly->p[1].xy.x;
+    bottom = (uint16)poly->p[2].xy.y;
+    poly->p[1].xy.y = top;
+    poly->p[2].xy.x = left;
+    poly->p[3].xy.x = right;
+    poly->p[3].xy.y = bottom;
     return top;
 }
 
-
-
-
-
-
-
-uint8 *AllocateHudRectangle(uint32 x, uint32 y, uint32 width, uint32 height, uint32 red, uint32 green, uint32 blue, uint32 depth)
+POLY_F4 *AllocateHudRectangle(uint32 x, uint32 y, uint32 width, uint32 height, uint32 red, uint32 green, uint32 blue, uint32 depth)
 {
-    uint32 packet, limit, next, bottom, right, buffer, slot, tag, head;
+    uint8 *packet, *limit, *next;
+    uint32 bottom, right;
     FUNCTION_MARKER(0x8006D1C0, "SLUS_003.73");
-    packet = r_u32(0x800FF668);
-    limit = r_u32(0x800FF374);
-    next = packet + 24;
-    if (limit < next)
+    packet = scene_render.cursor;
+    limit = scene_render.limit;
+    if (limit - packet < (sint32)sizeof(POLY_F4))
         return 0;
-    w_u32(0x800FF668, next);
-    w_u8(packet + 3, 5);
-    w_u8(packet + 7, 40);
+    next = packet + sizeof(POLY_F4);
+    scene_render.cursor = next;
+    POLY_F4 *poly = (POLY_F4 *)packet;
+    setPolyF4(poly);
     bottom = y + height;
-    w_u8(packet + 4, red);
-    w_u8(packet + 5, green);
-    w_u8(packet + 6, blue);
-    w_u16(packet + 18, bottom);
-    w_u16(packet + 22, bottom);
-    buffer = r_u32(0x800FF660);
+    poly->rgbc.r = red;
+    poly->rgbc.g = green;
+    poly->rgbc.b = blue;
+    poly->p[2].y = bottom;
+    poly->p[3].y = bottom;
     right = x + width;
-    w_u16(packet + 8, x);
-    w_u16(packet + 16, x);
-    w_u16(packet + 10, y);
-    w_u16(packet + 12, right);
-    w_u16(packet + 14, y);
-    w_u16(packet + 20, right);
-    tag = r_u32(packet);
-    slot = buffer + depth * 4;
-    head = r_u32(slot + 112);
-    w_u32(packet, (tag & 0xFF000000) | (head & 0xFFFFFF));
-    head = r_u32(slot + 112);
-    w_u32(slot + 112, (head & 0xFF000000) | (packet & 0xFFFFFF));
-    return (uint8 *)psx_addr(packet, 24);
-}
-
-extern "C" uint32 sub_8006D1C0(uint32 x, uint32 y, uint32 width, uint32 height, uint32 red, uint32 green, uint32 blue, uint32 depth)
-{
-    FUNCTION_MARKER(0x8006D1C0, "SLUS_003.73");
-    uint8 *packet = AllocateHudRectangle(x, y, width, height, red, green, blue, depth);
-    return packet ? GuestMemoryAddress(packet) : 0;
+    poly->p[0].x = x;
+    poly->p[2].x = x;
+    poly->p[0].y = y;
+    poly->p[1].x = right;
+    poly->p[1].y = y;
+    poly->p[3].x = right;
+    setaddr(poly, getaddr(scene_render.cur->ot + depth));
+    setaddr(scene_render.cur->ot + depth, gpu_packet_link((uintptr_t)poly));
+    return poly;
 }
 
 uint32 QueueHudGradientRectangle(uint32 x, uint32 y, uint32 width, uint32 height, uint32 right_red, uint32 right_green, uint32 right_blue, uint32 left_red, uint32 left_green, uint32 left_blue, uint32 depth)
 {
-    uint32 packet, limit, next, right, bottom, buffer, tag, slot, head, result;
+    uint8 *packet, *limit, *next;
+    uint32 right, bottom;
     FUNCTION_MARKER(0x8006D294, "SLUS_003.73");
-    packet = r_u32(0x800FF668);
-    limit = r_u32(0x800FF374);
-    next = packet + 36;
-    if (limit < next)
+    packet = scene_render.cursor;
+    limit = scene_render.limit;
+    if (limit - packet < (sint32)sizeof(POLY_G4))
         return 1;
-    w_u32(0x800FF668, next);
-    w_u8(packet + 3, 8);
-    w_u8(packet + 7, 56);
+    next = packet + sizeof(POLY_G4);
+    scene_render.cursor = next;
+    POLY_G4 *poly = (POLY_G4 *)packet;
+    setPolyG4(poly);
     right = x + width;
-    w_u16(packet + 16, right);
-    w_u16(packet + 32, right);
+    poly->p[1].xy.x = right;
+    poly->p[3].xy.x = right;
     bottom = y + height;
-    w_u8(packet + 4, left_red);
-    w_u8(packet + 12, right_red);
-    w_u8(packet + 5, left_green);
-    w_u8(packet + 13, right_green);
-    w_u8(packet + 6, left_blue);
-    w_u8(packet + 14, right_blue);
-    w_u8(packet + 20, left_red);
-    w_u8(packet + 28, right_red);
-    w_u8(packet + 21, left_green);
-    w_u8(packet + 29, right_green);
-    w_u8(packet + 22, left_blue);
-    w_u8(packet + 30, right_blue);
-    w_u16(packet + 26, bottom);
-    w_u16(packet + 34, bottom);
-    buffer = r_u32(0x800FF660);
-    w_u16(packet + 10, y);
-    w_u16(packet + 18, y);
-    w_u16(packet + 8, x);
-    w_u16(packet + 24, x);
-    tag = r_u32(packet);
-    slot = buffer + depth * 4;
-    head = r_u32(slot + 112);
-    w_u32(packet, (tag & 0xFF000000) | (head & 0xFFFFFF));
-    head = r_u32(slot + 112);
-    result = (head & 0xFF000000) | (packet & 0xFFFFFF);
-    w_u32(slot + 112, result);
-    return result;
+    poly->p[0].rgbc.r = left_red;
+    poly->p[1].rgbc.r = right_red;
+    poly->p[0].rgbc.g = left_green;
+    poly->p[1].rgbc.g = right_green;
+    poly->p[0].rgbc.b = left_blue;
+    poly->p[1].rgbc.b = right_blue;
+    poly->p[2].rgbc.r = left_red;
+    poly->p[3].rgbc.r = right_red;
+    poly->p[2].rgbc.g = left_green;
+    poly->p[3].rgbc.g = right_green;
+    poly->p[2].rgbc.b = left_blue;
+    poly->p[3].rgbc.b = right_blue;
+    poly->p[2].xy.y = bottom;
+    poly->p[3].xy.y = bottom;
+    poly->p[0].xy.y = y;
+    poly->p[1].xy.y = y;
+    poly->p[0].xy.x = x;
+    poly->p[2].xy.x = x;
+    uint32 *ot_entry = scene_render.cur->ot + depth;
+    setaddr(poly, getaddr(ot_entry));
+    setaddr(ot_entry, gpu_packet_link((uintptr_t)poly));
+    return *ot_entry;
 }
-
-
-

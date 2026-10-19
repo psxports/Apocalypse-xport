@@ -1,10 +1,14 @@
 #ifndef MODEL_INSTANCE_H
 #define MODEL_INSTANCE_H
 
+#include "vector3.h"
+
 extern "C"
 {
 #include "psx.h"
 }
+
+#include "object.h"
 
 void BeginModelBorrow();
 void EndModelBorrow();
@@ -13,8 +17,17 @@ void RetireModelMemory(void *memory);
 class ModelBorrow
 {
 public:
-    ModelBorrow() { BeginModelBorrow(); }
-    ~ModelBorrow() { EndModelBorrow(); }
+    ModelBorrow()
+    {
+        BeginObjectBorrow();
+        BeginModelBorrow();
+    }
+
+    ~ModelBorrow()
+    {
+        EndObjectBorrow();
+        EndModelBorrow();
+    }
 
 private:
     ModelBorrow(const ModelBorrow &);
@@ -51,8 +64,8 @@ struct ModelInstance
 {
     uint16 flags;
     uint16 generation;
-    uint32 pos[3];
-    uint16 angles[3];
+    Vector3 pos;
+    ShortVector3 angles;
     uint16 model_idx;
     uint8 frame;
     uint8 flash;
@@ -61,7 +74,7 @@ struct ModelInstance
     uint32 color;
     ModelInstance *next;
     ModelInstance *prev;
-    uint16 scale[3];
+    ShortVector3 scale;
     uint32 render_mode;
     ScaledObject *owner;
     bool active;
@@ -70,9 +83,9 @@ struct ModelInstance
     {
         for (uint32 axis = 0; axis < 3; ++axis)
         {
-            pos[axis] = 0;
-            angles[axis] = 0;
-            scale[axis] = ONE;
+            pos.words[axis] = 0;
+            angles.words[axis] = 0;
+            scale.words[axis] = ONE;
         }
     }
 
@@ -81,8 +94,8 @@ struct ModelInstance
 
     void SetAnglesXY(uint32 packed)
     {
-        angles[0] = packed;
-        angles[1] = packed >> 16;
+        angles.words[0] = packed;
+        angles.words[1] = packed >> 16;
     }
 
 private:
@@ -148,16 +161,6 @@ inline void ModelReference::SetObject(ModelInstance *target)
 inline void ModelReference::SetPolygon(ModelPolygon *polygon)
 {
     poly = object ? polygon : 0;
-}
-
-inline ModelInstance *ModelReference::GetObject() const
-{
-    return object;
-}
-
-inline ModelPolygon *ModelReference::GetPolygon() const
-{
-    return poly;
 }
 
 inline void ModelInstance::InvalidateReferences()

@@ -8,16 +8,19 @@ class CreditsPlayer : public Player
 {
 public:
     CreditsPlayer();
-    virtual ~CreditsPlayer() {}
-    static CreditsPlayer &Attach(uint32 object);
+
+    virtual ~CreditsPlayer()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Update();
-    uint32 SetPose(uint32 pose);
-    uint32 ChoosePose();
 
 private:
-    // Native helper for the original inline adjusted weapon call
-    void UpdateCreditsWeapon();
+    // Credits poses reuse Player::movement_state at original offset460
+    void SetPose(uint32 pose);
+    void ChoosePose();
+    uint32 pose_ticks;
 };
 
 #endif

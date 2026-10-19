@@ -1,6 +1,8 @@
 #ifndef ACTIVATION_RECORD_H
 #define ACTIVATION_RECORD_H
 
+#include "vector3.h"
+
 extern "C"
 {
 #include "psx.h"
@@ -12,27 +14,36 @@ extern "C"
 class ActivationRecordBase : public Object
 {
 public:
-    virtual ~ActivationRecordBase() {}
-    static ActivationRecordBase &Attach(uint32 object);
+    virtual ~ActivationRecordBase()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
 
 protected:
-    // Bind the native base without adding original memory writes
-    ActivationRecordBase() {}
+    ActivationRecordBase()
+    {
+    }
 };
 
 class ActivationRecord : public ActivationRecordBase
 {
 public:
     ActivationRecord(uint32 index, uint32 state);
-    virtual ~ActivationRecord() {}
-    static ActivationRecord &Attach(uint32 object);
+    uint16 record_idx;
+    sint16 saved_health;
+    Vector3 pos;
+    ActivationRecord *next;
+
+    virtual ~ActivationRecord()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
 };
 
 uint32 ClearActivationRecords();
 void DeleteActivationRecords();
 void RestoreNearbyObjects();
-uint32 DeactivateDistantObject(uint32 object, uint32 distance);
 
 #endif

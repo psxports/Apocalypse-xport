@@ -1,128 +1,149 @@
-#include "model_render_view.h"
-#include "model_resources.h"
-#include "angle_math.h"
-#include "game_random.h"
-#include "vector_distance.h"
-#include "effect_lifecycle.h"
-#include "object_collision_events.h"
-#include "vector_arithmetic.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
-#include "object_fragments.h"
-#include "native_object_storage.h"
-#include "textured_fragment.h"
-#include "opaque_fragment.h"
-#include "ring_burst_effect.h"
+#include <stdlib.h>
 #include <new>
 #include <string.h>
 
-static const SVECTOR *fragment_normal;
+#include "game_heap.h"
+#include "model_render_view.h"
+#include "model_resources.h"
+#include "angle_math.h"
+#include "model_matrix.h"
+#include "game_random.h"
+#include "vector_distance.h"
+#include "effect_lifecycle.h"
+#include "collision.h"
+#include "vector_arithmetic.h"
+#include "game_diagnostics.h"
+#include "audio_session.h"
+#include "object_fragments.h"
+#include "model_materials.h"
+#include "model_geometry.h"
+#include "textured_fragment.h"
+#include "opaque_fragment.h"
+#include "ring_burst_effect.h"
 
-const SVECTOR &GetFragmentNormal()
+struct FragmentState
 {
-    return *fragment_normal;
+    uint16 clut;
+    uint16 tpage;
+    RGBC color;
+    ShortVector3 normal;
+    Vector3 origin;
+};
+
+static FragmentState fragment_state;
+
+void ResetFragmentState()
+{
+    fragment_state.clut = 0;
+    fragment_state.tpage = 0;
+    fragment_state.color.rgbc = 0;
+    fragment_state.normal.x = fragment_state.normal.y = fragment_state.normal.z = 0;
+    fragment_state.origin.x = fragment_state.origin.y = fragment_state.origin.z = 0;
 }
 
-uint32 *TransformFragmentVertex(uint32 *output, const ModelGeometry &geometry, const ModelPolygon &polygon, uint32 index)
+const Vector3 &GetFragmentOrigin()
+{
+    return fragment_state.origin;
+}
+
+const ShortVector3 &GetFragmentNormal()
+{
+    return fragment_state.normal;
+}
+
+static void TransformFragmentVertex(Vector3 &output, const ModelGeometry &geometry, const ModelPolygon &polygon, uint32 index)
 {
     const SVECTOR *input = geometry.vertices + polygon.v[index];
-    uint32 axis, value, address = GuestMemoryAddress(output);
+    uint32 axis;
     uint32 shift = 12;
     FUNCTION_MARKER(0x80021ADC, "SLUS_003.73");
-    xport_gte_write_data(0, xport_load_le32(input));
-    xport_gte_write_data(1, xport_load_le32((const uint8 *)input + 4));
+    xport_gte_write_data(0, ((uint16)input->vx | ((uint32)(uint16)input->vy << 16)));
+    xport_gte_write_data(1, ((uint16)input->vz | ((uint32)(uint16)input->pad << 16)));
     xport_gte_execute(0x480012);
     for (axis = 0; axis < 3; ++axis)
-    {
-        value = xport_gte_read_data(25 + axis);
-        if (address)
-            w_u32(address + axis * 4, value);
-        else
-            memcpy((uint8 *)output + axis * 4, &value, 4);
-    }
-    return ShiftVectorLeft(output, &shift);
+        output.words[axis] = xport_gte_read_data(25 + axis);
+    ShiftVectorLeft(output.words, shift);
 }
 
-uint32 SetFragmentColor(uint32 indexed, uint32 colors, uint32 count, const ModelPalette *palette)
+static void SetFragmentColor(uint32 indexed, uint32 colors, uint32 count, const ModelPalette *palette)
 {
-    uint32 first, second, third, fourth, red, green, blue, result;
+    RGBC color[4];
+    uint32 red, green, blue, result;
     FUNCTION_MARKER(0x80021B3C, "SLUS_003.73");
     if (indexed)
     {
-        first = ReadModelPaletteColor(palette, colors & 255);
-        second = ReadModelPaletteColor(palette, (colors >> 8) & 255);
-        third = ReadModelPaletteColor(palette, (colors >> 16) & 255);
-        red = (first & 255) + (second & 255) + (third & 255);
-        green = ((first >> 8) & 255) + ((second >> 8) & 255) + ((third >> 8) & 255);
-        blue = ((first >> 16) & 255) + ((second >> 16) & 255) + ((third >> 16) & 255);
+        color[0].rgbc = ReadModelPaletteColor(palette, colors & 255);
+        color[1].rgbc = ReadModelPaletteColor(palette, (colors >> 8) & 255);
+        color[2].rgbc = ReadModelPaletteColor(palette, (colors >> 16) & 255);
+        red = color[0].r + color[1].r + color[2].r;
+        green = color[0].g + color[1].g + color[2].g;
+        blue = color[0].b + color[1].b + color[2].b;
         if (count == 4)
         {
-            fourth = ReadModelPaletteColor(palette, colors >> 24);
-            red += fourth & 255;
-            green += (fourth >> 8) & 255;
-            blue += (fourth >> 16) & 255;
-            w_u8(0x800FFB80, red / 4);
-            w_u8(0x800FFB81, green / 4);
+            color[3].rgbc = ReadModelPaletteColor(palette, colors >> 24);
+            red += color[3].r;
+            green += color[3].g;
+            blue += color[3].b;
+            fragment_state.color.r = red / 4;
+            fragment_state.color.g = green / 4;
             result = blue / 4;
         }
         else
         {
             // Byte-channel sums are nonnegative and at most 765
-            w_u8(0x800FFB80, red / 3);
-            w_u8(0x800FFB81, green / 3);
+            fragment_state.color.r = red / 3;
+            fragment_state.color.g = green / 3;
             result = blue / 3;
         }
     }
     else
     {
-        w_u8(0x800FFB81, colors >> 8);
+        fragment_state.color.g = colors >> 8;
         result = colors >> 16;
-        w_u8(0x800FFB80, colors);
+        fragment_state.color.r = colors;
     }
-    w_u8(0x800FFB82, result);
-    return result;
+    fragment_state.color.b = result;
 }
 
-uint32 SpawnTexturedFragments(const uint32 *vertex0, const uint32 *vertex1, const uint32 *vertex2, uint32 u0, uint32 v0, uint32 u1, uint32 v1, uint32 u2, uint32 v2, uint32 texture, uint32 subdivisions)
+static uint32 SpawnTexturedFragments(const Vector3 &vertex0, const Vector3 &vertex1, const Vector3 &vertex2, uint32 u0, uint32 v0, uint32 u1, uint32 v1, uint32 u2, uint32 v2, uint32 texture, uint32 subdivisions)
 {
+    Vector3 vector, difference, scaled, midpoint, points[3], center;
     FUNCTION_MARKER(0x80021358, "SLUS_003.73");
-    uint32 vector[3], difference[3], scaled[3], midpoint[3];
-    uint32 points[3][3], center[3];
-    sint16 vertices[3][4], jitter[4], shifted_jitter[4];
+    ShortVector3 vertices[3], jitter, shifted_jitter;
     sint32 length, candidate;
     uint32 factor, shift;
-    uint32 edge = 0, object, i, component;
-    uint32 u, v, result = r_u32(0x800FF738);
+    uint32 edge = 0;
+    GameHeapBlock *object;
+    uint32 i;
+    uint32 component;
+    uint32 u, v, result = IsGameHeapUnderPressure();
     if (result != 0)
         return result;
     if (subdivisions != 0)
     {
-        SubtractVectors(vector, vertex1, vertex2);
-        length = (sint32)MeasureVectorLength(vector);
-        SubtractVectors(vector, vertex0, vertex2);
-        candidate = (sint32)MeasureVectorLength(vector);
+        SubtractVectors(vector.words, vertex1.words, vertex2.words);
+        length = (sint32)MeasureVectorLength(vector.words);
+        SubtractVectors(vector.words, vertex0.words, vertex2.words);
+        candidate = (sint32)MeasureVectorLength(vector.words);
         if (length < candidate)
         {
             length = candidate;
             edge = 1;
         }
-        SubtractVectors(vector, vertex0, vertex1);
-        if (length < (sint32)MeasureVectorLength(vector))
+        SubtractVectors(vector.words, vertex0.words, vertex1.words);
+        if (length < (sint32)MeasureVectorLength(vector.words))
             edge = 2;
         factor = RandomRange(9);
         if (edge == 1)
-            SubtractVectors(difference, vertex2, vertex0);
+            SubtractVectors(difference.words, vertex2.words, vertex0.words);
         else if (edge == 2)
-            SubtractVectors(difference, vertex1, vertex0);
+            SubtractVectors(difference.words, vertex1.words, vertex0.words);
         else
-            SubtractVectors(difference, vertex2, vertex1);
-        MultiplyVector(scaled, difference, &factor);
+            SubtractVectors(difference.words, vertex2.words, vertex1.words);
+        MultiplyVector(scaled.words, difference.words, factor);
         shift = 3;
-        ShiftVectorRight(midpoint, scaled, &shift);
-        AddVectors(vector, edge == 0 ? vertex1 : vertex0, midpoint);
+        ShiftVectorRight(midpoint.words, scaled.words, shift);
+        AddVectors(vector.words, edge == 0 ? vertex1.words : vertex0.words, midpoint.words);
         if (edge == 1)
         {
             u = u0 + (uint32)((sint32)((u2 - u0) * (uint32)factor) >> 3);
@@ -143,136 +164,138 @@ uint32 SpawnTexturedFragments(const uint32 *vertex0, const uint32 *vertex1, cons
         return SpawnTexturedFragments(vertex0, vertex2, vector, u0, v0, u2, v2, u, v, texture, subdivisions - 1);
     }
     shift = 12;
-    ShiftVectorRight(points[0], vertex0, &shift);
-    ShiftVectorRight(points[1], vertex1, &shift);
-    ShiftVectorRight(points[2], vertex2, &shift);
+    ShiftVectorRight(points[0].words, vertex0.words, shift);
+    ShiftVectorRight(points[1].words, vertex1.words, shift);
+    ShiftVectorRight(points[2].words, vertex2.words, shift);
     for (component = 0; component < 3; ++component)
     {
-        center[component] = (sint32)((uint32)points[0][component] + (uint32)points[1][component] + (uint32)points[2][component]) / 3;
+        center.words[component] = (sint32)((uint32)points[0].words[component] + (uint32)points[1].words[component] + (uint32)points[2].words[component]) / 3;
         for (i = 0; i < 3; ++i)
-            vertices[i][component] = (sint16)((uint32)points[i][component] - (uint32)center[component]);
+            vertices[i][component] = points[i].words[component] - center.words[component];
     }
     for (i = 0; i < 3; ++i)
     {
         factor = RandomRange(100);
-        MultiplyScalarShortVector((uint16 *)jitter, &factor, (const uint16 *)&GetFragmentNormal());
-        ShiftShortVectorRight((uint16 *)shifted_jitter, (const uint16 *)jitter, &shift);
-        AddAngleVector((uint16 *)vertices[i], (const uint16 *)shifted_jitter);
+        const ShortVector3 &normal = GetFragmentNormal();
+        MultiplyScalarShortVector(jitter, factor, normal);
+        ShiftShortVectorRight(shifted_jitter, jitter, shift);
+        for (component = 0; component < 3; ++component)
+            vertices[i][component] = (uint16)vertices[i][component] + (uint16)shifted_jitter[component];
     }
-    ShiftVectorLeft(center, &shift);
-    w_u32(0x800FF3AC, 0);
+    ShiftVectorLeft(center.words, shift);
+    use_small_effect_pool = false;
     object = AllocateEffectStorage(204);
+    TexturedFragment *fragment = 0;
     if (object != 0)
     {
-        void *dram_addr = AllocateNativeObjectStorage(object, sizeof(TexturedFragment));
-        new (dram_addr) TexturedFragment(vertices[0], vertices[1], vertices[2], center);
+        fragment = new (object) TexturedFragment(vertices[0], vertices[1], vertices[2], center);
     }
-    uint32 red = r_u8(0x800FFB80);
-    uint32 green = r_u8(0x800FFB81);
-    uint32 blue = r_u8(0x800FFB82);
-    w_u32(0x800FF3AC, 1);
-    TexturedFragment::Attach(object).SetColors(red, green, blue);
-    uint32 clut = r_u16(0x800FFB78);
-    uint32 tpage = r_u16(0x800FFB7C);
-    result = TexturedFragment::Attach(object).SetTextureCoordinates(clut, tpage, u0, v0, u1, v1, u2, v2);
-    w_u32(object + 188, texture);
+    uint32 red = fragment_state.color.r;
+    uint32 green = fragment_state.color.g;
+    uint32 blue = fragment_state.color.b;
+    use_small_effect_pool = true;
+    if (!fragment)
+    {
+        GameDiagnostic("Textured fragment allocation failed\n");
+        abort();
+    }
+    fragment->SetColors(red, green, blue);
+    uint32 clut = fragment_state.clut;
+    uint32 tpage = fragment_state.tpage;
+    result = fragment->SetTextureCoordinates(clut, tpage, u0, v0, u1, v1, u2, v2);
+    fragment->texture_window = texture;
     return result;
 }
 
-
-uint32 SpawnOpaqueFragments(uint32 count, const uint32 *vertex0, const uint32 *vertex1, const uint32 *vertex2, const uint32 *normal, uint32 red, uint32 green, uint32 blue)
+static uint32 SpawnOpaqueFragments(uint32 count, const Vector3 &vertex0, const Vector3 &vertex1, const Vector3 &vertex2, const Vector3 &normal, uint32 red, uint32 green, uint32 blue)
 {
-    uint32 midpoint[3], sum[3], edge0[3], edge1[3], temporary[3], position[3], velocity[3], first[3], second[3], player[3];
-    uint32 axis, index, value, floor = 0x7FFFFFFF, factor0, factor1, object, distance, result;
+    Vector3 midpoint, sum, edge0, edge1, tmp, position, velocity, scaled[2], player;
+    uint32 axis;
+    uint32 index;
+    uint32 value;
+    uint32 floor = 0x7FFFFFFF;
+    uint32 factor0;
+    uint32 factor1;
+    GameHeapBlock *object;
+    uint32 distance;
+    uint32 result;
     CollisionRay collision;
     uint32 shift = 1;
     FUNCTION_MARKER(0x80022454, "SLUS_003.73");
     red &= 255;
     green &= 255;
     blue &= 255;
-    AddVectors(sum, vertex1, vertex2);
-    ShiftVectorRight(midpoint, sum, &shift);
+    AddVectors(sum.words, vertex1.words, vertex2.words);
+    ShiftVectorRight(midpoint.words, sum.words, shift);
     for (axis = 0; axis < 3; ++axis)
     {
-        memcpy(&value, (const uint8 *)normal + axis * 4, 4);
-        collision.pos[0][axis] = midpoint[axis] + value * 500;
+        value = normal.words[axis];
+        collision.endpoints[0].words[axis] = midpoint.words[axis] + value * 500;
     }
-    collision.pos[1][0] = collision.pos[0][0];
-    collision.pos[1][1] = collision.pos[0][1] + 12288000;
-    collision.pos[1][2] = collision.pos[0][2];
+    collision.endpoints[1].words[0] = collision.endpoints[0].words[0];
+    collision.endpoints[1].words[1] = collision.endpoints[0].words[1] + 12288000;
+    collision.endpoints[1].words[2] = collision.endpoints[0].words[2];
     InitializeCollisionRay(collision);
     QueryCollisionRay(collision, 1);
     if (collision.hit.GetObject())
-        floor = collision.hit_pos[1];
+        floor = collision.hit_pos.words[1];
     shift = 12;
-    SubtractVectors(temporary, vertex2, vertex0);
-    ShiftVectorRight(edge0, temporary, &shift);
-    SubtractVectors(temporary, vertex1, vertex0);
-    ShiftVectorRight(edge1, temporary, &shift);
+    SubtractVectors(tmp.words, vertex2.words, vertex0.words);
+    ShiftVectorRight(edge0.words, tmp.words, shift);
+    SubtractVectors(tmp.words, vertex1.words, vertex0.words);
+    ShiftVectorRight(edge1.words, tmp.words, shift);
     for (index = 0; (sint32)index < (sint32)count; ++index)
     {
         factor0 = RandomRange(4096);
         factor1 = RandomRange(4096);
-        MultiplyScalarVector(first, &factor0, edge0);
-        MultiplyScalarVector(second, &factor1, edge1);
-        AddVectors(temporary, first, second);
-        ShiftVectorRight(position, temporary, &shift);
-        ShiftVectorLeft(first, position, &shift);
-        AddVectors(temporary, first, vertex0);
-        memcpy(position, temporary, 12);
-        SubtractVectors(velocity, position, midpoint);
-        NormalizeFixedVector(velocity, velocity);
+        MultiplyScalarVector(scaled[0].words, factor0, edge0.words);
+        MultiplyScalarVector(scaled[1].words, factor1, edge1.words);
+        AddVectors(tmp.words, scaled[0].words, scaled[1].words);
+        ShiftVectorRight(position.words, tmp.words, shift);
+        ShiftVectorLeft(scaled[0].words, position.words, shift);
+        AddVectors(tmp.words, scaled[0].words, vertex0.words);
+        position = tmp;
+        SubtractVectors(velocity.words, position.words, midpoint.words);
+        NormalizeFixedVector(velocity.words, velocity.words);
         factor0 = RandomRange(40);
-        MultiplyVector(first, velocity, &factor0);
+        MultiplyVector(scaled[0].words, velocity.words, factor0);
         factor1 = RandomRange(40);
-        MultiplyVector(second, normal, &factor1);
-        AddVectors(temporary, first, second);
-        memcpy(velocity, temporary, 12);
+        MultiplyVector(scaled[1].words, normal.words, factor1);
+        AddVectors(tmp.words, scaled[0].words, scaled[1].words);
+        velocity = tmp;
         object = AllocateEffectStorage(120);
         if (object)
         {
-            void *dram_addr = AllocateNativeObjectStorage(object, sizeof(OpaqueFragment));
-            new (dram_addr) OpaqueFragment(position, velocity, floor, red, green, blue, 100, 100, 100);
+            new (object) OpaqueFragment(position, velocity, floor, red, green, blue, 100, 100, 100);
         }
     }
-    if (!r_u32(0x800FF214))
+    if (!positioned_sound_event.pending)
     {
-        w_u32(0x800FFD48, midpoint[0]);
-        w_u32(0x800FFD4C, midpoint[1]);
-        w_u32(0x800FFD50, midpoint[2]);
-        w_u32(0x800FF214, 1);
+        positioned_sound_event.pos = midpoint;
+        positioned_sound_event.pending = 1;
         return 1;
     }
-    player[0] = GetModelRenderView().pos[0];
-    player[1] = GetModelRenderView().pos[1];
-    player[2] = GetModelRenderView().pos[2];
-    ShiftVectorLeft(player, &shift);
-    distance = MeasurePositionDistance(player, midpoint);
-    result = MeasurePositionDistance(player, (const uint32 *)psx_addr(0x800FFD48, 12));
+    player.words[0] = GetModelRenderView().pos.words[0];
+    player.words[1] = GetModelRenderView().pos.words[1];
+    player.words[2] = GetModelRenderView().pos.words[2];
+    ShiftVectorLeft(player.words, shift);
+    distance = MeasurePositionDistance(player.words, midpoint.words);
+    result = MeasurePositionDistance(player.words, positioned_sound_event.pos.words);
     if (distance < result)
     {
-        w_u32(0x800FFD48, midpoint[0]);
-        w_u32(0x800FFD4C, midpoint[1]);
-        w_u32(0x800FFD50, midpoint[2]);
+        positioned_sound_event.pos = midpoint;
     }
     return result;
 }
 
-
-
-extern "C" uint32 xport_draft_host_sub_80022454_p2345(uint32 count, const void *vertex0, const void *vertex1, const void *vertex2, const void *normal, uint32 red, uint32 green, uint32 blue)
-{
-    FUNCTION_MARKER(0x80022454, "SLUS_003.73");
-    return SpawnOpaqueFragments(count, (const uint32 *)vertex0, (const uint32 *)vertex1, (const uint32 *)vertex2, (const uint32 *)normal, red, green, blue);
-}
-
 uint32 FragmentLevelPolygon(ModelInstance *object, ModelPolygon *polygon, uint32 parameter, uint32 effect, uint32 test, uint32 mark, uint32 render)
 {
+    Vector3 vertices[4], offset;
     ModelBorrow borrow;
     const ModelPalette *palette;
     uint32 bank, index, flags, touched, count, axis, vertex;
     uint32 result = 1, texture, color, red, green, blue, u0, v0, u1, v1, u2, v2;
-    uint32 matrix[8], vertices[4][3], offset[3];
+    MATRIX matrix;
     FUNCTION_MARKER(0x80021CA8, "SLUS_003.73");
     bank = object->bank;
     index = object->model_idx;
@@ -296,13 +319,16 @@ uint32 FragmentLevelPolygon(ModelInstance *object, ModelPolygon *polygon, uint32
     flags = polygon->flags;
     if (flags & 1)
     {
-        w_u32(0x800FFB78, polygon->clut);
-        w_u32(0x800FFB7C, polygon->tpage);
+        fragment_state.clut = polygon->clut;
+        fragment_state.tpage = polygon->tpage;
     }
-    fragment_normal = geometry.normals + polygon->n;
-    BuildModelRotationMatrix(object->angles, (uint16 *)matrix);
-    SetRotMatrix((MATRIX *)matrix);
-    LoadFixedGteTranslation(object->pos);
+    const SVECTOR &source_normal = geometry.normals[polygon->n];
+    fragment_state.normal.x = source_normal.vx;
+    fragment_state.normal.y = source_normal.vy;
+    fragment_state.normal.z = source_normal.vz;
+    BuildModelRotationMatrix(object->angles.words, matrix);
+    SetRotMatrix(&matrix);
+    LoadFixedGteTranslation(object->pos.words);
     for (vertex = 0; vertex < 3; ++vertex)
         TransformFragmentVertex(vertices[vertex], geometry, *polygon, vertex);
     flags = polygon->flags;
@@ -328,15 +354,27 @@ uint32 FragmentLevelPolygon(ModelInstance *object, ModelPolygon *polygon, uint32
         uint32 sum = 0;
         sint32 center;
         for (vertex = 0; vertex < count; ++vertex)
-            sum += (uint32)((sint32)vertices[vertex][axis] >> 12);
+            sum += (uint32)((sint32)vertices[vertex].words[axis] >> 12);
         center = count == 3 ? (sint32)sum / 3 : (sint32)sum >> 2;
-        w_u32(0x800FFD58 + axis * 4, (uint32)center << 12);
+        uint32 coordinate = (uint32)center << 12;
+        switch (axis)
+        {
+            case 0:
+                fragment_state.origin.x = coordinate;
+                break;
+            case 1:
+                fragment_state.origin.y = coordinate;
+                break;
+            case 2:
+                fragment_state.origin.z = coordinate;
+                break;
+        }
     }
     flags = polygon->flags;
     if (!(flags & 64) && (flags & 1))
     {
         texture = (flags & 32) ? GetModelPolygonWindow(*polygon) : 0;
-        if (!r_u32(0x800FF738))
+        if (!IsGameHeapUnderPressure())
         {
             v0 = polygon->uv[0].v;
             u0 = polygon->uv[0].u;
@@ -359,20 +397,20 @@ uint32 FragmentLevelPolygon(ModelInstance *object, ModelPolygon *polygon, uint32
     }
     else
     {
-        if (!r_u32(0x800FF738))
+        if (!IsGameHeapUnderPressure())
         {
-            const SVECTOR &normal = GetFragmentNormal();
+            const ShortVector3 &normal = GetFragmentNormal();
             if (count == 3)
-                blue = r_u8(0x800FFB82);
-            offset[0] = (uint32)(sint32)normal.vx;
-            offset[1] = (uint32)(sint32)normal.vy;
-            offset[2] = (uint32)(sint32)normal.vz;
-            red = r_u8(0x800FFB80);
+                blue = fragment_state.color.b;
+            offset.words[0] = (uint32)(sint32)normal.x;
+            offset.words[1] = (uint32)(sint32)normal.y;
+            offset.words[2] = (uint32)(sint32)normal.z;
+            red = fragment_state.color.r;
             if (count == 3)
-                green = r_u8(0x800FFB81);
+                green = fragment_state.color.g;
             else
             {
-                blue = r_u8(0x800FFB82);
+                blue = fragment_state.color.b;
                 green = blue;
             }
             result = 2;
@@ -384,12 +422,12 @@ uint32 FragmentLevelPolygon(ModelInstance *object, ModelPolygon *polygon, uint32
             polygon->flags = (uint16)(flags & 0xFFBF);
         }
     }
-    if (effect && !r_u32(0x800FF738))
+    if (effect && !IsGameHeapUnderPressure())
     {
-        red = r_u8(0x800FFB80);
-        green = r_u8(0x800FFB81);
-        blue = r_u8(0x800FFB82);
-        SpawnExplosionRing((const uint32 *)psx_addr(0x800FFD58, 12), 100, red, green, blue, 4, 1, 100);
+        red = fragment_state.color.r;
+        green = fragment_state.color.g;
+        blue = fragment_state.color.b;
+        SpawnExplosionRing(fragment_state.origin.words, 100, red, green, blue, 4, 1, 100);
     }
     return result;
 }
@@ -424,11 +462,3 @@ uint32 FragmentLevelObject(ModelInstance *object, uint32 test, uint32 mark)
     }
     return any;
 }
-
-
-
-
-
-
-
-

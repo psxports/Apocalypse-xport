@@ -35,6 +35,7 @@ struct ModelGeometry
     uint32 vertex_count;
     uint32 n_count;
     uint32 poly_count;
+    // Vertex pad words retain original reference and interpolation tags
     const SVECTOR *vertices;
     const SVECTOR *normals;
     ModelPolygon *polys;

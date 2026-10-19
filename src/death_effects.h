@@ -8,20 +8,28 @@ class DeathPersistentRing : public MeshRingEffect
 {
 public:
     DeathPersistentRing(const uint32 *position);
-    virtual ~DeathPersistentRing() {}
-    virtual uint32 Update();
+
+    virtual ~DeathPersistentRing()
+    {
+    }
+
+    virtual void Update();
     virtual uint32 Destroy(uint32 reason);
-    static DeathPersistentRing &Attach(uint32 object);
+    uint16 age;
 };
 
 class DeathFadingRing : public MeshRingEffect
 {
 public:
     DeathFadingRing(const uint32 *position);
-    virtual ~DeathFadingRing() {}
-    virtual uint32 Update();
+
+    virtual ~DeathFadingRing()
+    {
+    }
+
+    virtual void Update();
     virtual uint32 Destroy(uint32 reason);
-    static DeathFadingRing &Attach(uint32 object);
+    uint16 age;
 };
 
 void SpawnDeathPersistentRing(const uint32 *position);

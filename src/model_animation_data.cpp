@@ -1,12 +1,8 @@
-#include "game_sdk_bindings.h"
-#include "model_animation_data.h"
-#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
-// Compact matrices cross the existing pose/GTE byte-buffer boundary
-typedef char ModelPoseSizeCheck[sizeof(ModelPose) == 24 ? 1 : -1];
-typedef char ModelPoseTranslationCheck[offsetof(ModelPose, translation) == 18 ? 1 : -1];
+#include "game_diagnostics.h"
+#include "model_animation_data.h"
 
 static ModelPose *model_pose_workspace;
 static uint32 model_pose_capacity;
@@ -56,12 +52,13 @@ static bool DecodeModelAnimations(ModelAnimationSet &set, const uint8 *data, uin
         for (uint32 pose = 0; pose < animation.pose_count; ++pose)
         {
             ModelPose &matrix = animation.poses[pose];
+            // File poses contain nine rotation and three translation words
             const uint8 *source = data + offset + pose * 24;
             for (uint32 row = 0; row < 3; ++row)
                 for (uint32 column = 0; column < 3; ++column)
-                    matrix.rotation[row][column] = xport_load_le16(source + row * 6 + column * 2);
+                    matrix.rotation[row].words[column] = xport_load_le16(source + row * 6 + column * 2);
             for (uint32 axis = 0; axis < 3; ++axis)
-                matrix.translation[axis] = xport_load_le16(source + 18 + axis * 2);
+                matrix.translation.words[axis] = xport_load_le16(source + 18 + axis * 2);
         }
     }
     return true;

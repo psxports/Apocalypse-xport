@@ -1,23 +1,34 @@
+#include <stdlib.h>
+
+#include "game_diagnostics.h"
+#include "game_settings.h"
 #include "game_random.h"
 extern "C"
 {
-#include "draft_first_signatures.h"
-#include "game_sound_native.h"
+#include "psx_spu.h"
 }
 #include "audio_voice.h"
 #include "audio_session.h"
 
+static uint16 voice_base_pitch[24];
+
+void ResetSoundVoicePitches()
+{
+    for (uint32 voice = 0; voice < 24; ++voice)
+        voice_base_pitch[voice] = 0;
+}
+
 uint32 PlaySoundVoices(uint32 configuration, uint8 note, sint16 left, sint16 right, uint32 pitch_variation)
 {
     uint32 program = (configuration >> 16) & 127, remaining = configuration;
-    uint32 voice_count = 1, voices, limit, scan, next_tone = 0, pitch_address = 0x80100738;
+    uint32 voice_count = 1, voices, limit, scan, next_tone = 0;
     uint32 random_offset = pitch_variation, pitch;
     sint32 bank, shifted_note, vag;
-    sint16 settings[9] = {0};
-    sint16 registers[8] = {0};
-    uint8 tone_attributes[32] = {0};
+    SndVoiceStats settings = {0};
+    SndRegisterAttr registers = {0};
+    VagAtr tone_attributes = {0};
     FUNCTION_MARKER(0x8006A4C4, "SLUS_003.73");
-    // TODO Review unused local fields still initialized by the prior native adapter contract
+    // Voice metadata consumes zero volume and pan while register writes carry output gains
     if (pitch_variation)
         random_offset = RandomRange(pitch_variation << 1) - pitch_variation;
     if ((uint16)remaining >= 2)
@@ -26,11 +37,11 @@ uint32 PlaySoundVoices(uint32 configuration, uint8 note, sint16 left, sint16 rig
         for (uint32 tone = 0; tone < 16; ++tone)
             voice_count += (remaining >> tone) & 1;
     }
-    sub_80094544();
-    voices = sub_8009426C(voice_count & 255, configuration >> 31 ? 127 : 0);
+    SsBlockVoiceAllocation();
+    voices = SsAllocateVoices(voice_count & 255, configuration >> 31 ? 127 : 0);
     if ((sint32)voices > 0)
     {
-        bank = (sint16)r_u16(configuration & 0x40000000 ? 0x800FF6A0 : 0x800FF69C);
+        bank = configuration & 0x40000000 ? sound_banks.level : sound_banks.common;
         // Original GTE leading-zero result determines the highest allocated voice
         limit = 0;
         scan = voices;
@@ -39,13 +50,19 @@ uint32 PlaySoundVoices(uint32 configuration, uint8 note, sint16 left, sint16 rig
             ++limit;
             scan >>= 1;
         }
-        settings[1] = (sint16)bank;
-        settings[5] = (sint16)program;
-        settings[6] = (sint16)apocalypse_sound_actual_program((uint32)bank, program);
+        if (limit > 24)
+        {
+            // TODO Establish the invalid allocator-mask contract
+            GameDiagnostic("Sound allocator returned voices outside the 24-voice range\n");
+            abort();
+        }
+        settings.vabId = (sint16)bank;
+        settings.prog_num = (sint16)program;
+        settings.prog_actual = (sint16)SsGetActualProgFromProg((uint32)bank, program);
         shifted_note = (sint32)(((uint32)note + random_offset) << 16);
-        registers[0] = left;
-        registers[1] = right;
-        registers[3] = 0;
+        registers.volume.left = left;
+        registers.volume.right = right;
+        registers.mask = 0;
         for (uint32 voice = 0; voice < limit && (uint16)remaining; ++voice)
         {
             if ((voices >> voice) & 1)
@@ -55,63 +72,68 @@ uint32 PlaySoundVoices(uint32 configuration, uint8 note, sint16 left, sint16 rig
                     if ((remaining >> tone) & 1)
                     {
                         next_tone = tone + 1;
-                        apocalypse_sound_tone_attributes((uint32)bank, program, tone, tone_attributes);
-                        vag = (sint16)xport_load_le16(tone_attributes + 22);
-                        settings[0] = (sint16)vag;
-                        pitch = apocalypse_sound_pitch((uint32)(shifted_note >> 16), 0, tone_attributes[4], tone_attributes[5]);
-                        settings[2] = (sint16)pitch;
-                        w_u16(pitch_address, pitch);
-                        settings[4] = (sint16)tone;
-                        settings[3] = tone_attributes[4];
-                        apocalypse_sound_voice_settings(voice, settings);
-                        registers[2] = settings[2];
-                        registers[4] = (sint16)(apocalypse_sound_vag_address((uint32)bank, (uint32)vag) >> 3);
-                        registers[5] = (sint16)xport_load_le16(tone_attributes + 16);
-                        registers[6] = (sint16)xport_load_le16(tone_attributes + 18);
-                        SsQueueRegisters((sint32)voice, (SndRegisterAttr *)registers);
+                        SsUtGetVagAtr((uint32)bank, program, tone, &tone_attributes);
+                        vag = tone_attributes.vag;
+                        settings.vagId = (sint16)vag;
+                        pitch = SsPitchFromNote(shifted_note >> 16, 0, tone_attributes.center, tone_attributes.shift);
+                        settings.pitch = pitch;
+                        voice_base_pitch[voice] = (uint16)pitch;
+                        settings.tone = (sint16)tone;
+                        settings.note = tone_attributes.center;
+                        SsSetVoiceSettings(voice, &settings);
+                        registers.pitch = settings.pitch;
+                        registers.addr = (sint16)(SsUtGetVagAddr((uint32)bank, (uint32)vag) >> 3);
+                        registers.adsr1 = (sint16)tone_attributes.adsr1;
+                        registers.adsr2 = (sint16)tone_attributes.adsr2;
+                        SsQueueRegisters((sint32)voice, &registers);
                         remaining &= ~(1 << tone);
                         break;
                     }
                 }
             }
-            pitch_address += 2;
         }
-        apocalypse_sound_queue_key_on(voices);
-        apocalypse_sound_queue_reverb(voices, voices);
+        SpuVoiceEventState *events = &spu_vm_state()->events;
+        sint32 count = (sint8)events->voice_count;
+        for (sint32 voice = 0; voice < count; ++voice)
+        {
+            uint32 bit = 1u << ((uint32)voice & 31);
+            if (voices & bit)
+            {
+                uint32 half = voice >= 16 ? 1 : 0;
+                uint32 half_bit = 1u << ((uint32)(voice >= 16 ? voice - 16 : voice) & 31);
+                events->key_on[half] |= (uint16)half_bit;
+                events->key_off[half] &= (uint16)~half_bit;
+            }
+        }
+        for (uint32 voice = 0; voice < 24; ++voice)
+        {
+            uint32 bit = 1 << voice;
+            if (voices & bit)
+            {
+                uint16 *mask = events->reverb + (voice >= 16 ? 1 : 0);
+                uint32 half_bit = 1 << (voice >= 16 ? voice - 16 : voice);
+                *mask |= half_bit;
+            }
+        }
     }
-    sub_80094570();
+    SsUnBlockVoiceAllocation();
     return voices;
 }
 
-
-
 static void QueueSoundVoiceOff(sint16 voice)
 {
-    uint32 index = (uint16)voice, low, high, offset, pending_low, pending_high;
-    if (r_u32(0x80104584) == 1)
+    uint32 index = (uint16)voice;
+    if (spu_sequence_scheduler.processing == 1)
         return;
-    w_u32(0x80104584, 1);
+    spu_sequence_scheduler.processing = 1;
     if (index < 24)
     {
-        w_u16(0x80105638, index);
-        index = r_u16(0x80105638);
-        offset = index * 54;
-        low = index < 16 ? 1 << index : 0;
-        high = index >= 16 ? 1 << (index - 16) : 0;
-        w_u8(0x80104E45 + offset, 0);
-        low |= r_u16(0x80105520);
-        high |= r_u16(0x80105522);
-        w_u16(0x80104E2C + offset, 0);
-        w_u16(0x80104E28 + offset, 0);
-        pending_low = r_u16(0x80104E18);
-        w_u16(0x80105520, low);
-        w_u16(0x80104E18, pending_low & ~low);
-        pending_high = r_u16(0x80104E1A);
-        w_u16(0x80105522, high);
-        w_u16(0x80104E1A, pending_high & ~high);
+        spu_vm_state()->note.voice = index;
+        spu_sequence_vm_key_off_now();
     }
-    w_u32(0x80104584, 0);
+    spu_sequence_scheduler.processing = 0;
 }
+
 void StopSoundVoices(uint32 mask)
 {
     FUNCTION_MARKER(0x8006A294, "SLUS_003.73");
@@ -122,8 +144,6 @@ void StopSoundVoices(uint32 mask)
             QueueSoundVoiceOff((sint16)voice);
 }
 
-
-
 void UpdatePositionedSoundVoices(uint32 voices, const uint32 *origin, sint32 pitch_delta)
 {
     uint32 balance, gain, left, right, base_pitch, pitch, cap, difference, product;
@@ -132,7 +152,7 @@ void UpdatePositionedSoundVoices(uint32 voices, const uint32 *origin, sint32 pit
     if (!voices)
         return;
     balance = CalculateSoundBalance(origin, 256, 12000);
-    gain = (uint32)(sint32)(sint16)r_u16(0x800ECC7A);
+    gain = (uint32)(sint32)(sint16)game_settings.effects_volume;
     left = ((balance & 4095) * gain) >> 12;
     right = (((balance >> 16) & 4095) * gain) >> 12;
     if ((sint32)balance < 0)
@@ -146,7 +166,7 @@ void UpdatePositionedSoundVoices(uint32 voices, const uint32 *origin, sint32 pit
         {
             if (pitch_delta)
             {
-                base_pitch = r_u16(0x80100738 + voice * 2);
+                base_pitch = voice_base_pitch[voice];
                 product = base_pitch * (uint32)pitch_delta;
                 if ((sint32)product < 0)
                     product += 8191;
@@ -164,10 +184,4 @@ void UpdatePositionedSoundVoices(uint32 voices, const uint32 *origin, sint32 pit
             SsQueueRegisters((sint32)voice, &attributes);
         }
     }
-}
-
-extern "C" void sub_80069FAC(uint32 voices, uint32 position, uint32 delta)
-{
-    FUNCTION_MARKER(0x80069FAC, "SLUS_003.73");
-    UpdatePositionedSoundVoices(voices, (const uint32 *)psx_addr(position, 12), (sint32)delta);
 }

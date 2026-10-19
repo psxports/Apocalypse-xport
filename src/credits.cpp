@@ -1,174 +1,193 @@
+#include <new>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "game_pad_poll.h"
+#include "game_heap.h"
+#include "game_lighting.h"
+#include "game_tick.h"
 #include "effect_lifecycle.h"
 #include "game_panel.h"
 #include "angle_math.h"
+#include "model_matrix.h"
 #include "model_render_view.h"
-#include "game_sdk_bindings.h"
+#include "game_diagnostics.h"
 #include "scene_effect_packets.h"
 #include "credits.h"
 #include "level_catalogue.h"
 #include "audio_session.h"
 #include "menu_input.h"
 #include "credits_player.h"
-#include "native_object_storage.h"
-#include "game_heap.h"
 #include "game_object_allocation.h"
 #include "resource_io.h"
 #include "hud_text.h"
 #include "scene_lifecycle.h"
 #include "model_render.h"
-extern "C"
+
+static const uint32 credits_row_capacity = 400;
+
+struct CreditsRow
 {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
+    char text[2][40];
+};
+
+static bool DecodeCreditsRows(const uint8 *data, uint32 bytes, CreditsRow *rows, uint32 &count)
+{
+    uint32 cursor = 0;
+    count = 0;
+    while (count < credits_row_capacity)
+    {
+        if (cursor >= bytes)
+            return false;
+        if (data[cursor] == '#')
+            return true;
+        CreditsRow *row = rows + count;
+        uint32 column = 0;
+        while (cursor < bytes && data[cursor] != ',' && data[cursor] != '\r')
+        {
+            if (column >= sizeof(row->text[0]) - 1)
+                return false;
+            row->text[0][column++] = (char)data[cursor++];
+        }
+        if (cursor >= bytes)
+            return false;
+        row->text[0][column] = 0;
+        if (data[cursor] == '\r')
+            row->text[1][0] = 0;
+        else
+        {
+            ++cursor;
+            column = 0;
+            while (cursor < bytes && data[cursor] != '\r')
+            {
+                if (column >= sizeof(row->text[1]) - 1)
+                    return false;
+                row->text[1][column++] = (char)data[cursor++];
+            }
+            if (cursor >= bytes)
+                return false;
+            row->text[1][column] = 0;
+        }
+        // Original skips the CR and the following byte without inspecting it
+        if (bytes - cursor < 2)
+            return false;
+        cursor += 2;
+        ++count;
+    }
+    return true;
 }
-#include <new>
-#include <stdio.h>
-#include <stdlib.h>
 
 uint32 RunCredits(void)
 {
     FUNCTION_MARKER(0x80014BFC, "SLUS_003.73");
     SwitchMenuAudioSequence(GetLevelEntry(0)->music);
     ::RestoreMusicPlayback();
-    uint32 size = LookupResource((const char *)psx_addr(0x800A0334, 1));
-    uint32 source = AllocateHeapBlock(size, 0, 1);
+    uint32 size = LookupResource("credits.txt");
+    uint8 *source = (uint8 *)malloc(size);
+    CreditsRow *rows = (CreditsRow *)malloc(credits_row_capacity * sizeof(CreditsRow));
+    if (!source || !rows)
+    {
+        free(source);
+        free(rows);
+        GameDiagnostic("Cannot allocate credits text\n");
+        abort();
+    }
     BeginResourceRead(source);
     WaitForResourceRead();
-    uint32 rows = AllocateHeapBlock(32000, 0, 1);
-    uint32 cursor = source, row = rows, count = 0;
-    while (count < 400)
+    uint32 count;
+    bool decoded = DecodeCreditsRows(source, size, rows, count);
+    free(source);
+    if (!decoded)
     {
-        uint32 value = r_u8(cursor);
-        if (value == 35)
-            break;
-        uint32 column = 0;
-        // TODO Original field copies have no forty-byte length bound
-        while (value != 44 && value != 13)
-        {
-            ++cursor;
-            w_u8(row + column, value);
-            value = r_u8(cursor);
-            ++column;
-        }
-        w_u8(row + column, 0);
-        if (r_u8(cursor) == 13)
-            w_u8(row + 40, 0);
-        else
-        {
-            ++cursor;
-            value = r_u8(cursor);
-            column = 0;
-            while (value != 13)
-            {
-                ++cursor;
-                w_u8(row + column + 40, value);
-                value = r_u8(cursor);
-                ++column;
-            }
-            w_u8(row + column + 40, 0);
-        }
-        cursor += 2;
-        row += 80;
-        ++count;
+        free(rows);
+        GameDiagnostic("Invalid credits text format\n");
+        abort();
     }
-    ReleaseHeapBlock(source);
-    uint32 player = AllocateZeroedObject(660);
-    if (player)
+    GameHeapBlock *allocation = AllocateZeroedObject(660);
+    CreditsPlayer *player = 0;
+    if (allocation)
     {
-        void *dram_addr = AllocateNativeObjectStorage(player, sizeof(CreditsPlayer));
-        new (dram_addr) CreditsPlayer();
+        player = new (allocation) CreditsPlayer();
     }
     // TODO Preserve the original null-allocation fallthrough into the draw loop
-    GetModelRenderView().pos[2] = (uint32)-310;
-    GetModelRenderView().pos[0] = 0;
-    GetModelRenderView().pos[1] = 0;
-    GetModelRenderView().angles[0] = (uint16)(0);
-    GetModelRenderView().angles[1] = (uint16)(0);
-    GetModelRenderView().angles[2] = (uint16)(0);
-    w_u16(0x800FFA94, 256);
-    w_u16(0x800FFA96, 256);
-    w_u16(0x800FFA98, 256);
+    GetModelRenderView().pos.words[2] = (uint32)-310;
+    GetModelRenderView().pos.words[0] = 0;
+    GetModelRenderView().pos.words[1] = 0;
+    GetModelRenderView().angles.words[0] = (uint16)(0);
+    GetModelRenderView().angles.words[1] = (uint16)(0);
+    GetModelRenderView().angles.words[2] = (uint16)(0);
+    game_lighting.background_color.r = 256;
+    game_lighting.background_color.g = 256;
+    game_lighting.background_color.b = 256;
     sint32 scroll = 0;
     SetHudTextScale(256);
     SetHudTextColor(64, 64, 64, 0);
-    uint32 first_row = rows, end = rows + count * 80;
-    while (first_row < end)
+    uint32 first_row = 0;
+    while (first_row < count)
     {
-        uint32 frame = r_u32(0x800FF64C);
+        uint32 frame = game_clock.vblank_frame;
         BeginSceneFrame();
         UpdateScenePacketLimit();
-        sub_80070748();
+        PollPadPackets();
         uint32 confirm, cancel, any, start;
         ReadMenuInput(&confirm, &cancel, &any, &start);
         if (cancel)
         {
-            sub_80069DF0(19, 0x2000, 0);
+            PlaySoundEffect(19, 0x2000, 0);
             break;
         }
         scroll = (sint32)((uint32)scroll - 64);
         if (confirm)
         {
-            sub_80069DF0(19, 0x2000, 0);
+            PlaySoundEffect(19, 0x2000, 0);
             break;
         }
         sint32 y = scroll >> 6;
         if (scroll < -1663)
         {
             scroll = 0;
-            first_row += 80;
+            ++first_row;
             y = 0;
         }
-        uint32 text = first_row, second = first_row + 40;
-        uint32 table = r_u32(player + 68);
-        uint32 tick_count = r_u32(0x800FF2F0);
-        sint32 adjustment = (sint16)r_u16(table + 24);
-        w_u32(0x800FF2F0, tick_count + 1);
-        uint32 target = r_u32(table + 28);
-        uint32 receiver = player + (uint32)adjustment;
-        if (target == 0x80014920)
-            CreditsPlayer::Attach(receiver).CreditsPlayer::Update();
-        else
-        {
-            // TODO Resolve another tick target if the credits table is replaced
-            GameDiagnostic("Missing credits tick %08X receiver=%08X\n", target, receiver);
-            abort();
-        }
+        CreditsRow *row = rows + first_row;
+        uint32 tick_count = game_clock.tick;
+        game_clock.tick = tick_count + 1;
+        player->Update();
         ::UpdateEffects();
         ::DestroyFinishedEffects();
         ::BlurMenuBuffers();
         ::BlurMenuBuffers();
         DrawAnimatedHudText();
-        while (y < 240 && text < end)
+        while (y < 240 && row < rows + count)
         {
             uint32 glow = 0;
             // The signed multiply-high sequence divides this bounded value by sixty
             if (y > 60 && y < 121)
                 glow = (uint32)((y - 60) * 128 / 60);
-            if (r_u8(second))
+            if (row->text[1][0])
             {
                 SetHudTextAlignment(2);
-                DrawStyledHudText(231, (uint32)y, (const char *)psx_addr(text, 1), 0, glow, 256);
+                DrawStyledHudText(231, (uint32)y, row->text[0], 0, glow, 256);
                 SetHudTextAlignment(1);
-                DrawStyledHudText(281, (uint32)y, (const char *)psx_addr(second, 1), 0, glow, 256);
+                DrawStyledHudText(281, (uint32)y, row->text[1], 0, glow, 256);
             }
             else
             {
                 SetHudTextAlignment(0);
-                DrawStyledHudText(256, (uint32)y, (const char *)psx_addr(text, 1), 0, glow, 256);
+                DrawStyledHudText(256, (uint32)y, row->text[0], 0, glow, 256);
             }
             y += 26;
-            second += 80;
-            text += 80;
+            ++row;
         }
-        BuildModelRotationMatrix(GetModelRenderView().angles, (uint16 *)&GetModelRenderView().rotation);
+        BuildModelRotationMatrix(GetModelRenderView().angles.words, GetModelRenderView().rotation);
         SetModelRenderViewTranslation(GetModelRenderView());
-        ConfigureModelRenderView(GetModelRenderView(), 0x800A67B8, r_u32(0x800FF660) + 112);
-        RenderVisibleModelObjectList(player ? &VisualObject::Attach(player).model : 0);
+        ConfigureModelRenderView(GetModelRenderView(), model_viewport, scene_render.cur->ot);
+        RenderVisibleModelObjectList(player ? &player->model : 0);
         AdvanceModelRenderCounter();
         BuildSceneEffectPackets();
-        if (r_u32(0x800FF64C) == frame)
+        if (game_clock.vblank_frame == frame)
             WaitForGameFrames(1);
-        w_u32(0x800FF65C, 0);
+        scene_frame.service_enabled = 0;
         for (;;)
         {
             WaitForGameFrames(1);
@@ -177,25 +196,22 @@ uint32 RunCredits(void)
             ::ServiceGameFrame();
         }
         SubmitSceneFrame();
-        if (!r_u32(0x800FF65C))
+        if (!scene_frame.service_enabled)
         {
             ::ServiceGameFrame();
-            w_u32(0x800FF65C, 1);
+            scene_frame.service_enabled = 1;
         }
     }
     WaitForGameFrames(1);
     DrawSync(0);
     SubmitSceneFrame();
-    ReleaseHeapBlock(rows);
+    free(rows);
     if (player)
     {
-        uint32 table = r_u32(player + 68);
-        sint32 adjustment = (sint16)r_u16(table + 8);
-        apocalypse_object_cleanup(r_u32(table + 12), player + (uint32)adjustment, 3);
+        ObjectBorrow borrow;
+        player->Destroy(3);
     }
     ::DestroyTransientEffects();
     ::StopMusicPlayback();
     return ::ReleaseAudioSession();
 }
-
-

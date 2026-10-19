@@ -31,8 +31,6 @@ PaletteResource *FindPaletteResource(uint32 key);
 void ReleaseUnusedPaletteResources();
 void ResetPaletteResources();
 
-uint32 AllocateSmallPaletteSlot();
-uint32 AllocateLargePaletteSlot();
 PaletteResource *LoadPaletteResource(uint32 key, uint16 *colors, uint32 flags);
 
 #endif

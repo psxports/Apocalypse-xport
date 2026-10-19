@@ -1,5 +1,7 @@
 #ifndef MODEL_RENDER_VIEW_H
 #define MODEL_RENDER_VIEW_H
+
+#include "vector3.h"
 extern "C"
 {
 #include "psx.h"
@@ -7,8 +9,8 @@ extern "C"
 
 struct ModelRenderView
 {
-    uint32 pos[3];
-    uint16 angles[4];
+    Vector3 pos;
+    ShortVector3 angles;
     MATRIX rotation;
     MATRIX inverse;
     MATRIX projection;

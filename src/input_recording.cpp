@@ -1,29 +1,193 @@
-extern "C"
+#include <stdlib.h>
+
+#include "input_recording.h"
+#include "game_diagnostics.h"
+#include "resource_io.h"
+
+// Original800A6558 schedules three button events at frame5 then terminates
+static const RecordedInputEvent test_replay[4] = {{5, 5, 10, 1}, {5, 5, 0, 1}, {5, 5, 2, 1}, {10, 65535, 0, 0}};
+
+InputRecording input_recording;
+
+static RecordedInputEvent *AllocateInputEvents(uint32 bytes)
 {
-#include "draft_first_signatures.h"
+    uint32 count = bytes / 8 + ((bytes & 7) != 0);
+    if (count > (size_t)-1 / sizeof(RecordedInputEvent))
+        abort();
+    RecordedInputEvent *events = (RecordedInputEvent *)malloc((size_t)count * sizeof(RecordedInputEvent));
+    if (!events)
+        abort();
+    return events;
 }
 
-uint32 ClearRecordedInput(void)
+InputRecording::InputRecording() : mode(Live), data(0), owned(0), bytes(0), cursor(0), last_timestamp(0)
 {
-    uint32 resource, result = 0x80600000;
+}
+
+InputRecording::~InputRecording()
+{
+    ReleaseData();
+}
+
+void InputRecording::Stop()
+{
+    mode = Live;
+}
+
+void InputRecording::ReleaseData()
+{
+    free(owned);
+    owned = 0;
+    data = 0;
+    bytes = cursor = 0;
+}
+
+void InputRecording::Clear()
+{
     FUNCTION_MARKER(0x80063A38, "SLUS_003.73");
-    resource = r_u32(0x800FF81C);
-    if (resource != 0x80600000 && resource)
+    ReleaseData();
+    mode = Live;
+}
+
+void InputRecording::ResetCursor()
+{
+    cursor = 0;
+}
+
+void InputRecording::ResetTimestamp()
+{
+    last_timestamp = 0;
+}
+
+void InputRecording::Require(uint32 span) const
+{
+    if (!data || cursor > bytes / 8 || span > bytes - cursor * 8)
     {
-        result = sub_8006BC20(resource);
-        w_u32(0x800FF81C, 0);
+        GameDiagnostic("Input event outside recording buffer\n");
+        abort();
     }
-    w_u32(0x800FF818, 0);
-    return result;
 }
 
-extern "C" uint32 sub_80063A38(void)
+void InputRecording::UseTestReplay()
 {
-    FUNCTION_MARKER(0x80063A38, "SLUS_003.73");
-    return ClearRecordedInput();
+    ReleaseData();
+    data = test_replay;
+    bytes = 32;
+    mode = Replay;
 }
 
-extern "C" void nullsub_17(void)
+void InputRecording::LoadReplay(const char *name)
 {
-    FUNCTION_MARKER(0x8002FF88, "SLUS_003.73");
+    uint32 size = LookupResource(name);
+    uint32 logical_bytes = GetResourceFileSize(name);
+    if (logical_bytes < 6 || logical_bytes > size)
+    {
+        GameDiagnostic("Invalid input recording resource size\n");
+        abort();
+    }
+    ReleaseData();
+    uint8 *encoded = (uint8 *)malloc(size);
+    if (!encoded)
+        abort();
+    BeginResourceRead(encoded);
+    WaitForResourceRead();
+    owned = AllocateInputEvents(logical_bytes);
+    uint32 count = logical_bytes / 8 + ((logical_bytes & 7) != 0);
+    for (uint32 index = 0; index < count; ++index)
+    {
+        uint32 offset = index * 8;
+        uint32 remaining = logical_bytes - offset;
+        RecordedInputEvent event = {0, 0, 0, 0};
+        if (remaining >= 4)
+            event.timestamp = xport_load_le32(encoded + offset);
+        if (remaining >= 6)
+            event.frame = xport_load_le16(encoded + offset + 4);
+        if (remaining >= 7)
+            event.button = encoded[offset + 6];
+        if (remaining >= 8)
+            event.down = encoded[offset + 7];
+        owned[index] = event;
+    }
+    free(encoded);
+    data = owned;
+    bytes = logical_bytes;
+    mode = Replay;
+}
+
+void InputRecording::BeginRecording(uint32 capacity)
+{
+    if (capacity < 6)
+    {
+        GameDiagnostic("Input recording capacity is too small\n");
+        abort();
+    }
+    ReleaseData();
+    owned = AllocateInputEvents(capacity);
+    data = owned;
+    bytes = capacity;
+    owned[0].frame = 65535;
+    mode = Recording;
+}
+
+void InputRecording::Append(uint32 timestamp, uint16 frame, uint8 button, uint8 down)
+{
+    Require(14);
+    if (mode != Recording || !owned)
+    {
+        GameDiagnostic("Input recording is not writable\n");
+        abort();
+    }
+    if (button >= 20)
+    {
+        GameDiagnostic("Input recording button index is invalid\n");
+        abort();
+    }
+    RecordedInputEvent *event = owned + cursor;
+    event->button = button;
+    event->frame = frame;
+    event->down = down;
+    event->timestamp = timestamp;
+    ++cursor;
+    owned[cursor].frame = 65535;
+}
+
+uint16 InputRecording::NextFrame() const
+{
+    Require(6);
+    return data[cursor].frame;
+}
+
+bool InputRecording::AtEnd() const
+{
+    return NextFrame() == 65535;
+}
+
+RecordedInputEvent InputRecording::ReadEvent() const
+{
+    Require(8);
+    const RecordedInputEvent &event = data[cursor];
+    if (event.frame == 65535 || event.button >= 20)
+    {
+        GameDiagnostic("Invalid nonterminal input event\n");
+        abort();
+    }
+    return event;
+}
+
+void InputRecording::AdvanceReplay(uint32 timestamp)
+{
+    Require(8);
+    ++cursor;
+    last_timestamp = timestamp;
+}
+
+const char *GetDemoRecordingName(uint32 index)
+{
+    static const char *const names[4] = {"demo2.dem", "demo3.dem", "demo1.dem", ""};
+    if (index >= 4)
+    {
+        GameDiagnostic("Demo recording index outside catalogue\n");
+        abort();
+    }
+    return names[index];
 }

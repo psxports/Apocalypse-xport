@@ -1,78 +1,58 @@
-#include "game_sdk_bindings.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "game_diagnostics.h"
+
 #include "visual_object.h"
+#include "player.h"
+#include "ring_attack.h"
 #include "vector_arithmetic.h"
 #include "vector_distance.h"
 #include "activation_record.h"
-#include "native_object_storage.h"
-#include <stdio.h>
-#include <stdlib.h>
 
 // Original list-level operation has a list-head receiver, not an object receiver
 
 // List traversal is a free function, not an object method
 
-static void CopyObjectPosition(uint32 destination, uint32 source)
-{
-    uint32 x = r_u32(source);
-    uint32 y = r_u32(source + 4);
-    uint32 z = r_u32(source + 8);
-    w_u32(destination, x);
-    w_u32(destination + 4, y);
-    w_u32(destination + 8, z);
-}
-
-void FlagObjectNearReference(uint32 object)
+void FlagObjectNearReference(VisualObject &object)
 {
     FUNCTION_MARKER(0x80029CC4, "SLUS_003.73");
-    uint32 reference = r_u32(0x800FF21C);
+    RingAttack *reference = active_ring_attack.Get();
     if (!reference)
         return;
-    uint32 distance = MeasurePositionDistance((const uint32 *)psx_addr(object + 4, 12), (const uint32 *)psx_addr(reference + 24, 12));
-    reference = r_u32(0x800FF21C);
-    uint32 radius = r_u32(reference + 168);
-    if ((sint32)radius < (sint32)distance)
+    uint32 distance = MeasurePositionDistance(object.model.pos.words, reference->pos.words);
+    reference = active_ring_attack.Get();
+    if (!reference || (sint32)reference->width < (sint32)distance)
         return;
-    uint32 flags = r_u16(object + 78);
-    w_u16(object + 78, flags | 256);
+    object.lifecycle_flags |= 256;
 }
 
 void SmoothObjectPositions(ModelInstance *instance)
 {
     FUNCTION_MARKER(0x80030168, "SLUS_003.73");
-    uint32 cur[3], prev_quarter[3], cur_quarter[3], weighted[3], output[3];
-    uint32 shift = 2, weight = 3, axis;
-    if (instance == visual_lists.players)
+    Vector3 cur, prev_quarter, cur_quarter, weighted, output;
+    uint32 shift = 2, weight = 3;
+    if (instance && instance == visual_lists.players)
     {
-        const uint32 object = NativeObjectGuestAddress(instance->owner);
-        for (axis = 0; axis < 3; ++axis)
-            cur[axis] = r_u32(object + 184 + axis * 4);
-        ShiftVectorRight(prev_quarter, (const uint32 *)psx_addr(object + 588, 12), &shift);
-        ShiftVectorRight(cur_quarter, cur, &shift);
-        MultiplyScalarVector(weighted, &weight, cur_quarter);
-        AddVectors(output, prev_quarter, weighted);
-        for (axis = 0; axis < 3; ++axis)
-            w_u32(object + 184 + axis * 4, output[axis]);
-        for (axis = 0; axis < 3; ++axis)
-            w_u32(object + 588 + axis * 4, cur[axis]);
+        Player &player = *static_cast<Player *>(instance->owner);
+        cur = player.surface.pos;
+        ShiftVectorRight(prev_quarter.words, player.saved_surface_pos.words, shift);
+        ShiftVectorRight(cur_quarter.words, cur.words, shift);
+        MultiplyScalarVector(weighted.words, weight, cur_quarter.words);
+        AddVectors(output.words, prev_quarter.words, weighted.words);
+        player.surface.pos = output;
+        player.saved_surface_pos = cur;
     }
     while (instance)
     {
-        for (axis = 0; axis < 3; ++axis)
-            cur[axis] = instance->pos[axis];
+        cur = instance->pos;
         VisualObject &visual = *static_cast<VisualObject *>(instance->owner);
-        ShiftVectorRight(prev_quarter, visual.pos_history.saved, &shift);
-        ShiftVectorRight(cur_quarter, cur, &shift);
-        MultiplyScalarVector(weighted, &weight, cur_quarter);
-        AddVectors(output, prev_quarter, weighted);
-        for (axis = 0; axis < 3; ++axis)
-            instance->pos[axis] = output[axis];
-        for (axis = 0; axis < 3; ++axis)
-            visual.pos_history.saved[axis] = cur[axis];
+        ShiftVectorRight(prev_quarter.words, visual.pos_history.saved.words, shift);
+        ShiftVectorRight(cur_quarter.words, cur.words, shift);
+        MultiplyScalarVector(weighted.words, weight, cur_quarter.words);
+        AddVectors(output.words, prev_quarter.words, weighted.words);
+        instance->pos = output;
+        visual.pos_history.saved = cur;
         instance = instance->next;
     }
 }
@@ -81,16 +61,15 @@ ModelInstance *SaveObjectPositions(ModelInstance *instance)
 {
     FUNCTION_MARKER(0x8003032C, "SLUS_003.73");
     ModelInstance *special_head = visual_lists.players;
-    if (instance == special_head)
+    if (instance && instance == special_head)
     {
-        const uint32 object = NativeObjectGuestAddress(instance->owner);
-        CopyObjectPosition(object + 588, object + 184);
+        Player &player = *static_cast<Player *>(instance->owner);
+        player.saved_surface_pos = player.surface.pos;
     }
     while (instance)
     {
         VisualObject &visual = *static_cast<VisualObject *>(instance->owner);
-        for (uint32 axis = 0; axis < 3; ++axis)
-            visual.pos_history.saved[axis] = instance->pos[axis];
+        visual.pos_history.saved = instance->pos;
         instance = instance->next;
     }
     return special_head;
@@ -100,16 +79,15 @@ ModelInstance *RestoreObjectPositions(ModelInstance *instance)
 {
     FUNCTION_MARKER(0x80030390, "SLUS_003.73");
     ModelInstance *special_head = visual_lists.players;
-    if (instance == special_head)
+    if (instance && instance == special_head)
     {
-        const uint32 object = NativeObjectGuestAddress(instance->owner);
-        CopyObjectPosition(object + 184, object + 588);
+        Player &player = *static_cast<Player *>(instance->owner);
+        player.surface.pos = player.saved_surface_pos;
     }
     while (instance)
     {
         VisualObject &visual = *static_cast<VisualObject *>(instance->owner);
-        for (uint32 axis = 0; axis < 3; ++axis)
-            instance->pos[axis] = visual.pos_history.saved[axis];
+        instance->pos = visual.pos_history.saved;
         instance = instance->next;
     }
     return special_head;
@@ -117,13 +95,19 @@ ModelInstance *RestoreObjectPositions(ModelInstance *instance)
 
 void UpdateVisualObjects(ModelInstance *&head)
 {
+    ModelBorrow model_borrow;
     FUNCTION_MARKER(0x80063770, "SLUS_003.73");
     ModelInstance *instance = head;
     ModelInstance *next = instance ? instance->next : 0;
     while (instance)
     {
         VisualObject &visual = *static_cast<VisualObject *>(instance->owner);
-        const uint32 object = NativeObjectGuestAddress(&visual);
+        if (!visual.IsAlive())
+        {
+            instance = next;
+            next = instance ? instance->next : 0;
+            continue;
+        }
         visual.AdvanceColor();
         uint32 flags = visual.lifecycle_flags;
         if (flags & 64)
@@ -135,12 +119,12 @@ void UpdateVisualObjects(ModelInstance *&head)
         }
         else
         {
-            uint32 distance = MeasurePositionDistance(visual_lists.players->pos, instance->pos);
-            if (!DeactivateDistantObject(object, distance))
+            uint32 distance = MeasurePositionDistance(visual_lists.players->pos.words, instance->pos.words);
+            if (!visual.DeactivateIfDistant(distance))
             {
                 flags = visual.lifecycle_flags;
-                w_u32(object + 220, distance);
-                if ((flags & 2) && r_u32(0x800FF5EC) < distance)
+                visual.player_distance = distance;
+                if ((flags & 2) && visual_activation_distance < distance)
                     visual.MoveToTemporaryList(head);
                 else
                 {
@@ -155,23 +139,3 @@ void UpdateVisualObjects(ModelInstance *&head)
         next = next->next;
     }
 }
-
-extern "C" void sub_80063770(uint32 list)
-{
-    FUNCTION_MARKER(0x80063770, "SLUS_003.73");
-    UpdateVisualObjects((uint32 *)psx_addr(list, 4));
-}
-
-extern "C" uint32 sub_80030168(uint32 object)
-{
-    FUNCTION_MARKER(0x80030168, "SLUS_003.73");
-    SmoothObjectPositions(object ? &VisualObject::Attach(object).model : 0);
-    // Native ABI omits the unused original local-pointer return carrier
-    return 0;
-}
-
-
-
-
-
-

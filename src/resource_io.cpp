@@ -1,13 +1,13 @@
-#include "game_sdk_bindings.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-}
+#include <stdlib.h>
+#include <string.h>
+
+#include "movie_lifecycle.h"
+#include "cd_voice_event.h"
+#include "game_diagnostics.h"
+
 #include "resource_io.h"
 #include "game_data_io.h"
 #include "loading_screen.h"
-#include <stdlib.h>
-#include <string.h>
 
 struct ResourceEntry
 {
@@ -174,8 +174,8 @@ uint32 InitializeResourceDirectory()
     resource_read.failures = 0;
     resource_read.dst = 0;
     resource_read.error = 0;
-    sub_80097D14(0);
-    if (!sub_80097B4C())
+    CdSetDebug(0);
+    if (!CdInit())
         abort();
     LoadResourceDirectory();
     return 0;
@@ -221,22 +221,15 @@ uint32 LookupResource(const char *name)
 uint32 BeginResourceRead(void *dst)
 {
     FUNCTION_MARKER(0x8006B234, "SLUS_003.73");
-    sub_8002F130();
+    ResetMoviePlayback();
     resource_read.dst = (uint8 *)dst;
     resource_read.error = 0;
     resource_read.phase = 1;
     resource_read.progress = 0;
-    // Media ownership still lives in the CD voice subsystem until its migration
-    w_u32(0x800FF2B8, 0);
-    w_u32(0x800FF2BC, 1);
-    w_u32(0x800FF2C0, 0);
+    cd_voice.active = 0;
+    cd_voice.available = 1;
+    cd_voice.prepared = 0;
     return 1;
-}
-
-uint32 BeginResourceRead(uint32 destination)
-{
-    // Temporary incoming boundary for resource consumers not yet migrated
-    return BeginResourceRead(psx_addr(destination, resource_read.bytes));
 }
 
 uint32 ProcessResourceRead()
@@ -293,28 +286,3 @@ uint32 WaitForResourceRead()
         ProcessResourceRead();
     return 0;
 }
-
-extern "C" void sub_8006AED8(uint32 option)
-{
-    FUNCTION_MARKER(0x8006AED8, "SLUS_003.73");
-    SetResourceReadOption(option);
-}
-
-
-
-extern "C" uint32 apocalypse_resource_lookup(const char *name)
-{
-    return LookupResource(name);
-}
-
-extern "C" uint32 sub_8006B04C(uint32 name)
-{
-    FUNCTION_MARKER(0x8006B04C, "SLUS_003.73");
-    return LookupResource((const char *)psx_addr(name, 1));
-}
-
-
-
-
-
-

@@ -6,6 +6,6 @@ extern "C"
 #include "psx.h"
 }
 
-uint32 ShuffleSpawnPoints(uint16 *points, uint32 count);
+void ShuffleSpawnPoints(uint16 *points, uint32 count);
 
 #endif

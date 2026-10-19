@@ -1,13 +1,15 @@
-#include "visual_object.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
-#include "pickup_effects.h"
-#include "native_object_storage.h"
 #include <new>
 #include <string.h>
+#include <stdlib.h>
+
+#include "game_heap.h"
+#include "game_tick.h"
+
+#include "effect_object.h"
+
+#include "visual_object.h"
+#include "game_diagnostics.h"
+#include "pickup_effects.h"
 #include "ribbon_segments.h"
 #include "beam_segments.h"
 #include "ring_effect.h"
@@ -16,428 +18,290 @@ extern "C"
 #include "vector_arithmetic.h"
 #include "game_random.h"
 
-PickupEffect &PickupEffect::Attach(uint32 object)
+uint32 PickupEffect::SetPosition(const uint32 *)
 {
-    return *static_cast<PickupEffect *>(FindNativeObjectStorage(object));
+    FUNCTION_MARKER(0x8003200C, "SLUS_003.73");
+    return 0;
 }
 
 uint32 PickupEffect::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80032014, "SLUS_003.73");
-    w_u32(object + 68, 0x800A1AA8);
     uint32 result = EffectController::Destroy(0);
-    return (reason & 1) ? ReleaseEffectStorage(object) : result;
-}
-
-extern "C" uint32 sub_80032014(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x80032014, "SLUS_003.73");
-    return PickupEffect::Attach(object).PickupEffect::Destroy(reason);
+    return (reason & 1) ? ReleaseEffectStorage(this) : result;
 }
 
 uint32 FlamethrowerPickupEffect::SetPosition(const uint32 *position)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, buffer, value, index, offset;
-    uint32 step[4], current[4], scaled[4], multiplier = 2;
-    uint16 angles[4];
-    static const uint32 size_offsets[8] = {16, 18, 52, 54, 124, 126, 160, 162};
-    static const uint32 sizes[8] = {10, 30, 10, 35, 10, 35, 10, 30};
-    static const uint32 color_offsets[12] = {12, 13, 14, 20, 21, 22, 156, 157, 158, 164, 165, 166};
     FUNCTION_MARKER(0x80031588, "SLUS_003.73");
-    value = r_u16(visual_lists.cameras + 18);
-    angles[0] = 0;
-    angles[2] = 0;
-    angles[1] = (uint16)(value + 1024);
-    BuildDirectionVector(step, 70, angles);
-    if (!r_u32(object + 72))
+    ShortVector3 angles;
+    angles.words[0] = 0;
+    angles.words[2] = 0;
+    angles.words[1] = visual_lists.cameras->angles.words[1] + 1024;
+    uint32 multiplier = 2;
+    Vector3 step, current, scaled;
+    BuildDirectionVector(step.words, 70, angles.words);
+    if (!ribbon)
     {
-        child = AllocateEffectStorage(108);
-        if (child)
+        GameHeapBlock *allocation = AllocateEffectStorage(108);
+        if (!allocation)
         {
-            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(RibbonSegments));
-            new (dram_addr) RibbonSegments(5, 1);
+            GameDiagnostic("Flamethrower pickup ribbon allocation failed\n");
+            abort();
         }
-        w_u32(object + 72, child);
-        w_u8(child + 66, 1);
-        RibbonSegments::Attach(r_u32(object + 72)).SetMaterial(0x68B7B136);
-        RibbonSegments::Attach(r_u32(object + 72)).SetColors(255, 255, 255, 128, 128, 128);
-        RibbonSegments::Attach(r_u32(object + 72)).SetSize(10, 40);
-        for (index = 0; index < 8; ++index)
-        {
-            buffer = r_u32(r_u32(object + 72) + 104);
-            w_u16(buffer + size_offsets[index], sizes[index]);
-        }
-        for (index = 0; index < 12; ++index)
-        {
-            buffer = r_u32(r_u32(object + 72) + 104);
-            w_u8(buffer + color_offsets[index], 0);
-        }
+        ribbon = new (allocation) RibbonSegments(5, 1);
+        ribbon->persistent = 1;
+        ribbon->SetMaterial(0x68B7B136);
+        ribbon->SetColors(255, 255, 255, 128, 128, 128);
+        ribbon->SetSize(10, 40);
+        ribbon->points[0].width = 10;
+        ribbon->points[0].height = 30;
+        ribbon->points[1].width = 10;
+        ribbon->points[1].height = 35;
+        ribbon->points[3].width = 10;
+        ribbon->points[3].height = 35;
+        ribbon->points[4].width = 10;
+        ribbon->points[4].height = 30;
+        ribbon->points[0].center.r = 0;
+        ribbon->points[0].center.g = 0;
+        ribbon->points[0].center.b = 0;
+        ribbon->points[0].edge.r = 0;
+        ribbon->points[0].edge.g = 0;
+        ribbon->points[0].edge.b = 0;
+        ribbon->points[4].center.r = 0;
+        ribbon->points[4].center.g = 0;
+        ribbon->points[4].center.b = 0;
+        ribbon->points[4].edge.r = 0;
+        ribbon->points[4].edge.g = 0;
+        ribbon->points[4].edge.b = 0;
     }
-    MultiplyVector(scaled, step, &multiplier);
-    SubtractVectors(current, position, scaled);
-    for (index = 0, offset = 0; index < 5; ++index, offset += 36)
+    MultiplyVector(scaled.words, step.words, multiplier);
+    SubtractVectors(current.words, position, scaled.words);
+    for (uint32 i = 0; i < 5; ++i)
     {
-        buffer = r_u32(r_u32(object + 72) + 104) + offset;
-        w_u32(buffer, current[0]);
-        w_u32(buffer + 4, current[1]);
-        w_u32(buffer + 8, current[2]);
-        AddVectors(current, step);
+        ribbon->points[i].pos.words[0] = current.words[0];
+        ribbon->points[i].pos.words[1] = current.words[1];
+        ribbon->points[i].pos.words[2] = current.words[2];
+        AddVectors(current.words, step.words);
     }
-    child = r_u32(object + 72);
-    value = r_u32(child + 88) + 4;
-    w_u32(child + 88, value);
-    return value;
+    ribbon->v_scroll += 4;
+    return ribbon->v_scroll;
 }
 
 uint32 RipLaserPickupEffect::SetPosition(const uint32 *position)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, buffer, value, index, offset;
-    uint32 step[4], current[4], scaled[4], multiplier = 1, divisor = 2;
-    uint16 angles[4];
     FUNCTION_MARKER(0x80031C64, "SLUS_003.73");
-    if (!r_u32(object + 72))
+    if (!beam)
     {
-        child = AllocateEffectStorage(84);
-        if (child)
+        GameHeapBlock *allocation = AllocateEffectStorage(84);
+        if (!allocation)
         {
-            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(BeamSegments));
-            new (dram_addr) BeamSegments(4, 1);
+            GameDiagnostic("Rip laser pickup beam allocation failed\n");
+            abort();
         }
-        w_u32(object + 72, child);
-        w_u8(child + 66, 1);
-        BeamSegments::Attach(r_u32(object + 72)).SetColors(64, 32, 128);
-        BeamSegments::Attach(r_u32(object + 72)).SetSize(25);
+        beam = new (allocation) BeamSegments(4, 1);
+        beam->persistent = 1;
+        beam->SetColors(64, 32, 128);
+        beam->SetSize(25);
     }
-    value = r_u16(visual_lists.cameras + 18);
-    angles[0] = 0;
-    angles[2] = 0;
-    angles[1] = (uint16)(value + 1024);
-    BuildDirectionVector(step, 56, angles);
-    MultiplyVector(scaled, step, &multiplier);
-    SubtractVectors(current, position, scaled);
-    DivideVector(scaled, step, &divisor);
-    SubtractVectors(current, scaled);
-    for (index = 0, offset = 0; index < 4; ++index, offset += 36)
+    ShortVector3 angles;
+    angles.words[0] = 0;
+    angles.words[2] = 0;
+    angles.words[1] = visual_lists.cameras->angles.words[1] + 1024;
+    uint32 multiplier = 1, divisor = 2;
+    Vector3 step, current, scaled;
+    BuildDirectionVector(step.words, 56, angles.words);
+    MultiplyVector(scaled.words, step.words, multiplier);
+    SubtractVectors(current.words, position, scaled.words);
+    DivideVector(scaled.words, step.words, divisor);
+    SubtractVectors(current.words, scaled.words);
+    for (uint32 i = 0; i < 4; ++i)
     {
-        buffer = r_u32(r_u32(object + 72) + 80) + offset;
-        w_u32(buffer, current[0]);
-        w_u32(buffer + 4, current[1]);
-        w_u32(buffer + 8, current[2]);
-        value = RandomRange(61);
-        buffer = r_u32(r_u32(object + 72) + 80) + offset;
-        w_u32(buffer + 4, r_u32(buffer + 4) + ((value - 30) << 12));
-        AddVectors(current, step);
+        BeamPoint *point = beam->points + i;
+        point->pos = current;
+        uint32 random = RandomRange(61);
+        point->pos.words[1] += (random - 30) << 12;
+        AddVectors(current.words, step.words);
     }
     return 0;
 }
 
 uint32 PulseLaserPickupEffect::SetPosition(const uint32 *position)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, value;
     FUNCTION_MARKER(0x80031ECC, "SLUS_003.73");
-    child = r_u32(object + 72);
-    if (child)
-        RingEffect::Attach(child).SetPosition(position);
+    if (ring)
+        ring->SetPosition(position);
     else
     {
-        child = AllocateEffectStorage(104);
-        if (child)
+        GameHeapBlock *allocation = AllocateEffectStorage(104);
+        if (!allocation)
         {
-            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(RingEffect));
-            new (dram_addr) RingEffect(4, 2);
+            GameDiagnostic("Pulse laser pickup ring allocation failed\n");
+            abort();
         }
-        w_u32(object + 72, child);
-        RingEffect::Attach(child).SetCenterColor(255, 255, 255);
-        RingEffect::Attach(r_u32(object + 72)).SetRingColors(0, 130, 0);
-        RingEffect::Attach(r_u32(object + 72)).SetRowColors(0, 0, 40, 0);
-        RingEffect::Attach(r_u32(object + 72)).SetRowColors(1, 0, 0, 0);
-        RingEffect::Attach(r_u32(object + 72)).SetOddRadii(21);
-        RingEffect::Attach(r_u32(object + 72)).SetEvenRadii(12);
-        RingEffect::Attach(r_u32(object + 72)).SetRowExtent(0, 8);
-        RingEffect::Attach(r_u32(object + 72)).SetRowExtent(1, 8);
-        RingEffect::Attach(r_u32(object + 72)).SetPosition(position);
-        value = RandomRange(1024);
-        child = r_u32(object + 72);
-        w_u16(child + 96, value);
-        w_u8(r_u32(object + 72) + 66, 1);
+        ring = new (allocation) RingEffect(4, 2);
+        ring->SetCenterColor(255, 255, 255);
+        ring->SetRingColors(0, 130, 0);
+        ring->SetRowColors(0, 0, 40, 0);
+        ring->SetRowColors(1, 0, 0, 0);
+        ring->SetOddRadii(21);
+        ring->SetEvenRadii(12);
+        ring->SetRowExtent(0, 8);
+        ring->SetRowExtent(1, 8);
+        ring->SetPosition(position);
+        ring->angle = RandomRange(1024);
+        ring->persistent = 1;
     }
-    child = r_u32(object + 72);
-    value = r_u16(child + 96) + 150;
-    w_u16(child + 96, value);
-    return value;
+    uint32 angle = ring->angle + 150;
+    ring->angle = angle;
+    return angle;
 }
 
-extern "C" uint32 sub_80031588(uint32 object, uint32 position)
+FlamethrowerPickupEffect::FlamethrowerPickupEffect() : PickupEffect(), ribbon()
 {
-    FUNCTION_MARKER(0x80031588, "SLUS_003.73");
-    return FlamethrowerPickupEffect::Attach(object).FlamethrowerPickupEffect::SetPosition((const uint32 *)psx_addr(position, 12));
-}
-
-extern "C" uint32 sub_80031C64(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x80031C64, "SLUS_003.73");
-    return RipLaserPickupEffect::Attach(object).RipLaserPickupEffect::SetPosition((const uint32 *)psx_addr(position, 12));
-}
-
-extern "C" uint32 sub_80031ECC(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x80031ECC, "SLUS_003.73");
-    return PulseLaserPickupEffect::Attach(object).PulseLaserPickupEffect::SetPosition((const uint32 *)psx_addr(position, 12));
-}
-
-FlamethrowerPickupEffect::FlamethrowerPickupEffect() : PickupEffect()
-{
-    uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800314CC, "SLUS_003.73");
-    w_u32(object + 68, 0x800A1A88);
 }
 
-RipLaserPickupEffect::RipLaserPickupEffect() : PickupEffect()
+RipLaserPickupEffect::RipLaserPickupEffect() : PickupEffect(), beam()
 {
-    uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80031BA8, "SLUS_003.73");
-    w_u32(object + 68, 0x800A1A48);
 }
 
-PulseLaserPickupEffect::PulseLaserPickupEffect() : PickupEffect()
+PulseLaserPickupEffect::PulseLaserPickupEffect() : PickupEffect(), ring()
 {
-    uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80031E10, "SLUS_003.73");
-    w_u32(object + 68, 0x800A1A28);
 }
 
-
-
-
-
-FlamethrowerPickupEffect &FlamethrowerPickupEffect::Attach(uint32 object)
+FlamethrowerPickupEffect::~FlamethrowerPickupEffect()
 {
-    return *static_cast<FlamethrowerPickupEffect *>(FindNativeObjectStorage(object));
+    if (ribbon)
+        ribbon->Destroy(3);
 }
 
 uint32 FlamethrowerPickupEffect::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, target, receiver;
     FUNCTION_MARKER(0x80031500, "SLUS_003.73");
-    child = r_u32(object + 72);
-    w_u32(object + 68, 0x800A1A88);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, receiver, 3);
-    }
+    if (ribbon)
+        ribbon->Destroy(3);
+    ribbon = 0;
     PickupEffect::Destroy(0);
-    return (reason & 1) ? ReleaseEffectStorage(object) : 0;
+    return reason & 1 ? ReleaseEffectStorage(this) : 0;
 }
 
-extern "C" uint32 sub_80031500(uint32 object, uint32 reason)
+RipLaserPickupEffect::~RipLaserPickupEffect()
 {
-    FUNCTION_MARKER(0x80031500, "SLUS_003.73");
-    return FlamethrowerPickupEffect::Attach(object).FlamethrowerPickupEffect::Destroy(reason);
-}
-
-RipLaserPickupEffect &RipLaserPickupEffect::Attach(uint32 object)
-{
-    return *static_cast<RipLaserPickupEffect *>(FindNativeObjectStorage(object));
+    if (beam)
+        beam->Destroy(3);
 }
 
 uint32 RipLaserPickupEffect::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, target, receiver;
     FUNCTION_MARKER(0x80031BDC, "SLUS_003.73");
-    child = r_u32(object + 72);
-    w_u32(object + 68, 0x800A1A48);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, receiver, 3);
-    }
+    if (beam)
+        beam->Destroy(3);
+    beam = 0;
     PickupEffect::Destroy(0);
-    return (reason & 1) ? ReleaseEffectStorage(object) : 0;
+    return reason & 1 ? ReleaseEffectStorage(this) : 0;
 }
 
-extern "C" uint32 sub_80031BDC(uint32 object, uint32 reason)
+PulseLaserPickupEffect::~PulseLaserPickupEffect()
 {
-    FUNCTION_MARKER(0x80031BDC, "SLUS_003.73");
-    return RipLaserPickupEffect::Attach(object).RipLaserPickupEffect::Destroy(reason);
-}
-
-PulseLaserPickupEffect &PulseLaserPickupEffect::Attach(uint32 object)
-{
-    return *static_cast<PulseLaserPickupEffect *>(FindNativeObjectStorage(object));
+    if (ring)
+        ring->Destroy(3);
 }
 
 uint32 PulseLaserPickupEffect::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, target, receiver;
     FUNCTION_MARKER(0x80031E44, "SLUS_003.73");
-    child = r_u32(object + 72);
-    w_u32(object + 68, 0x800A1A28);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, receiver, 3);
-    }
+    if (ring)
+        ring->Destroy(3);
+    ring = 0;
     PickupEffect::Destroy(0);
-    return (reason & 1) ? ReleaseEffectStorage(object) : 0;
-}
-
-extern "C" uint32 sub_80031E44(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x80031E44, "SLUS_003.73");
-    return PulseLaserPickupEffect::Attach(object).PulseLaserPickupEffect::Destroy(reason);
+    return reason & 1 ? ReleaseEffectStorage(this) : 0;
 }
 
 ParticleBeamPickupEffect::ParticleBeamPickupEffect() : PickupEffect()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x8003188C, "SLUS_003.73");
-    w_u32(object + 68, 0x800A1A68);
 }
 
-ParticleBeamPickupEffect &ParticleBeamPickupEffect::Attach(uint32 object)
+ParticleBeamPickupEffect::~ParticleBeamPickupEffect()
 {
-    return *static_cast<ParticleBeamPickupEffect *>(FindNativeObjectStorage(object));
+    for (uint32 i = 0; i < 2; ++i)
+        if (beam[i])
+            beam[i]->Destroy(3);
 }
 
 uint32 ParticleBeamPickupEffect::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800318C0, "SLUS_003.73");
-    uint32 child = r_u32(object + 72);
-    w_u32(object + 68, 0x800A1A68);
-    if (child)
+    for (uint32 i = 0; i < 2; ++i)
     {
-        uint32 table = r_u32(child + 68);
-        uint32 adjustment = (uint32)(sint32)(sint16)r_u16(table + 8);
-        uint32 target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, child + adjustment, 3);
-        child = r_u32(object + 76);
-        if (child)
-        {
-            table = r_u32(child + 68);
-            adjustment = (uint32)(sint32)(sint16)r_u16(table + 8);
-            target = r_u32(table + 12);
-            apocalypse_object_cleanup(target, child + adjustment, 3);
-        }
+        if (beam[i])
+            beam[i]->Destroy(3);
+        beam[i] = 0;
     }
-    w_u32(object + 68, 0x800A1AA8);
-    EffectController::Destroy(0);
-    return (reason & 1) ? ReleaseEffectStorage(object) : 0;
-}
-
-
-
-extern "C" uint32 sub_800318C0(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x800318C0, "SLUS_003.73");
-    return ParticleBeamPickupEffect::Attach(object).ParticleBeamPickupEffect::Destroy(reason);
+    PickupEffect::Destroy(0);
+    return reason & 1 ? ReleaseEffectStorage(this) : 0;
 }
 
 uint32 ParticleBeamPickupEffect::SetPosition(const uint32 *position)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80031974, "SLUS_003.73");
-    uint32 child;
-    if (!r_u32(object + 72))
+    if (!beam[0])
     {
-        child = AllocateEffectStorage(84);
-        if (child)
+        if (beam[1])
+            beam[1]->Destroy(3);
+        beam[1] = 0;
+        GameHeapBlock *allocation = AllocateEffectStorage(84);
+        if (!allocation)
         {
-            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(BeamSegments));
-            new (dram_addr) BeamSegments(3, 1);
+            GameDiagnostic("Particle beam pickup allocation failed\n");
+            abort();
         }
-        w_u32(object + 72, child);
-        w_u8(child + 66, 1);
-        BeamSegments::Attach(r_u32(object + 72)).SetColors(255, 128, 0);
-        child = AllocateEffectStorage(84);
-        if (child)
+        beam[0] = new (allocation) BeamSegments(3, 1);
+        beam[0]->persistent = 1;
+        beam[0]->SetColors(255, 128, 0);
+        allocation = AllocateEffectStorage(84);
+        if (!allocation)
         {
-            void *dram_addr = AllocateNativeObjectStorage(child, sizeof(BeamSegments));
-            new (dram_addr) BeamSegments(3, 0);
+            GameDiagnostic("Particle beam pickup layer allocation failed\n");
+            abort();
         }
-        w_u32(object + 76, child);
-        w_u8(child + 66, 1);
-        BeamSegments::Attach(r_u32(object + 76)).SetColors(185, 185, 185);
+        beam[1] = new (allocation) BeamSegments(3, 0);
+        beam[1]->persistent = 1;
+        beam[1]->SetColors(185, 185, 185);
     }
-    uint16 angles[4];
-    uint32 yaw = r_u16(visual_lists.cameras + 18);
-    angles[0] = 0;
-    angles[2] = 0;
-    angles[1] = (uint16)(yaw + 1024);
-    uint32 step[3], left[3], right[3];
-    BuildDirectionVector(step, 100, angles);
-    SubtractVectors(left, position, step);
-    AddVectors(right, position, step);
-    uint32 point;
-    for (point = 0; point < 3; ++point)
+    ShortVector3 angles;
+    angles.words[0] = 0;
+    angles.words[2] = 0;
+    angles.words[1] = visual_lists.cameras->angles.words[1] + 1024;
+    Vector3 step, left, right;
+    BuildDirectionVector(step.words, 100, angles.words);
+    SubtractVectors(left.words, position, step.words);
+    AddVectors(right.words, position, step.words);
+    for (uint32 i = 0; i < 3; ++i)
     {
-        uint32 second_child = r_u32(object + 76);
-        uint32 first_child = r_u32(object + 72);
-        uint32 second_buffer = r_u32(second_child + 80);
-        uint32 first_buffer = r_u32(first_child + 80);
-        uint32 x, y, z;
-        if (point == 1)
+        const uint32 *src = i == 0 ? left.words : i == 1 ? position : right.words;
+        const uint32 x = src[0];
+        const uint32 y = src[1];
+        const uint32 z = src[2];
+        if (beam[1])
         {
-            uint32 address = GuestMemoryAddress(position);
-            if (address)
-            {
-                x = r_u32(address);
-                y = r_u32(address + 4);
-                z = r_u32(address + 8);
-            }
-            else
-            {
-                x = position[0];
-                y = position[1];
-                z = position[2];
-            }
+            beam[1]->points[i].pos.words[0] = x;
+            beam[1]->points[i].pos.words[1] = y;
+            beam[1]->points[i].pos.words[2] = z;
         }
-        else
-        {
-            const uint32 *source = point ? right : left;
-            x = source[0];
-            y = source[1];
-            z = source[2];
-        }
-        uint32 offset = point * 36;
-        w_u32(second_buffer + offset, x);
-        w_u32(second_buffer + offset + 4, y);
-        w_u32(second_buffer + offset + 8, z);
-        x = r_u32(second_buffer + offset);
-        y = r_u32(second_buffer + offset + 4);
-        z = r_u32(second_buffer + offset + 8);
-        w_u32(first_buffer + offset, x);
-        w_u32(first_buffer + offset + 4, y);
-        w_u32(first_buffer + offset + 8, z);
+        beam[0]->points[i].pos.words[0] = x;
+        beam[0]->points[i].pos.words[1] = y;
+        beam[0]->points[i].pos.words[2] = z;
     }
-    BeamSegments::Attach(r_u32(object + 72)).SetSize(15);
-    uint32 phase = (1200 * r_u32(0x800FF2F0)) & 0x3FF0;
-    sint32 sine = rsin((phase) >> 2);
-    child = r_u32(object + 72);
+    beam[0]->SetSize(15);
+    uint32 phase = (1200 * game_clock.tick) & 0x3FF0;
+    sint32 sine = rsin(phase >> 2);
     uint32 product = 5 * (uint32)sine;
-    uint32 buffer = r_u32(child + 80);
     if ((sint32)product < 0)
         product += 4095;
-    w_u16(buffer + 52, (uint32)((sint32)product >> 12) + 20);
-    return BeamSegments::Attach(r_u32(object + 76)).SetSize(10);
-}
-
-extern "C" uint32 sub_80031974(uint32 object, uint32 position)
-{
-    FUNCTION_MARKER(0x80031974, "SLUS_003.73");
-    return ParticleBeamPickupEffect::Attach(object).ParticleBeamPickupEffect::SetPosition((const uint32 *)psx_addr(position, 12));
+    beam[0]->points[1].size = (uint32)((sint32)product >> 12) + 20;
+    return beam[1] ? beam[1]->SetSize(10) : 0;
 }

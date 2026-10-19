@@ -1,3 +1,14 @@
+#include <new>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "pause_menu.h"
+#include "player_save_state.h"
+#include "game_pad_poll.h"
+#include "game_settings.h"
+
+#include "game_tick.h"
 #include "cd_voice_event.h"
 #include "level_session.h"
 #include "model_projection.h"
@@ -7,17 +18,17 @@
 #include "cheat_input.h"
 #include "model_render.h"
 #include "angle_math.h"
+#include "model_matrix.h"
 #include "model_render_view.h"
-#include "game_sdk_bindings.h"
+#include "game_diagnostics.h"
 #include "level_catalogue.h"
 #include "game_string.h"
 #include "game_random.h"
 #include "main_menu.h"
+#include "game_heap.h"
 #include "orbit_camera.h"
 #include "model_resources.h"
 #include "record_commands.h"
-#include "native_object_storage.h"
-#include <new>
 #include "audio_session.h"
 #include "game_panel.h"
 #include "menu_input.h"
@@ -33,19 +44,9 @@
 extern "C"
 {
 #include "game_menu_helpers.h"
-#include "game_sound_native.h"
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
 }
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 
-static const MenuScene menu_scenes[] =
-{
-    {"roof_lib", "roof_1", {0x00001CCE, 0xFFFFFB63, 0x000014D4}, 1744, 768},
-    {"sewr_lib", "sewr_4", {0xFFFFD3F0, 0x00002AB2, 0x000150FD}, 3536, 2304}
-};
+static const MenuScene menu_scenes[] = {{"roof_lib", "roof_1", {{{0x00001CCE, (sint32)0xFFFFFB63, 0x000014D4}}}, 1744, 768}, {"sewr_lib", "sewr_4", {{{(sint32)0xFFFFD3F0, 0x00002AB2, 0x000150FD}}}, 3536, 2304}};
 
 static uint32 cur_menu_scene = 0;
 
@@ -54,14 +55,14 @@ void ResetMenuScenes()
     cur_menu_scene = 0;
 }
 
-void AdvanceMenuScene()
+static void AdvanceMenuScene()
 {
     ++cur_menu_scene;
     if ((sint32)cur_menu_scene >= (sint32)(sizeof(menu_scenes) / sizeof(menu_scenes[0])))
         cur_menu_scene = 0;
 }
 
-const MenuScene &GetCurMenuScene()
+static const MenuScene &GetCurMenuScene()
 {
     if (cur_menu_scene >= sizeof(menu_scenes) / sizeof(menu_scenes[0]))
     {
@@ -71,490 +72,384 @@ const MenuScene &GetCurMenuScene()
     return menu_scenes[cur_menu_scene];
 }
 
-uint32 QueueSelectedLevelResources()
+static void QueueSelectedLevelResources()
 {
     FUNCTION_MARKER(0x80011B34, "SLUS_003.73");
     QueueModelBankLoad(GetCurMenuScene().library, 0);
     QueueModelBankLoad(GetCurMenuScene().bank, 1);
-    return AllocateScriptHeap(250000);
+    AllocateScriptWorkspace(250000);
 }
 
-// TODO Card BIOS file calls retain explicit missing boundaries
+enum MainMenuPage
+{
+    MAIN_MENU_ROOT = 0,
+    MAIN_MENU_LEVEL_SELECT = 1,
+    MAIN_MENU_OPTIONS = 3,
+    MAIN_MENU_EXTRAS = 4,
+    MAIN_MENU_SCREEN_POSITION = 5,
+    MAIN_MENU_DIFFICULTY = 6,
+    MAIN_MENU_AUDIO = 7,
+    MAIN_MENU_CONTROLLER = 8,
+    MAIN_MENU_ANALOG_RANGE = 9,
+    MAIN_MENU_ANALOG_CENTER = 10,
+    MAIN_MENU_VIBRATION = 11,
+    MAIN_MENU_RESET_CONFIRM = 12,
+    MAIN_MENU_CARD_DELAY = 13,
+    MAIN_MENU_CARD_QUERY = 14,
+    MAIN_MENU_CARD_NO_SAVE = 15,
+    MAIN_MENU_CARD_UNFORMATTED = 16,
+    MAIN_MENU_LOAD_SLOTS = 17,
+    MAIN_MENU_CARD_MISSING = 18
+};
+
 uint32 RunMainMenu()
 {
-    sint32 v2;
-    sint32 v3;
-    sint32 v4;
-    uint32 v5;
-    sint32 main_window;
-    sint32 v7;
-    sint32 v10;
-    sint32 v11;
-    uint32 v12;
-    sint32 v13;
-    sint32 v14;
-    uint32 controller_window;
-    sint32 v16;
-    sint32 preset_window;
+    sint32 prompt_visible_frames;
+    sint32 prompt_hidden_frames;
+    bool start_released;
+
+    MenuWindow *main_window;
+
+    MenuWindow *controller_window;
+
+    MenuWindow *preset_window;
     sint32 menu_state;
-    sint32 v19;
-    uint32 v20;
-    sint32 v21;
-    uint8 *v22;
-    uint8 *v23;
-    sint32 v24;
-    uint32 v25;
-    uint8 *v26;
-    sint32 v27;
-    uint8 *v28;
-    uint32 v29;
-    uint32 v30;
-    uint32 v31;
-    uint32 v32;
-    sint32 v33;
-    sint32 v34;
-    uint32 v35;
-    uint32 v36;
-    uint32 v37;
-    sint32 v38;
-    sint32 v39;
-    uint32 v40;
-    uint32 v41;
-    sint32 v42;
-    sint32 v43;
-    sint32 v44;
-    sint32 v45;
-    sint32 v46;
-    uint32 v47;
-    uint32 v48;
-    sint32 v49;
-    sint32 v50;
-    sint32 v51;
-    sint32 v52;
-    sint32 v53;
-    sint32 v54;
-    uint32 v57;
-    sint32 v58;
-    sint32 v59;
-    uint32 v60;
-    uint32 v61;
-    sint32 v62;
-    sint32 v63;
-    sint32 v64;
-    sint32 v65;
-    uint32 v66;
-    uint32 v67;
-    sint32 v68;
-    sint32 v69;
-    sint32 v70;
-    sint32 v71;
-    uint32 v72;
-    uint32 v73;
-    sint32 v74;
-    sint32 v75;
-    sint32 v76;
-    sint32 v77;
-    sint32 v78;
-    sint32 v80;
-    sint32 v81;
-    uint32 v82;
-    sint32 v83;
-    sint32 v84;
-    uint32 v85;
-    uint32 v86;
-    uint32 v87;
-    uint32 v88;
-    sint32 v89;
-    sint32 v90;
-    sint32 v91;
-    sint32 v92;
-    sint32 v94;
-    sint32 v95;
-    sint32 v96;
-    uint32 v97;
-    char v98[16];
-    sint32 v99;
-    sint32 v100;
-    uint32 v101;
-    uint32 v102;
-    uint32 v103;
-    uint32 v104;
+    sint32 heading_y;
+    const char *heading;
+    MenuWindow *submenu;
+    POLY_FT4 *cancel_sprite;
+    POLY_FT4 *accept_sprite;
+    bool preview_selected;
+    const char *audio_action_label;
+    POLY_FT4 *audio_select_sprite;
+    bool binding_selected;
+    POLY_FT4 *go_back_sprite;
+    const char *binding_label;
+    const char *message;
+    sint32 message_y;
+    sint32 message_x;
+    MenuWindow *confirm_window;
+    sint32 action_sound;
+    sint32 frame_sound;
+    bool binding_confirmed;
+    sint32 button_mask;
+    uint32 button_mask_minus_one;
+    sint16 *sel_binding;
+    sint32 volume_step;
+    sint32 voice_preview;
+    sint32 next_card_delay;
+
+    bool close_save_window;
+    bool invalid_slot;
+    char saved_level_name[sizeof(player_saves.selected.progress.level)];
+    uint32 item_pos[2];
+    uint32 confirm_pressed;
+    uint32 cancel_pressed;
+    uint32 any_pressed;
+    uint32 start_pressed;
     sint32 result_state;
-    sint32 finished;
+    bool finished;
     const char *level_label;
     const LevelEntry *level_entry;
     uint32 level_idx;
-    uint32 background_menu;
-    sint32 level_window;
-    sint32 options_window;
-    sint32 extras_window;
-    uint32 difficulty_window;
-    sint32 audio_window;
-    uint32 save_window;
-    sint32 v114;
-    sint32 v115;
-    sint32 v116;
-    sint32 v117;
-    sint32 v118;
-    sint32 v119;
-    sint32 v120;
-    sint32 v121;
-    sint32 v122;
-    sint32 v123;
-    sint32 v124;
-    sint32 v125;
-    sint32 v126;
-    sint32 v127;
-    sint32 v128;
-    sint32 v129;
+    OrbitCamera *background_camera;
+    MenuWindow *level_window;
+    MenuWindow *options_window;
+    MenuWindow *extras_window;
+    MenuWindow *difficulty_window;
+    MenuWindow *audio_window;
+    MenuWindow *save_window;
+    sint32 card_delay;
+    sint32 card_timeout;
+    sint32 saved_screen_pos[2];
+    sint32 rollback_frames;
+    sint32 music_preview_idx;
+    uint32 last_activity_frame;
+    uint32 frame_start;
+    uint32 saved_range[4][2];
     FUNCTION_MARKER(0x80011BA0, "SLUS_003.73");
     result_state = 0;
-    finished = 0;
+    finished = false;
     BeginSceneFrame();
     SubmitSceneFrame();
-    sub_8001024C(0, ((sint32)(0x800A0310)), 240);
-    w_u32(0x800FF660, ((sint32)(0x800C6310)));
+    LoadStartupImage(0, "title.bmr", 240);
+    scene_render.cur = &scene_render.buffers[1];
     BeginSceneFrame();
     UpdateScenePacketLimit();
     SetHudTextScale(256);
     SetHudTextAlignment(0);
     SetHudTextColor(128, 128, 128, 0);
-    v94 = 256;
-    sub_8001AA28(256, 120, r_u32(0x800A54EC), 0, 0, 256);
-    w_u8(0x800A72B8, 0);
-    w_u8(0x800C6328, 0);
+    DrawStyledHudText(256, 120, MenuText::press_start, 0, 0, 256);
+    scene_render.buffers[0].draw.isbg = 0;
+    scene_render.buffers[1].draw.isbg = 0;
     SubmitSceneFrame();
     DrawSync(0);
-    w_u8(0x800A72B8, 1);
-    w_u8(0x800C6328, 1);
-    PutDispEnv((DISPENV *)psx_addr(0x800A72FC, sizeof(DISPENV)));
+    scene_render.buffers[0].draw.isbg = 1;
+    scene_render.buffers[1].draw.isbg = 1;
+    PutDispEnv(&scene_render.buffers[0].disp);
     AdvanceMenuScene();
     // Skip the original title-screen input and prompt delay
-    w_u32(0x800FF03C, 0);
-    v2 = 144;
+    menu_runtime.prompt_delay = 0;
+    prompt_visible_frames = 144;
     QueueSelectedLevelResources();
-    v3 = 0;
-    sub_80070748();
-    w_u32(0x800FF814, 0);
-    v4 = (r_u8(0x800EC1D8) == 0);
+    prompt_hidden_frames = 0;
+    PollPadPackets();
+    pad_polling.idle_ticks = 0;
+    start_released = (game_pads[0].buttons[14].down == 0);
     do
     {
-        sub_80070748();
-        if (r_u32(0x800FF03C))
+        PollPadPackets();
+        if (menu_runtime.prompt_delay)
         {
-            (w_u32(0x800FF03C, (r_u32(0x800FF03C) - 1)), r_u32(0x800FF03C));
+            --menu_runtime.prompt_delay;
         }
         else
         {
-            if (!r_u8(0x800EC1D8))
-                v4 = 1;
-            if ((v4 && r_u8(0x800EC1D8)))
+            if (!game_pads[0].buttons[14].down)
+                start_released = true;
+            if ((start_released && game_pads[0].buttons[14].down))
             {
-                sub_80069DF0(23, 0x2000, 0);
-                goto LABEL_22;
+                PlaySoundEffect(23, 0x2000, 0);
+                goto OpenMainMenu;
             }
-            if (v2)
+            if (prompt_visible_frames)
             {
-                PutDispEnv((DISPENV *)psx_addr(0x800C636C, sizeof(DISPENV)));
-                if (!(--v2))
-                    v3 = 24;
+                PutDispEnv(&scene_render.buffers[1].disp);
+                if (!(--prompt_visible_frames))
+                    prompt_hidden_frames = 24;
             }
             else
             {
-                PutDispEnv((DISPENV *)psx_addr(0x800A72FC, sizeof(DISPENV)));
+                PutDispEnv(&scene_render.buffers[0].disp);
             }
-            if (v3)
+            if (prompt_hidden_frames)
             {
-                if (!(--v3))
-                    v2 = 144;
+                if (!(--prompt_hidden_frames))
+                    prompt_visible_frames = 144;
             }
         }
         ::ProcessResourceRead();
         ::ProcessModelBankLoadQueue();
-        nullsub_16();
+        (void)0;
         ::WaitForGameFrames(1);
-    } while (((sint32)r_u32(0x800FF814) < 1801));
+    } while (((sint32)pad_polling.idle_ticks < 1801));
     result_state = 3;
-    finished = 1;
-LABEL_22:
-    w_u8(0x800EC1D9, 0);
+    finished = true;
+OpenMainMenu:
+    game_pads[0].buttons[14].pressed = 0;
 
-    w_u8(0x800EC129, 0);
+    game_pads[0].buttons[3].pressed = 0;
     ::ClearStartupImageArea();
     ::WaitForModelBankLoads();
     ::CreateMenuBuffers(951706923, 64, 64, 127);
     ::ConfigureProjectionDepth(10, 10240, 0x2000);
-    v5 = ((uint32)(sub_8002FED8(28)));
-    background_menu = v5;
-    if (v5)
     {
         const MenuScene &scene = GetCurMenuScene();
-        void *storage = AllocateNativeObjectStorage(v5, sizeof(OrbitCamera));
-        new (storage) OrbitCamera(scene.pos, scene.radius, scene.height);
+        background_camera = new OrbitCamera(scene.pos.words, scene.radius, scene.height);
     }
-    main_window = sub_8002FED8(444);
-    if (main_window)
-    {
-        v94 = 256;
-        v95 = 26;
-        main_window = sub_80015228(main_window, 256, 0, 0, 0x140, 0x100, 0x1A);
-    }
-    sub_80015474(main_window, r_u32((0x800A554C + (0) * 4)));
-    if (!r_u32(0x800A53D4) || NamesEqualIgnoringCase((const char *)psx_addr(0x800A5460, 1), GetLevelEntry(0)->name))
-        sub_8001551C(main_window, r_u32((0x800A554C + (0) * 4)));
-    sub_80015474(main_window, r_u32((0x800A55D0 + (0) * 4)));
+    main_window = new MenuWindow(256, 0, 0, 0x140, 0x100, 0x1A);
+    main_window->AddItem(MenuText::continue_game);
+    if (!player_saves.current.checksum || NamesEqualIgnoringCase(player_saves.selected.progress.level, GetLevelEntry(0)->name))
+        main_window->DisableItem(MenuText::continue_game);
+    main_window->AddItem(MenuText::new_game);
     if (GetCheatOptions().autotest)
-        sub_80015474(main_window, 0x800A031C);
-    sub_80015474(main_window, r_u32((0x800A55D4 + (0) * 4)));
-    sub_80015474(main_window, r_u32((0x800A55D8 + (0) * 4)));
+        main_window->AddItem(MenuText::autotest);
+    main_window->AddItem(MenuText::load_game);
+    main_window->AddItem(MenuText::options);
     if (GetCheatOptions().level_select)
-        sub_80015474(main_window, r_u32((0x800A557C + (0) * 4)));
-    sub_800152F8(main_window);
-    v7 = sub_8002FED8(444);
-    level_window = v7;
-    if (v7)
-    {
-        v94 = 192;
-        v95 = 26;
-        level_window = sub_80015228(v7, 256, 0, 0, 0x100, 0xC0, 0x1A);
-    }
-    MenuWindow::Attach(level_window).spacing = 18;
+        main_window->AddItem(MenuText::select_level);
+    main_window->CenterVertical();
+    level_window = new MenuWindow(256, 0, 0, 0x100, 0xC0, 0x1A);
+    level_window->spacing = 18;
     for (level_idx = 0; level_idx < GetLevelCount(); ++level_idx)
-        MenuWindow::Attach(level_window).AddItem(GetLevelEntry(level_idx)->title);
-    sub_800152F8(level_window);
-    v10 = sub_8002FED8(444);
-    options_window = v10;
-    if (v10)
-    {
-        v94 = 256;
-        v95 = 26;
-        options_window = sub_80015228(v10, 256, 63, 0, 0x140, 0x100, 0x1A);
-    }
-    sub_80015474(options_window, r_u32((0x800A55DC + (0) * 4)));
-    sub_80015474(options_window, r_u32((0x800A55E0 + (0) * 4)));
-    sub_80015474(options_window, r_u32((0x800A55E4 + (0) * 4)));
-    sub_80015474(options_window, r_u32((0x800A55E8 + (0) * 4)));
-    sub_80015474(options_window, r_u32((0x800A55EC + (0) * 4)));
-    v11 = sub_8002FED8(444);
-    extras_window = v11;
-    if (v11)
-    {
-        v94 = 256;
-        v95 = 26;
-        extras_window = sub_80015228(v11, 256, 42, 0, 0x140, 0x100, 0x1A);
-    }
-    sub_80015474(extras_window, r_u32((0x800A55F0 + (0) * 4)));
-    sub_80015474(extras_window, r_u32((0x800A55F4 + (0) * 4)));
-    sub_80015474(extras_window, r_u32((0x800A55F8 + (0) * 4)));
-    sub_80015474(extras_window, r_u32((0x800A55FC + (0) * 4)));
-    sub_80015474(extras_window, r_u32((0x800A5600 + (0) * 4)));
-    sub_80015474(extras_window, r_u32((0x800A55A4 + (0) * 4)));
-    v12 = ((uint32)(sub_8002FED8(444)));
-    difficulty_window = v12;
-    if (v12)
-    {
-        v94 = 256;
-        v95 = 26;
-        difficulty_window = ((uint32)(sub_80015228(v12, 256, 55, 0, 0x140, 0x100, 0x1A)));
-    }
-    sub_80015474(difficulty_window, r_u32((0x800A5648 + (0) * 4)));
-    sub_80015474(difficulty_window, r_u32((0x800A564C + (0) * 4)));
-    sub_80015474(difficulty_window, r_u32((0x800A5650 + (0) * 4)));
-    sub_80015474(difficulty_window, r_u32((0x800A55A4 + (0) * 4)));
-    MenuWindow::Attach(difficulty_window).has_arrows = 1;
-    v13 = sub_8002FED8(444);
-    audio_window = v13;
-    if (v13)
-    {
-        v94 = 256;
-        v95 = 26;
-        audio_window = sub_80015228(v13, 256, 85, 0, 0x140, 0x100, 0x1A);
-    }
-    sub_80015474(audio_window, r_u32((0x800A55A8 + (0) * 4)));
-    sub_80015474(audio_window, r_u32((0x800A55AC + (0) * 4)));
-    sub_80015474(audio_window, r_u32((0x800A55B0 + (0) * 4)));
-    sub_80015474(audio_window, r_u32((0x800A55A4 + (0) * 4)));
-    v14 = sub_8002FED8(444);
-    controller_window = ((uint32)(v14));
-    if (v14)
-    {
-        v94 = 192;
-        v95 = 26;
-        controller_window = ((uint32)(sub_80015228(v14, 30, 25, 1, 0xC0, 0xC0, 0x1A)));
-    }
-    sub_80015474(controller_window, r_u32((0x800A5654 + (0) * 4)));
-    sub_80015474(controller_window, r_u32((0x800A5658 + (0) * 4)));
-    sub_80015474(controller_window, r_u32((0x800A565C + (0) * 4)));
-    sub_80015474(controller_window, r_u32((0x800A5730 + (0) * 4)));
-    sub_80015474(controller_window, r_u32((0x800A5608 + (0) * 4)));
-    sub_80015474(controller_window, r_u32((0x800A5604 + (0) * 4)));
-    sub_80015590(controller_window, r_u32((0x800A5608 + (0) * 4)), 10);
-    sub_8001551C(controller_window, r_u32((0x800A5608 + (0) * 4)));
-    sub_8001551C(controller_window, r_u32((0x800A5604 + (0) * 4)));
-    sub_80015474(controller_window, r_u32((0x800A55FC + (0) * 4)));
-    sub_80015474(controller_window, r_u32((0x800A55A4 + (0) * 4)));
-    MenuWindow::Attach(controller_window).spacing = 22;
-    v16 = sub_8002FED8(444);
-    preset_window = v16;
-    if (v16)
-    {
-        v94 = 256;
-        v95 = 26;
-        preset_window = sub_80015228(v16, 256, 77, 0, 0x140, 0x100, 0x1A);
-    }
+        level_window->AddItem(GetLevelEntry(level_idx)->title);
+    level_window->CenterVertical();
+    options_window = new MenuWindow(256, 63, 0, 0x140, 0x100, 0x1A);
+    options_window->AddItem(MenuText::difficulty);
+    options_window->AddItem(MenuText::sound);
+    options_window->AddItem(MenuText::controller_config);
+    options_window->AddItem(MenuText::misc_options);
+    options_window->AddItem(MenuText::return_to_main_menu);
+    extras_window = new MenuWindow(256, 42, 0, 0x140, 0x100, 0x1A);
+    extras_window->AddItem(MenuText::view_credits);
+    extras_window->AddItem(MenuText::music_credits);
+    extras_window->AddItem(MenuText::view_intro);
+    extras_window->AddItem(MenuText::reset_to_defaults);
+    extras_window->AddItem(MenuText::center_screen);
+    extras_window->AddItem(MenuText::return_to_options_menu);
+    difficulty_window = new MenuWindow(256, 55, 0, 0x140, 0x100, 0x1A);
+    difficulty_window->AddItem(MenuText::easy);
+    difficulty_window->AddItem(MenuText::normal);
+    difficulty_window->AddItem(MenuText::hard);
+    difficulty_window->AddItem(MenuText::return_to_options_menu);
+    difficulty_window->has_arrows = 1;
+    audio_window = new MenuWindow(256, 85, 0, 0x140, 0x100, 0x1A);
+    audio_window->AddItem(MenuText::fx_level);
+    audio_window->AddItem(MenuText::music_level);
+    audio_window->AddItem(MenuText::voice_level);
+    audio_window->AddItem(MenuText::return_to_options_menu);
+    controller_window = new MenuWindow(30, 25, 1, 0xC0, 0xC0, 0x1A);
+    controller_window->AddItem(MenuText::weapon_select);
+    controller_window->AddItem(MenuText::crouch);
+    controller_window->AddItem(MenuText::jump);
+    controller_window->AddItem(MenuText::smart_bomb);
+    controller_window->AddItem(MenuText::vibration_settings);
+    controller_window->AddItem(MenuText::calibrate_analog_controller);
+    controller_window->SetItemHeight(MenuText::vibration_settings, 10);
+    controller_window->DisableItem(MenuText::vibration_settings);
+    controller_window->DisableItem(MenuText::calibrate_analog_controller);
+    controller_window->AddItem(MenuText::reset_to_defaults);
+    controller_window->AddItem(MenuText::return_to_options_menu);
+    controller_window->spacing = 22;
+    preset_window = new MenuWindow(256, 77, 0, 0x140, 0x100, 0x1A);
     save_window = 0;
-    v114 = 0;
-    v118 = 0;
-    v119 = 0;
-    menu_state = 0;
-    sub_80015474(preset_window, r_u32((0x800A560C + (0) * 4)));
-    sub_80015474(preset_window, r_u32((0x800A5610 + (0) * 4)));
-    sub_80015474(preset_window, r_u32((0x800A5614 + (0) * 4)));
-    sub_80015474(preset_window, r_u32((0x800A5618 + (0) * 4)));
-    MenuWindow::Attach(preset_window).items[3].unselected_scale = 192;
-    MenuWindow::Attach(preset_window).items[3].selected_scale = 192;
-    MenuWindow::Attach(preset_window).has_arrows = 1;
-    sub_80016014(0x800A54CC);
-    w_u32(0x800FF814, 0);
-    v128 = r_u32(0x800FF64C);
+    card_delay = 0;
+    rollback_frames = 0;
+    music_preview_idx = 0;
+    menu_state = MAIN_MENU_ROOT;
+    preset_window->AddItem(MenuText::none);
+    preset_window->AddItem(MenuText::some);
+    preset_window->AddItem(MenuText::full);
+    preset_window->AddItem(MenuText::return_to_controller_config);
+    preset_window->items[3].unselected_scale = 192;
+    preset_window->items[3].selected_scale = 192;
+    preset_window->has_arrows = 1;
+    RestoreGameSettings(player_saves.selected.settings);
+    pad_polling.idle_ticks = 0;
+    last_activity_frame = game_clock.vblank_frame;
     while (!finished)
     {
-        nullsub_16();
+        (void)0;
         BeginSceneFrame();
         UpdateScenePacketLimit();
-        v129 = r_u32(0x800FF64C);
-        if (v118)
+        frame_start = game_clock.vblank_frame;
+        if (rollback_frames)
         {
-            if (!(--v118))
+            if (!(--rollback_frames))
             {
-                w_u16(0x800A7304, v116);
-                w_u16(0x800C6374, v116);
-                w_u16(0x800A7306, v117);
-                w_u16(0x800C6376, v117);
+                (scene_render.buffers[0].disp.screen.x = (sint16)(saved_screen_pos[0]));
+                (scene_render.buffers[1].disp.screen.x = (sint16)(saved_screen_pos[0]));
+                (scene_render.buffers[0].disp.screen.y = (sint16)(saved_screen_pos[1]));
+                (scene_render.buffers[1].disp.screen.y = (sint16)(saved_screen_pos[1]));
             }
         }
         ::BlurMenuBuffers();
         ::BlurMenuBuffers();
         UpdateHudTextGlowCurve();
-        BuildModelRotationMatrix(GetModelRenderView().angles, (uint16 *)&GetModelRenderView().rotation);
+        BuildModelRotationMatrix(GetModelRenderView().angles.words, GetModelRenderView().rotation);
         SetModelRenderViewTranslation(GetModelRenderView());
-        ConfigureModelRenderView(GetModelRenderView(), 0x800A67B8, ((uint32)(r_u32(0x800FF660)) + (uint32)(112)));
+        ConfigureModelRenderView(GetModelRenderView(), model_viewport, scene_render.cur->ot);
         ::RenderVisibleModelObjectList(GetModelSceneObjects());
         ::AdvanceModelRenderCounter();
         SetHudTextScale(256);
         SetHudTextAlignment(0);
         switch (menu_state)
         {
-            case 0:
-                MenuWindow::Attach(main_window).Draw();
+            case MAIN_MENU_ROOT:
+                main_window->Draw();
                 SetHudTextScale(256);
                 if (GetCheatOptions().build_date)
                 {
                     SetHudTextColor(149, 20, 20, 0);
-                    v19 = 20;
-                    v20 = 0x800A0328;
+                    heading_y = 20;
+                    heading = MenuText::build_date;
                 }
                 else
                 {
                     SetHudTextColor(149, 20, 20, 0);
-                    v19 = 28;
-                    v20 = r_u32((0x800A54E4 + (0) * 4));
+                    heading_y = 28;
+                    heading = MenuText::main_menu;
                 }
-                v94 = 256;
-                sub_8001AA28(256, v19, v20, 0, 0, 256);
+                DrawStyledHudText(256, heading_y, heading, 0, 0, 256);
                 ::DrawMenuCenteredHint();
                 break;
 
-            case 1:
-                MenuWindow::Attach(level_window).Draw();
+            case MAIN_MENU_LEVEL_SELECT:
+                level_window->Draw();
                 break;
 
-            case 3:
-                v21 = options_window;
-                goto LABEL_63;
+            case MAIN_MENU_OPTIONS:
+                submenu = options_window;
+                goto DrawSubmenuHints;
 
-            case 4:
-                v21 = extras_window;
-            LABEL_63:
-                MenuWindow::Attach(v21).Draw();
+            case MAIN_MENU_EXTRAS:
+                submenu = extras_window;
+            DrawSubmenuHints:
+                submenu->Draw();
 
                 ::DrawMenuHints();
                 break;
 
-            case 5:
+            case MAIN_MENU_SCREEN_POSITION:
                 ::SetMenuGreenText();
-                sub_8001AA28(256, 80, r_u32((0x800A5620 + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 106, r_u32((0x800A5624 + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 132, r_u32((0x800A5628 + (0) * 4)), 0, 0, 256);
+                DrawStyledHudText(256, 80, MenuText::use_the_directional, 0, 0, 256);
+                DrawStyledHudText(256, 106, MenuText::buttons_to_center, 0, 0, 256);
+                DrawStyledHudText(256, 132, MenuText::the_screen, 0, 0, 256);
                 SetHudTextAlignment(1);
                 ::SetMenuDarkRedText();
-                sub_8001AA28(104, 210, r_u32(0x800A5588), 0, 0, 256);
-                sub_8001AA28(328, 210, r_u32((0x800A5584 + (0) * 4)), 0, 0, 256);
-                v22 = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 1));
-                if (v22)
-                    PlaceScaledHudSprite(76, 211, v22, GetTextureFrame(GetButtonResourceGroup(), 1));
-                v23 = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
-                if (v23)
-                    PlaceScaledHudSprite(300, 211, v23, GetTextureFrame(GetButtonResourceGroup(), 0));
-                sub_8006D1C0(0, 0, 512, 5, 0, 0, 255, 0);
-                sub_8006D1C0(0, 235, 512, 5, 0, 0, 255, 0);
-                sub_8006D1C0(0, 0, 7, 240, 0, 0, 255, 0);
-                v94 = 0;
-                v95 = 255;
-                v96 = 0;
-                sub_8006D1C0(505, 0, 7, 240, 0, 0, 255, 0);
+                DrawStyledHudText(104, 210, MenuText::cancel, 0, 0, 256);
+                DrawStyledHudText(328, 210, MenuText::accept, 0, 0, 256);
+                cancel_sprite = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 1));
+                if (cancel_sprite)
+                    PlaceScaledHudSprite(76, 211, cancel_sprite, GetTextureFrame(GetButtonResourceGroup(), 1));
+                accept_sprite = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
+                if (accept_sprite)
+                    PlaceScaledHudSprite(300, 211, accept_sprite, GetTextureFrame(GetButtonResourceGroup(), 0));
+                AllocateHudRectangle(0, 0, 512, 5, 0, 0, 255, 0);
+                AllocateHudRectangle(0, 235, 512, 5, 0, 0, 255, 0);
+                AllocateHudRectangle(0, 0, 7, 240, 0, 0, 255, 0);
+                AllocateHudRectangle(505, 0, 7, 240, 0, 0, 255, 0);
                 break;
 
-            case 6:
+            case MAIN_MENU_DIFFICULTY:
                 ::DrawMenuHints();
-                MenuWindow::Attach(difficulty_window).Draw();
+                difficulty_window->Draw();
                 break;
 
-            case 7:
-                v24 = 0;
+            case MAIN_MENU_AUDIO:
+                preview_selected = false;
                 ::DrawMenuLeftHint();
                 SetHudTextAlignment(1);
                 SetHudTextScale(192);
-                if ((sub_800155D4(audio_window, r_u32((0x800A55A8 + (0) * 4))) || sub_800155D4(audio_window, r_u32((0x800A55B0 + (0) * 4)))))
-                    v24 = 1;
-                if (v24)
+                if ((audio_window->IsSelected(MenuText::fx_level) || audio_window->IsSelected(MenuText::voice_level)))
+                    preview_selected = true;
+                if (preview_selected)
                 {
-                    v25 = r_u32((0x800A55B4 + (0) * 4));
+                    audio_action_label = MenuText::test;
                 }
-                else if (sub_800155D4(audio_window, r_u32((0x800A55AC + (0) * 4))))
+                else if (audio_window->IsSelected(MenuText::music_level))
                 {
-                    v25 = r_u32(0x800A55B8);
+                    audio_action_label = MenuText::cycle;
                 }
                 else
                 {
-                    v25 = r_u32((0x800A5578 + (0) * 4));
+                    audio_action_label = MenuText::select;
                 }
-                v94 = 256;
-                sub_8001AA28(348, 210, v25, 0, 0, 256);
+                DrawStyledHudText(348, 210, audio_action_label, 0, 0, 256);
                 SetHudTextAlignment(0);
-                v26 = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
-                if (v26)
-                    PlaceScaledHudSprite(320, 211, v26, GetTextureFrame(GetButtonResourceGroup(), 0));
-                DrawMenuVolumeSlider(MenuWindow::Attach(audio_window));
-                MenuWindow::Attach(audio_window).Draw();
+                audio_select_sprite = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 0));
+                if (audio_select_sprite)
+                    PlaceScaledHudSprite(320, 211, audio_select_sprite, GetTextureFrame(GetButtonResourceGroup(), 0));
+                DrawMenuVolumeSlider(*audio_window);
+                audio_window->Draw();
                 break;
 
-            case 8:
-                MenuWindow::Attach(controller_window).Draw();
-                v27 = 0;
-                if ((((sub_800155D4(controller_window, r_u32((0x800A5654 + (0) * 4))) || sub_800155D4(controller_window, r_u32((0x800A5658 + (0) * 4)))) || sub_800155D4(controller_window, r_u32((0x800A565C + (0) * 4)))) || sub_800155D4(controller_window, r_u32((0x800A5730 + (0) * 4)))))
+            case MAIN_MENU_CONTROLLER:
+                controller_window->Draw();
+                binding_selected = false;
+                if ((((controller_window->IsSelected(MenuText::weapon_select) || controller_window->IsSelected(MenuText::crouch)) || controller_window->IsSelected(MenuText::jump)) || controller_window->IsSelected(MenuText::smart_bomb)))
                 {
-                    v27 = 1;
+                    binding_selected = true;
                 }
-                if (v27)
+                if (binding_selected)
                 {
                     SetHudTextAlignment(1);
                     SetHudTextScale(256);
                     ::SetMenuDarkRedText();
-                    sub_8001AA28(211, 210, r_u32((0x800A5574 + (0) * 4)), 0, 0, 256);
-                    v28 = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 1));
-                    if (v28)
-                        PlaceScaledHudSprite(183, 211, v28, GetTextureFrame(GetButtonResourceGroup(), 1));
+                    DrawStyledHudText(211, 210, MenuText::go_back, 0, 0, 256);
+                    go_back_sprite = AllocateHudSprite(GetTextureFrame(GetButtonResourceGroup(), 1));
+                    if (go_back_sprite)
+                        PlaceScaledHudSprite(183, 211, go_back_sprite, GetTextureFrame(GetButtonResourceGroup(), 1));
                 }
                 else
                 {
@@ -563,129 +458,123 @@ LABEL_22:
                 SetHudTextAlignment(1);
                 ::SetMenuRedText();
                 SetHudTextScale(192);
-                if ((r_u32(0x800EC264) == 65))
+                if ((game_pads[0].type == 65))
                 {
-                    xport_draft_host_sub_80015614_p34(controller_window, r_u32((0x800A5654 + (0) * 4)), &v99, &v100);
-                    v29 = sub_800117D8((sint16)r_u16(0x800EC47A));
-                    sub_8001AA28(((uint32)(v99) + (uint32)(315)), v100, v29, 0, 0, 256);
-                    xport_draft_host_sub_80015614_p34(controller_window, r_u32((0x800A5658 + (0) * 4)), &v99, &v100);
-                    v30 = sub_800117D8((sint16)r_u16(0x800EC474));
-                    sub_8001AA28(((uint32)(v99) + (uint32)(315)), v100, v30, 0, 0, 256);
-                    xport_draft_host_sub_80015614_p34(controller_window, r_u32((0x800A565C + (0) * 4)), &v99, &v100);
-                    v31 = sub_800117D8((sint16)r_u16(0x800EC476));
-                    sub_8001AA28(((uint32)(v99) + (uint32)(315)), v100, v31, 0, 0, 256);
-                    xport_draft_host_sub_80015614_p34(controller_window, r_u32((0x800A5730 + (0) * 4)), &v99, &v100);
-                    v32 = ((uint32)(sub_800117D8((sint16)r_u16(0x800EC478))));
+                    controller_window->GetItemPosition(MenuText::weapon_select, &item_pos[0], &item_pos[1]);
+                    binding_label = ReadMenuButtonLabel(game_settings.bindings.digital[3]);
+                    DrawStyledHudText(((uint32)(item_pos[0]) + (uint32)(315)), item_pos[1], binding_label, 0, 0, 256);
+                    controller_window->GetItemPosition(MenuText::crouch, &item_pos[0], &item_pos[1]);
+                    binding_label = ReadMenuButtonLabel(game_settings.bindings.digital[0]);
+                    DrawStyledHudText(((uint32)(item_pos[0]) + (uint32)(315)), item_pos[1], binding_label, 0, 0, 256);
+                    controller_window->GetItemPosition(MenuText::jump, &item_pos[0], &item_pos[1]);
+                    binding_label = ReadMenuButtonLabel(game_settings.bindings.digital[1]);
+                    DrawStyledHudText(((uint32)(item_pos[0]) + (uint32)(315)), item_pos[1], binding_label, 0, 0, 256);
+                    controller_window->GetItemPosition(MenuText::smart_bomb, &item_pos[0], &item_pos[1]);
+                    message = ReadMenuButtonLabel(game_settings.bindings.digital[2]);
                 }
                 else
                 {
-                    xport_draft_host_sub_80015614_p34(controller_window, r_u32((0x800A5654 + (0) * 4)), &v99, &v100);
-                    v35 = sub_800117D8((sint16)r_u16(0x800EC49A));
-                    sub_8001AA28(((uint32)(v99) + (uint32)(315)), v100, v35, 0, 0, 256);
-                    xport_draft_host_sub_80015614_p34(controller_window, r_u32((0x800A5658 + (0) * 4)), &v99, &v100);
-                    v36 = sub_800117D8((sint16)r_u16(0x800EC494));
-                    sub_8001AA28(((uint32)(v99) + (uint32)(315)), v100, v36, 0, 0, 256);
-                    xport_draft_host_sub_80015614_p34(controller_window, r_u32((0x800A565C + (0) * 4)), &v99, &v100);
-                    v37 = sub_800117D8((sint16)r_u16(0x800EC496));
-                    sub_8001AA28(((uint32)(v99) + (uint32)(315)), v100, v37, 0, 0, 256);
-                    xport_draft_host_sub_80015614_p34(controller_window, r_u32((0x800A5730 + (0) * 4)), &v99, &v100);
-                    v32 = ((uint32)(sub_800117D8((sint16)r_u16(0x800EC498))));
+                    controller_window->GetItemPosition(MenuText::weapon_select, &item_pos[0], &item_pos[1]);
+                    binding_label = ReadMenuButtonLabel(game_settings.bindings.analog[3]);
+                    DrawStyledHudText(((uint32)(item_pos[0]) + (uint32)(315)), item_pos[1], binding_label, 0, 0, 256);
+                    controller_window->GetItemPosition(MenuText::crouch, &item_pos[0], &item_pos[1]);
+                    binding_label = ReadMenuButtonLabel(game_settings.bindings.analog[0]);
+                    DrawStyledHudText(((uint32)(item_pos[0]) + (uint32)(315)), item_pos[1], binding_label, 0, 0, 256);
+                    controller_window->GetItemPosition(MenuText::jump, &item_pos[0], &item_pos[1]);
+                    binding_label = ReadMenuButtonLabel(game_settings.bindings.analog[1]);
+                    DrawStyledHudText(((uint32)(item_pos[0]) + (uint32)(315)), item_pos[1], binding_label, 0, 0, 256);
+                    controller_window->GetItemPosition(MenuText::smart_bomb, &item_pos[0], &item_pos[1]);
+                    message = ReadMenuButtonLabel(game_settings.bindings.analog[2]);
                 }
-                v33 = v100;
-                v94 = 256;
-                v34 = ((uint32)(v99) + (uint32)(315));
-                goto LABEL_104;
+                message_y = item_pos[1];
+                message_x = ((uint32)(item_pos[0]) + (uint32)(315));
+                goto DrawMenuMessage;
 
-            case 9:
+            case MAIN_MENU_ANALOG_RANGE:
                 ::SetMenuGreenText();
-                sub_8001AA28(256, 80, r_u32((0x800A562C + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 106, r_u32((0x800A5630 + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 132, r_u32((0x800A5634 + (0) * 4)), 0, 0, 256);
-                v34 = 256;
-                v32 = r_u32((0x800A5638 + (0) * 4));
-                v33 = 158;
-                goto LABEL_103;
+                DrawStyledHudText(256, 80, MenuText::move_the_left_stick, 0, 0, 256);
+                DrawStyledHudText(256, 106, MenuText::and_right_stick_to_all, 0, 0, 256);
+                DrawStyledHudText(256, 132, MenuText::four_corners_then_press, 0, 0, 256);
+                message_x = 256;
+                message = MenuText::the_x_button;
+                message_y = 158;
+                goto DrawMenuMessage;
 
-            case 10:
+            case MAIN_MENU_ANALOG_CENTER:
                 ::SetMenuGreenText();
-                sub_8001AA28(256, 90, r_u32((0x800A563C + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 116, r_u32((0x800A5640 + (0) * 4)), 0, 0, 256);
-                v34 = 256;
-                v32 = r_u32((0x800A5644 + (0) * 4));
-                v33 = 142;
-                goto LABEL_103;
+                DrawStyledHudText(256, 90, MenuText::center_both_the_left_stick, 0, 0, 256);
+                DrawStyledHudText(256, 116, MenuText::and_the_right_stick_then, 0, 0, 256);
+                message_x = 256;
+                message = MenuText::press_the_x_button;
+                message_y = 142;
+                goto DrawMenuMessage;
 
-            case 11:
+            case MAIN_MENU_VIBRATION:
                 ::SetMenuDarkRedText();
-                v94 = 256;
-                sub_8001AA28(256, 34, r_u32((0x800A5608 + (0) * 4)), 0, 0, 256);
+                DrawStyledHudText(256, 34, MenuText::vibration_settings, 0, 0, 256);
                 ::DrawMenuHints();
-                MenuWindow::Attach(preset_window).Draw();
+                preset_window->Draw();
                 break;
 
-            case 12:
+            case MAIN_MENU_RESET_CONFIRM:
                 ::DrawMenuHints();
                 ::SetMenuDarkRedText();
-                v94 = 256;
-                sub_8001AA28(256, 80, r_u32((0x800A55A0 + (0) * 4)), 0, 0, 256);
-                v38 = r_u32(0x800FF024);
-                MenuWindow::Attach(r_u32(0x800FF024)).pos[1] = 131;
-                MenuWindow::Attach(v38).Draw();
+                DrawStyledHudText(256, 80, MenuText::really_reset_to_defaults, 0, 0, 256);
+                confirm_window = menu_runtime.confirm;
+                menu_runtime.confirm->scr_pos[1] = 131;
+                confirm_window->Draw();
                 break;
 
-            case 13:
+            case MAIN_MENU_CARD_DELAY:
 
-            case 14:
+            case MAIN_MENU_CARD_QUERY:
                 ::SetMenuGreenText();
-                sub_8001AA28(256, 90, r_u32((0x800A56B4 + (0) * 4)), 0, 0, 256);
+                DrawStyledHudText(256, 90, MenuText::checking_memory_card, 0, 0, 256);
                 ::SetMenuRedText();
-                sub_8001AA28(256, 140, r_u32((0x800A56AC + (0) * 4)), 0, 0, 256);
-                v34 = 256;
-                v32 = r_u32((0x800A56B0 + (0) * 4));
-                v33 = 166;
-                goto LABEL_103;
+                DrawStyledHudText(256, 140, MenuText::do_not_remove, 0, 0, 256);
+                message_x = 256;
+                message = MenuText::memory_card;
+                message_y = 166;
+                goto DrawMenuMessage;
 
-            case 15:
+            case MAIN_MENU_CARD_NO_SAVE:
                 ::SetMenuRedText();
-                sub_8001AA28(256, 90, r_u32((0x800A5710 + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 116, r_u32((0x800A5714 + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 142, r_u32((0x800A5718 + (0) * 4)), 0, 0, 256);
-                v34 = 256;
-                v33 = 168;
-                v32 = r_u32((0x800A571C + (0) * 4));
-                goto LABEL_103;
+                DrawStyledHudText(256, 90, MenuText::memory_card_contains, 0, 0, 256);
+                DrawStyledHudText(256, 116, MenuText::no_apocalypse_game_save, 0, 0, 256);
+                DrawStyledHudText(256, 142, MenuText::press_any_button, 0, 0, 256);
+                message_x = 256;
+                message_y = 168;
+                message = MenuText::to_cancel;
+                goto DrawMenuMessage;
 
-            case 16:
+            case MAIN_MENU_CARD_UNFORMATTED:
                 ::SetMenuRedText();
-                sub_8001AA28(256, 90, r_u32((0x800A5674 + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 116, r_u32((0x800A5678 + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 142, r_u32((0x800A567C + (0) * 4)), 0, 0, 256);
-                v34 = 256;
-                v32 = r_u32(0x800A5680);
-                v33 = 168;
-                goto LABEL_103;
+                DrawStyledHudText(256, 90, MenuText::the_memory_card_in, 0, 0, 256);
+                DrawStyledHudText(256, 116, MenuText::memory_card_slot_1_is, 0, 0, 256);
+                DrawStyledHudText(256, 142, MenuText::unformatted_press, 0, 0, 256);
+                message_x = 256;
+                message = MenuText::any_button_to_cancel;
+                message_y = 168;
+                goto DrawMenuMessage;
 
-            case 17:
+            case MAIN_MENU_LOAD_SLOTS:
                 ::DrawMenuHints();
                 ::SetMenuRedText();
-                v94 = 256;
-                sub_8001AA28(256, 25, r_u32((0x800A55D4 + (0) * 4)), 0, 0, 256);
-                MenuWindow::Attach(save_window).Draw();
+                DrawStyledHudText(256, 25, MenuText::load_game, 0, 0, 256);
+                save_window->Draw();
                 break;
 
-            case 18:
+            case MAIN_MENU_CARD_MISSING:
                 ::SetMenuRedText();
-                sub_8001AA28(256, 90, r_u32((0x800A5664 + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 116, r_u32((0x800A5668 + (0) * 4)), 0, 0, 256);
-                sub_8001AA28(256, 142, r_u32((0x800A566C + (0) * 4)), 0, 0, 256);
-                v34 = 256;
-                v32 = r_u32((0x800A5670 + (0) * 4));
-                v33 = 168;
-            LABEL_103:
-                v94 = 256;
+                DrawStyledHudText(256, 90, MenuText::please_insert_a_memory, 0, 0, 256);
+                DrawStyledHudText(256, 116, MenuText::card_in_memory_card, 0, 0, 256);
+                DrawStyledHudText(256, 142, MenuText::slot_1_or_press_any, 0, 0, 256);
+                message_x = 256;
+                message = MenuText::button_to_cancel;
+                message_y = 168;
 
-            LABEL_104:
-                sub_8001AA28(v34, v33, v32, 0, 0, 256);
+            DrawMenuMessage:
+                DrawStyledHudText(message_x, message_y, message, 0, 0, 256);
 
                 break;
 
@@ -693,297 +582,260 @@ LABEL_22:
                 break;
         }
 
-        if ((((w_u32(0x800FF2F0, (r_u32(0x800FF2F0) + 1)), r_u32(0x800FF2F0)) & 1) != 0))
+        if (++game_clock.tick & 1)
             UpdateCardStatus(0, 0);
-        sub_80070748();
+        PollPadPackets();
         if (menu_state)
-            v128 = r_u32(0x800FF64C);
-        ReadMenuInput(&v101, &v102, &v103, &v104);
-        v39 = -1;
-        if (v101)
-            v39 = 23;
-        if (v102)
-            v39 = 19;
+            last_activity_frame = game_clock.vblank_frame;
+        ReadMenuInput(&confirm_pressed, &cancel_pressed, &any_pressed, &start_pressed);
+        action_sound = -1;
+        if (confirm_pressed)
+            action_sound = 23;
+        if (cancel_pressed)
+            action_sound = 19;
         switch (menu_state)
         {
-            case 0:
-                MenuWindow::Attach(main_window).Update();
-                if (v101)
+            case MAIN_MENU_ROOT:
+                main_window->Update();
+                if (confirm_pressed)
                 {
-                    if (sub_800155D4(main_window, r_u32((0x800A554C + (0) * 4))))
+                    if (main_window->IsSelected(MenuText::continue_game))
                     {
-                        v40 = 0x800A5460;
-                        xport_draft_host_sub_80067808_p2(0x800A5460, v98);
-                        v41 = 0x800A0518;
-                        do
-                        {
-                            v42 = ((sint32)(r_u32((v41 + (1) * 4))));
-                            v43 = ((sint32)(r_u32((v41 + (2) * 4))));
-                            v44 = ((sint32)(r_u32((v41 + (3) * 4))));
-                            w_u32(((uint32)(v40)), ((sint32)(r_u32(v41))));
-                            w_u32((((uint32)(v40)) + (1) * 4), v42);
-                            w_u32((((uint32)(v40)) + (2) * 4), v43);
-                            w_u32((((uint32)(v40)) + (3) * 4), v44);
-                            v41 += (4) * 4;
-                            v40 += (16) * 1;
-                        } while ((v41 != 0x800A0578));
-                        v45 = ((sint32)(r_u32((v41 + (1) * 4))));
-                        v46 = ((sint32)(r_u32((v41 + (2) * 4))));
-                        w_u32(((uint32)(v40)), ((sint32)(r_u32(v41))));
-                        w_u32((((uint32)(v40)) + (1) * 4), v45);
-                        w_u32((((uint32)(v40)) + (2) * 4), v46);
-                        xport_draft_host_sub_80067808_p1(v98, 0x800A5460);
-                        finished = 1;
-                        w_u8(0x800A5469, 0);
-                        w_u32(0x800FF384, r_u32(0x800A54CC));
+                        memcpy(saved_level_name, player_saves.selected.progress.level, sizeof(saved_level_name));
+                        player_saves.selected.progress = GetDefaultPlayerSave().progress;
+                        player_saves.selected.progress.SetLevel(saved_level_name);
+                        finished = true;
+                        player_saves.selected.progress.checkpoint[0] = 0;
+                        game_settings.difficulty = player_saves.selected.settings.difficulty;
                     }
-                    if (sub_800155D4(main_window, r_u32((0x800A557C + (0) * 4))))
-                        menu_state = 1;
-                    if (sub_800155D4(main_window, r_u32((0x800A55D0 + (0) * 4))))
+                    if (main_window->IsSelected(MenuText::select_level))
+                        menu_state = MAIN_MENU_LEVEL_SELECT;
+                    if (main_window->IsSelected(MenuText::new_game))
                     {
-                        v39 = 23;
-                        v47 = 0x800A5460;
-                        v48 = 0x800A0518;
-                        do
-                        {
-                            v49 = ((sint32)(r_u32((v48 + (1) * 4))));
-                            v50 = ((sint32)(r_u32((v48 + (2) * 4))));
-                            v51 = ((sint32)(r_u32((v48 + (3) * 4))));
-                            w_u32(((uint32)(v47)), ((sint32)(r_u32(v48))));
-                            w_u32((((uint32)(v47)) + (1) * 4), v49);
-                            w_u32((((uint32)(v47)) + (2) * 4), v50);
-                            w_u32((((uint32)(v47)) + (3) * 4), v51);
-                            v48 += (4) * 4;
-                            v47 += (16) * 1;
-                        } while ((v48 != 0x800A0578));
-                        v52 = ((sint32)(r_u32((v48 + (1) * 4))));
-                        v53 = ((sint32)(r_u32((v48 + (2) * 4))));
-                        w_u32(((uint32)(v47)), ((sint32)(r_u32(v48))));
-                        w_u32((((uint32)(v47)) + (1) * 4), v52);
-                        w_u32((((uint32)(v47)) + (2) * 4), v53);
-                        finished = 1;
+                        action_sound = 23;
+                        player_saves.selected.progress = GetDefaultPlayerSave().progress;
+                        finished = true;
                     }
-                    if (sub_800155D4(main_window, 0x800A031C))
+                    if (main_window->IsSelected(MenuText::autotest))
                     {
                         result_state = 2;
-                        finished = 1;
+                        finished = true;
                     }
-                    if (sub_800155D4(main_window, r_u32((0x800A55D4 + (0) * 4))))
-                        menu_state = 13;
-                    if (sub_800155D4(main_window, r_u32((0x800A55D8 + (0) * 4))))
-                        menu_state = 3;
+                    if (main_window->IsSelected(MenuText::load_game))
+                        menu_state = MAIN_MENU_CARD_DELAY;
+                    if (main_window->IsSelected(MenuText::options))
+                        menu_state = MAIN_MENU_OPTIONS;
                 }
-                if (v102)
-                    v39 = -1;
-                if (!r_u32(0x800FF814))
+                if (cancel_pressed)
+                    action_sound = -1;
+                if (!pad_polling.idle_ticks)
                 {
-                    v128 = r_u32(0x800FF64C);
-                    goto LABEL_373;
+                    last_activity_frame = game_clock.vblank_frame;
+                    goto QueueActionSound;
                 }
-                v54 = v39;
-                if ((((uint32)(((uint32)(r_u32(0x800FF64C)) - (uint32)(v128)))) >= 0x709))
+                frame_sound = action_sound;
+                if ((((uint32)(((uint32)(game_clock.vblank_frame) - (uint32)(last_activity_frame)))) >= 0x709))
                 {
                     result_state = 3;
-                    finished = 1;
+                    finished = true;
                 }
-                goto LABEL_374;
+                goto FinalizeMenuFrame;
 
-            case 1:
-                MenuWindow::Attach(level_window).Update();
-                if (!v101)
-                    goto LABEL_145;
-                level_label = MenuWindow::Attach(level_window).GetSelectedLabel();
-                w_u8(0x800A5460, 0);
+            case MAIN_MENU_LEVEL_SELECT:
+                level_window->Update();
+                if (!confirm_pressed)
+                    goto HandleLevelCancel;
+                level_label = level_window->GetSelectedLabel();
+                player_saves.selected.progress.level[0] = 0;
                 for (level_idx = 0; level_idx < GetLevelCount(); ++level_idx)
                 {
                     level_entry = GetLevelEntry(level_idx);
                     if (NamesEqualIgnoringCase(level_label, level_entry->title))
                     {
-                        CopyGameString(level_entry->name, (char *)psx_addr(0x800A5460, 1));
-                        v39 = 23;
-                        goto LABEL_144;
+                        player_saves.selected.progress.SetLevel(level_entry->name);
+                        action_sound = 23;
+                        goto FinishLevelSelection;
                     }
                 }
-                v39 = 23;
+                action_sound = 23;
 
-            LABEL_144:
-                w_u8(0x800A5469, 0);
+            FinishLevelSelection:
+                player_saves.selected.progress.checkpoint[0] = 0;
 
-                finished = 1;
-            LABEL_145:
-                v54 = v39;
+                finished = true;
+            HandleLevelCancel:
+                frame_sound = action_sound;
 
-                if (v102)
-                    menu_state = 0;
-                goto LABEL_374;
+                if (cancel_pressed)
+                    menu_state = MAIN_MENU_ROOT;
+                goto FinalizeMenuFrame;
 
-            case 3:
-                MenuWindow::Attach(options_window).Update();
-                if (v101)
+            case MAIN_MENU_OPTIONS:
+                options_window->Update();
+                if (confirm_pressed)
                 {
-                    if (sub_800155D4(options_window, r_u32((0x800A55DC + (0) * 4))))
+                    if (options_window->IsSelected(MenuText::difficulty))
                     {
-                        v57 = difficulty_window;
-                        MenuWindow::Attach(difficulty_window).arrow_item = r_u32(0x800FF384);
-                        menu_state = 6;
-                        sub_80015374(v57, ((unsigned char)(r_u32(0x800FF384))));
+                        difficulty_window->arrow_item = game_settings.difficulty;
+                        menu_state = MAIN_MENU_DIFFICULTY;
+                        difficulty_window->ResetSelection(((uint8)(game_settings.difficulty)));
                     }
-                    if (sub_800155D4(options_window, r_u32((0x800A55E0 + (0) * 4))))
+                    if (options_window->IsSelected(MenuText::sound))
                     {
-                        v39 = -1;
-                        sub_80069DF0(23, 0x2000, 0);
-                        menu_state = 7;
-                        v119 = 0;
+                        action_sound = -1;
+                        PlaySoundEffect(23, 0x2000, 0);
+                        menu_state = MAIN_MENU_AUDIO;
+                        music_preview_idx = 0;
                         SwitchMenuAudioSequence(GetLevelEntry(0)->music);
                     }
-                    if (sub_800155D4(options_window, r_u32((0x800A55E4 + (0) * 4))))
-                        menu_state = 8;
-                    if (sub_800155D4(options_window, r_u32((0x800A55E8 + (0) * 4))))
-                        menu_state = 4;
-                    if (sub_800155D4(options_window, r_u32((0x800A55EC + (0) * 4))))
+                    if (options_window->IsSelected(MenuText::controller_config))
+                        menu_state = MAIN_MENU_CONTROLLER;
+                    if (options_window->IsSelected(MenuText::misc_options))
+                        menu_state = MAIN_MENU_EXTRAS;
+                    if (options_window->IsSelected(MenuText::return_to_main_menu))
                     {
-                        v39 = 19;
-                        menu_state = 0;
+                        action_sound = 19;
+                        menu_state = MAIN_MENU_ROOT;
                     }
                 }
-                v54 = v39;
-                if (v102)
-                    menu_state = 0;
-                goto LABEL_374;
+                frame_sound = action_sound;
+                if (cancel_pressed)
+                    menu_state = MAIN_MENU_ROOT;
+                goto FinalizeMenuFrame;
 
-            case 4:
-                MenuWindow::Attach(extras_window).Update();
-                if (v101)
+            case MAIN_MENU_EXTRAS:
+                extras_window->Update();
+                if (confirm_pressed)
                 {
-                    if (sub_800155D4(extras_window, r_u32((0x800A55F0 + (0) * 4))))
+                    if (extras_window->IsSelected(MenuText::view_credits))
                     {
-                        sub_80069DF0(v39, 0x2000, 0);
-                        v39 = -1;
+                        PlaySoundEffect(action_sound, 0x2000, 0);
+                        action_sound = -1;
                         RunCredits();
                     }
-                    if (sub_800155D4(extras_window, r_u32((0x800A55F4 + (0) * 4))))
+                    if (extras_window->IsSelected(MenuText::music_credits))
                     {
-                        sub_80069DF0(v39, 0x2000, 0);
-                        v39 = -1;
+                        PlaySoundEffect(action_sound, 0x2000, 0);
+                        action_sound = -1;
                         ::ReleaseLevelLoadResources();
                         ::PlayMovie(33);
                         QueueSelectedLevelResources();
                         ::WaitForModelBankLoads();
                     }
-                    if (sub_800155D4(extras_window, r_u32((0x800A55F8 + (0) * 4))))
+                    if (extras_window->IsSelected(MenuText::view_intro))
                     {
                         ::ReleaseLevelLoadResources();
                         ::PlayMovie(28);
                         QueueSelectedLevelResources();
                         ::WaitForModelBankLoads();
                     }
-                    if (sub_800155D4(extras_window, r_u32((0x800A55FC + (0) * 4))))
+                    if (extras_window->IsSelected(MenuText::reset_to_defaults))
                     {
-                        menu_state = 12;
-                        sub_800153D8(r_u32(0x800FF024));
+                        menu_state = MAIN_MENU_RESET_CONFIRM;
+                        menu_runtime.confirm->ResetSelection();
                     }
-                    if (sub_800155D4(extras_window, r_u32((0x800A5600 + (0) * 4))))
+                    if (extras_window->IsSelected(MenuText::center_screen))
                     {
-                        menu_state = 5;
-                        v116 = (sint16)r_u16(0x800A7304);
-                        v117 = (sint16)r_u16(0x800A7306);
+                        menu_state = MAIN_MENU_SCREEN_POSITION;
+                        saved_screen_pos[0] = (sint16)(uint16)scene_render.buffers[0].disp.screen.x;
+                        saved_screen_pos[1] = (sint16)(uint16)scene_render.buffers[0].disp.screen.y;
                     }
-                    if (sub_800155D4(extras_window, r_u32((0x800A55A4 + (0) * 4))))
+                    if (extras_window->IsSelected(MenuText::return_to_options_menu))
                     {
-                        v39 = 19;
-                        menu_state = 3;
+                        action_sound = 19;
+                        menu_state = MAIN_MENU_OPTIONS;
                     }
                 }
-                goto LABEL_296;
+                goto HandleOptionsCancel;
 
-            case 5:
-                if ((r_u8(0x800EC188) && ((sint16)r_u16(0x800A7304) < 32)))
+            case MAIN_MENU_SCREEN_POSITION:
+                if ((game_pads[0].buttons[9].down && ((sint16)(uint16)scene_render.buffers[0].disp.screen.x < 32)))
                 {
-                    (w_u16(0x800A7304, (r_u16(0x800A7304) + 1)), r_u16(0x800A7304));
-                    (w_u16(0x800C6374, (r_u16(0x800C6374) + 1)), r_u16(0x800C6374));
+                    scene_render.buffers[0].disp.screen.x = (sint16)((uint16)scene_render.buffers[0].disp.screen.x + 1);
+                    scene_render.buffers[1].disp.screen.x = (sint16)((uint16)scene_render.buffers[1].disp.screen.x + 1);
                 }
-                if ((r_u8(0x800EC178) && ((sint16)r_u16(0x800A7304) > 0)))
+                if ((game_pads[0].buttons[8].down && ((sint16)(uint16)scene_render.buffers[0].disp.screen.x > 0)))
                 {
-                    (w_u16(0x800A7304, (r_u16(0x800A7304) - 1)), r_u16(0x800A7304));
-                    (w_u16(0x800C6374, (r_u16(0x800C6374) - 1)), r_u16(0x800C6374));
+                    scene_render.buffers[0].disp.screen.x = (sint16)((uint16)scene_render.buffers[0].disp.screen.x - 1);
+                    scene_render.buffers[1].disp.screen.x = (sint16)((uint16)scene_render.buffers[1].disp.screen.x - 1);
                 }
-                if ((r_u8(0x800EC198) && ((sint16)r_u16(0x800A7306) > 0)))
+                if ((game_pads[0].buttons[10].down && ((sint16)(uint16)scene_render.buffers[0].disp.screen.y > 0)))
                 {
-                    (w_u16(0x800A7306, (r_u16(0x800A7306) - 1)), r_u16(0x800A7306));
-                    (w_u16(0x800C6376, (r_u16(0x800C6376) - 1)), r_u16(0x800C6376));
+                    scene_render.buffers[0].disp.screen.y = (sint16)((uint16)scene_render.buffers[0].disp.screen.y - 1);
+                    scene_render.buffers[1].disp.screen.y = (sint16)((uint16)scene_render.buffers[1].disp.screen.y - 1);
                 }
-                if ((r_u8(0x800EC1A8) && ((sint16)r_u16(0x800A7306) < 32)))
+                if ((game_pads[0].buttons[11].down && ((sint16)(uint16)scene_render.buffers[0].disp.screen.y < 32)))
                 {
-                    (w_u16(0x800A7306, (r_u16(0x800A7306) + 1)), r_u16(0x800A7306));
-                    (w_u16(0x800C6376, (r_u16(0x800C6376) + 1)), r_u16(0x800C6376));
+                    scene_render.buffers[0].disp.screen.y = (sint16)((uint16)scene_render.buffers[0].disp.screen.y + 1);
+                    scene_render.buffers[1].disp.screen.y = (sint16)((uint16)scene_render.buffers[1].disp.screen.y + 1);
                 }
-                if (v101)
-                    menu_state = 4;
-                if (v102)
+                if (confirm_pressed)
+                    menu_state = MAIN_MENU_EXTRAS;
+                if (cancel_pressed)
                 {
-                    v118 = 2;
-                    menu_state = 4;
+                    rollback_frames = 2;
+                    menu_state = MAIN_MENU_EXTRAS;
                 }
-                goto LABEL_373;
+                goto QueueActionSound;
 
-            case 6:
-                MenuWindow::Attach(difficulty_window).Update();
-                if (v101)
+            case MAIN_MENU_DIFFICULTY:
+                difficulty_window->Update();
+                if (confirm_pressed)
                 {
-                    if (sub_800155D4(difficulty_window, r_u32((0x800A5648 + (0) * 4))))
+                    if (difficulty_window->IsSelected(MenuText::easy))
                     {
-                        v39 = 4;
-                        w_u32(0x800FF384, 0);
+                        action_sound = 4;
+                        game_settings.difficulty = 0;
                     }
-                    if (sub_800155D4(difficulty_window, r_u32((0x800A564C + (0) * 4))))
+                    if (difficulty_window->IsSelected(MenuText::normal))
                     {
-                        v39 = 6;
-                        w_u32(0x800FF384, 1);
+                        action_sound = 6;
+                        game_settings.difficulty = 1;
                     }
-                    if (sub_800155D4(difficulty_window, r_u32((0x800A5650 + (0) * 4))))
+                    if (difficulty_window->IsSelected(MenuText::hard))
                     {
-                        v39 = 8;
-                        w_u32(0x800FF384, 2);
+                        action_sound = 8;
+                        game_settings.difficulty = 2;
                     }
-                    if (sub_800155D4(difficulty_window, r_u32((0x800A55A4 + (0) * 4))))
+                    if (difficulty_window->IsSelected(MenuText::return_to_options_menu))
                     {
-                        v39 = 19;
-                        menu_state = 3;
+                        action_sound = 19;
+                        menu_state = MAIN_MENU_OPTIONS;
                     }
                 }
-                MenuWindow::Attach(difficulty_window).arrow_item = r_u32(0x800FF384);
-            LABEL_296:
-                v54 = v39;
+                difficulty_window->arrow_item = game_settings.difficulty;
+            HandleOptionsCancel:
+                frame_sound = action_sound;
 
-                if (v102)
-                    menu_state = 3;
-                goto LABEL_374;
+                if (cancel_pressed)
+                    menu_state = MAIN_MENU_OPTIONS;
+                goto FinalizeMenuFrame;
 
-            case 7:
-                MenuWindow::Attach(audio_window).Update();
-                v78 = sub_8001173C();
-                if ((sub_800155D4(audio_window, r_u32((0x800A55A8 + (0) * 4))) && (v78 || v101)))
+            case MAIN_MENU_AUDIO:
+                audio_window->Update();
+                volume_step = ReadMenuNavigationStep();
+                if ((audio_window->IsSelected(MenuText::fx_level) && (volume_step || confirm_pressed)))
                 {
-                    sub_80069DF0(16, 0x2000, 0);
-                    w_u16(0x800ECC7A, (r_u16(0x800ECC7A) + (((uint32)(((uint16)(v78))) << (uint32)(10)))));
-                    if (((r_u16(0x800ECC7A) & 0x8000) != 0))
-                        w_u16(0x800ECC7A, 0);
-                    if ((r_u16(0x800ECC7A) >= 0x4000))
-                        w_u16(0x800ECC7A, 0x3FFF);
+                    PlaySoundEffect(16, 0x2000, 0);
+                    game_settings.effects_volume = (game_settings.effects_volume + (((uint32)(((uint16)(volume_step))) << (uint32)(10))));
+                    if (((game_settings.effects_volume & 0x8000) != 0))
+                        game_settings.effects_volume = 0;
+                    if ((game_settings.effects_volume >= 0x4000))
+                        game_settings.effects_volume = 0x3FFF;
                 }
-                if (sub_800155D4(audio_window, r_u32((0x800A55AC + (0) * 4))))
+                if (audio_window->IsSelected(MenuText::music_level))
                 {
-                    w_u16(0x800ECC78, (r_u16(0x800ECC78) + (((uint32)(8) * (uint32)(v78)))));
-                    if (((r_u16(0x800ECC78) & 0x8000) != 0))
-                        w_u16(0x800ECC78, 0);
-                    if ((r_u16(0x800ECC78) >= 128))
-                        w_u16(0x800ECC78, 127);
+                    game_settings.music_volume = (game_settings.music_volume + (((uint32)(8) * (uint32)(volume_step))));
+                    if (((game_settings.music_volume & 0x8000) != 0))
+                        game_settings.music_volume = 0;
+                    if ((game_settings.music_volume >= 128))
+                        game_settings.music_volume = 127;
                     ((void)(0), ::RestoreMusicPlayback());
-                    if (v101)
+                    if (confirm_pressed)
                     {
-                        if (++v119 >= (sint32)GetLevelCount())
-                            v119 = 0;
-                        SwitchMenuAudioSequence(GetLevelEntry(v119)->music);
+                        if (++music_preview_idx >= (sint32)GetLevelCount())
+                            music_preview_idx = 0;
+                        SwitchMenuAudioSequence(GetLevelEntry(music_preview_idx)->music);
                         ((void)(0), ::RestoreMusicPlayback());
                     }
                 }
@@ -991,363 +843,297 @@ LABEL_22:
                 {
                     ::StopMusicPlayback();
                 }
-                if (sub_800155D4(audio_window, r_u32((0x800A55B0 + (0) * 4))))
+                if (audio_window->IsSelected(MenuText::voice_level))
                 {
-                    if (((v78 || v101) || !r_u32(0x800FF020)))
+                    if (((volume_step || confirm_pressed) || !menu_runtime.voice_previewed))
                     {
-                        v80 = RandomRange(2);
-                        ::SelectCdVoice(0, v80);
-                        w_u16(0x800ECC7C, (r_u16(0x800ECC7C) + (((uint32)(16) * (uint32)(v78)))));
-                        if (((r_u16(0x800ECC7C) & 0x8000) != 0))
-                            w_u16(0x800ECC7C, 0);
-                        if ((r_u16(0x800ECC7C) >= 256))
-                            w_u16(0x800ECC7C, 255);
-                        w_u32(0x800FF020, 1);
+                        voice_preview = RandomRange(2);
+                        ::SelectCdVoice(0, voice_preview);
+                        game_settings.voice_volume = (game_settings.voice_volume + (((uint32)(16) * (uint32)(volume_step))));
+                        if (((game_settings.voice_volume & 0x8000) != 0))
+                            game_settings.voice_volume = 0;
+                        if ((game_settings.voice_volume >= 256))
+                            game_settings.voice_volume = 255;
+                        menu_runtime.voice_previewed = 1;
                     }
                 }
                 else
                 {
-                    w_u32(0x800FF020, 0);
+                    menu_runtime.voice_previewed = 0;
                 }
-                if (((!sub_800155D4(audio_window, r_u32((0x800A55A4 + (0) * 4))) || !v101) && !v102))
-                    goto LABEL_329;
-                menu_state = 3;
+                if (((!audio_window->IsSelected(MenuText::return_to_options_menu) || !confirm_pressed) && !cancel_pressed))
+                    goto SkipMenuSound;
+                menu_state = MAIN_MENU_OPTIONS;
                 ::ReleaseAudioSession();
-                w_u32(0x800FF020, 0);
-                v54 = 19;
-                goto LABEL_374;
+                menu_runtime.voice_previewed = 0;
+                frame_sound = 19;
+                goto FinalizeMenuFrame;
 
-            case 8:
-                if (((r_u32(0x800EC264) == 65) || (PadGetState(0) != 2)))
-                    sub_8001551C(controller_window, r_u32((0x800A5604 + (0) * 4)));
+            case MAIN_MENU_CONTROLLER:
+                if (((game_pads[0].type == 65) || (PadGetState(0) != 2)))
+                    controller_window->DisableItem(MenuText::calibrate_analog_controller);
                 else
-                    sub_800154E0(controller_window, r_u32(0x800A5604));
+                    controller_window->EnableItem(MenuText::calibrate_analog_controller);
                 if ((PadGetState(0) == 6))
-                    sub_800154E0(controller_window, r_u32(0x800A5608));
+                    controller_window->EnableItem(MenuText::vibration_settings);
                 else
-                    sub_8001551C(controller_window, r_u32((0x800A5608 + (0) * 4)));
-                MenuWindow::Attach(controller_window).Update();
-                v58 = 0;
-                if (v101)
+                    controller_window->DisableItem(MenuText::vibration_settings);
+                controller_window->Update();
+                binding_confirmed = false;
+                if (confirm_pressed)
                 {
-                    if ((((sub_800155D4(controller_window, r_u32((0x800A5654 + (0) * 4))) || sub_800155D4(controller_window, r_u32((0x800A5658 + (0) * 4)))) || sub_800155D4(controller_window, r_u32((0x800A565C + (0) * 4)))) || sub_800155D4(controller_window, r_u32((0x800A5730 + (0) * 4)))))
+                    if ((((controller_window->IsSelected(MenuText::weapon_select) || controller_window->IsSelected(MenuText::crouch)) || controller_window->IsSelected(MenuText::jump)) || controller_window->IsSelected(MenuText::smart_bomb)))
                     {
-                        v58 = 1;
+                        binding_confirmed = true;
                     }
-                    if (v58)
-                        v39 = -1;
+                    if (binding_confirmed)
+                        action_sound = -1;
                 }
-                v59 = (r_u8(0x800EC148) != 0);
-                if (r_u8(0x800EC168))
-                    v59 |= 2;
-                if (r_u8(0x800EC138))
-                    v59 |= 4;
-                v60 = ((uint32)(v59) - (uint32)(1));
-                if (r_u8(0x800EC158))
+                button_mask = (game_pads[0].buttons[5].down != 0);
+                if (game_pads[0].buttons[7].down)
+                    button_mask |= 2;
+                if (game_pads[0].buttons[4].down)
+                    button_mask |= 4;
+                button_mask_minus_one = ((uint32)(button_mask) - (uint32)(1));
+                if (game_pads[0].buttons[6].down)
                 {
-                    v59 |= 8;
-                    v60 = ((uint32)(v59) - (uint32)(1));
+                    button_mask |= 8;
+                    button_mask_minus_one = ((uint32)(button_mask) - (uint32)(1));
                 }
-                if ((((v60 >= 2) && (v59 != 4)) && (v59 != 8)))
-                    goto LABEL_253;
-                if ((r_u32(0x800EC264) == 65))
+                if ((((button_mask_minus_one >= 2) && (button_mask != 4)) && (button_mask != 8)))
+                    goto HandleControllerActions;
+                if ((game_pads[0].type == 65))
                 {
-                    if (sub_800155D4(controller_window, r_u32((0x800A5654 + (0) * 4))))
-                        sub_80011860(v59, 0x800EC47A, 0x800EC474, 0x800EC476, ((sint32)(0x800EC478)));
-                    if (sub_800155D4(controller_window, r_u32((0x800A5658 + (0) * 4))))
-                        sub_80011860(v59, 0x800EC474, 0x800EC47A, 0x800EC476, ((sint32)(0x800EC478)));
-                    if (sub_800155D4(controller_window, r_u32((0x800A565C + (0) * 4))))
-                        sub_80011860(v59, 0x800EC476, 0x800EC47A, 0x800EC474, ((sint32)(0x800EC478)));
-                    if (sub_800155D4(controller_window, r_u32((0x800A5730 + (0) * 4))))
+                    if (controller_window->IsSelected(MenuText::weapon_select))
+                        AssignMenuButton(button_mask, &game_settings.bindings.digital[3], &game_settings.bindings.digital[0], &game_settings.bindings.digital[1], &game_settings.bindings.digital[2]);
+                    if (controller_window->IsSelected(MenuText::crouch))
+                        AssignMenuButton(button_mask, &game_settings.bindings.digital[0], &game_settings.bindings.digital[3], &game_settings.bindings.digital[1], &game_settings.bindings.digital[2]);
+                    if (controller_window->IsSelected(MenuText::jump))
+                        AssignMenuButton(button_mask, &game_settings.bindings.digital[1], &game_settings.bindings.digital[3], &game_settings.bindings.digital[0], &game_settings.bindings.digital[2]);
+                    if (controller_window->IsSelected(MenuText::smart_bomb))
                     {
-                        v61 = 0x800EC478;
-                    LABEL_252:
-                        sub_80011860(v59, v61, (v61 + (1) * 2), (v61 - (2) * 2), ((sint32)((v61 - (1) * 2))));
+                        sel_binding = &game_settings.bindings.digital[2];
+                    AssignSmartBombBinding:
+                        AssignMenuButton(button_mask, sel_binding, sel_binding + 1, sel_binding - 2, sel_binding - 1);
                     }
                 }
                 else
                 {
-                    if (sub_800155D4(controller_window, r_u32((0x800A5654 + (0) * 4))))
-                        sub_80011860(v59, 0x800EC49A, 0x800EC494, 0x800EC496, ((sint32)(0x800EC498)));
-                    if (sub_800155D4(controller_window, r_u32((0x800A5658 + (0) * 4))))
-                        sub_80011860(v59, 0x800EC494, 0x800EC49A, 0x800EC496, ((sint32)(0x800EC498)));
-                    if (sub_800155D4(controller_window, r_u32((0x800A565C + (0) * 4))))
-                        sub_80011860(v59, 0x800EC496, 0x800EC49A, 0x800EC494, ((sint32)(0x800EC498)));
-                    if (sub_800155D4(controller_window, r_u32((0x800A5730 + (0) * 4))))
+                    if (controller_window->IsSelected(MenuText::weapon_select))
+                        AssignMenuButton(button_mask, &game_settings.bindings.analog[3], &game_settings.bindings.analog[0], &game_settings.bindings.analog[1], &game_settings.bindings.analog[2]);
+                    if (controller_window->IsSelected(MenuText::crouch))
+                        AssignMenuButton(button_mask, &game_settings.bindings.analog[0], &game_settings.bindings.analog[3], &game_settings.bindings.analog[1], &game_settings.bindings.analog[2]);
+                    if (controller_window->IsSelected(MenuText::jump))
+                        AssignMenuButton(button_mask, &game_settings.bindings.analog[1], &game_settings.bindings.analog[3], &game_settings.bindings.analog[0], &game_settings.bindings.analog[2]);
+                    if (controller_window->IsSelected(MenuText::smart_bomb))
                     {
-                        v61 = 0x800EC498;
-                        goto LABEL_252;
+                        sel_binding = &game_settings.bindings.analog[2];
+                        goto AssignSmartBombBinding;
                     }
                 }
-            LABEL_253:
-                if (v101)
+            HandleControllerActions:
+                if (confirm_pressed)
                 {
-                    if (sub_800155D4(controller_window, r_u32((0x800A55A4 + (0) * 4))))
+                    if (controller_window->IsSelected(MenuText::return_to_options_menu))
                     {
-                        v39 = 19;
-                        menu_state = 3;
+                        action_sound = 19;
+                        menu_state = MAIN_MENU_OPTIONS;
                     }
-                    if (sub_800155D4(controller_window, r_u32((0x800A55FC + (0) * 4))))
+                    if (controller_window->IsSelected(MenuText::reset_to_defaults))
                     {
-                        w_u32(0x800FF2FC, 2);
-                        w_u16(0x800EC47A, ((unsigned char)(r_u8(0x800A0594))));
-                        w_u16(0x800EC474, ((unsigned char)(r_u8(0x800A0595))));
-                        w_u16(0x800EC476, ((unsigned char)(r_u8(0x800A0596))));
-                        w_u16(0x800EC478, ((unsigned char)(r_u8(0x800A0597))));
-                        w_u16(0x800EC49A, ((unsigned char)(r_u8(0x800A0598))));
-                        w_u16(0x800EC494, ((unsigned char)(r_u8(0x800A0599))));
-                        w_u16(0x800EC496, ((unsigned char)(r_u8(0x800A059A))));
-                        w_u16(0x800EC498, ((unsigned char)(r_u8(0x800A059B))));
+                        game_settings.vibration = VibrationFull;
+                        RestoreDefaultControlBindings();
                     }
-                    if (sub_800155D4(controller_window, r_u32((0x800A5604 + (0) * 4))))
+                    if (controller_window->IsSelected(MenuText::calibrate_analog_controller))
                     {
-                        v120 = r_u32(0x800FF7E0);
-                        v62 = r_u32(0x800FF7F0);
-                        v121 = r_u32(0x800FF7E4);
-                        v63 = r_u32(0x800FF7F4);
-                        v122 = r_u32(0x800FF7E8);
-                        v64 = r_u32(0x800FF7F8);
-                        menu_state = 9;
-                        v123 = r_u32(0x800FF7EC);
-                        v65 = r_u32(0x800FF7FC);
-                        w_u32(0x800FF7E0, 255);
-                        w_u32(0x800FF7E4, 0);
-                        w_u32(0x800FF7E8, 255);
-                        w_u32(0x800FF7EC, 0);
-                        w_u32(0x800FF7F0, 255);
-                        w_u32(0x800FF7F4, 0);
-                        w_u32(0x800FF7F8, 255);
-                        w_u32(0x800FF7FC, 0);
-                        v124 = v62;
-                        v125 = v63;
-                        v126 = v64;
-                        v127 = v65;
+                        for (uint32 axis = 0; axis < 4; ++axis)
+                        {
+                            saved_range[axis][0] = pad_calibration[axis].min;
+                            saved_range[axis][1] = pad_calibration[axis].max;
+                            pad_calibration[axis].min = 255;
+                            pad_calibration[axis].max = 0;
+                        }
+                        menu_state = MAIN_MENU_ANALOG_RANGE;
                     }
-                    if (sub_800155D4(controller_window, r_u32((0x800A5608 + (0) * 4))))
+                    if (controller_window->IsSelected(MenuText::vibration_settings))
                     {
-                        MenuWindow::Attach(preset_window).arrow_item = r_u32(0x800FF2FC);
-                        menu_state = 11;
-                        sub_80015374(preset_window, ((unsigned char)(r_u32(0x800FF2FC))));
+                        preset_window->arrow_item = game_settings.vibration;
+                        menu_state = MAIN_MENU_VIBRATION;
+                        preset_window->ResetSelection(((uint8)(game_settings.vibration)));
                     }
                 }
 
-                if (v102)
-                    menu_state = 3;
+                if (cancel_pressed)
+                    menu_state = MAIN_MENU_OPTIONS;
                 /* MIPS 80013CD4..80013CF0 passes four signed halfwords */
-                sub_8006FDFC(0x800EC0F8, (sint16)r_u16(0x800EC474), (sint16)r_u16(0x800EC476), (sint16)r_u16(0x800EC478), (sint16)r_u16(0x800EC47A));
-                v94 = 0x800EC494;
-                v95 = 0x800EC496;
-                v96 = 0x800EC498;
-                v97 = ((uint32)(0x800EC49A));
+                game_pads[0].SetButtonMasks(game_settings.bindings.digital[0], game_settings.bindings.digital[1], game_settings.bindings.digital[2], game_settings.bindings.digital[3]);
                 /* MIPS 80013D18..80013D2C passes zero then four signed halfwords */
-                sub_8006FE14(0x800EC0F8, 3, 2, 1, 0, (sint16)r_u16(0x800EC494), (sint16)r_u16(0x800EC496), (sint16)r_u16(0x800EC498), (sint16)r_u16(0x800EC49A));
-                v54 = v39;
-                goto LABEL_374;
+                game_pads[0].SetAxes(3, 2, 1, 0, game_settings.bindings.analog[0], game_settings.bindings.analog[1], game_settings.bindings.analog[2], game_settings.bindings.analog[3]);
+                frame_sound = action_sound;
+                goto FinalizeMenuFrame;
 
-            case 9:
-                if ((((unsigned char)(r_u8(0x800EC25D))) < (sint32)r_u32(0x800FF7E0)))
-                    w_u32(0x800FF7E0, ((unsigned char)(r_u8(0x800EC25D))));
-                if (((sint32)r_u32(0x800FF7E4) < ((unsigned char)(r_u8(0x800EC25D)))))
-                    w_u32(0x800FF7E4, ((unsigned char)(r_u8(0x800EC25D))));
-                if ((((unsigned char)(r_u8(0x800EC25C))) < (sint32)r_u32(0x800FF7E8)))
-                    w_u32(0x800FF7E8, ((unsigned char)(r_u8(0x800EC25C))));
-                if (((sint32)r_u32(0x800FF7EC) < ((unsigned char)(r_u8(0x800EC25C)))))
-                    w_u32(0x800FF7EC, ((unsigned char)(r_u8(0x800EC25C))));
-                if ((((unsigned char)(r_u8(0x800EC25F))) < (sint32)r_u32(0x800FF7F0)))
-                    w_u32(0x800FF7F0, ((unsigned char)(r_u8(0x800EC25F))));
-                if (((sint32)r_u32(0x800FF7F4) < ((unsigned char)(r_u8(0x800EC25F)))))
-                    w_u32(0x800FF7F4, ((unsigned char)(r_u8(0x800EC25F))));
-                if ((((unsigned char)(r_u8(0x800EC25E))) < (sint32)r_u32(0x800FF7F8)))
-                    w_u32(0x800FF7F8, ((unsigned char)(r_u8(0x800EC25E))));
-                if (((sint32)r_u32(0x800FF7FC) < ((unsigned char)(r_u8(0x800EC25E)))))
-                    w_u32(0x800FF7FC, ((unsigned char)(r_u8(0x800EC25E))));
-                if (v101)
-                    menu_state = 10;
-                v54 = v39;
-                if (v102)
+            case MAIN_MENU_ANALOG_RANGE:
+                if ((((uint8)(game_pads[0].raw_axis[1])) < (sint32)pad_calibration[1].min))
+                    pad_calibration[1].min = ((uint8)(game_pads[0].raw_axis[1]));
+                if (((sint32)pad_calibration[1].max < ((uint8)(game_pads[0].raw_axis[1]))))
+                    pad_calibration[1].max = ((uint8)(game_pads[0].raw_axis[1]));
+                if ((((uint8)(game_pads[0].raw_axis[0])) < (sint32)pad_calibration[0].min))
+                    pad_calibration[0].min = ((uint8)(game_pads[0].raw_axis[0]));
+                if (((sint32)pad_calibration[0].max < ((uint8)(game_pads[0].raw_axis[0]))))
+                    pad_calibration[0].max = ((uint8)(game_pads[0].raw_axis[0]));
+                if ((((uint8)(game_pads[0].raw_axis[3])) < (sint32)pad_calibration[3].min))
+                    pad_calibration[3].min = ((uint8)(game_pads[0].raw_axis[3]));
+                if (((sint32)pad_calibration[3].max < ((uint8)(game_pads[0].raw_axis[3]))))
+                    pad_calibration[3].max = ((uint8)(game_pads[0].raw_axis[3]));
+                if ((((uint8)(game_pads[0].raw_axis[2])) < (sint32)pad_calibration[2].min))
+                    pad_calibration[2].min = ((uint8)(game_pads[0].raw_axis[2]));
+                if (((sint32)pad_calibration[2].max < ((uint8)(game_pads[0].raw_axis[2]))))
+                    pad_calibration[2].max = ((uint8)(game_pads[0].raw_axis[2]));
+                if (confirm_pressed)
+                    menu_state = MAIN_MENU_ANALOG_CENTER;
+                frame_sound = action_sound;
+                if (cancel_pressed)
                 {
-                    w_u32(0x800FF7E0, v120);
-                    w_u32(0x800FF7E4, v121);
-                    w_u32(0x800FF7E8, v122);
-                    w_u32(0x800FF7EC, v123);
-                    w_u32(0x800FF7F0, v124);
-                    w_u32(0x800FF7F4, v125);
-                    w_u32(0x800FF7F8, v126);
-                    w_u32(0x800FF7FC, v127);
-                    menu_state = 8;
-                }
-                goto LABEL_374;
-
-            case 10:
-                w_u32(0x800FF800, ((unsigned char)(r_u8(0x800EC25D))));
-                w_u32(0x800FF804, ((unsigned char)(r_u8(0x800EC25C))));
-                w_u32(0x800FF808, ((unsigned char)(r_u8(0x800EC25F))));
-                w_u32(0x800FF80C, ((unsigned char)(r_u8(0x800EC25E))));
-                v39 = 23;
-                if (v101)
-                    menu_state = 8;
-                else
-                LABEL_329:
-                    v39 = -1;
-
-                goto LABEL_373;
-
-            case 11:
-                MenuWindow::Attach(preset_window).Update();
-                if (v101)
-                {
-                    if (sub_800155D4(preset_window, r_u32((0x800A560C + (0) * 4))))
-                        w_u32(0x800FF2FC, 0);
-                    if (sub_800155D4(preset_window, r_u32((0x800A5610 + (0) * 4))))
-                        w_u32(0x800FF2FC, 1);
-                    if (sub_800155D4(preset_window, r_u32((0x800A5614 + (0) * 4))))
-                        w_u32(0x800FF2FC, 2);
-                    if (sub_800155D4(preset_window, r_u32((0x800A5618 + (0) * 4))))
+                    for (uint32 axis = 0; axis < 4; ++axis)
                     {
-                        menu_state = 8;
-                        v39 = 19;
+                        pad_calibration[axis].min = saved_range[axis][0];
+                        pad_calibration[axis].max = saved_range[axis][1];
+                    }
+                    menu_state = MAIN_MENU_CONTROLLER;
+                }
+                goto FinalizeMenuFrame;
+
+            case MAIN_MENU_ANALOG_CENTER:
+                pad_calibration[1].centre = ((uint8)(game_pads[0].raw_axis[1]));
+                pad_calibration[0].centre = ((uint8)(game_pads[0].raw_axis[0]));
+                pad_calibration[3].centre = ((uint8)(game_pads[0].raw_axis[3]));
+                pad_calibration[2].centre = ((uint8)(game_pads[0].raw_axis[2]));
+                action_sound = 23;
+                if (confirm_pressed)
+                    menu_state = MAIN_MENU_CONTROLLER;
+                else
+                SkipMenuSound:
+                    action_sound = -1;
+
+                goto QueueActionSound;
+
+            case MAIN_MENU_VIBRATION:
+                preset_window->Update();
+                if (confirm_pressed)
+                {
+                    if (preset_window->IsSelected(MenuText::none))
+                        game_settings.vibration = VibrationNone;
+                    if (preset_window->IsSelected(MenuText::some))
+                        game_settings.vibration = VibrationSome;
+                    if (preset_window->IsSelected(MenuText::full))
+                        game_settings.vibration = VibrationFull;
+                    if (preset_window->IsSelected(MenuText::return_to_controller_config))
+                    {
+                        menu_state = MAIN_MENU_CONTROLLER;
+                        action_sound = 19;
                     }
                 }
-                MenuWindow::Attach(preset_window).arrow_item = r_u32(0x800FF2FC);
-                v54 = v39;
-                if (v102)
-                    menu_state = 8;
-                goto LABEL_374;
+                preset_window->arrow_item = game_settings.vibration;
+                frame_sound = action_sound;
+                if (cancel_pressed)
+                    menu_state = MAIN_MENU_CONTROLLER;
+                goto FinalizeMenuFrame;
 
-            case 12:
-                sub_80015BA4(r_u32(0x800FF024));
-                if (v101)
+            case MAIN_MENU_RESET_CONFIRM:
+                menu_runtime.confirm->Update();
+                if (confirm_pressed)
                 {
-                    if (sub_800155D4(r_u32(0x800FF024), r_u32((0x800A5594 + (0) * 4))))
+                    if (menu_runtime.confirm->IsSelected(MenuText::yes))
                     {
-                        v66 = 0x800A545C;
-                        v67 = 0x800A0514;
-                        do
-                        {
-                            v68 = ((sint32)(r_u32((v67 + (1) * 4))));
-                            v69 = ((sint32)(r_u32((v67 + (2) * 4))));
-                            v70 = ((sint32)(r_u32((v67 + (3) * 4))));
-                            w_u32(v66, ((sint32)(r_u32(v67))));
-                            w_u32((v66 + (1) * 4), v68);
-                            w_u32((v66 + (2) * 4), v69);
-                            w_u32((v66 + (3) * 4), v70);
-                            v67 += (4) * 4;
-                            v66 += (4) * 4;
-                        } while ((v67 != ((uint32)(0x800A0594))));
-                        v71 = ((sint32)(r_u32((v67 + (1) * 4))));
-                        w_u32(v66, ((sint32)(r_u32(v67))));
-                        w_u32((v66 + (1) * 4), v71);
-                        v72 = 0x800A53D4;
-                        v73 = 0x800A0514;
-                        do
-                        {
-                            v74 = ((sint32)(r_u32((v73 + (1) * 4))));
-                            v75 = ((sint32)(r_u32((v73 + (2) * 4))));
-                            v76 = ((sint32)(r_u32((v73 + (3) * 4))));
-                            w_u32(v72, ((sint32)(r_u32(v73))));
-                            w_u32((v72 + (1) * 4), v74);
-                            w_u32((v72 + (2) * 4), v75);
-                            w_u32((v72 + (3) * 4), v76);
-                            v73 += (4) * 4;
-                            v72 += (4) * 4;
-                        } while ((v73 != ((uint32)(0x800A0594))));
-                        v77 = ((sint32)(r_u32((v73 + (1) * 4))));
-                        w_u32(v72, ((sint32)(r_u32(v73))));
-                        w_u32((v72 + (1) * 4), v77);
-                        sub_80016014(0x800A0584);
-                        menu_state = 0;
+                        player_saves.selected = GetDefaultPlayerSave();
+                        player_saves.current = GetDefaultPlayerSave();
+                        RestoreGameSettings(GetDefaultPlayerSave().settings);
+                        menu_state = MAIN_MENU_ROOT;
                         ResetSceneDisplayOffsets();
-                        w_u32(0x800FF7E4, 255);
-                        w_u32(0x800FF7EC, 255);
-                        w_u32(0x800FF7F4, 255);
-                        w_u32(0x800FF7FC, 255);
-                        w_u32(0x800FF7E0, 0);
-                        w_u32(0x800FF7E8, 0);
-                        w_u32(0x800FF7F0, 0);
-                        w_u32(0x800FF7F8, 0);
-                        w_u32(0x800FF800, 128);
-                        w_u32(0x800FF804, 128);
-                        w_u32(0x800FF808, 128);
-                        w_u32(0x800FF80C, 128);
-                        sub_8001551C(main_window, r_u32((0x800A554C + (0) * 4)));
+                        pad_calibration[1].max = 255;
+                        pad_calibration[0].max = 255;
+                        pad_calibration[3].max = 255;
+                        pad_calibration[2].max = 255;
+                        pad_calibration[1].min = 0;
+                        pad_calibration[0].min = 0;
+                        pad_calibration[3].min = 0;
+                        pad_calibration[2].min = 0;
+                        pad_calibration[1].centre = 128;
+                        pad_calibration[0].centre = 128;
+                        pad_calibration[3].centre = 128;
+                        pad_calibration[2].centre = 128;
+                        main_window->DisableItem(MenuText::continue_game);
                     }
                     else
                     {
-                        v39 = 19;
-                        menu_state = 4;
+                        action_sound = 19;
+                        menu_state = MAIN_MENU_EXTRAS;
                     }
                 }
-                v54 = v39;
-                if (v102)
-                    menu_state = 4;
-                goto LABEL_374;
+                frame_sound = action_sound;
+                if (cancel_pressed)
+                    menu_state = MAIN_MENU_EXTRAS;
+                goto FinalizeMenuFrame;
 
-            case 13:
-                v81 = ((uint32)(v114) - (uint32)(1));
-                if (v114)
+            case MAIN_MENU_CARD_DELAY:
+                next_card_delay = ((uint32)(card_delay) - (uint32)(1));
+                if (card_delay)
                 {
-                    --v114;
-                    if (!v81)
+                    --card_delay;
+                    if (!next_card_delay)
                     {
-                        v115 = 150;
-                        menu_state = 14;
+                        card_timeout = 150;
+                        menu_state = MAIN_MENU_CARD_QUERY;
                     }
                 }
                 else
                 {
-                    v114 = 10;
+                    card_delay = 10;
                 }
-                goto LABEL_373;
+                goto QueueActionSound;
 
-            case 14:
-                if (((sint32)r_u32(0x800FEEC4) == -1))
+            case MAIN_MENU_CARD_QUERY:
+                if ((card_save_state.status == -1))
                 {
-                    menu_state = 18;
-                    goto LABEL_373;
+                    menu_state = MAIN_MENU_CARD_MISSING;
+                    goto QueueActionSound;
                 }
-                if (((sint32)r_u32(0x800FEEC4) < 0))
+                if ((card_save_state.status < 0))
                 {
-                    if (((sint32)r_u32(0x800FEEC4) == -2))
+                    if ((card_save_state.status == -2))
                     {
-                        menu_state = 16;
+                        menu_state = MAIN_MENU_CARD_UNFORMATTED;
                     }
                     else
                     {
-                    LABEL_346:
-                        if (v115)
-                            --v115;
+                    WaitForCardQuery:
+                        if (card_timeout)
+                            --card_timeout;
                         else
-                        LABEL_340:
-                            menu_state = 15;
+                        ShowNoSaves:
+                            menu_state = MAIN_MENU_CARD_NO_SAVE;
                     }
-                LABEL_373:
-                    v54 = v39;
+                QueueActionSound:
+                    frame_sound = action_sound;
 
-                    goto LABEL_374;
+                    goto FinalizeMenuFrame;
                 }
-                if (((sint32)r_u32(0x800FEEC4) != 1))
-                    goto LABEL_346;
+                if ((card_save_state.status != 1))
+                    goto WaitForCardQuery;
                 if (QueryCardSaveFile())
-                    goto LABEL_340;
-                v82 = ((uint32)(sub_8002FED8(444)));
-                save_window = v82;
-                if (v82)
-                {
-                    v94 = 192;
-                    v95 = 18;
-                    save_window = ((uint32)(sub_80015228(v82, 256, 55, 0, 0x100, 0xC0, 0x12)));
-                }
-                MenuWindow::Attach(save_window).numbered = 1;
-                menu_state = 17;
+                    goto ShowNoSaves;
+                save_window = new MenuWindow(256, 55, 0, 0x100, 0xC0, 0x12);
+                save_window->numbered = 1;
+                menu_state = MAIN_MENU_LOAD_SLOTS;
                 PopulateSaveSelectionMenu(save_window);
-                v54 = v39;
-            LABEL_374:
-                sub_80069DF0(v54, 0x2000, 0);
+                frame_sound = action_sound;
+            FinalizeMenuFrame:
+                PlaySoundEffect(frame_sound, 0x2000, 0);
 
-                sub_800119C4(((sint32)(background_menu)));
-                if ((r_u32(0x800FF64C) == v129))
+                background_camera->Advance();
+                if ((game_clock.vblank_frame == frame_start))
                     ::WaitForGameFrames(1);
-                w_u32(0x800FF65C, 0);
+                scene_frame.service_enabled = 0;
                 while (1)
                 {
                     ::WaitForGameFrames(1);
@@ -1357,92 +1143,74 @@ LABEL_22:
                 }
 
                 SubmitSceneFrame();
-                if (!r_u32(0x800FF65C))
+                if (!scene_frame.service_enabled)
                 {
                     ::ServiceGameFrame();
-                    w_u32(0x800FF65C, 1);
+                    scene_frame.service_enabled = 1;
                 }
                 break;
 
-            case 15:
+            case MAIN_MENU_CARD_NO_SAVE:
 
-            case 16:
-                if (((sint32)r_u32(0x800FEEC4) == 2))
-                    menu_state = 13;
-                goto LABEL_371;
+            case MAIN_MENU_CARD_UNFORMATTED:
+                if ((card_save_state.status == 2))
+                    menu_state = MAIN_MENU_CARD_DELAY;
+                goto HandleCardCancel;
 
-            case 17:
-                v83 = 0;
-                if (((sint32)r_u32(0x800FEEC4) == -1))
+            case MAIN_MENU_LOAD_SLOTS:
+                close_save_window = false;
+                if ((card_save_state.status == -1))
                 {
-                    menu_state = 18;
-                    v83 = 1;
+                    menu_state = MAIN_MENU_CARD_MISSING;
+                    close_save_window = true;
                 }
-                MenuWindow::Attach(save_window).Update();
-                if (v101)
+                save_window->Update();
+                if (confirm_pressed)
                 {
-                    v84 = 0;
-                    if ((sub_800155D4(save_window, r_u32((0x800A55CC + (0) * 4))) || sub_800155D4(save_window, r_u32((0x800A5660 + (0) * 4)))))
-                        v84 = 1;
-                    v39 = 28;
-                    if (!v84)
+                    invalid_slot = false;
+                    if ((save_window->IsSelected(MenuText::read_error) || save_window->IsSelected(MenuText::empty_slot)))
+                        invalid_slot = true;
+                    action_sound = 28;
+                    if (!invalid_slot)
                     {
-                        v39 = 23;
-                        v85 = 0x800A545C;
-                        v86 = (0x800A493C + (((uint32)(136) * (uint32)(MenuWindow::Attach(save_window).selected))) * 1);
-                        v87 = ((uint32)((v86 + (512) * 1)));
-                        v88 = (v86 + (640) * 1);
-                        do
-                        {
-                            v89 = ((sint32)(r_u32((v87 + (1) * 4))));
-                            v90 = ((sint32)(r_u32((v87 + (2) * 4))));
-                            v91 = ((sint32)(r_u32((v87 + (3) * 4))));
-                            w_u32(v85, ((sint32)(r_u32(v87))));
-                            w_u32((v85 + (1) * 4), v89);
-                            w_u32((v85 + (2) * 4), v90);
-                            w_u32((v85 + (3) * 4), v91);
-                            v87 += (4) * 4;
-                            v85 += (4) * 4;
-                        } while ((v87 != ((uint32)(v88))));
-                        v92 = ((sint32)(r_u32((v87 + (1) * 4))));
-                        w_u32(v85, ((sint32)(r_u32(v87))));
-                        w_u32((v85 + (1) * 4), v92);
-                        sub_80016014(0x800A54CC);
-                        v83 = 1;
-                        finished = 1;
+                        action_sound = 23;
+                        player_saves.selected = card_save_image.slots[save_window->selected];
+                        RestoreGameSettings(player_saves.selected.settings);
+                        close_save_window = true;
+                        finished = true;
                     }
                 }
-                if (v102)
+                if (cancel_pressed)
                 {
-                    v83 = 1;
-                    menu_state = 0;
+                    close_save_window = true;
+                    menu_state = MAIN_MENU_ROOT;
                 }
-                if (v83)
+                if (close_save_window)
                 {
                     if (save_window)
                         DestroyMenuObject(save_window);
                     save_window = 0;
                 }
-                goto LABEL_373;
+                goto QueueActionSound;
 
-            case 18:
-                if ((((sint32)r_u32(0x800FEEC4) == -2) || ((((sint32)(sint32)r_u32(0x800FEEC4) >= -2) && ((sint32)(sint32)r_u32(0x800FEEC4) < 3)) && ((sint32)(sint32)r_u32(0x800FEEC4) > 0))))
-                    menu_state = 13;
-            LABEL_371:
-                v54 = v39;
+            case MAIN_MENU_CARD_MISSING:
+                if (((card_save_state.status == -2) || ((((sint32)card_save_state.status >= -2) && ((sint32)card_save_state.status < 3)) && ((sint32)card_save_state.status > 0))))
+                    menu_state = MAIN_MENU_CARD_DELAY;
+            HandleCardCancel:
+                frame_sound = action_sound;
 
-                if (!v103)
-                    goto LABEL_374;
-                v39 = 19;
-                menu_state = 0;
-                goto LABEL_373;
+                if (!any_pressed)
+                    goto FinalizeMenuFrame;
+                action_sound = 19;
+                menu_state = MAIN_MENU_ROOT;
+                goto QueueActionSound;
 
             default:
-                goto LABEL_373;
+                goto QueueActionSound;
         }
     }
 
-    ::ReleaseMovieFrameBuffers();
+    ::ReleaseMenuBuffers();
     ::WaitForGameFrames(1);
     DrawSync(0);
     SubmitSceneFrame();
@@ -1463,12 +1231,10 @@ LABEL_22:
         DestroyMenuObject(controller_window);
     if (preset_window)
         DestroyMenuObject(preset_window);
-    if (background_menu)
-        DestroyMenuObject(background_menu);
+    if (background_camera)
+        DestroyMenuObject(background_camera);
     ::ReleaseLevelLoadResources();
-    sub_8007001C();
-    sub_80015F7C(0x800A54CC);
+    InitializeGamePads();
+    SaveGameSettings(player_saves.selected.settings);
     return result_state;
 }
-
-

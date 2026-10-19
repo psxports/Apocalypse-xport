@@ -1,6 +1,15 @@
+#include <new>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "game_heap.h"
+#include "level_session.h"
+#include "record_scripts.h"
+#include "object_initializers.h"
 #include "visual_object.h"
 #include "angle_math.h"
-#include "game_sdk_bindings.h"
+#include "game_diagnostics.h"
 #include "fire_cycle.h"
 #include "audio_session.h"
 #include "vector_distance.h"
@@ -8,61 +17,35 @@
 #include "effect_lifecycle.h"
 #include "effect_splash.h"
 #include "model_resources.h"
-#include "object_collision_events.h"
+#include "collision.h"
 #include "object_damage.h"
 #include "ring_burst_effect.h"
 #include "game_object_allocation.h"
 #include "particle_debris.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+
 #include "level_hazards.h"
-#include "object_parameters.h"
+#include "textured_quad.h"
 #include "record_data.h"
-#include "native_object_storage.h"
-#include <new>
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
 
-// Native input bridge for the original position-word loads
-static uint32 ReadMovingRecordPosition(const uint32 *position, uint32 axis)
+FloatingHazard::FloatingHazard(const RecordCursor &record_data, uint32 index) : Enemy(), bob_phase(0), bob_offset(0)
 {
-    uint32 address = GuestMemoryAddress(position), value;
-    if (address)
-        return r_u32(address + axis * 4);
-    memcpy(&value, (const uint8 *)position + axis * 4, 4);
-    return value;
-}
+    RecordDataBorrow record_borrow;
 
-FloatingHazard::FloatingHazard(const uint8 *record_data, uint32 index) : Enemy()
-{
-    const uint32 data = GuestMemoryAddress(record_data);
-    if (!data)
-    {
-        // TODO Bind native record data to the existing parser
-        GameDiagnostic("TODO Record409 native record data\n");
-        abort();
-    }
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 bank, animation, flags, cursor;
+    uint32 animation, flags;
+    RecordCursor cursor;
     FUNCTION_MARKER(0x8005A630, "SLUS_003.73");
-    bank = r_u32(0x800FF62C);
-    w_u32(object + 68, 0x800A2908);
-    sub_800626C8(object, bank);
-    animation = ::FindModelResourceIndex(0xB9E8D489, r_u8(0x800FF644));
+    SetModelBank(GetRecordModelBankName());
+    animation = ::FindModelResourceIndex(0xB9E8D489, GetRecordModelBankSlot());
     flags = this->model.flags;
     this->model.model_idx = animation;
     this->model.flags = (flags & 0xFFFD) | 8;
     AddToList(visual_lists.actors);
-    w_u16(object + 212, 64);
-    w_u16(object + 218, 20);
+    this->collision_radius = 64;
+    this->health = (sint16)(uint16)(20);
     this->kind = 9;
-    const uint8 *angles = ReadPosition(record_data);
-    const uint8 *script = ReadAngles(angles);
-    w_u32(object + 400, GuestMemoryAddress(script));
+    RecordCursor angles(ReadPosition(record_data));
+    RecordCursor script(ReadAngles(angles));
+    script_cursor = script;
     this->record_idx = index;
     motion.drag[0] = 2;
     motion.drag[1] = 2;
@@ -70,60 +53,47 @@ FloatingHazard::FloatingHazard(const uint8 *record_data, uint32 index) : Enemy()
     motion.angular_drag[0] = 16;
     motion.angular_drag[1] = 16;
     motion.angular_drag[2] = 16;
-    cursor = r_u32(object + 400);
-    w_u16(object + 436, 12);
-    w_u16(object + 438, 256);
-    w_u16(object + 440, 20);
-    w_u8(object + 380, 1);
-    sub_8004BE90(object, cursor);
+    cursor = script_cursor;
+    ai.parameters[0] = 12;
+    ai.parameters[1] = 256;
+    ai.parameters[2] = 20;
+    this->control.script_active = 1;
+    ExecuteScript(RecordCursor(cursor));
 }
 
 uint32 FloatingHazard::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
     uint32 result;
     FUNCTION_MARKER(0x8005A74C, "SLUS_003.73");
-    w_u32(object + 68, 0x800A2908);
     RemoveFromList(visual_lists.actors);
     result = Enemy::Destroy(0);
     if (reason & 1)
-        result = ReleaseObjectStorage(object);
+        result = ReleaseObjectStorage(this);
     return result;
-}
-
-void FloatingHazard::FinishFromTable()
-{
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 table = r_u32(object + 68);
-    uint32 receiver = object + (uint32)(sint32)(sint16)r_u16(table + 16);
-    uint32 target = r_u32(table + 20);
-    apocalypse_object_virtual20(target, receiver);
 }
 
 void FloatingHazard::Explode()
 {
-    uint32 object = NativeObjectGuestAddress(this);
     uint32 variant;
-    SpawnExplosionRing((const uint32 *)psx_addr(object + 4, 12), 96, 96, 128, 0, 4, 1, 100);
+    SpawnExplosionRing(model.pos.words, 96, 96, 128, 0, 4, 1, 100);
     variant = RandomRange(2);
-    PlayPositionedSound((sint32)(variant + 1), (const uint32 *)psx_addr(object + 4, 12), 0);
+    PlayPositionedSound((sint32)(variant + 1), model.pos.words, 0);
 }
 
 uint32 FloatingHazard::Damage(uint32 damage, const sint32 *, uint32)
 {
-    uint32 object = NativeObjectGuestAddress(this);
     sint32 health;
     uint32 value;
     FUNCTION_MARKER(0x8005A7B0, "SLUS_003.73");
-    health = (sint16)r_u16(object + 218);
-    value = r_u16(object + 218) - damage;
+    health = this->health;
+    value = (uint16)this->health - damage;
     if (health > 0)
     {
-        w_u16(object + 218, value);
+        this->health = (sint16)(uint16)(value);
         if ((sint32)(value << 16) <= 0)
         {
             Explode();
-            FinishFromTable();
+            Finish();
         }
     }
     return 1;
@@ -131,221 +101,186 @@ uint32 FloatingHazard::Damage(uint32 damage, const sint32 *, uint32)
 
 uint32 FloatingHazard::UpdateHeight()
 {
-    uint32 object = NativeObjectGuestAddress(this);
     uint32 state, result, y, floor;
     FUNCTION_MARKER(0x8005AADC, "SLUS_003.73");
-    if (r_u16(object + 472))
+    if (ai.state)
         return 1;
-    state = r_u16(object + 474);
+    state = ai.phase;
     result = state < 2;
     if (state != 1)
     {
         if (!result || state)
             return result;
-        result = r_u16(object + 474) + 1;
-        motion.acceleration[1] = 24576;
-        w_u16(object + 474, result);
+        result = ai.phase + 1;
+        motion.acceleration.words[1] = 24576;
+        ai.phase = result;
     }
-    y = this->model.pos[1];
-    floor = r_u32(0x800FF37C);
+    y = this->model.pos.words[1];
+    floor = (uint32)level_environment.water_y;
     result = (sint32)floor < (sint32)y;
     if (result)
     {
-        result = r_u16(object + 474);
-        motion.acceleration[1] = 0;
-        motion.velocity[1] = 0;
-        this->model.pos[1] = floor;
+        result = ai.phase;
+        motion.acceleration.words[1] = 0;
+        motion.velocity.words[1] = 0;
+        this->model.pos.words[1] = floor;
         ++result;
-        w_u16(object + 474, result);
+        ai.phase = result;
     }
     return result;
 }
 
 uint32 FloatingHazard::Update()
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 flags, value, player, damage, distance, phase, height, y;
-    sint16 angles[4];
+    RecordDataBorrow record_borrow;
+    uint32 flags, value, damage, distance, phase, height, y;
+    ShortVector3 angles;
     FUNCTION_MARKER(0x8005A860, "SLUS_003.73");
-    if (!motion.velocity[1])
+    if (!motion.velocity.words[1])
     {
-        y = this->model.pos[1];
-        height = r_u32(object + 500);
-        this->model.pos[1] = y - height;
+        y = this->model.pos.words[1];
+        height = bob_offset;
+        this->model.pos.words[1] = y - height;
     }
     flags = this->activation_flags;
-    w_u16(object + 388, flags);
+    this->control.prev_activation_flags = flags;
     if (flags & 1)
     {
-        value = r_u8(object + 384);
+        value = (uint32)this->control.activation_count;
         this->activation_flags = flags & 0xFFFE;
-        w_u8(object + 384, value + 1);
+        this->control.activation_count = value + 1;
     }
-    if (r_u8(object + 380))
+    if ((uint32)this->control.script_active)
     {
-        value = r_u16(object + 476);
+        value = (uint32)this->control.script_delay;
         if (value)
-            w_u16(object + 476, value - 1);
+            this->control.script_delay = value - 1;
         else
-            sub_8004BE90(object, r_u32(object + 400));
+            ExecuteScript(script_cursor);
     }
     else
         UpdateHeight();
     if (visual_lists.players)
     {
-        value = r_u16(object + 438);
-        distance = r_u32(object + 220);
+        value = ai.parameters[1];
+        distance = player_distance;
         if (distance < value)
         {
             Explode();
-            damage = ScaleDamageForDifficulty(r_u16(object + 440));
-            player = visual_lists.players;
-            ApplyObjectDamage(player, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
-            FinishFromTable();
+            damage = ScaleDamageForDifficulty(ai.parameters[2]);
+            VisualObject *damage_target = static_cast<VisualObject *>(visual_lists.players->owner);
+            damage_target->Damage(damage, zero_vector.components, 0);
+            Finish();
         }
     }
-    if (r_u32(object + 396) & 1)
+    if (this->control.flags & 1)
     {
-        distance = MeasurePositionDistance((const uint32 *)this->model.pos, (const uint32 *)psx_addr(object + 484, 12));
+        distance = MeasurePositionDistance(this->model.pos.words, this->destination.words);
         if ((sint32)distance < 129)
-            w_u32(object + 396, r_u32(object + 396) & ~1);
+            this->control.flags = this->control.flags & ~1;
         else
         {
-            xport_draft_host_sub_80066B8C_p1(angles, object + 4, object + 484);
-            BuildDirectionVector(motion.acceleration, r_u16(object + 436), (const uint16 *)angles);
+            CalculateDirectionAngles(angles.words, this->model.pos.words, this->destination.words);
+            BuildDirectionVector(motion.acceleration.words, ai.parameters[0], angles.words);
         }
     }
     if (!RandomRange(64))
     {
         value = RandomRange(256) - 128;
-        motion.angular_velocity[0] = 0;
-        motion.angular_velocity[1] = value;
-        motion.angular_velocity[2] = 0;
+        motion.angular_velocity.words[0] = 0;
+        motion.angular_velocity.words[1] = value;
+        motion.angular_velocity.words[2] = 0;
     }
-    if (!motion.velocity[1])
+    if (!motion.velocity.words[1])
     {
         value = RandomRange(512);
-        phase = (r_u16(object + 496) + value) & 4095;
-        w_u16(object + 496, phase);
+        phase = (bob_phase + value) & 4095;
+        bob_phase = phase;
         height = (uint32)rsin(phase);
-        y = this->model.pos[1];
+        y = this->model.pos.words[1];
         height <<= 5;
-        w_u32(object + 500, height);
-        this->model.pos[1] = y + height;
+        bob_offset = height;
+        this->model.pos.words[1] = y + height;
     }
-    return sub_8004B9A4(object);
+    return IntegrateMotion();
 }
 
 uint32 FloatingHazard::ExecuteCommand(uint32 command)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 cursor, value, table, receiver, target;
+    RecordDataBorrow record_borrow;
+    uint32 value;
+    RecordCursor cursor;
     FUNCTION_MARKER(0x8005AB58, "SLUS_003.73");
     command &= 65535;
     if (command != 0x4221)
         return Enemy::ExecuteCommand(command);
-    cursor = r_u32(object + 400);
-    value = r_u16(cursor);
-    w_u32(object + 400, cursor + 2);
+    cursor = script_cursor;
+    value = cursor.Read16();
+    script_cursor = cursor + 2;
     if (value & 0x2000)
     {
-        table = r_u32(object + 68);
-        receiver = object + (uint32)(sint32)(sint16)r_u16(table + 80);
-        target = r_u32(table + 84);
-        value = DispatchObjectParameterGetter(target, receiver, value & 65535);
+        value = ResolveParameter(value & 65535);
     }
-    ReadRecordPosition((uint32 *)psx_addr(object + 484, 12), value & 65535);
-    value = r_u32(object + 396);
-    w_u32(object + 396, value | 1);
+    ReadRecordPosition(this->destination.words, value & 65535);
+    value = this->control.flags;
+    this->control.flags = value | 1;
     return 1;
 }
 
-
-
-extern "C" uint32 sub_8005A74C(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x8005A74C, "SLUS_003.73");
-    return FloatingHazard::Attach(object).FloatingHazard::Destroy(reason);
-}
-
-extern "C" uint32 sub_8005A7B0(uint32 object, uint32 damage)
-{
-    FUNCTION_MARKER(0x8005A7B0, "SLUS_003.73");
-    return FloatingHazard::Attach(object).FloatingHazard::Damage(damage, 0, 0);
-}
-
-extern "C" uint32 sub_8005A860(uint32 object)
-{
-    FUNCTION_MARKER(0x8005A860, "SLUS_003.73");
-    return FloatingHazard::Attach(object).FloatingHazard::Update();
-}
-
-
-
-extern "C" uint32 sub_8005AB58(uint32 object, uint32 command)
-{
-    FUNCTION_MARKER(0x8005AB58, "SLUS_003.73");
-    return FloatingHazard::Attach(object).FloatingHazard::ExecuteCommand(command);
-}
-
-BallisticHazard::BallisticHazard(const uint32 *position, uint32 kind, uint32 flags, uint32 parameter, sint32 vertical_speed) : Enemy()
+BallisticHazard::BallisticHazard(const uint32 *position, uint32 kind, uint32 flags, uint32 parameter, sint32 vertical_speed) : Enemy(), impact_flags(0), impact_radius(0)
 {
     uint32 trig_angle;
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 x, y, z, value, radius, player, coefficient, floor;
+    uint32 x, y, z, value, radius, coefficient, floor;
+    ModelInstance *player;
     FUNCTION_MARKER(0x8005ABF8, "SLUS_003.73");
-    w_u32(object + 68, 0x800A28B0);
-    x = ReadMovingRecordPosition(position, 0);
-    y = ReadMovingRecordPosition(position, 1);
-    z = ReadMovingRecordPosition(position, 2);
-    pos_history.saved[0] = x;
-    pos_history.saved[1] = y;
-    pos_history.saved[2] = z;
-    x = pos_history.saved[0];
-    y = pos_history.saved[1];
-    z = pos_history.saved[2];
-    this->model.pos[0] = x;
-    this->model.pos[1] = y;
-    this->model.pos[2] = z;
+    x = position[0];
+    y = position[1];
+    z = position[2];
+    pos_history.saved.words[0] = x;
+    pos_history.saved.words[1] = y;
+    pos_history.saved.words[2] = z;
+    this->model.pos.words[0] = x;
+    this->model.pos.words[1] = y;
+    this->model.pos.words[2] = z;
     if (kind == 2)
     {
-        SetModelBank((const char *)psx_addr(0x800FF574, 1));
-        value = FindModelResourceIndex(0x717FB6B2, r_u8(0x800FF645));
+        SetModelBank("items");
+        value = FindModelResourceIndex(0x717FB6B2, items_bank);
         this->model.model_idx = value;
-        motion.acceleration[1] = (uint32)vertical_speed << 12;
-        w_u16(object + 200, 128);
+        motion.acceleration.words[1] = (uint32)vertical_speed << 12;
+        shadow.radius = 128;
     }
     else if ((sint32)kind >= 0 && (sint32)kind <= 3)
     {
-        SetModelBank((const char *)psx_addr(r_u32(0x800FF62C), 1));
-        value = FindModelResourceIndex(0x2D990A1E, r_u8(0x800FF644));
+        SetModelBank(GetRecordModelBankName());
+        value = FindModelResourceIndex(0x2D990A1E, GetRecordModelBankSlot());
         this->model.model_idx = value;
-        motion.acceleration[1] = (uint32)vertical_speed << 12;
-        this->model.angles[1] = RandomRange(4096);
+        motion.acceleration.words[1] = (uint32)vertical_speed << 12;
+        this->model.angles.words[1] = RandomRange(4096);
         value = 256 - RandomRange(128);
         motion.angular_drag[0] = 16;
-        w_u16(object + 200, 128);
-        motion.angular_velocity[0] = value;
-        w_u16(object + 436, kind == 3 ? 48 : 32);
-        w_u16(object + 438, 256);
-        w_u16(object + 440, kind == 3 ? 4 : 8);
+        shadow.radius = 128;
+        motion.angular_velocity.words[0] = value;
+        ai.parameters[0] = kind == 3 ? 48 : 32;
+        ai.parameters[1] = 256;
+        ai.parameters[2] = kind == 3 ? 4 : 8;
         if (kind == 1)
         {
             radius = RandomRange(512);
             trig_angle = RandomRange(4096) & 4095;
             coefficient = (uint32)rsin(trig_angle);
             player = visual_lists.players;
-            value = r_u32(player + 4);
-            this->model.pos[0] = value + radius * coefficient;
+            value = player->pos.words[0];
+            this->model.pos.words[0] = value + radius * coefficient;
             coefficient = (uint32)rcos(trig_angle);
-            value = r_u32(player + 12);
-            this->model.pos[2] = value + radius * coefficient;
-            x = this->model.pos[0];
-            y = this->model.pos[1];
-            z = this->model.pos[2];
-            pos_history.saved[0] = x;
-            pos_history.saved[1] = y;
-            pos_history.saved[2] = z;
+            value = player->pos.words[2];
+            this->model.pos.words[2] = value + radius * coefficient;
+            x = this->model.pos.words[0];
+            y = this->model.pos.words[1];
+            z = this->model.pos.words[2];
+            pos_history.saved.words[0] = x;
+            pos_history.saved.words[1] = y;
+            pos_history.saved.words[2] = z;
         }
     }
     this->model.flags = this->model.flags & 0xFFFD;
@@ -353,53 +288,51 @@ BallisticHazard::BallisticHazard(const uint32 *position, uint32 kind, uint32 fla
     motion.drag[0] = 2;
     motion.drag[1] = 5;
     motion.drag[2] = 2;
-    w_u16(object + 212, 0);
+    this->collision_radius = 0;
     this->kind = 410;
-    w_u16(object + 496, flags);
-    w_u32(object + 500, parameter);
+    impact_flags = flags;
+    impact_radius = parameter;
     this->lifecycle_flags = this->lifecycle_flags & 0xFFEF;
     if (flags & 5)
     {
-        floor = FindGroundHeight((const uint32 *)this->model.pos, 0, 8192);
+        floor = FindGroundHeight(this->model.pos.words, 0, 8192);
         if (floor == (uint32)-1)
         {
             Enemy::Finish();
             return;
         }
-        w_u32(object + 488, floor);
+        this->destination.words[1] = floor;
         EnableShadow();
-        value = this->model.pos[1];
-        x = this->model.pos[0];
+        value = this->model.pos.words[1];
+        x = this->model.pos.words[0];
         value = floor - value;
-        w_u32(object + 184, x);
-        z = this->model.pos[2];
-        w_u16(object + 204, (uint32)((sint32)value >> 12));
-        w_u32(object + 188, floor);
-        w_u32(object + 192, z);
+        surface.pos.words[0] = x;
+        z = this->model.pos.words[2];
+        shadow.max_height = (uint32)((sint32)value >> 12);
+        surface.pos.words[1] = floor;
+        surface.pos.words[2] = z;
     }
     else if (flags & 2)
     {
         EnableShadow();
-        floor = r_u32(0x800FF37C);
-        value = this->model.pos[1];
-        x = this->model.pos[0];
-        w_u16(object + 204, (uint32)((sint32)(floor - value) >> 12));
-        w_u32(object + 184, x);
-        z = this->model.pos[2];
-        w_u32(object + 188, floor - 65536);
-        w_u32(object + 192, z);
+        floor = (uint32)level_environment.water_y;
+        value = this->model.pos.words[1];
+        x = this->model.pos.words[0];
+        shadow.max_height = (uint32)((sint32)(floor - value) >> 12);
+        surface.pos.words[0] = x;
+        z = this->model.pos.words[2];
+        surface.pos.words[1] = floor - 65536;
+        surface.pos.words[2] = z;
     }
 }
 
 uint32 BallisticHazard::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
     uint32 result;
     FUNCTION_MARKER(0x8005AF34, "SLUS_003.73");
-    w_u32(object + 68, 0x800A28B0);
     RemoveFromList(visual_lists.actors);
     result = Enemy::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(object) : result;
+    return (reason & 1) ? ReleaseObjectStorage(this) : result;
 }
 
 uint32 BallisticHazard::Damage(uint32, const sint32 *, uint32)
@@ -408,173 +341,132 @@ uint32 BallisticHazard::Damage(uint32, const sint32 *, uint32)
     return 0;
 }
 
-
-
-extern "C" uint32 sub_8005AF34(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x8005AF34, "SLUS_003.73");
-    return BallisticHazard::Attach(object).BallisticHazard::Destroy(reason);
-}
-
-extern "C" uint32 sub_8005AF98(uint32 object, uint32 damage)
-{
-    FUNCTION_MARKER(0x8005AF98, "SLUS_003.73");
-    return BallisticHazard::Attach(object).BallisticHazard::Damage(damage, 0, 0);
-}
-
-uint32 BallisticHazard::FinishFromTable()
-{
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 table = r_u32(object + 68);
-    uint32 receiver = object + (uint32)(sint32)(sint16)r_u16(table + 16);
-    uint32 target = r_u32(table + 20);
-    return DispatchObjectFinish(target, receiver);
-}
-
-static uint32 DamageBallisticHazardPlayer(uint32 damage)
-{
-    uint32 player = visual_lists.players;
-    return ApplyObjectDamage(player, damage, (const sint32 *)psx_addr(0x800A71CC, 12), 0);
-}
-
 uint32 BallisticHazard::Update()
 {
     uint32 trig_angle;
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, flags, result, y, floor, parameter, distance, threshold, damage;
-    uint32 value, point[3], velocity[3], random, product, kind, name, index;
+    GameHeapBlock *child;
+    uint32 flags;
+    uint32 result;
+    uint32 y;
+    uint32 floor;
+    uint32 parameter;
+    uint32 distance;
+    uint32 threshold;
+    uint32 damage;
+    uint32 value, random, product, kind, index;
+    Vector3 point, velocity;
     sint32 quotient;
     FUNCTION_MARKER(0x8005AFA0, "SLUS_003.73");
-    child = r_u32(object + 196);
-    if (child)
-        w_u16(child + 64, 128);
+    if (shadow.effect)
+        shadow.effect->depth_bias = 128;
     Enemy::IntegrateMotion();
-    flags = r_u16(object + 496);
+    flags = impact_flags;
     result = flags & 2;
     if (flags & 5)
     {
-        y = this->model.pos[1];
-        floor = r_u32(object + 488);
+        y = this->model.pos.words[1];
+        floor = this->destination.words[1];
         if ((sint32)y >= (sint32)floor)
         {
             if (flags == 4)
             {
-                this->model.pos[1] = floor;
-                SpawnFireCycle((const uint32 *)this->model.pos, 180, 1, 2);
-                parameter = r_u32(object + 500);
-                SpawnExplosionRing((const uint32 *)this->model.pos, (uint32)((sint32)parameter >> 1), 255, 128, 0, 4, 1, 100);
-                distance = r_u32(object + 220);
-                parameter = r_u32(object + 500);
+                this->model.pos.words[1] = floor;
+                SpawnFireCycle(this->model.pos.words, 180, 1, 2);
+                parameter = impact_radius;
+                SpawnExplosionRing(this->model.pos.words, (uint32)((sint32)parameter >> 1), 255, 128, 0, 4, 1, 100);
+                distance = player_distance;
+                parameter = impact_radius;
                 if (distance < parameter)
                 {
                     damage = ScaleDamageForDifficulty(20);
-                    DamageBallisticHazardPlayer(damage);
+                    VisualObject *damage_target = static_cast<VisualObject *>(visual_lists.players->owner);
+                    damage_target->Damage(damage, zero_vector.components, 0);
                 }
                 child = AllocateEffectStorage(120);
                 if (child)
                 {
-                    parameter = r_u32(object + 500);
-                    velocity[0] = r_u32(0x800A71CC);
-                    velocity[1] = r_u32(0x800A71D0);
-                    velocity[2] = r_u32(0x800A71D4);
-                    void *dram_addr = AllocateNativeObjectStorage(child, sizeof(ImpactRing));
-                    new (dram_addr) ImpactRing(velocity);
-                    ImpactRing::Attach(child).SetGeometry((const uint32 *)this->model.pos, 0, 0);
+                    parameter = impact_radius;
+                    velocity = zero_vector;
+                    ImpactRing *ring = new (child) ImpactRing(velocity.words);
+                    ring->SetGeometry(this->model.pos.words, 0, 0);
                     value = (uint32)((sint32)parameter / 16);
-                    w_u16(child + 10, 16);
-                    w_u16(child + 116, value);
+                    ring->lifetime = 16;
+                    ring->radius_step = value;
                     quotient = (sint16)value;
-                    w_u16(child + 118, (uint32)(quotient / 2));
+                    ring->width_step = (uint32)(quotient / 2);
                 }
             }
             else if (flags == 1)
             {
-                if (r_u32(0x800FF378) == 1)
-                    PlayPositionedSound(59, (const uint32 *)this->model.pos, 0);
-                for (index = 0; index < r_u16(object + 440); ++index)
+                if (level_environment.area_kind == 1)
+                    PlayPositionedSound(59, this->model.pos.words, 0);
+                for (index = 0; index < ai.parameters[2]; ++index)
                 {
                     random = RandomRange(4096);
-                    floor = r_u32(object + 488);
-                    this->model.pos[1] = floor - 0x20000;
+                    floor = this->destination.words[1];
+                    this->model.pos.words[1] = floor - 0x20000;
                     trig_angle = random & 4095;
                     value = (uint32)rsin(trig_angle);
-                    parameter = r_u32(object + 500);
+                    parameter = impact_radius;
                     product = value * parameter;
-                    velocity[0] = (uint32)((sint32)product / 8);
+                    velocity.words[0] = (uint32)((sint32)product / 8);
                     random = RandomRange(32);
                     value = (uint32)rcos(trig_angle);
-                    parameter = r_u32(object + 500);
+                    parameter = impact_radius;
                     product = value * parameter;
-                    velocity[1] = (0 - 16 - random) << 12;
-                    velocity[2] = (uint32)((sint32)product / 8);
+                    velocity.words[1] = (0 - 16 - random) << 12;
+                    velocity.words[2] = (uint32)((sint32)product / 8);
+                    Debris *debris = 0;
                     child = AllocateZeroedObject(320);
                     if (child)
                     {
-                        kind = FindModelResourceIndex(0x51FBD441, r_u8(0x800FF644)) & 65535;
-                        floor = r_u32(object + 488);
-                        name = r_u32(0x800FF62C);
-                        void *dram_addr = AllocateNativeObjectStorage(child, sizeof(Debris));
-                        new (dram_addr) Debris((const uint32 *)this->model.pos, velocity, kind, floor, 193, 24, psx_addr(name, 1));
+                        kind = FindModelResourceIndex(0x51FBD441, GetRecordModelBankSlot()) & 65535;
+                        floor = this->destination.words[1];
+                        debris = new (child) Debris(this->model.pos.words, velocity.words, kind, floor, 193, 24, GetRecordModelBankName());
                     }
                     // Skip the missing child under the approved allocation-failure contract
-                    value = r_u16(object + 436) >> 3;
-                    if (child)
-                        w_u8(child + 297, value);
+                    value = ai.parameters[0] >> 3;
+                    if (debris)
+                        debris->damage = value;
                 }
             }
-            return FinishFromTable();
+            return Finish();
         }
-        value = r_u32(object + 188);
-        distance = r_u32(object + 220);
-        threshold = r_u16(object + 438);
+        value = surface.pos.words[1];
+        distance = player_distance;
+        threshold = ai.parameters[1];
         result = (uint32)((sint32)(value - y) >> 12);
     }
     else
     {
         if (!result)
             return result;
-        y = this->model.pos[1];
-        floor = r_u32(0x800FF37C);
+        y = this->model.pos.words[1];
+        floor = (uint32)level_environment.water_y;
         if ((sint32)y >= (sint32)floor)
         {
-            point[0] = this->model.pos[0];
-            point[1] = this->model.pos[1];
-            point[2] = this->model.pos[2];
-            point[1] -= 286720;
-            CreateSplash(point);
-            PlayPositionedSound(57, (const uint32 *)this->model.pos, 0);
-            return FinishFromTable();
+            point = this->model.pos;
+            point.words[1] -= 286720;
+            CreateSplash(point.words);
+            PlayPositionedSound(57, this->model.pos.words, 0);
+            return Finish();
         }
-        value = r_u32(object + 188);
-        threshold = r_u16(object + 438);
-        distance = r_u32(object + 220);
+        value = surface.pos.words[1];
+        threshold = ai.parameters[1];
+        distance = player_distance;
         result = (uint32)((sint32)(value - y) >> 12);
     }
-    w_u16(object + 202, result);
+    shadow.height = result;
     if (distance < threshold)
     {
-        result = visual_lists.players;
-        if (result)
+        ModelInstance *player = visual_lists.players;
+        if (player)
         {
-            damage = ScaleDamageForDifficulty(r_u16(object + 436));
-            return DamageBallisticHazardPlayer(damage);
+            damage = ScaleDamageForDifficulty(ai.parameters[0]);
+            VisualObject *damage_target = static_cast<VisualObject *>(visual_lists.players->owner);
+            return damage_target->Damage(damage, zero_vector.components, 0);
         }
+        return 0;
     }
     return result;
-}
-
-extern "C" uint32 sub_8005AFA0(uint32 object)
-{
-    FUNCTION_MARKER(0x8005AFA0, "SLUS_003.73");
-    return BallisticHazard::Attach(object).BallisticHazard::Update();
-}
-
-FloatingHazard &FloatingHazard::Attach(uint32 object)
-{
-    return *static_cast<FloatingHazard *>(FindNativeObjectStorage(object));
-}
-
-BallisticHazard &BallisticHazard::Attach(uint32 object)
-{
-    return *static_cast<BallisticHazard *>(FindNativeObjectStorage(object));
 }

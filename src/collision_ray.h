@@ -10,14 +10,14 @@ extern "C"
 
 struct CollisionRay
 {
-    uint32 pos[2][3];
-    uint32 min[3];
-    uint32 max[3];
+    Vector3 endpoints[2];
+    Vector3 min;
+    Vector3 max;
     uint32 distance;
     uint32 len;
     MATRIX basis;
     ModelReference hit;
-    uint32 hit_pos[3];
+    Vector3 hit_pos;
     SVECTOR n;
     uint32 endpoint;
     uint8 triggers;

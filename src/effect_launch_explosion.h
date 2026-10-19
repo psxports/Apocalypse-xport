@@ -7,10 +7,17 @@ class LaunchExplosionEffect : public EffectController
 {
 public:
     explicit LaunchExplosionEffect(const uint32 *position);
-    virtual ~LaunchExplosionEffect() {}
-    static LaunchExplosionEffect &Attach(uint32 object);
+
+    virtual ~LaunchExplosionEffect()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
+
+private:
+    uint16 age;
+    uint16 lifetime;
 };
 
 #endif

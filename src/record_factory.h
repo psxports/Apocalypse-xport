@@ -7,7 +7,9 @@ extern "C"
 }
 
 uint32 InitializeLevelRecords();
-uint32 CreateObjectFromRecord(uint32 index);
-uint32 SpawnRecord(uint32 index);
+class VisualObject;
+
+VisualObject *CreateObjectFromRecord(uint32 index);
+void SpawnRecord(uint32 index);
 
 #endif

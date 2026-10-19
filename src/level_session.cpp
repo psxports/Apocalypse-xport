@@ -1,20 +1,27 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <new>
+#include <string.h>
+
+#include "pause_menu.h"
+#include "game_settings.h"
+#include "game_tick.h"
+#include "game_tuning.h"
+#include "input_recording.h"
+#include "game_pad_poll.h"
+
+#include "record_data.h"
+
 #include "visual_object.h"
 #include "cheat_input.h"
 #include "level_catalogue.h"
 #include "game_string.h"
-#include "game_sdk_bindings.h"
+#include "game_diagnostics.h"
 #include "debug_finish_repro.h"
 #include "game_random.h"
+#include "object_initializers.h"
 #include "hud_text.h"
-#include <stdio.h>
-#include <stdlib.h>
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-uint32 apocalypse_crt_initialize(void);
-uint32 sub_8008BF9C(uint32 format, uint32 value);
-}
+
 #include "level_session.h"
 #include "main_menu.h"
 #include "loading_screen.h"
@@ -34,30 +41,102 @@ uint32 sub_8008BF9C(uint32 format, uint32 value);
 #include "game_panel.h"
 #include "player.h"
 #include "camera.h"
-#include "native_object_storage.h"
-#include <new>
 
-uint32 LoadLevelFromPlayerSave(uint32 record)
+struct LevelTestCaption
 {
-    uint32 name, player, camera;
+    LevelTestCaption() : text(0)
+    {
+    }
+
+    ~LevelTestCaption()
+    {
+        free(text);
+    }
+
+    void Set(const char *name)
+    {
+        char *copy = 0;
+        if (name)
+        {
+            size_t length = strlen(name);
+            copy = (char *)malloc(length + 1);
+            if (!copy)
+            {
+                GameDiagnostic("Cannot allocate level test caption\n");
+                abort();
+            }
+            memcpy(copy, name, length + 1);
+        }
+        free(text);
+        text = copy;
+    }
+
+    char *text;
+};
+
+static LevelTestCaption test_caption;
+
+static const char *current_level_name;
+
+const char *GetCurrentLevelName()
+{
+    return current_level_name;
+}
+
+void ResetCurrentLevelName()
+{
+    current_level_name = 0;
+}
+
+GameSessionState game_session = {VibrationFull, 0, 0, 0, 0, 1, 0};
+
+void ResetGameSession()
+{
+    GameSessionState initial = {VibrationFull, 0, 0, 0, 0, 1, 0};
+    game_session = initial;
+}
+
+GameProgress game_progress = {{0, 0}, {0, 0, 0, 0, 0}, 0};
+
+void ResetGameProgress()
+{
+    game_progress = GameProgress();
+}
+
+LevelEnvironment level_environment = {0, 0, 0};
+
+void ResetLevelEnvironment()
+{
+    LevelEnvironment initial = {0, 0, 0};
+    level_environment = initial;
+}
+
+const char *GetLevelTestCaption()
+{
+    return test_caption.text;
+}
+
+static void LoadLevelFromPlayerSave(PlayerSaveRecord &record)
+{
+    GameHeapBlock *allocation;
+    GameHeapBlock *camera;
+    Player *player = 0;
     const LevelEntry *entry;
-    uint32 health, lives, minimum, active_camera;
+    uint32 health, lives, minimum;
+    Camera *active_camera;
     FUNCTION_MARKER(0x80018C30, "SLUS_003.73");
 #if defined(_DEBUG)
     DebugLoadFinishPlayerSave(record);
 #endif
-    // The record address remains guest storage because the level retains its name pointer
-    w_u32(0x800FF83C, record + 4);
+    current_level_name = record.progress.level;
     SetRandomSeed(0x12A6CC58);
-    name = r_u32(0x800FF83C);
-    entry = FindLevelEntry((const char *)psx_addr(name, 1));
+    entry = FindLevelEntry(current_level_name);
     if (!entry)
     {
         GameDiagnostic("Unknown level in player save\n");
         abort();
     }
-    name = r_u32(0x800FF83C);
-    PrepareLevelLoadingScreen((const char *)psx_addr(name, 1), entry->loading_image);
+    PrepareLevelLoadingScreen(current_level_name, entry->loading_image);
     if (entry)
     {
         StopMusicPlayback();
@@ -67,66 +146,66 @@ uint32 LoadLevelFromPlayerSave(uint32 record)
         LoadAudioSequence(entry->music);
     }
     SetResourceReadOption(2000);
-    name = r_u32(0x800FF83C);
-    LoadLevelRecords(name);
+    LoadLevelRecords(current_level_name);
     ResetLevelLoadDisplayState();
     SetResourceReadOption(4);
-    player = sub_800625AC(656);
-    if (player)
+    allocation = AllocateZeroedObject(656);
+    if (allocation)
     {
-        void *dram_addr = AllocateNativeObjectStorage(player, sizeof(Player));
-        new (dram_addr) Player();
+        player = new (allocation) Player();
     }
     // TODO Preserve the original null-allocation fallthrough
-    health = r_u16(record + 100);
-    w_u16(player + 218, health);
-    RestorePlayerInventory((uint8 *)psx_addr(record, 136));
-    if (r_u8(record + 13))
-        SelectStartRecord(record + 13);
-    lives = r_u32(record + 108);
-    minimum = (uint32)(sint32)(sint16)r_u16(0x800EC522);
-    w_u32(0x800FF874, lives);
+    health = (uint16)record.progress.health;
+    player->health = (sint16)(uint16)(health);
+    RestorePlayerInventory(record);
+    if (record.progress.checkpoint[0])
+        SelectStartRecord(record.progress.checkpoint);
+    lives = record.progress.lives;
+    minimum = (uint32)GetGameTuning().initial_lives;
+    game_progress.lives = lives;
     if ((sint32)lives < (sint32)minimum)
-        w_u32(0x800FF874, minimum);
-    camera = sub_800625AC(580);
+        game_progress.lives = minimum;
+    camera = AllocateZeroedObject(580);
     if (camera)
     {
-        void *dram_addr = AllocateNativeObjectStorage(camera, sizeof(Camera));
-        new (dram_addr) Camera(Player::Attach(player));
+        new (camera) Camera(*player);
     }
     ApplyStartRecord();
     CaptureCurrentPlayerSave();
     ResetPanelDisplayTimer();
-    active_camera = visual_lists.cameras;
-    w_u32(active_camera + 564, 3);
-    w_u8(0x800A72B8, 1);
-    w_u8(0x800A72B9, 0);
-    w_u8(0x800A72BA, 0);
-    w_u8(0x800A72BB, 0);
-    w_u8(0x800C6328, 1);
-    w_u8(0x800C6329, 0);
-    w_u8(0x800C632A, 0);
-    w_u8(0x800C632B, 0);
-    return 0x800C6310;
+    active_camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+    active_camera->mode = 3;
+    scene_render.buffers[0].draw.isbg = 1;
+    scene_render.buffers[0].draw.r0 = 0;
+    scene_render.buffers[0].draw.g0 = 0;
+    scene_render.buffers[0].draw.b0 = 0;
+    scene_render.buffers[1].draw.isbg = 1;
+    scene_render.buffers[1].draw.r0 = 0;
+    scene_render.buffers[1].draw.g0 = 0;
+    scene_render.buffers[1].draw.b0 = 0;
 }
 
-
+static const char *const completion_captions[13] = {
+    "Prison level completed", "Sewers level completed", "City level completed", "Death level completed", "Rooftops level completed", "Graveyard level completed", "Plague level completed", "Unknown", "War factory level completed", "War level completed", "Whitehouse level completed", "Unknown", "Unknown",
+};
 
 uint32 CompleteLevel(uint32 completed)
 {
-    uint32 owner = visual_lists.players, value, state, target;
+    Player *owner = visual_lists.players ? static_cast<Player *>(visual_lists.players->owner) : 0;
+    uint32 value, state;
     const LevelEntry *entry, *next_level;
-    uint32 bonus = 0, count, denominator, numerator, name;
+    uint32 bonus = 0, count, denominator, numerator;
+    const char *name;
     FUNCTION_MARKER(0x800174A8, "SLUS_003.73");
-    w_u32(0x800FF008, 1);
+    scene_frame.paused = 1;
     if (owner)
-        Player::Attach(owner).StopWeapon();
+        owner->StopWeapon();
     ClearAnimatedHudText();
-    sub_80070288(0, 0);
-    sub_80070288(0, 1);
-    w_u32(0x800FF758, 0);
+    ClearGamePadActuator(0, 0);
+    ClearGamePadActuator(0, 1);
+    panel_text.lives_timer = 0;
     CaptureCurrentPlayerSave();
-    entry = FindLevelEntry((const char *)psx_addr(r_u32(0x800FF83C), 1));
+    entry = FindLevelEntry(GetCurrentLevelName());
     if (!entry)
     {
         GameDiagnostic("Unknown completed level\n");
@@ -135,41 +214,26 @@ uint32 CompleteLevel(uint32 completed)
     next_level = NextLevelEntry(entry);
     if (!next_level)
     {
-        w_u32(0x800A53D4, 0);
-        w_u32(0x800FF2EC, 3);
+        player_saves.current.checksum = 0;
+        game_session.exit_reason = 3;
         return 3;
     }
-    CopyGameString(next_level->name, (char *)psx_addr(0x800A53D8, 1));
-    value = r_u32(0x800A0578);
-    w_u8(0x800A53E1, 0);
-    w_u32(0x800FF040, completed);
-    w_u32(0x800A5438, value);
+    player_saves.current.progress.SetLevel(next_level->name);
+    value = GetDefaultPlayerSave().progress.health;
+    player_saves.current.progress.checkpoint[0] = 0;
+    game_progress.completion.completed = completed;
+    player_saves.current.progress.health = value;
     if (completed)
     {
-        state = r_u32(0x800FF378);
+        state = level_environment.area_kind;
+        static const uint8 completion_bonus[11] = {5, 22, 26, 0, 11, 23, 0, 0, 3, 0, 18};
         if (state < 11)
-        {
-            target = r_u32(0x800A063C + 4 * state);
-            switch (target)
-            {
-                case 0x800175B4: bonus = 5; break;
-                case 0x800175BC: bonus = 22; break;
-                case 0x800175C4: bonus = 26; break;
-                case 0x800175CC: bonus = 11; break;
-                case 0x800175D4: bonus = 23; break;
-                case 0x800175DC: bonus = 3; break;
-                case 0x800175E4: bonus = 18; break;
-                case 0x800175EC: break;
-                default:
-                    GameDiagnostic("TODO 800174A8 bonus table target %08X\n", target);
-                    abort();
-            }
-        }
-        count = r_u32(0x800FF30C);
+            bonus = completion_bonus[state];
+        count = game_progress.level.enemy_kills;
         value = 0;
         if (count)
         {
-            denominator = r_u32(0x800FF308);
+            denominator = game_progress.level.enemy_total;
             if (denominator)
             {
                 numerator = 100 * (count + bonus);
@@ -179,76 +243,46 @@ uint32 CompleteLevel(uint32 completed)
                     value = (uint32)((sint32)numerator / (sint32)denominator);
             }
         }
-        w_u32(0x800FFB54, value);
-        w_u32(0x800FFB58, 0);
-        w_u32(0x800FF044, 43);
+        game_progress.completion.target_percent = value;
+        game_progress.completion.display_percent = 0;
+        game_progress.completion.blink_ticks = 43;
     }
-    state = r_u32(0x800FF378);
-    name = 0x800FF090;
-    if (state < 13)
-    {
-        target = r_u32(0x800A066C + 4 * state);
-        switch (target)
-        {
-            case 0x80017688: name = r_u32(0x800A551C); break;
-            case 0x80017698: name = r_u32(0x800A5520); break;
-            case 0x800176A8: name = r_u32(0x800A5524); break;
-            case 0x800176B8: name = r_u32(0x800A5528); break;
-            case 0x800176C8: name = r_u32(0x800A552C); break;
-            case 0x800176D8: name = r_u32(0x800A5530); break;
-            case 0x800176E8: name = r_u32(0x800A5534); break;
-            case 0x800176F8: name = r_u32(0x800A5538); break;
-            case 0x80017708: name = r_u32(0x800A553C); break;
-            case 0x80017718: name = r_u32(0x800A5540); break;
-            case 0x80017728: break;
-            default:
-                GameDiagnostic("TODO 800174A8 name table target %08X\n", target);
-                abort();
-        }
-    }
-    w_u32(0x800FF030, name);
-    value = r_u32(0x800FF64C);
-    w_u32(0x800FF034, 0);
-    w_u32(0x800FF080, 5);
-    w_u32(0x800FFB50, value);
+    state = level_environment.area_kind;
+    name = state < 13 ? completion_captions[state] : "Unknown";
+    panel_text.caption = name;
+    value = game_clock.vblank_frame;
+    panel_text.visible = 0;
+    menu_runtime.screen = MENU_SCREEN_RESULTS_CAPTION;
+    panel_text.reveal_frame = value;
     return 5;
 }
-
-
 
 void ReleaseLevelLoadResources()
 {
     FUNCTION_MARKER(0x80011B04, "SLUS_003.73");
     UnloadUnprotectedModelBanks();
     RebuildModelVramAllocations();
-    ReleaseScriptHeap();
+    ReleaseScriptWorkspace();
 }
-
-
-
-
-
 
 void RunGameSession()
 {
     uint32 refresh = 0;
     uint32 state;
-    uint32 source;
-    uint32 destination;
     uint32 test_level;
     const LevelEntry *entry;
-    uint32 word0, word1, word2, word3;
     uint32 index;
-    uint32 object;
-    uint32 resource;
-    uint32 filename;
-    uint32 position[3];
+    GameHeapBlock *object;
+    Camera *created_camera;
+    Player *created_player;
+    GameHeapBlock *resource;
+    Vector3 position;
     uint32 count;
     uint32 toggle;
     FUNCTION_MARKER(0x80030D74, "SLUS_003.73");
-    apocalypse_crt_initialize();
+    InitializeGameConstructors();
     InitializeGameRuntime();
-    if (r_u8(0x800EC1D8) == 0)
+    if (game_pads[0].buttons[14].down == 0)
         PlayMovie(0x1C);
 restart:
     ResetScene(0);
@@ -264,7 +298,7 @@ restart:
     {
         if (state == 0)
         {
-            if (NamesEqualIgnoringCase((const char *)psx_addr(0x800A5460, 1), GetLevelEntry(0)->name))
+            if (NamesEqualIgnoringCase(player_saves.selected.progress.level, GetLevelEntry(0)->name))
                 PlayMovie(2);
             goto load_default;
         }
@@ -272,27 +306,7 @@ restart:
     }
     if (state == 2)
     {
-        destination = 0x800A5460;
-        source = 0x800A0518;
-        do
-        {
-            word0 = r_u32(source);
-            word1 = r_u32(source + 4);
-            word2 = r_u32(source + 8);
-            word3 = r_u32(source + 12);
-            w_u32(destination, word0);
-            w_u32(destination + 4, word1);
-            w_u32(destination + 8, word2);
-            w_u32(destination + 12, word3);
-            source += 16;
-            destination += 16;
-        } while (source != 0x800A0578);
-        word0 = r_u32(source);
-        word1 = r_u32(source + 4);
-        word2 = r_u32(source + 8);
-        w_u32(destination, word0);
-        w_u32(destination + 4, word1);
-        w_u32(destination + 8, word2);
+        player_saves.selected.progress = GetDefaultPlayerSave().progress;
         test_level = 0;
         for (;;)
         {
@@ -301,42 +315,46 @@ restart:
             ResetScene(0);
             if (test_level == 0)
             {
-                sub_8008BF9C(0x800A19D4, r_u32(0x800FF748));
-                sub_8008BF9C(0x800A19F0, r_u32(0x800FF74C));
+                GameDiagnostic("\nHeap 0 space used = %ld", GetGameHeapUsed(0));
+                GameDiagnostic("\nHeap 1 space used = %ld", GetGameHeapUsed(1));
             }
             index = 0;
-            CopyGameString(GetLevelEntry(test_level)->name, (char *)psx_addr(0x800A5460, 1));
-            w_u8(0x800A5469, 0);
-            LoadLevelFromPlayerSave(0x800A545C);
-            while ((sint32)index < (sint32)r_u32(0x800FF628))
+            player_saves.selected.progress.SetLevel(GetLevelEntry(test_level)->name);
+            player_saves.selected.progress.checkpoint[0] = 0;
+            LoadLevelFromPlayerSave(player_saves.selected);
+            while ((sint32)index < (sint32)GetLevelRecordCount())
             {
-                if ((sint16)r_u16(r_u32(r_u32(0x800FF624) + index * 4)) == 8)
+                if ((sint16)(GetLevelRecord(index)).Read16() == 8)
                 {
-                    filename = xport_draft_host_sub_8006613C_p1(position, index) + 6;
+                    RecordCursor checkpoint_name = ReadRecordPosition(position.words, index) + 6;
                     ResetScene(1);
                     InitializeLevelRecords();
+                    created_camera = 0;
                     object = AllocateZeroedObject(0x244);
                     if (object != 0)
                     {
+                        created_player = 0;
                         resource = AllocateZeroedObject(0x290);
                         if (resource != 0)
-                            resource = sub_8005C5C0(resource);
-                        object = sub_800772B8(object, resource);
+                        {
+                            created_player = new (resource) Player();
+                        }
+                        created_camera = new (object) Camera(*created_player);
                     }
                     // TODO Original allocation failure path still writes through a zero object
-            w_u32(object + 0x234, 3);
-                    SelectStartRecord(filename);
-                    w_u32(0x800FF2E0, filename);
+                    created_camera->mode = 3;
+                    SelectStartRecord(checkpoint_name.CStr());
+                    test_caption.Set(checkpoint_name.CStr());
+                    checkpoint_name = RecordCursor();
                     ApplyStartRecord();
-                    w_u32(0x800FF81C, 0x800A6558);
-                    w_u32(0x800FF818, 2);
+                    input_recording.UseTestReplay();
                     RunLevelLoop();
-                    state = r_u32(0x800FF2EC);
-                    w_u32(0x800FF81C, 0);
+                    state = game_session.exit_reason;
+                    input_recording.ReleaseData();
                     if (state == 5)
                     {
-                        w_u32(0x800FF818, 0);
-                        w_u32(0x800FF2E0, 0);
+                        input_recording.Stop();
+                        test_caption.Set(0);
                         goto restart;
                     }
                 }
@@ -347,181 +365,125 @@ restart:
     }
     if (state != 3)
         goto frame;
-    if (r_u8(0x800FF314) == 0)
+    if (game_session.demo_next == 0)
     {
-        w_u32(0x800FF310, 1);
+        game_session.movie_any_button_skip = 1;
         PlayMovie(0x1C);
-        toggle = r_u8(0x800FF314);
-        w_u8(0x800FF314, toggle ^ 1);
+        toggle = game_session.demo_next;
+        game_session.demo_next = toggle ^ 1;
         goto restart;
     }
-    destination = 0x800FFD68;
-    source = 0x800A53D4;
-    state = r_u32(0x800FF2FC);
-    w_u32(0x800FF2FC, 0);
-    w_u32(0x800FF2E4, state);
-    do
-    {
-        word0 = r_u32(source);
-        word1 = r_u32(source + 4);
-        word2 = r_u32(source + 8);
-        word3 = r_u32(source + 12);
-        w_u32(destination, word0);
-        w_u32(destination + 4, word1);
-        w_u32(destination + 8, word2);
-        w_u32(destination + 12, word3);
-        source += 16;
-        destination += 16;
-    } while (source != 0x800A5454);
-    index = r_u8(0x800FF2E9);
-    word0 = r_u32(source);
-    word1 = r_u32(source + 4);
-    w_u32(destination, word0);
-    w_u32(destination + 4, word1);
-    LoadLevelFromPlayerSave(0x800A6578 + index * 0x8C);
-    index = r_u8(0x800FF2E9);
-    resource = sub_8006B04C(r_u32(0x800A6600 + index * 0x8C));
-    w_u32(0x800FF394, resource);
-    resource = AllocateHeapBlock(resource, 1, 1);
-    w_u32(0x800FF81C, resource);
-    BeginResourceRead(resource);
-    WaitForResourceRead();
-    resource = r_u32(0x800FF81C);
-    toggle = r_u8(0x800FF314);
-    w_u32(0x800FF818, 2);
-    w_u32(0x800FF820, resource);
-    w_u8(0x800FF314, toggle ^ 1);
+    state = game_settings.vibration;
+    game_settings.vibration = VibrationNone;
+    game_session.saved_vibration = state;
+    player_saves.replay_backup = player_saves.current;
+    index = game_session.demo_index;
+    LoadLevelFromPlayerSave(GetDemoPlayerSave(index));
+    index = game_session.demo_index;
+    input_recording.LoadReplay(GetDemoRecordingName(index));
+    toggle = game_session.demo_next;
+    game_session.demo_next = toggle ^ 1;
 frame:
     RunLevelLoop();
-    resource = r_u32(0x800FF81C);
-    if (resource != 0)
+    if (input_recording.HasBuffer())
     {
-        ReleaseHeapBlock(resource);
-        w_u32(0x800FF81C, 0);
-        w_u32(0x800FF2EC, 4);
+        input_recording.ReleaseData();
+        game_session.exit_reason = 4;
     }
-    if (r_u32(0x800FF818) == 2)
+    if (input_recording.GetMode() == InputRecording::Replay)
     {
-        destination = 0x800A53D4;
-        source = 0x800FFD68;
-        state = r_u32(0x800FF2E4);
-        w_u32(0x800FF2FC, state);
-        do
-        {
-            word0 = r_u32(source);
-            word1 = r_u32(source + 4);
-            word2 = r_u32(source + 8);
-            word3 = r_u32(source + 12);
-            w_u32(destination, word0);
-            w_u32(destination + 4, word1);
-            w_u32(destination + 8, word2);
-            w_u32(destination + 12, word3);
-            source += 16;
-            destination += 16;
-        } while (source != 0x800FFDE8);
-        word0 = r_u32(source);
-        word1 = r_u32(source + 4);
-        w_u32(destination, word0);
-        w_u32(destination + 4, word1);
+        state = game_session.saved_vibration;
+        game_settings.vibration = state;
+        player_saves.current = player_saves.replay_backup;
     }
-    state = r_u32(0x800FF2EC);
-    w_u32(0x800FF818, 0);
+    state = game_session.exit_reason;
+    input_recording.Stop();
     switch (state)
     {
         case 1:
-            w_u32(0x800FEF00, 5);
+
             goto restart;
         case 2:
-            count = r_u32(0x800FF874);
+            count = game_progress.lives;
             if (count != 0)
             {
                 if (GetCheatOptions().unlimited_lives == 0)
                 {
-                    w_u32(0x800FF874, count - 1);
-                    count = r_u32(0x800FF874);
+                    game_progress.lives = count - 1;
+                    count = game_progress.lives;
                 }
-                w_u32(0x800A5440, count);
+                player_saves.current.progress.lives = count;
                 if (count != 0)
                 {
                     ResetScene(1);
                     InitializeLevelRecords();
+                    created_camera = 0;
                     object = AllocateZeroedObject(0x244);
                     if (object != 0)
                     {
+                        created_player = 0;
                         resource = AllocateZeroedObject(0x290);
                         if (resource != 0)
-                            resource = sub_8005C5C0(resource);
-                        object = sub_800772B8(object, resource);
+                        {
+                            created_player = new (resource) Player();
+                        }
+                        created_camera = new (object) Camera(*created_player);
                     }
                     // TODO Original allocation failure path still writes through a zero object
-            w_u32(object + 0x234, 3);
-                    sub_80018B70(0x800A53D4);
+                    created_camera->mode = 3;
+                    RestorePlayerInventory(player_saves.current);
                     goto restore;
                 }
             }
-            count = (uint32)(sint32)(sint16)r_u16(0x800EC522);
-            w_u32(0x800FEF00, 20);
-            w_u32(0x800FF874, count);
+            count = (uint32)GetGameTuning().initial_lives;
+
+            game_progress.lives = count;
             goto restart;
         case 3:
             ResetScene(0);
-            entry = FindLevelEntry((const char *)psx_addr(r_u32(0x800FF83C), 1));
+            entry = FindLevelEntry(GetCurrentLevelName());
             if (!entry)
             {
                 GameDiagnostic("Unknown level for completion movie\n");
                 abort();
             }
             PlayMovie(entry->completion_movie);
-            if (r_u32(0x800A53D4) == 0)
+            if (player_saves.current.checksum == 0)
             {
                 refresh = 1;
                 goto restart;
             }
-            source = 0x800A53D4;
-            destination = 0x800A545C;
-            do
-            {
-                word0 = r_u32(source);
-                word1 = r_u32(source + 4);
-                word2 = r_u32(source + 8);
-                word3 = r_u32(source + 12);
-                w_u32(destination, word0);
-                w_u32(destination + 4, word1);
-                w_u32(destination + 8, word2);
-                w_u32(destination + 12, word3);
-                source += 16;
-                destination += 16;
-            } while (source != 0x800A5454);
-            word0 = r_u32(source);
-            word1 = r_u32(source + 4);
-            w_u32(destination, word0);
-            w_u32(destination + 4, word1);
+            player_saves.selected = player_saves.current;
             goto load_default;
         case 4:
         case 5:
             ResetScene(0);
-            index = r_u8(0x800FF2E9) + 1;
-            w_u8(0x800FF2E9, index);
+            index = game_session.demo_index + 1;
+            game_session.demo_index = index;
             index &= 0xFF;
-            if (r_u8(r_u32(0x800A6600 + index * 0x8C)) == 0)
-                w_u8(0x800FF2E9, 0);
+            if (GetDemoRecordingName(index)[0] == 0)
+                game_session.demo_index = 0;
             goto restart;
         case 6:
             ResetScene(1);
             InitializeLevelRecords();
+            created_camera = 0;
             object = AllocateZeroedObject(0x244);
             if (object != 0)
             {
+                created_player = 0;
                 resource = AllocateZeroedObject(0x290);
                 if (resource != 0)
-                    resource = sub_8005C5C0(resource);
-                object = sub_800772B8(object, resource);
+                {
+                    created_player = new (resource) Player();
+                }
+                created_camera = new (object) Camera(*created_player);
             }
             // TODO Original allocation failure path still writes through a zero object
-            w_u32(object + 0x234, 3);
+            created_camera->mode = 3;
             goto restore;
         case 7:
-            w_u32(0x800FEF00, 20);
+
             goto restart;
         default:
             goto restart;
@@ -531,22 +493,6 @@ restore:
     ResetPanelDisplayTimer();
     goto frame;
 load_default:
-    LoadLevelFromPlayerSave(0x800A545C);
+    LoadLevelFromPlayerSave(player_saves.selected);
     goto frame;
 }
-
-extern "C" void sub_80030D74(void)
-{
-    FUNCTION_MARKER(0x80030D74, "SLUS_003.73");
-    RunGameSession();
-}
-
-
-
-
-
-
-
-
-
-

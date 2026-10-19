@@ -1,6 +1,8 @@
 #ifndef ENEMY_LIST_H
 #define ENEMY_LIST_H
 
+#include "record_data.h"
+
 struct ModelInstance;
 
 extern "C"
@@ -12,7 +14,7 @@ void ClearObjectActivationFlags(ModelInstance *instance);
 void RestoreNearbySuspendedObjects();
 uint32 FinishSelectedEnemies();
 void ActivateObjectsByIndex(ModelInstance *instance, uint32 index);
-uint32 ActivateEnemyIndices(const uint16 *indices);
-uint32 SpawnEnemyIndices(const uint16 *indices);
+uint32 ActivateEnemyIndices(RecordCursor indices);
+uint32 SpawnEnemyIndices(RecordCursor indices);
 
 #endif

@@ -6,6 +6,6 @@
 void ResetModelPolygonQueue();
 void ReleaseModelPolygonQueue();
 const ModelPolygon *ReadQueuedModelPolygons(uint32 &count);
-void QueueNearPlanePolygon(const ModelPolygon *descriptor, uint32 scratch, uint32 projection, uint32 flags, const uint32 offsets[4], const uint32 depths[4]);
+void QueueWaterPlanePolygon(const ModelPolygon *descriptor, uint32 flags, const uint32 offsets[4], const uint32 depths[4]);
 
 #endif

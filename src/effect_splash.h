@@ -16,21 +16,30 @@ class Droplet : public Sprite
 {
 public:
     Droplet(const uint32 *position, uint32 angle, uint32 red, uint32 green, uint32 blue);
-    static Droplet &Attach(uint32 object);
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
 
+private:
+    uint32 floor_y;
+    uint8 rgb[3];
 };
 
 class ImpactRing : public MeshRingEffect
 {
 public:
     ImpactRing(const uint32 velocity[3]);
-    virtual ~ImpactRing() {}
-    static ImpactRing &Attach(uint32 object);
-    virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
 
+    virtual ~ImpactRing()
+    {
+    }
+
+    virtual uint32 Destroy(uint32 reason);
+    virtual void Update();
+
+    uint16 age;
+    uint16 lifetime;
+    sint16 radius_step;
+    sint16 width_step;
 };
 
 #endif

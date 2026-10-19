@@ -6,9 +6,12 @@
 class FloatingHazard : public Enemy
 {
 public:
-    FloatingHazard(const uint8 *record_data, uint32 index);
-    virtual ~FloatingHazard() {}
-    static FloatingHazard &Attach(uint32 object);
+    FloatingHazard(const RecordCursor &record_data, uint32 index);
+
+    virtual ~FloatingHazard()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 kind);
     virtual uint32 Update();
@@ -16,8 +19,10 @@ public:
     uint32 UpdateHeight();
 
 private:
+    uint16 bob_phase;
+    uint32 bob_offset;
+
     // Native helpers share original inline explosion and adjusted finish dispatch
-    void FinishFromTable();
     void Explode();
 };
 
@@ -25,15 +30,18 @@ class BallisticHazard : public Enemy
 {
 public:
     BallisticHazard(const uint32 *position, uint32 kind, uint32 flags, uint32 parameter, sint32 vertical_speed);
-    virtual ~BallisticHazard() {}
-    static BallisticHazard &Attach(uint32 object);
+
+    virtual ~BallisticHazard()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 kind);
     virtual uint32 Update();
 
 private:
-    // Native helper retains the original adjusted finish call
-    uint32 FinishFromTable();
+    uint16 impact_flags;
+    uint32 impact_radius;
 };
 
 #endif

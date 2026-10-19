@@ -1,6 +1,8 @@
 #ifndef WEAPON_NODES_H
 #define WEAPON_NODES_H
 
+#include "vector3.h"
+
 extern "C"
 {
 #include "psx.h"
@@ -8,8 +10,8 @@ extern "C"
 
 // Native service boundary retains the authorized BIOS fail-fast contract
 sint32 ReadWeaponLightRandom();
-uint32 ReleaseWeaponStorage(uint32 allocation);
-uint32 FireInactiveWeapon();
+class Object;
+uint32 ReleaseWeaponStorage(Object *object);
 
 // Original weapon kinds stored at object offset 4
 enum WeaponType
@@ -29,33 +31,44 @@ enum WeaponType
 #include "object.h"
 #include "model_instance.h"
 
+class EffectObject;
+class RingEffect;
+class BeamSegments;
+
 class WeaponNodeBase : public Object
 {
 public:
-    virtual ~WeaponNodeBase() {}
-    static WeaponNodeBase &Attach(uint32 object);
+    virtual ~WeaponNodeBase()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
 
 protected:
     // Native base binding adds no original memory writes
-    WeaponNodeBase() {}
+    WeaponNodeBase()
+    {
+    }
 };
 
 class WeaponNode : public WeaponNodeBase
 {
 public:
     WeaponNode(ModelInstance **list, ModelInstance **secondary_list);
-    static WeaponNode &Attach(uint32 object);
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     virtual uint32 Fire(const uint32 *position, const sint16 *angles);
     // Native cleanup returns zero while timer callbacks retain their carriers
-    virtual uint32 Update(const sint32 *position, const sint16 *angles);
+    virtual uint32 Update(const uint32 *position, const sint16 *angles);
     void ClearChild();
     uint32 ConsumeAmmo(uint32 amount);
 
     uint32 type;
-    uint32 child;
+    uint32 fire_active;
+    uint32 last_fire_tick;
+    uint32 start_tick;
+    uint32 child_tick;
+    ObjectReference<EffectObject> child;
     uint32 damage;
     ModelInstance **owner_list;
     ModelInstance **secondary_list;
@@ -63,94 +76,114 @@ public:
     uint32 ammo;
 
 protected:
-    // Native helper retains the original paired LWL/LWR angle load
-    static uint32 ReadAnglesWord(uint32 address);
+    Vector3 muzzle_pos;
 };
 
 class HomingMissiles : public WeaponNode
 {
 public:
     HomingMissiles(ModelInstance **list);
-    static HomingMissiles &Attach(uint32 object);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update(const sint32 *position, const sint16 *angles);
+    virtual uint32 Update(const uint32 *position, const sint16 *angles);
 
 private:
-    };
+    uint32 fire_delay;
+    uint32 fire_timer;
+};
 
 class PulseLaser : public WeaponNode
 {
 public:
     PulseLaser(ModelInstance **list);
-    static PulseLaser &Attach(uint32 object);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update(const sint32 *position, const sint16 *angles);
+    virtual uint32 Update(const uint32 *position, const sint16 *angles);
 
 private:
-    };
+    uint32 fire_delay;
+    uint32 fire_timer;
+};
 
 class ParticleBeam : public WeaponNode
 {
 public:
     ParticleBeam(ModelInstance **list, uint32 range, uint32 mode, uint32 effect_scale, uint32 sound);
-    static ParticleBeam &Attach(uint32 object);
+    virtual ~ParticleBeam();
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update(const sint32 *position, const sint16 *angles);
+    virtual uint32 Update(const uint32 *position, const sint16 *angles);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     uint32 SetColors(uint32 red1, uint32 green1, uint32 blue1, uint32 red2, uint32 green2, uint32 blue2, uint32 red3, uint32 green3, uint32 blue3, uint32 red4, uint32 green4, uint32 blue4);
     void ClearChildren();
 
 private:
+    friend class Plague;
+    uint32 impact_count;
+    uint32 segment_len;
+    uint32 trail_mode;
+    ObjectReference<BeamSegments> beam[2];
+    CVECTOR colors[4];
+    uint32 ring_scale;
+    uint32 sound_id;
+    ObjectReference<RingEffect> ring;
+
     // Native helper retains original inline damage dispatch
-    void DamageTarget(uint32 hit, const uint32 direction[3]);
+    void DamageTarget(ModelInstance *hit, const Vector3 &direction);
 };
 
 class RipLaser : public WeaponNode
 {
 public:
     RipLaser(ModelInstance **list);
-    static RipLaser &Attach(uint32 object);
+    virtual ~RipLaser();
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update(const sint32 *position, const sint16 *angles);
+    virtual uint32 Update(const uint32 *position, const sint16 *angles);
     uint32 SetColors(uint32 first_red, uint32 first_green, uint32 first_blue, uint32 second_red, uint32 second_green, uint32 second_blue);
     void ClearChildren();
 
 private:
+    uint32 retarget_timer;
+    uint32 impact_active;
+    uint32 impact_count;
+    ObjectReference<BeamSegments> beam[2];
+    Vector3 impact_pos;
+    CVECTOR colors[2];
+
     // Native helpers retain original inline call setup
-    void DamageTarget(uint32 hit);
+    void DamageTarget(ModelInstance *hit);
 };
 
 class Grenades : public WeaponNode
 {
 public:
     Grenades(ModelInstance **list);
-    static Grenades &Attach(uint32 object);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update(const sint32 *position, const sint16 *angles);
+    virtual uint32 Update(const uint32 *position, const sint16 *angles);
 
 private:
-    };
+    uint32 fire_delay;
+    uint32 fire_timer;
+};
 
 class Rockets : public WeaponNode
 {
 public:
     Rockets(ModelInstance **list);
-    static Rockets &Attach(uint32 object);
     virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
     virtual uint32 Fire(const uint32 *input_position, const sint16 *input_angles);
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update(const sint32 *position, const sint16 *angles);
+    virtual uint32 Update(const uint32 *position, const sint16 *angles);
 
 private:
-    };
+    uint32 fire_delay;
+    uint32 fire_timer;
+};
 
 #endif

@@ -1,80 +1,90 @@
+#include <stdlib.h>
+#include <limits.h>
+#include <string.h>
+
+#include "level_session.h"
+#include "input_recording.h"
+#include "game_tick.h"
 #include "resource_io.h"
 #include "game_pad_poll.h"
-extern "C"
+#include "game_diagnostics.h"
+#include "game_settings.h"
+
+GamePadInput game_pads[2];
+PadCalibration pad_calibration[4];
+static uint8 special_buttons[256];
+static uint8 raw_packets[2][34];
+static uint8 packets[2][4][8];
+static uint8 actuator_alignment[6] = {0, 1, 255, 255, 255, 255};
+PadPolling pad_polling = {0, 0, {0, 0, 0, 0, 0, 0, 0, 0}};
+
+void ResetGamePadState()
 {
-#include "game_pad_startup.h"
-#include "draft_first_signatures.h"
+    PadStopCom();
+    memset(raw_packets, 0, sizeof(raw_packets));
+    memset(packets, 0, sizeof(packets));
+    psx_pad_bind_owner_packets(0, 0, 0, 0, 0, 0);
+    for (uint32 port = 0; port < 2; ++port)
+        game_pads[port] = GamePadInput();
+    for (uint32 index = 0; index < 256; ++index)
+        special_buttons[index] = 0;
+    game_settings.bindings = ControlBindings();
+    for (uint32 axis = 0; axis < 4; ++axis)
+        pad_calibration[axis] = PadCalibration();
+    pad_polling.idle_ticks = pad_polling.frame = 0;
+    for (uint32 index = 0; index < 8; ++index)
+        pad_polling.prev_axes[index] = 0;
 }
-#include <limits.h>
-#include "native_object_storage.h"
 
-static uint32 ClearGamePadButton(uint32 port, uint32 button);
-
-static uint32 RecordButton(uint32 state, uint32 pressed, uint32 index)
+GamePadInput::GamePadInput() : type(0), reset_ticks(0), actuator_ready(0)
 {
-    uint32 old, down = pressed != 0, record, frame, cursor, result;
+    for (uint32 index = 0; index < 4; ++index)
+    {
+        digital_masks[index] = analog_masks[index] = 0;
+        axis_map[index] = raw_axis[index] = axis[index] = 0;
+    }
+    for (uint32 index = 0; index < 2; ++index)
+    {
+        actuators[index] = 0;
+        actuator_ticks[index] = 0;
+    }
+}
+
+uint32 PadButton::Record(uint32 value, uint32 index)
+{
     FUNCTION_MARKER(0x80070354, "SLUS_003.73");
-    result = r_u32(state + 12) + 1;
-    w_u32(state + 12, result);
-    old = r_u8(state);
-    if (!old)
+    uint32 new_down = value != 0;
+    ++elapsed;
+    if (!down && new_down)
     {
-        if (down)
-        {
-            w_u8(state + 1, 1);
-            w_u32(state + 12, 0);
-        }
-        old = r_u8(state);
+        pressed = 1;
+        elapsed = 0;
     }
-    if (old != down)
-    {
-        record = r_u32(0x800FF820);
-        frame = r_u16(0x800FF830);
-        w_u8(record + 6, index);
-        cursor = r_u32(0x800FF820);
-        w_u16(record + 4, frame);
-        w_u8(cursor + 7, down);
-        cursor = r_u32(0x800FF820);
-        frame = r_u32(0x800FF38C);
-        w_u32(cursor, frame);
-        cursor += 8;
-        w_u32(0x800FF820, cursor);
-        w_u16(cursor + 4, 65535);
-    }
-    w_u8(state, down);
+    if (down != new_down)
+        input_recording.Append(game_clock.elapsed, (uint16)pad_polling.frame, index, new_down);
+    down = new_down;
     if (down)
     {
-        result = r_u32(state + 4);
-        w_u32(state + 8, 0);
-        ++result;
-        w_u32(state + 4, result);
-        return result;
+        released = 0;
+        return ++held;
     }
-    result = r_u32(state + 8);
-    w_u32(state + 4, 0);
-    ++result;
-    w_u32(state + 8, result);
-    return result;
+    held = 0;
+    return ++released;
 }
 
-static uint32 ReplayButton(uint32 state, uint32 index)
+uint32 PadButton::Replay(uint32 index)
 {
-    uint32 record, frame, result, seed;
     FUNCTION_MARKER(0x80070410, "SLUS_003.73");
-    record = r_u32(0x800FF820);
-    frame = r_u32(0x800FF830);
-    result = (sint32)frame < (sint32)r_u16(record + 4);
+    uint32 frame = pad_polling.frame;
+    uint32 result = (sint32)frame < (sint32)input_recording.NextFrame();
     if (result)
         return result;
-    result = r_u8(record + 6);
-    if (result != index)
-        return result;
-    UpdateButtonState(state, r_u8(record + 7));
-    record = r_u32(0x800FF820);
-    seed = r_u32(record);
-    w_u32(0x800FF820, record + 8);
-    w_u32(0x800FF390, seed);
-    return record + 8;
+    RecordedInputEvent event = input_recording.ReadEvent();
+    if (event.button != index)
+        return event.button;
+    Update(event.down);
+    input_recording.AdvanceReplay(event.timestamp);
+    return 1;
 }
 
 static sint32 DividePadWord(sint32 n, sint32 d)
@@ -97,7 +107,7 @@ static sint32 ScalePadAxis(uint32 raw, uint32 minimum, uint32 maximum, uint32 ce
         return 127;
     if (value < (sint32)(centre - 32))
     {
-        w_u32(0x800FF814, 0);
+        pad_polling.idle_ticks = 0;
         distance = centre - (raw + 32);
         numerator = distance - (distance << 7);
         denominator = centre - (minimum + 32);
@@ -105,7 +115,7 @@ static sint32 ScalePadAxis(uint32 raw, uint32 minimum, uint32 maximum, uint32 ce
     }
     if ((sint32)(centre + 32) < value)
     {
-        w_u32(0x800FF814, 0);
+        pad_polling.idle_ticks = 0;
         distance = raw - 32 - centre;
         numerator = (distance << 7) - distance;
         denominator = maximum - 32 - centre;
@@ -114,87 +124,66 @@ static sint32 ScalePadAxis(uint32 raw, uint32 minimum, uint32 maximum, uint32 ce
     return 0;
 }
 
-static uint16 ReadPacketButtons(uint32 packet)
+static uint16 ReadPacketButtons(const uint8 *packet)
 {
-    uint32 type = r_u8(packet + 1), high, low;
+    uint32 type = packet[1], high, low;
     if (type == 83)
     {
-        uint32 index = r_u8(packet + 3);
-        high = r_u8(packet + 2);
-        low = r_u8(0x801027A8 + index);
+        uint32 index = packet[3];
+        high = packet[2];
+        low = special_buttons[index];
     }
     else if (type == 65 || type == 115)
     {
-        high = r_u8(packet + 2);
-        low = r_u8(packet + 3);
+        high = packet[2];
+        low = packet[3];
     }
     else
         return 0;
-    return (uint16)~((high << 8) | low);
+    return (uint16) ~((high << 8) | low);
 }
 
-static uint32 ReadPadPacketByte(const uint8 *packet, uint32 address, uint32 offset)
+static void RestartPadCommunication()
 {
-    return address ? r_u8(address + offset) : packet[offset];
+    PadStopCom();
+    PadStartCom();
 }
 
-static void WritePadPacketByte(uint8 *packet, uint32 address, uint32 offset, uint32 value)
-{
-    if (address)
-        w_u8(address + offset, value);
-    else
-        packet[offset] = (uint8)value;
-}
-
-static uint32 CopyGamePadPacket(uint8 *destination, const uint8 *source)
+static void CopyGamePadPacket(uint8 *dst, const uint8 *src)
 {
     FUNCTION_MARKER(0x800705F8, "SLUS_003.73");
-    uint32 destination_address = GuestMemoryAddress(destination);
-    uint32 source_address = GuestMemoryAddress(source);
-    uint32 first = ReadPadPacketByte(source, source_address, 0);
-    uint32 previous = ReadPadPacketByte(destination, destination_address, 1);
-    WritePadPacketByte(destination, destination_address, 0, first);
-    for (uint32 index = 1; index < 8; ++index)
+    uint8 first = src[0];
+    uint8 prev_type = dst[1];
+    dst[0] = first;
+    for (uint32 idx = 1; idx < 8; ++idx)
+        dst[idx] = src[idx];
+    if (src[0] == 255)
+        dst[1] = 0;
+    else if (prev_type != dst[1])
     {
-        uint32 value = ReadPadPacketByte(source, source_address, index);
-        WritePadPacketByte(destination, destination_address, index, value);
+        RestartPadCommunication();
+        game_pads[0].actuator_ready = 0;
     }
-    if (ReadPadPacketByte(source, source_address, 0) == 255)
-        WritePadPacketByte(destination, destination_address, 1, 0);
-    else if (previous != ReadPadPacketByte(destination, destination_address, 1))
-    {
-        sub_8009C7EC();
-        sub_8009C7CC();
-        w_u8(0x800EC26F, 0);
-        return 0x800F0000;
-    }
-    return previous;
 }
 
-uint32 NormalizePadPackets(void)
+static void NormalizePadPackets()
 {
     FUNCTION_MARKER(0x8007047C, "SLUS_003.73");
-    uint32 port, source, destination;
-    for (port = 0; port < 2; ++port)
+    for (uint32 port = 0; port < 2; ++port)
     {
-        source = 0x800EC3F0 + 34 * port;
-        destination = 0x800EC434 + 32 * port;
-        if (r_u8(source + 1) == 128)
+        const uint8 *src = raw_packets[port];
+        if (src[1] == 128)
         {
-            CopyGamePadPacket((uint8 *)psx_addr(destination, 8), (const uint8 *)psx_addr(source + 2, 8));
-            CopyGamePadPacket((uint8 *)psx_addr(destination + 8, 8), (const uint8 *)psx_addr(source + 10, 8));
-            CopyGamePadPacket((uint8 *)psx_addr(destination + 16, 8), (const uint8 *)psx_addr(source + 18, 8));
-            CopyGamePadPacket((uint8 *)psx_addr(destination + 24, 8), (const uint8 *)psx_addr(source + 26, 8));
+            for (uint32 slot = 0; slot < 4; ++slot)
+                CopyGamePadPacket(packets[port][slot], src + 2 + 8 * slot);
         }
         else
         {
-            CopyGamePadPacket((uint8 *)psx_addr(destination, 8), (const uint8 *)psx_addr(source, 8));
-            w_u8(destination + 9, 0);
-            w_u8(destination + 17, 0);
-            w_u8(destination + 25, 0);
+            CopyGamePadPacket(packets[port][0], src);
+            for (uint32 slot = 1; slot < 4; ++slot)
+                packets[port][slot][1] = 0;
         }
     }
-    return 128;
 }
 
 uint32 PollPadPackets(void)
@@ -203,440 +192,306 @@ uint32 PollPadPackets(void)
     /* Service native elapsed VBlank time while the game polls hardware input */
     VSync(-1);
     static const uint32 masks[16] = {16, 128, 32, 64, 4, 1, 8, 2, 32768, 8192, 4096, 16384, 512, 1024, 2048, 256};
-    uint32 port, i, address, timer, first, second, buttons, table, mode, unchanged = 1, first_type, second_type;
-    w_u32(0x800FF830, r_u32(0x800FF830) + 1);
+    uint32 port, i, timer, first, second, buttons, mode, unchanged = 1, first_type, second_type;
+    pad_polling.frame = pad_polling.frame + 1;
     for (port = 0; port < 2; ++port)
         for (i = 0; i < 2; ++i)
         {
-            address = 0x800EC270 + 380 * port + 2 * i;
-            timer = r_u16(address);
+            timer = game_pads[port].actuator_ticks[i];
             if (timer)
             {
-                w_u16(address, timer - 1);
+                game_pads[port].actuator_ticks[i] = timer - 1;
                 if ((uint16)(timer - 1) == 0)
-                    ClearGamePadButton(port, i);
+                    ClearGamePadActuator(port, i);
             }
         }
     NormalizePadPackets();
-    first = ReadPacketButtons(0x800EC434);
-    second = ReadPacketButtons(0x800EC454);
+    first = ReadPacketButtons(packets[0][0]);
+    second = ReadPacketButtons(packets[1][0]);
     buttons = (second << 16) | first;
-    first_type = r_u8(0x800EC435);
-    second_type = r_u8(0x800EC455);
-    w_u32(0x800EC3E0, second_type);
-    w_u32(0x800EC264, first_type);
-    table = (first_type == 115 || first_type == 83) ? 0x800EC248 : 0x800EC238;
-    mode = r_u32(0x800FF818);
+    first_type = packets[0][0][1];
+    second_type = packets[1][0][1];
+    game_pads[1].type = second_type;
+    game_pads[0].type = first_type;
+    const uint32 *action_masks = (first_type == 115 || first_type == 83) ? game_pads[0].analog_masks : game_pads[0].digital_masks;
+    mode = input_recording.GetMode();
     if (mode)
     {
         if (buttons)
-            w_u32(0x800FF814, 0);
+            pad_polling.idle_ticks = 0;
     }
     else
     {
         uint32 axes[8];
         for (i = 0; i < 8; ++i)
         {
-            address = (i < 4 ? 0x800EC438 : 0x800EC458) + (i & 3);
-            axes[i] = r_u8(address) & 252;
+            axes[i] = packets[i / 4][0][4 + (i & 3)] & 252;
         }
         if (buttons)
             unchanged = 0;
         else
             for (i = 0; i < 8; ++i)
-                if (axes[i] != r_u32(0x800FFC80 + 4 * i))
+                if (axes[i] != pad_polling.prev_axes[i])
                 {
                     unchanged = 0;
                     break;
                 }
         if (unchanged)
-            w_u32(0x800FF814, r_u32(0x800FF814) + 1);
+            pad_polling.idle_ticks = pad_polling.idle_ticks + 1;
         else
             for (i = 0; i < 8; ++i)
-                w_u32(0x800FFC80 + 4 * i, axes[i]);
+                pad_polling.prev_axes[i] = axes[i];
         if ((second & 0x900) == 0x900)
-            w_u32(0x800EC3E4, r_u32(0x800EC3E4) + 1);
+            game_pads[1].reset_ticks = game_pads[1].reset_ticks + 1;
         else
-            w_u32(0x800EC3E4, 0);
-        if (r_u32(0x800EC268) == 120 || r_u32(0x800EC3E4) == 120)
+            game_pads[1].reset_ticks = 0;
+        if (game_pads[0].reset_ticks == 120 || game_pads[1].reset_ticks == 120)
             return 1;
     }
-    mode = r_u32(0x800FF818);
-    if (mode == 2)
+    mode = input_recording.GetMode();
+    if (mode == InputRecording::Replay)
     {
         if (first)
         {
-            w_u32(0x800FF2EC, 5);
+            game_session.exit_reason = 5;
             return 0;
         }
-        for (i = 0; i < 8; ++i)
-            w_u8(0x800EC25C + i, 128);
-        w_u32(0x800EC264, 65);
+        for (i = 0; i < 4; ++i)
+        {
+            game_pads[0].raw_axis[i] = 128;
+            game_pads[0].axis[i] = 128;
+        }
+        game_pads[0].type = 65;
         for (i = 0; i < 20; ++i)
         {
-            ReplayButton(0x800EC0F8 + 16 * i, i);
-            if (r_u16(r_u32(0x800FF820) + 4) == 65535)
+            game_pads[0].buttons[i].Replay(i);
+            if (input_recording.AtEnd())
             {
-                w_u32(0x800FF2EC, 4);
+                game_session.exit_reason = 4;
                 return 0;
             }
         }
         return 0;
     }
-    if (mode != 0 && mode != 1)
+    if (mode != InputRecording::Live && mode != InputRecording::Recording)
         return 0;
     if (!mode)
     {
-        first_type = r_u32(0x800EC264);
+        first_type = game_pads[0].type;
     }
     if (!mode && (first_type == 115 || first_type == 83))
     {
         for (i = 0; i < 4; ++i)
         {
-            w_u8(0x800EC25C + i, r_u8(0x800EC438 + r_u8(0x800EC258 + i)));
-            w_u8(0x800EC3D8 + i, r_u8(0x800EC458 + r_u8(0x800EC3D4 + i)));
+            game_pads[0].raw_axis[i] = packets[0][0][4 + game_pads[0].axis_map[i]];
+            game_pads[1].raw_axis[i] = packets[1][0][4 + game_pads[1].axis_map[i]];
         }
-        static const uint32 limits[4][3] = {
-            {0x800FF7F0, 0x800FF7F4, 0x800FF808},
-            {0x800FF7F8, 0x800FF7FC, 0x800FF80C},
-            {0x800FF7E0, 0x800FF7E4, 0x800FF800},
-            {0x800FF7E8, 0x800FF7EC, 0x800FF804}
-        };
         sint32 scaled = 0;
         for (i = 0; i < 4; ++i)
         {
-            uint32 raw = r_u8(0x800EC25F - i);
-            uint32 minimum = r_u32(limits[i][0]);
-            uint32 maximum = r_u32(limits[i][1]);
-            uint32 centre = r_u32(limits[i][2]);
+            uint32 raw = game_pads[0].raw_axis[3 - i];
+            const PadCalibration &limits = pad_calibration[3 - i];
             if (i)
-                w_u8(0x800EC264 - i, scaled);
-            scaled = ScalePadAxis(raw, minimum, maximum, centre);
+                game_pads[0].axis[4 - i] = scaled;
+            scaled = ScalePadAxis(raw, limits.min, limits.max, limits.centre);
         }
-        w_u8(0x800EC260, scaled);
+        game_pads[0].axis[0] = scaled;
     }
     for (i = 0; i < 16; ++i)
     {
         if (mode)
-            RecordButton(0x800EC0F8 + 16 * i, buttons & masks[i], i);
+            game_pads[0].buttons[i].Record(buttons & masks[i], i);
         else
-            UpdateButtonState(0x800EC0F8 + 16 * i, buttons & masks[i]);
+            game_pads[0].buttons[i].Update(buttons & masks[i]);
     }
     for (i = 0; i < 4; ++i)
     {
         if (mode)
-            RecordButton(0x800EC1F8 + 16 * i, buttons & r_u32(table + 4 * i), i + 16);
+            game_pads[0].buttons[i + 16].Record(buttons & action_masks[i], i + 16);
         else
-            UpdateButtonState(0x800EC1F8 + 16 * i, buttons & r_u32(table + 4 * i));
+            game_pads[0].buttons[i + 16].Update(buttons & action_masks[i]);
     }
     for (i = 0; i < 16; ++i)
-        UpdateButtonState(0x800EC274 + 16 * i, second & masks[i]);
+        game_pads[1].buttons[i].Update(second & masks[i]);
     return 0;
 }
 
-void StopPadCommunication(void)
+uint32 PadButton::Update(uint32 value)
 {
-    xport_bios_enter_critical();
-    ChangeClearRCnt(3, 1);
-    SysDeqIntRP(2, 0x80107CC8);
-    xport_bios_exit_critical();
-    PadStopCom();
-}
-
-extern "C" void sub_8009C7EC(void)
-{
-    FUNCTION_MARKER(0x8009C7EC, "SLUS_003.73");
-    StopPadCommunication();
-}
-
-
-uint32 UpdateButtonState(uint32 state, uint32 pressed)
-{
-    uint32 elapsed, old, result;
     FUNCTION_MARKER(0x800702E0, "SLUS_003.73");
-    elapsed = r_u32(state + 12);
-    old = r_u8(state);
-    w_u32(state + 12, elapsed + 1);
-    if (!old && pressed)
+    ++elapsed;
+    if (!down && value)
     {
-        w_u8(state + 1, 1);
-        w_u32(state + 12, 0);
+        pressed = 1;
+        elapsed = 0;
     }
-    if (pressed)
+    if (value)
     {
-        w_u32(0x800FF814, 0);
-        w_u8(state, 1);
+        pad_polling.idle_ticks = 0;
+        down = 1;
     }
     else
-        w_u8(state, 0);
-    if (r_u8(state))
+        down = 0;
+    if (down)
     {
-        result = r_u32(state + 4);
-        w_u32(state + 8, 0);
-        ++result;
-        w_u32(state + 4, result);
+        released = 0;
+        return ++held;
     }
-    else
-    {
-        result = r_u32(state + 8);
-        w_u32(state + 4, 0);
-        ++result;
-        w_u32(state + 8, result);
-    }
-    return result;
+    held = 0;
+    return ++released;
 }
 
-
-
-
-
-extern "C" uint32 apocalypse_pad_poll(void) { return PollPadPackets(); }
-extern "C" uint32 apocalypse_pad_normalize(void) { return NormalizePadPackets(); }
-extern "C" void apocalypse_pad_stop(void) { StopPadCommunication(); }
-
-static uint32 ClearGamePadButton(uint32 port, uint32 button)
+void ClearGamePadActuator(uint32 port, uint32 button)
 {
     FUNCTION_MARKER(0x80070288, "SLUS_003.73");
-    uint32 result = r_u32(0x800FF818);
-    if (!result)
+    uint32 mode = input_recording.GetMode();
+    if (!mode)
     {
-        uint32 offset = 380 * (port & 255);
+        port &= 255;
         button &= 255;
-        result = 0x800EC270 + offset + 2 * button;
-        w_u8(0x800EC26C + offset + button, 0);
-        w_u16(result, 0);
+        if (port >= 2 || button >= 2)
+        {
+            GameDiagnostic("Invalid game pad actuator index\n");
+            abort();
+        }
+        game_pads[port].actuators[button] = 0;
+        game_pads[port].actuator_ticks[button] = 0;
     }
-    return result;
 }
 
-extern "C" uint32 sub_80070288(uint32 port, uint32 button)
-{
-    FUNCTION_MARKER(0x80070288, "SLUS_003.73");
-    return ClearGamePadButton(port, button);
-}
-
-
-
-
-static uint32 InitializeGamePadPort(uint32 controller)
+uint32 GamePadInput::Reset()
 {
     FUNCTION_MARKER(0x800700B0, "SLUS_003.73");
     for (uint32 index = 0; index < 20; ++index)
-    {
-        w_u8(controller, 0);
-        w_u8(controller + 1, 0);
-        w_u32(controller + 4, 0);
-        w_u32(controller + 8, 0);
-        w_u32(controller + 12, 0);
-        controller += 16;
-    }
-    w_u8(0x800EC260, 128);
-    w_u8(0x800EC261, 128);
-    w_u8(0x800EC262, 128);
-    w_u8(0x800EC263, 128);
+        buttons[index] = PadButton();
+    // Original initialization always addresses the first port axes
+    for (uint32 index = 0; index < 4; ++index)
+        game_pads[0].axis[index] = 128;
     return 128;
 }
 
-static uint32 ClearGamePadButtonStates(uint32 controller)
+uint32 GamePadInput::ClearPresses()
 {
     FUNCTION_MARKER(0x80070100, "SLUS_003.73");
     for (uint32 index = 0; index < 20; ++index)
-    {
-        w_u8(controller + 1, 0);
-        controller += 16;
-    }
+        buttons[index].pressed = 0;
     return 0xFFFFFFFF;
 }
 
 uint32 InitializeGamePads()
 {
     FUNCTION_MARKER(0x8007001C, "SLUS_003.73");
-    uint32 controller = 0x800EC0F8;
-    for (uint32 index = 0; index < 2; ++index)
+    for (uint32 port = 0; port < 2; ++port)
     {
-        InitializeGamePadPort(controller);
-        w_u32(controller + 368, 0);
-        controller += 380;
+        game_pads[port].Reset();
+        game_pads[port].reset_ticks = 0;
     }
-    uint32 allocation = r_u32(0x800FF81C);
-    w_u32(0x800FF830, 0);
-    w_u32(0x800FF820, allocation);
-    return allocation;
+    pad_polling.frame = 0;
+    input_recording.ResetCursor();
+    return 0;
 }
 
-extern "C" uint32 sub_800700B0(uint32 controller)
-{
-    FUNCTION_MARKER(0x800700B0, "SLUS_003.73");
-    return InitializeGamePadPort(controller);
-}
-extern "C" uint32 sub_80070100(uint32 controller)
-{
-    FUNCTION_MARKER(0x80070100, "SLUS_003.73");
-    return ClearGamePadButtonStates(controller);
-}
-extern "C" uint32 sub_8007001C(void)
-{
-    FUNCTION_MARKER(0x8007001C, "SLUS_003.73");
-    return InitializeGamePads();
-}
-
-extern "C" uint32 sub_80070748(void)
-{
-    FUNCTION_MARKER(0x80070748, "SLUS_003.73");
-    return PollPadPackets();
-}
-
-uint32 SetGamePadActuator(uint32 controller, uint32 value, uint32 actuator, uint32 enabled)
+void SetGamePadActuator(uint32 controller, uint32 value, uint32 actuator, uint32 enabled)
 {
     FUNCTION_MARKER(0x8007011C, "SLUS_003.73");
-    uint32 result = r_u32(0x800FF818);
-    if (result)
-        return result;
+    uint32 mode = input_recording.GetMode();
+    if (mode)
+        return;
     uint32 index = controller & 255;
     uint32 port = index ? 16 : 0;
-    uint32 state = (uint32)PadGetState((sint32)port);
+    uint32 state = PadGetState(port);
     if (!state)
-        return state;
-    uint32 owner = 0x800EC0F8 + 380 * index;
-    if (state == 1)
-        w_u8(owner + 375, 0);
-    if (!r_u8(owner + 375))
-    {
-        PadSetActPSX(port, owner + 372, 2);
-        if (state == 2 || (state == 6 && PadSetActAlignPSX(port, 0x800FF824)))
-            w_u8(owner + 375, 1);
-    }
-    result = 0x800EC270 + 380 * index;
+        return;
     actuator &= 255;
-    w_u8(0x800EC26C + 380 * index + actuator, enabled);
-    w_u16(result + 2 * actuator, value);
-    return result;
+    if (index >= 2 || actuator >= 2)
+    {
+        GameDiagnostic("Invalid game pad actuator index\n");
+        abort();
+    }
+    GamePadInput &pad = game_pads[index];
+    if (state == 1)
+        pad.actuator_ready = 0;
+    if (!pad.actuator_ready)
+    {
+        PadSetAct(port, pad.actuators, 2);
+        if (state == 2 || (state == 6 && PadSetActAlign(port, actuator_alignment)))
+            pad.actuator_ready = 1;
+    }
+    pad.actuators[actuator] = enabled;
+    pad.actuator_ticks[actuator] = value;
 }
 
-
-
-static uint32 ConfigureGamePadButtonMasks(uint32 controller, uint32 first, uint32 second, uint32 third, uint32 fourth)
+uint32 GamePadInput::SetButtonMasks(uint32 mask0, uint32 mask1, uint32 mask2, uint32 mask3)
 {
     FUNCTION_MARKER(0x8006FDFC, "SLUS_003.73");
-    w_u32(controller + 320, first);
-    w_u32(controller + 324, second);
-    w_u32(controller + 328, third);
-    w_u32(controller + 332, fourth);
-    return fourth;
+    digital_masks[0] = mask0;
+    digital_masks[1] = mask1;
+    digital_masks[2] = mask2;
+    digital_masks[3] = mask3;
+    return mask3;
 }
 
-static uint32 ConfigureGamePadAxes(uint32 controller, uint32 first_axis, uint32 second_axis, uint32 third_axis, uint32 fourth_axis, uint32 first_mask, uint32 second_mask, uint32 third_mask, uint32 fourth_mask)
+uint32 GamePadInput::SetAxes(uint32 axis0, uint32 axis1, uint32 axis2, uint32 axis3, uint32 mask0, uint32 mask1, uint32 mask2, uint32 mask3)
 {
     FUNCTION_MARKER(0x8006FE14, "SLUS_003.73");
-    w_u8(controller + 352, first_axis);
-    w_u8(controller + 353, second_axis);
-    w_u8(controller + 354, third_axis);
-    w_u8(controller + 355, fourth_axis);
-    w_u32(controller + 336, first_mask);
-    w_u32(controller + 340, second_mask);
-    w_u32(controller + 344, third_mask);
-    w_u32(controller + 348, fourth_mask);
-    return fourth_axis;
+    axis_map[0] = axis0;
+    axis_map[1] = axis1;
+    axis_map[2] = axis2;
+    axis_map[3] = axis3;
+    analog_masks[0] = mask0;
+    analog_masks[1] = mask1;
+    analog_masks[2] = mask2;
+    analog_masks[3] = mask3;
+    return axis3;
 }
 
 uint32 SetupGamePadInput()
 {
-    uint32 controller = 0x800EC0F8;
+    uint32 port = 0;
     uint32 count = 0;
     uint32 index;
     FUNCTION_MARKER(0x8006FE4C, "SLUS_003.73");
     do
     {
-        uint32 x = (uint32)(sint32)(sint16)r_u16(0x800EC474);
-        uint32 y = (uint32)(sint32)(sint16)r_u16(0x800EC476);
-        uint32 width = (uint32)(sint32)(sint16)r_u16(0x800EC478);
-        uint32 height = (uint32)(sint32)(sint16)r_u16(0x800EC47A);
-        uint32 destination;
+        uint32 x = game_settings.bindings.digital[0];
+        uint32 y = game_settings.bindings.digital[1];
+        uint32 width = game_settings.bindings.digital[2];
+        uint32 height = game_settings.bindings.digital[3];
+
         ++count;
-        ConfigureGamePadButtonMasks(controller, x, y, width, height);
-        destination = controller;
-        x = (uint32)(sint32)(sint16)r_u16(0x800EC494);
-        y = (uint32)(sint32)(sint16)r_u16(0x800EC496);
-        width = (uint32)(sint32)(sint16)r_u16(0x800EC478);
-        height = (uint32)(sint32)(sint16)r_u16(0x800EC47A);
-        controller += 0x17C;
-        ConfigureGamePadAxes(destination, 3, 2, 1, 0, x, y, width, height);
+        game_pads[port].SetButtonMasks(x, y, width, height);
+        x = game_settings.bindings.analog[0];
+        y = game_settings.bindings.analog[1];
+        width = game_settings.bindings.digital[2];
+        height = game_settings.bindings.digital[3];
+        ++port;
+        game_pads[port - 1].SetAxes(3, 2, 1, 0, x, y, width, height);
     } while (count < 2);
     for (index = 0; index < 256; ++index)
     {
-        uint32 destination = 0x801027A8 + index;
-        w_u8(destination, 0);
-        if ((index & 1) != 0)
-            w_u8(destination, 1);
-        if ((index & 2) != 0)
-            w_u8(destination, r_u8(destination) | 4);
-        if ((index & 4) != 0)
-            w_u8(destination, r_u8(destination) | 0x80);
-        if ((index & 8) != 0)
-            w_u8(destination, r_u8(destination) | 0x10);
-        if ((index & 0x10) != 0)
-            w_u8(destination, r_u8(destination) | 8);
-        if ((index & 0x20) != 0)
-            w_u8(destination, r_u8(destination) | 0x20);
-        if ((index & 0x40) != 0)
-            w_u8(destination, r_u8(destination) | 0x40);
-        if ((index & 0x80) != 0)
-            w_u8(destination, r_u8(destination) | 2);
+        uint8 value = 0;
+        if (index & 1)
+            value |= 1;
+        if (index & 2)
+            value |= 4;
+        if (index & 4)
+            value |= 0x80;
+        if (index & 8)
+            value |= 0x10;
+        if (index & 0x10)
+            value |= 8;
+        if (index & 0x20)
+            value |= 0x20;
+        if (index & 0x40)
+            value |= 0x40;
+        if (index & 0x80)
+            value |= 2;
+        special_buttons[index] = value;
     }
     InitializeGamePads();
-    apocalypse_pad_init_mtap(0x800EC3F0, 0x800EC412);
-    sub_8009C7CC();
-    w_u32(0x800FF814, 0);
-    w_u32(0x800FF82C, 1);
+    PadInit(0);
+    PadInitDirect(raw_packets[0], raw_packets[1]);
+    PadStartCom();
+    pad_polling.idle_ticks = 0;
     return 1;
 }
-
-extern "C" uint32 sub_8006FDFC(uint32 controller, uint32 first, uint32 second, uint32 third, uint32 fourth)
-{
-    FUNCTION_MARKER(0x8006FDFC, "SLUS_003.73");
-    return ConfigureGamePadButtonMasks(controller, first, second, third, fourth);
-}
-extern "C" uint32 sub_8006FE14(uint32 controller, uint32 first_axis, uint32 second_axis, uint32 third_axis, uint32 fourth_axis, uint32 first_mask, uint32 second_mask, uint32 third_mask, uint32 fourth_mask)
-{
-    FUNCTION_MARKER(0x8006FE14, "SLUS_003.73");
-    return ConfigureGamePadAxes(controller, first_axis, second_axis, third_axis, fourth_axis, first_mask, second_mask, third_mask, fourth_mask);
-}
-extern "C" uint32 sub_8006FE4C(void)
-{
-    FUNCTION_MARKER(0x8006FE4C, "SLUS_003.73");
-    return SetupGamePadInput();
-}
-
-
-uint32 LoadGamePadConfiguration()
-{
-    uint32 index, first, second, third, fourth;
-    FUNCTION_MARKER(0x80071054, "SLUS_003.73");
-    for (index = 0; index < 2048; ++index)
-        w_u16(0x800ED472 - index * 2, 0x6969);
-    LookupResource((const char *)psx_addr(0x800A3AEC, 1));
-    BeginResourceRead(0x800EC474);
-    WaitForResourceRead();
-    first = (uint32)(sint32)(sint16)r_u16(0x800EC474);
-    second = (uint32)(sint32)(sint16)r_u16(0x800EC476);
-    third = (uint32)(sint32)(sint16)r_u16(0x800EC478);
-    fourth = (uint32)(sint32)(sint16)r_u16(0x800EC47A);
-    ConfigureGamePadButtonMasks(0x800EC0F8, first, second, third, fourth);
-    first = (uint32)(sint32)(sint16)r_u16(0x800EC494);
-    second = (uint32)(sint32)(sint16)r_u16(0x800EC496);
-    third = (uint32)(sint32)(sint16)r_u16(0x800EC498);
-    fourth = (uint32)(sint32)(sint16)r_u16(0x800EC49A);
-    ConfigureGamePadAxes(0x800EC0F8, 3, 2, 1, 0, first, second, third, fourth);
-    LookupResource((const char *)psx_addr(0x800A3AF8, 1));
-    BeginResourceRead(0x800ECC74);
-    return WaitForResourceRead();
-}
-
-uint32 ReloadGamePadConfiguration()
-{
-    FUNCTION_MARKER(0x8007113C, "SLUS_003.73");
-    return LoadGamePadConfiguration();
-}
-
-
-

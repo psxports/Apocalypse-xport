@@ -3,8 +3,11 @@
 
 #include "level_session.h"
 
+struct PlayerSaveRecord;
+
 #if defined(_DEBUG)
-void DebugLoadFinishPlayerSave(uint32 record);
+void ResetDebugFinishRepro();
+void DebugLoadFinishPlayerSave(PlayerSaveRecord &record);
 void DebugRestoreFinishMenu();
 #endif
 

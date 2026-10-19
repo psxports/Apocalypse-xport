@@ -1,45 +1,47 @@
+#include "pause_menu.h"
+#include "card_save.h"
 #include "level_catalogue.h"
 #include "game_string.h"
 #include "menu_saves.h"
 #include "menu_window.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-}
+#include "game_diagnostics.h"
 
 #include "player_save_state.h"
 
 uint32 EnterSaveSelectionMenu(void)
 {
-    uint32 menu, text, index;
+    MenuWindow *menu;
+    uint32 index;
+    const char *text;
     FUNCTION_MARKER(0x80017760, "SLUS_003.73");
-    menu = r_u32(0x800FF024);
-    text = r_u32(0x800A5594);
-    index = sub_800153F8(menu, text);
-    menu = r_u32(0x800FF024);
-    sub_80015374(menu, index & 255);
-    w_u32(0x800FF080, 9);
-    return 9;
+    menu = menu_runtime.confirm;
+    text = MenuText::yes;
+    index = menu->FindItem(text);
+    menu = menu_runtime.confirm;
+    menu->ResetSelection(index & 255);
+    menu_runtime.screen = MENU_SCREEN_SAVE_CONFIRM;
+    return MENU_SCREEN_SAVE_CONFIRM;
 }
 
-uint32 PopulateSaveSelectionMenu(uint32 menu)
+uint32 PopulateSaveSelectionMenu(MenuWindow *menu)
 {
-    uint32 slot, record = 0x800A4B3C, cursor = 0x800A493C, checksum, channel;
+    uint32 slot, checksum, channel;
     MenuItem *row;
     const LevelEntry *entry;
     FUNCTION_MARKER(0x8001779C, "SLUS_003.73");
-    for (slot = 0; slot < 8; ++slot)
+    for (slot = 0; slot < CardSaveSlotCount; ++slot)
     {
-        if (r_u32(cursor + 512))
+        const PlayerSaveRecord *record = card_save_image.slots + slot;
+        if (record->checksum)
         {
-            entry = FindLevelEntry((const char *)psx_addr(0x800A4B40 + slot * 136, 1));
-            checksum = CalculatePlayerSaveChecksum((const uint8 *)psx_addr(record, 136));
-            if (r_u32(cursor + 512) == checksum && entry)
-                MenuWindow::Attach(menu).AddItem(entry->title);
+            entry = FindLevelEntry(record->progress.level);
+            checksum = CalculatePlayerSaveChecksum(*record);
+            if (record->checksum == checksum && entry)
+                menu->AddItem(entry->title);
             else
             {
-                sub_80015474(menu, r_u32(0x800A55CC));
-                row = MenuWindow::Attach(menu).items + MenuWindow::Attach(menu).count - 1;
+                menu->AddItem(MenuText::read_error);
+                row = menu->items + menu->count - 1;
                 row->color[0][0] = 255;
                 row->color[0][1] = 0;
                 row->color[0][2] = 0;
@@ -50,16 +52,11 @@ uint32 PopulateSaveSelectionMenu(uint32 menu)
         }
         else
         {
-            sub_80015474(menu, r_u32(0x800A5660));
-            row = MenuWindow::Attach(menu).items + MenuWindow::Attach(menu).count - 1;
+            menu->AddItem(MenuText::empty_slot);
+            row = menu->items + menu->count - 1;
             for (channel = 14; channel < 20; ++channel)
                 row->color[(channel - 14) / 3][(channel - 14) % 3] = 255;
         }
-        record += 136;
-        cursor += 136;
     }
     return 0;
 }
-
-
-

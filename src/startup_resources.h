@@ -6,9 +6,8 @@ extern "C"
 #include "psx.h"
 }
 
+void ResetStartupDisplay();
 uint32 InitializeGameRuntime();
-void InitializeMenuResources();
-uint32 InitializeMemoryCardEvents(uint32 requested_mode);
 void LoadStartupImage(uint32 compressed, const char *name, uint32 height);
 uint32 ClearStartupImageArea();
 

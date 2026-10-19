@@ -3,7 +3,9 @@
 
 #include "psx.h"
 
+class MenuWindow;
+
 uint32 EnterSaveSelectionMenu(void);
-uint32 PopulateSaveSelectionMenu(uint32 menu);
+uint32 PopulateSaveSelectionMenu(MenuWindow *menu);
 
 #endif

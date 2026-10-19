@@ -6,6 +6,8 @@ extern "C"
 #include "psx.h"
 }
 
-void DestroyMenuObject(uint32 object);
+class Object;
+
+void DestroyMenuObject(Object *object);
 
 #endif

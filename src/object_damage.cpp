@@ -1,5 +1,14 @@
+#include <new>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "game_heap.h"
+#include "game_tuning.h"
+#include "game_tick.h"
+
+#include "record_data.h"
 #include "visual_object.h"
-#include "game_sdk_bindings.h"
+#include "game_diagnostics.h"
 #include "items.h"
 #include "plague.h"
 #include "the_beast.h"
@@ -8,25 +17,26 @@
 #include "scripted_level_object.h"
 #include "level_hazards.h"
 #include "record_scripts.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+
 #include "object_damage.h"
+static uint32 DestroyLevelObject(ModelInstance *object);
+static uint32 FlashLevelObject(ModelInstance *object, uint32 red, uint32 green, uint32 blue, uint32 duration);
 #include "object_fragments.h"
 #include "explosion_effects.h"
 #include "ring_burst_effect.h"
 #include "glow_effect.h"
-#include "native_object_storage.h"
 #include "audio_session.h"
 #include "game_random.h"
 #include "vector_distance.h"
 #include "effect_lifecycle.h"
 #include "model_resources.h"
-#include <new>
-#include <stdio.h>
-#include <stdlib.h>
+
+static uint32 destruction_depth;
+
+void ResetObjectDestruction()
+{
+    destruction_depth = 0;
+}
 
 void DamageLevelObject(ModelInstance *object, ModelPolygon *polygon, sint32 damage)
 {
@@ -71,8 +81,6 @@ void DamageLevelObject(ModelInstance *object, ModelPolygon *polygon, sint32 dama
     else if (polygon)
         FragmentLevelPolygon(object, polygon, 1, 1, 1, 1, 1);
 }
-
-
 
 // Native helper models the original signed DIV carriers
 static uint32 DivideFlashScalar(uint32 numerator, uint32 denominator)
@@ -209,7 +217,7 @@ static ObjectFlash *AcquireObjectFlash(ModelInstance *object)
     return flash;
 }
 
-uint32 FlashLevelObject(ModelInstance *object, uint32 red, uint32 green, uint32 blue, uint32 duration)
+static uint32 FlashLevelObject(ModelInstance *object, uint32 red, uint32 green, uint32 blue, uint32 duration)
 {
     FUNCTION_MARKER(0x8001BCDC, "SLUS_003.73");
     ObjectFlash *flash = AcquireObjectFlash(object);
@@ -247,21 +255,28 @@ uint32 FadeLevelObjectToBlack(ModelInstance *object, uint32 duration)
     return flash->color;
 }
 
-uint32 DestroyLevelObject(ModelInstance *object)
+static uint32 DestroyLevelObject(ModelInstance *object)
 {
     ModelBorrow borrow;
-    uint32 previous, count, result, bank, index, table, resource, record, type, explosive = 0;
+    ResourceScriptBorrow script_borrow;
+    uint32 previous, count, result, bank, index, resource, explosive = 0;
+    ResourceScript *record;
     ModelInstance *node;
-    uint32 position[3], child, radius = 512, flags, distance, selected;
+    Vector3 position;
+    GameHeapBlock *child;
+    uint32 radius = 512;
+    uint32 flags;
+    uint32 distance;
+    uint32 selected;
     sint32 height;
     FUNCTION_MARKER(0x8001CC1C, "SLUS_003.73");
-    previous = r_u32(0x800FF1F0);
+    previous = destruction_depth;
     count = previous + 1;
-    w_u32(0x800FF1F0, count);
+    destruction_depth = count;
     result = (sint32)count < 10;
     if (!result)
     {
-        w_u32(0x800FF1F0, previous);
+        destruction_depth = previous;
         return result;
     }
     if (FragmentLevelObject(object, 1, 1))
@@ -272,41 +287,35 @@ uint32 DestroyLevelObject(ModelInstance *object)
         record = ActivateResourceScript(resource);
         if (record)
         {
-            index = r_u16(record + 10);
-            table = r_u32(0x800FF624);
-            type = r_u32(table + index * 4);
-            explosive = (sint16)r_u16(type) == 9;
+            index = record->index;
+            explosive = (sint16)(GetLevelRecord(index)).Read16() == 9;
         }
-        if (!r_u32(0x800FF738))
+        if (!IsGameHeapUnderPressure())
         {
-            position[0] = object->pos[0];
-            position[1] = object->pos[1];
-            position[2] = object->pos[2];
+            position = object->pos;
             if (explosive)
             {
-                sint32 upper = (sint16)r_u16(0x800EC51C);
-                sint32 lower = (sint16)r_u16(0x800EC51A);
-                QueueExplosion(position, 0, (uint32)upper, (uint32)lower, 1);
-                selected = r_u32(0x800FF2F0) & 1;
-                PlayPositionedSound(selected ? 1 : 2, position, 0);
+                sint32 upper = GetGameTuning().object_explosion_radius;
+                sint32 lower = GetGameTuning().object_explosion_strength;
+                QueueExplosion(position.words, (uint32)upper, (uint32)lower, 1);
+                selected = game_clock.tick & 1;
+                PlayPositionedSound(selected ? 1 : 2, position.words, 0);
                 child = AllocateEffectStorage(124);
                 if (child)
                 {
-                    void *dram_addr = AllocateNativeObjectStorage(child, sizeof(ExpandingGlow));
-                    new (dram_addr) ExpandingGlow(position, 64, 128, 0, 512, 10);
+                    new (child) ExpandingGlow(position.words, 64, 128, 0, 512, 10);
                 }
-                SpawnExplosionParticles(position, 20, 10, 750, 80);
+                SpawnExplosionParticles(position.words, 20, 10, 750, 80);
                 child = AllocateEffectStorage(124);
                 if (child)
                 {
-                    void *dram_addr = AllocateNativeObjectStorage(child, sizeof(RingBurstEffect));
-                    new (dram_addr) RingBurstEffect(position, 5, 255, 255, 255, 1, 16, 64, 0, 1, 60, 0, 1, 100, 120, 80, 100, 10, 4);
+                    new (child) RingBurstEffect(position.words, 5, 255, 255, 255, 1, 16, 64, 0, 1, 60, 0, 1, 100, 120, 80, 100, 10, 4);
                 }
             }
             else if (!RandomRange(5))
-                SpawnExplosion(position, 1);
+                SpawnExplosion(position.words, 1);
             else
-                SpawnExplosion(position, 0);
+                SpawnExplosion(position.words, 0);
         }
         if (explosive)
             radius = 1024;
@@ -321,13 +330,13 @@ uint32 DestroyLevelObject(ModelInstance *object)
                 if ((flags & 2) && (flags >> 24))
                 {
                     selected = 0;
-                    distance = MeasurePositionDistance(object->pos, node->pos);
+                    distance = MeasurePositionDistance(object->pos.words, node->pos.words);
                     if (explosive)
                         selected = distance < radius;
                     else if (distance < radius)
                     {
-                        uint32 source_y = object->pos[1];
-                        uint32 neighbor_y = node->pos[1];
+                        uint32 source_y = object->pos.words[1];
+                        uint32 neighbor_y = node->pos.words[1];
                         height = (sint32)(source_y - neighbor_y);
                         if (height > 409600 && height <= 1638399)
                             selected = 1;
@@ -339,19 +348,7 @@ uint32 DestroyLevelObject(ModelInstance *object)
             node = node->next;
         }
     }
-    result = r_u32(0x800FF1F0) - 1;
-    w_u32(0x800FF1F0, result);
+    result = destruction_depth - 1;
+    destruction_depth = result;
     return result;
 }
-
-
-
-
-
-// Native virtual damage dispatch through the current object identity
-uint32 ApplyObjectDamage(uint32 object, uint32 damage, const sint32 *vector, uint32 reason)
-{
-    return VisualObject::Attach(object).Damage(damage, vector, reason);
-}
-
-

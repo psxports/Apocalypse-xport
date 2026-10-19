@@ -1,5 +1,7 @@
 #ifndef EFFECT_OBJECT_H
 #define EFFECT_OBJECT_H
+
+#include "vector3.h"
 extern "C"
 {
 #include "psx.h"
@@ -31,13 +33,28 @@ enum EffectResource
 class EffectObject : public Object
 {
 public:
-    virtual ~EffectObject() {}
+    EffectObject *prev;
+    EffectObject *next;
+    Vector3 pos;
+    Vector3 velocity;
+    Vector3 acceleration;
+    uint8 drag[3];
+    uint8 finished;
+    uint16 depth_bias;
+    uint8 persistent;
+    uint8 kind;
+
+    virtual ~EffectObject();
     virtual uint32 Destroy(uint32 reason);
+    virtual void Update();
     uint32 Finish();
-    uint32 IntegrateMotion();
+    void IntegrateMotion();
     uint32 SetPosition(const uint32 *position);
-    uint32 AddToList(uint32 *head);
-    uint32 RemoveFromList(uint32 *head);
+    EffectObject *AddToList(EffectObject *&head);
+    EffectObject *RemoveFromList(EffectObject *&head);
+
+private:
+    EffectObject **list_head;
 
 protected:
     EffectObject();
@@ -47,9 +64,14 @@ protected:
 class LineEffect : public EffectObject
 {
 public:
-    virtual ~LineEffect() {}
+    uint32 color[2];
+    Vector3 endpoint[2];
+
+    virtual ~LineEffect()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
 
 protected:
     LineEffect();
@@ -58,8 +80,12 @@ protected:
 class RenderableEffect : public EffectObject
 {
 public:
-    virtual ~RenderableEffect() {}
+    virtual ~RenderableEffect()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
+    virtual uint32 Render();
 
 protected:
     RenderableEffect();
@@ -70,17 +96,23 @@ class PrimitiveParticle : public EffectObject
 {
 public:
     PrimitiveParticle();
-    virtual ~PrimitiveParticle() {}
-    static PrimitiveParticle &Attach(uint32 object);
+
+    virtual ~PrimitiveParticle()
+    {
+    }
+
+    TILE primitive;
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
 };
 
 // Update-only list owner whose children provide rendering
 class EffectController : public EffectObject
 {
 public:
-    virtual ~EffectController() {}
+    virtual ~EffectController()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
 
 protected:
@@ -90,9 +122,21 @@ protected:
 class TexturedEffect : public EffectObject
 {
 public:
-    static TexturedEffect &Attach(uint32 object);
+    sint16 color_step;
+    uint16 shrink_step;
+    uint32 color;
+    uint8 flags;
+    uint8 frame_count;
+    sint8 frame;
+    uint8 frame_fraction;
+    uint16 frame_step;
+    uint16 size;
     const TextureFrame &GetTextureFrame() const;
-    virtual ~TexturedEffect() {}
+
+    virtual ~TexturedEffect()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
     uint32 SelectResource(const char *name);
     uint32 SelectResource(uint32 resource);

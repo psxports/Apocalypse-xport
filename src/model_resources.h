@@ -43,6 +43,8 @@ struct ModelBank
     ModelColorAnimation color_animation;
 };
 
+extern uint8 items_bank;
+
 void ResetModelBanks();
 ModelBank &GetModelBank(uint32 index);
 ModelGeometry &GetModelGeometry(uint32 bank, uint32 idx);
@@ -53,20 +55,13 @@ ModelInstance *GetModelSceneObjects();
 uint32 GetModelBankReplacement();
 void SelectModelBankReplacement(uint32 slot);
 
-uint32 PrepareModelBankGeometry(uint32 bank);
 uint32 InitializeModelResources();
 uint32 FindModelResourceIndex(uint32 key, uint32 bank);
 ModelInstance *FindModelObject(uint32 key);
-void DecrementModelResourceReferences(uint32 bank);
-uint32 LoadModelResourceData(uint32 bank);
 
-void AttachModelBankObjects(uint32 bank);
-void DetachModelBankObjects(uint32 slot);
-uint32 FindModelBankByName(uint32 name);
 uint32 FindModelBankByName(const char *name);
-void UnloadModelBankByName(uint32 name);
+void UnloadModelBankByName(const char *name);
 uint32 UnloadUnprotectedModelBanks();
-void UnloadModelBank(uint32 bank, uint32 release_unused);
 
 uint32 UnloadInactiveModelBanks();
 uint32 UnloadActiveModelBanks();
@@ -75,7 +70,6 @@ uint32 FindActiveModelBankSlot(uint32 bank);
 void ResetModelBankLoadQueue();
 uint32 GetModelBankLoadPending();
 uint32 QueueModelBankLoad(const char *name, uint32 active);
-uint32 QueueModelBankLoad(uint32 name, uint32 active);
 uint32 ProcessModelBankLoadQueue();
 
 uint32 WaitForModelBankLoads();

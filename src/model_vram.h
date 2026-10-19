@@ -9,7 +9,7 @@ extern "C"
 struct VramRecord;
 void InitializeModelVramRectangles();
 void SetModelVramAllocationMode(uint32 mode);
-VramRecord *AllocateModelTextureRectangle(uint32 owner, uint32 width, uint32 height, uint32 *x, uint32 *y, uint32 depth, uint32 flags, uint32 name);
+VramRecord *AllocateModelTextureRectangle(uint32 owner, uint32 width, uint32 height, uint32 *x, uint32 *y, uint32 depth, uint32 flags, uint32 resource_key);
 uint32 ReleaseUsedVramRectangle(uint32 x, uint32 y);
 void RebuildModelVramAllocations();
 

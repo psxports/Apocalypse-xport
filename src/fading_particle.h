@@ -8,10 +8,18 @@ class FadingParticle : public PrimitiveParticle
 {
 public:
     FadingParticle(const uint32 *position, uint32 speed, uint32 acceleration, uint32 lifetime_range);
-    virtual ~FadingParticle() {}
-    static FadingParticle &Attach(uint32 object);
+
+    virtual ~FadingParticle()
+    {
+    }
+
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
+    virtual void Update();
+
+private:
+    uint16 age;
+    uint16 lifetime;
+    RGBC fade_step;
 };
 
 #endif

@@ -8,8 +8,21 @@ extern "C"
 #include "psx.h"
 }
 
-void ReadRendererNormal(uint32 address, uint32 normal[3]);
-void LoadRendererVertexLighting(uint32 color_offset, const ModelPalette *color_table, uint32 normal_address);
-void LoadRendererScratchLighting(uint32 scratch);
+struct ModelLightingValue
+{
+    uint32 xy;
+
+    union
+    {
+        uint32 z;
+        uint32 uv;
+    };
+};
+
+void ResetModelLightingValues();
+ModelLightingValue &GetModelLightingValue(uint32 index);
+void ReadRendererNormal(const ModelLightingValue &value, uint32 normal[3]);
+void LoadRendererVertexLighting(uint32 color_offset, const ModelPalette *color_table, const ModelLightingValue &value);
+void LoadModelDrawLighting();
 
 #endif

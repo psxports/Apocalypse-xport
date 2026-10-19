@@ -1,14 +1,19 @@
+#include <stddef.h>
+#include <new>
+#include <stdlib.h>
+
+#include "game_object_allocation.h"
+#include "camera.h"
+#include "player.h"
 #include "visual_object.h"
+#include "visual_registry.h"
 #include "audio_voice.h"
 #include "cd_voice_event.h"
 #include "model_projection.h"
+#include "model_render.h"
 #include "hud_text.h"
 #include "level_session.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
 #include "record_commands.h"
 #include "record_scripts.h"
 #include "record_groups.h"
@@ -20,36 +25,34 @@ extern "C"
 #include "region_actions.h"
 #include "game_heap.h"
 
-static void InitializeScriptVisual(uint32 object, uint32 resource, const uint16 prefix[3])
+static void ReadRegionBounds(RecordCursor &cursor, Vector3 &lower, Vector3 &upper)
 {
-    /* Original 76C10 does not read the private prefix carrier in a2 */
-    sub_80076C10(object, resource);
+    cursor = cursor.Aligned(4);
+    for (uint32 axis = 0; axis < 3; ++axis)
+        lower.words[axis] = (cursor + axis * 4).Read32() << 12;
+    for (uint32 axis = 0; axis < 3; ++axis)
+        upper.words[axis] = (cursor + 12 + axis * 4).Read32() << 12;
+    cursor += 24;
 }
 
-uint32 SkipRecordString(uint32 cursor)
+RecordCursor SkipRecordString(RecordCursor cursor)
 {
     FUNCTION_MARKER(0x800650B4, "SLUS_003.73");
-    if (r_u8(cursor))
-    {
-        do
-        {
-            cursor += 1;
-        } while (r_u8(cursor));
-    }
-    cursor += 1;
-    return cursor + (cursor & 1);
+    while (cursor.Read8())
+        cursor += 1;
+    return (cursor + 1).Aligned(2);
 }
 
-uint32 SkipRecordCommand(uint32 cursor)
+static RecordCursor SkipRecordCommand(RecordCursor cursor)
 {
     uint32 command;
     FUNCTION_MARKER(0x800650EC, "SLUS_003.73");
-    command = r_u16(cursor);
+    command = cursor.Read16();
     cursor += 2;
     switch (command)
     {
         case 2:
-            while (r_u8(cursor))
+            while ((cursor)[0])
                 cursor = SkipRecordString(cursor);
             return cursor + 2;
         case 13:
@@ -101,175 +104,158 @@ uint32 SkipRecordCommand(uint32 cursor)
             cursor += 2;
             // Fall through to the aligned six-word region list
         case 133:
-            while (r_u16(cursor) != 255)
-                cursor = ((cursor + 3) & 0xFFFFFFFC) + 24;
+            while (cursor.Read16() != 255)
+                cursor = cursor.Aligned(4) + 24;
             return cursor + 2;
         case 171:
-            return ((cursor + 3) & 0xFFFFFFFC) + 10;
+            return cursor.Aligned(4) + 10;
         case 65535:
-            return 0;
+            return RecordCursor();
         default:
             // TODO Preserve original skip widths that differ from command execution
             return cursor;
     }
 }
 
-uint32 AllocateScriptHeap(uint32 size)
+struct ScriptWorkspace
 {
-    uint32 allocation;
+    GameHeapBlock *reservation;
+    uint8 *data;
+    uint32 size;
+    uint32 references;
+};
+
+static ScriptWorkspace *current_workspace;
+
+ScriptWorkspace *AcquireScriptWorkspace()
+{
+    if (current_workspace)
+        ++current_workspace->references;
+    return current_workspace;
+}
+
+void ReleaseScriptWorkspaceReference(ScriptWorkspace *workspace)
+{
+    if (workspace && !--workspace->references)
+    {
+        free(workspace->data);
+        free(workspace);
+    }
+}
+
+uint8 *GetScriptWorkspaceData(ScriptWorkspace *workspace)
+{
+    return workspace ? workspace->data : 0;
+}
+
+uint32 GetScriptWorkspaceSize(const ScriptWorkspace *workspace)
+{
+    FUNCTION_MARKER(0x8006B71C, "SLUS_003.73");
+    return workspace ? workspace->size : 0;
+}
+
+void AllocateScriptWorkspace(uint32 size)
+{
     FUNCTION_MARKER(0x800653B8, "SLUS_003.73");
-    allocation = AllocateHeapBlock(size, 1, 1);
-    w_u32(0x800FF63C, allocation);
-    SetTemporaryHeapBounds(allocation, allocation + size);
-    return allocation;
+    if (current_workspace)
+        ReleaseScriptWorkspace();
+    GameHeapBlock *reservation = AllocateHeapBlock(size, 1, 1);
+    ScriptWorkspace *workspace = (ScriptWorkspace *)malloc(sizeof(*workspace));
+    uint8 *data = (uint8 *)malloc(size ? size : 1);
+    if (!workspace || !data)
+    {
+        GameDiagnostic("Cannot allocate script movie workspace\n");
+        abort();
+    }
+    workspace->reservation = reservation;
+    workspace->data = data;
+    workspace->size = size;
+    workspace->references = 1;
+    current_workspace = workspace;
+    FUNCTION_MARKER(0x8006B70C, "SLUS_003.73");
 }
 
-void ReleaseScriptHeap()
+void ReleaseScriptWorkspace()
 {
-    uint32 allocation;
     FUNCTION_MARKER(0x800653F4, "SLUS_003.73");
-    allocation = r_u32(0x800FF63C);
-    if (allocation)
-        ReleaseHeapBlock(allocation);
-    w_u32(0x800FF63C, 0);
+    ScriptWorkspace *workspace = current_workspace;
+    if (!workspace)
+        return;
+    if (workspace->reservation)
+        ReleaseHeapBlock(workspace->reservation);
+    workspace->reservation = 0;
+    current_workspace = 0;
+    ReleaseScriptWorkspaceReference(workspace);
 }
 
-uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
+uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchronous)
 {
-    sint32 final_first;
-    sint32 final_second;
-    sint32 has_final_call;
-    uint32 receiver;
-    uint32 script_record;
-    sint32 v11;
-    sint32 result;
-    unsigned short v13;
-    sint32 v14;
-    sint32 v15;
-    sint32 v16;
-    sint32 v17;
-    uint32 v18;
-    sint32 v19;
-    uint32 v20;
-    sint32 v21;
-    sint32 v22;
-    sint32 v23;
-    sint32 v24;
-    sint32 v25;
-    sint32 v26;
-    short v27;
-    uint32 v28;
-    sint32 v29;
-    sint32 v30;
-    sint32 v31;
-    sint32 v32;
-    sint32 v33;
-    sint32 v34;
-    uint32 v35;
-    sint32 v36;
-    sint32 v37;
-    sint32 v38;
-    uint32 v39;
-    sint32 v40;
-    sint32 v41;
-    sint32 v42;
-    sint32 v43;
-    sint32 v44;
-    sint32 v45;
-    sint32 v46;
-    sint32 v47;
-    sint32 v48;
-    sint32 v49;
-    short v50;
-    uint32 v51;
-    sint32 v52;
-    uint32 v53;
-    uint32 v54;
-    uint32 v55;
-    sint32 v56;
-    sint32 v57;
-    sint32 v58;
-    sint32 v59;
-    sint32 v60;
-    sint32 v61;
-    sint32 v62;
-    sint32 v63;
-    sint32 v64;
-    sint32 v65;
-    sint32 v66;
-    sint32 v67;
-    sint32 v68;
-    sint32 v69;
-    sint32 v70;
-    sint32 v71;
-    sint32 v72;
-    sint32 v73;
-    sint32 v74;
-    sint32 v75;
-    sint32 v76;
-    uint32 origin[3];
-    uint16 data_prefix[3];
-    int v80[4];
-    int v81[4];
-    sint32 final_third;
+    GameHeapBlock *reservation;
+    ResourceScriptBorrow script_borrow;
+    bool has_projection_config;
+    sint32 projection_args[3];
+    ModelInstance *receiver;
+    uint32 command, resource;
+    RecordCursor record_payload;
+    Camera *camera;
+    ResourceScript *script_record;
+    sint32 value, previous_start;
+    uint32 duration;
+    sint32 load_bank_active;
+    RecordCursor bank_name;
+    RecordCursor visual_data;
+    sint16 cycles, region_enabled;
+    Vector3 origin, region_end;
     FUNCTION_MARKER(0x8006541C, "SLUS_003.73");
-    has_final_call = 0;
+    has_projection_config = false;
     script_record = FindScriptRecord(index);
     while (1)
     {
-        v11 = ((unsigned short)(((sint16)(r_u16(cursor)))));
-        result = 0xFFFF;
+        command = cursor.Read16();
         (cursor += 2);
-        if ((v11 == 0xFFFF))
+        if ((command == 0xFFFF))
             break;
-        v13 = v11;
-        switch (v11)
+        switch (command)
         {
             case 2:
-                w_u32(0x800FF618, 0);
-                while (1)
+                checkpoint_names.Clear();
+                while (cursor[0])
                 {
-                    receiver = ((sint32)(cursor));
-                    if (!(r_u8(((uint32)(cursor)))))
-                        break;
-                    v14 = r_u32(0x800FF618);
-                    w_u32(0x800A71FC + (uint32)v14 * 4, cursor);
-                    v14 = (sint32)((uint32)v14 + 1);
-                    w_u32(0x800FF618, v14);
-                    cursor = ((uint32)(SkipRecordString(((uint32)(cursor)))));
+                    checkpoint_names.Add(cursor.CStr());
+                    cursor = SkipRecordString(cursor);
                 }
 
-                goto LABEL_60;
+                goto SkipCommandWord;
 
             case 3:
                 if (script_record)
                 {
-                    if (r_u16(((uint32)((script_record + 8)))))
+                    if (script_record->spawn_cycles_left)
                     {
-                        v51 = ((uint32)(GetRecordPayload(index)));
-                        SpawnEnemyIndices((const uint16 *)psx_addr(v51, 2));
-                        v52 = r_u16(((uint32)((script_record + 8))));
-                        if ((v52 != 0xFFFF))
-                            w_u16(((uint32)((script_record + 8))), (v52 - 1));
+                        record_payload = GetRecordPayload(index);
+                        SpawnEnemyIndices(record_payload);
+                        value = script_record->spawn_cycles_left;
+                        if ((value != 0xFFFF))
+                            script_record->spawn_cycles_left = value - 1;
                     }
                 }
                 else
                 {
-                    v53 = ((uint32)(GetRecordPayload(index)));
-                    SpawnEnemyIndices((const uint16 *)psx_addr(v53, 2));
+                    record_payload = GetRecordPayload(index);
+                    SpawnEnemyIndices(record_payload);
                 }
                 continue;
 
             case 4:
 
             case 5:
-                v54 = ((uint32)(GetRecordPayload(index)));
-                SetObjectRecordGroupMode(v54, v13);
+                record_payload = GetRecordPayload(index);
+                SetObjectRecordGroupMode(record_payload, command);
                 continue;
 
             case 10:
-                v55 = ((uint32)(GetRecordPayload(index)));
-                ActivateEnemyIndices((const uint16 *)psx_addr(v55, 2));
+                record_payload = GetRecordPayload(index);
+                ActivateEnemyIndices(record_payload);
                 continue;
 
             case 11:
@@ -281,289 +267,258 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 13:
-                SetRecordGroupEnabled(index, r_u16(cursor));
-                goto LABEL_60;
+                SetRecordGroupEnabled(index, cursor.Read16());
+                goto SkipCommandWord;
 
             case 102:
-                w_u32(0x800FF7BC, 1);
-                continue;
-
             case 103:
-                w_u32(0x800FF7BC, 0);
+                // The original flag has no remaining consumers
                 continue;
 
             case 104:
-                final_first = ((unsigned short)(((sint16)(r_u16(cursor)))));
-                v39 = ((uint32)((cursor + (1) * 2)));
-                final_second = r_u16((v39 += 2, v39 - 2));
-                v40 = r_u16(v39);
-                cursor = ((uint32)((v39 + (1) * 2)));
-                has_final_call = 1;
-                final_third = v40;
+                projection_args[0] = cursor.Read16();
+                projection_args[1] = (cursor + 2).Read16();
+                projection_args[2] = (cursor + 4).Read16();
+                cursor += 6;
+                has_projection_config = true;
                 continue;
 
             case 105:
-                v41 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                PlaySoundEffect(v41, 0x2000, 0);
+                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                PlaySoundEffect(value, 0x2000, 0);
                 continue;
 
             case 106:
-                v42 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                ::StopSoundVoices(v42);
+                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                ::StopSoundVoices(value);
                 continue;
 
             case 119:
-                goto LABEL_63;
+                goto SkipCommandString;
 
             case 126:
-                v18 = cursor;
-                v19 = 0;
-                goto LABEL_14;
+                bank_name = cursor;
+                load_bank_active = 0;
+                goto QueueBankLoad;
 
             case 127:
-                UnloadModelBankByName(cursor);
-                goto LABEL_63;
+                UnloadModelBankByName(cursor.CStr());
+                goto SkipCommandString;
 
             case 128:
-                v18 = cursor;
-                v19 = 1;
-            LABEL_14:
-                QueueModelBankLoad(v18, v19);
+                bank_name = cursor;
+                load_bank_active = 1;
+            QueueBankLoad:
+                QueueModelBankLoad(bank_name.CStr(), load_bank_active);
 
                 if (synchronous)
                     WaitForModelBankLoads();
-                goto LABEL_63;
+                goto SkipCommandString;
 
             case 129:
                 WaitForModelBankLoads();
                 continue;
 
             case 130:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_104;
-                v58 = ((sint16)(r_u16(cursor)));
-                v59 = ((unsigned short)(((sint16)(r_u16((cursor + (1) * 2))))));
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandPair;
+                value = ((sint16)(cursor.Read16()));
+                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
                 cursor += (2) * 2;
-                sub_8007851C(receiver, v58, v59);
+                camera->SetYawTransition(value, duration);
                 continue;
 
             case 131:
-                v37 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                sub_80076B78(v37);
+                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                EnableVisualRegistryEntry(value);
                 continue;
 
             case 132:
-                v38 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                sub_80076BC4(v38);
+                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                DisableVisualRegistryEntry(value);
                 continue;
 
             case 133:
-                while ((((sint16)(r_u16(cursor))) != 255))
+                while ((((sint16)(cursor.Read16())) != 255))
                 {
-                    v20 = ((uint32)(((((uint32)(cursor)) + 3) & 0xFFFFFFFC)));
-                    v21 = r_u32((v20 += 4, v20 - 4));
-                    origin[0] = (uint32)v21 << 12;
-                    v22 = r_u32((v20 += 4, v20 - 4));
-                    origin[1] = (uint32)v22 << 12;
-                    v23 = r_u32((v20 += 4, v20 - 4));
-                    origin[2] = (uint32)v23 << 12;
-                    v24 = r_u32((v20 += 4, v20 - 4));
-                    v80[0] = (uint32)v24 << 12;
-                    v25 = r_u32((v20 += 4, v20 - 4));
-                    v80[1] = (uint32)v25 << 12;
-                    v26 = ((sint32)(r_u32(v20)));
-                    cursor = ((uint32)((v20 + (1) * 4)));
-                    v80[2] = (uint32)v26 << 12;
-                    ClearRegion(origin, (const uint32 *)v80);
+                    ReadRegionBounds(cursor, origin, region_end);
+                    ClearRegion(origin.words, region_end.words);
                 }
 
-                goto LABEL_60;
+                goto SkipCommandWord;
 
             case 134:
-                if (!(r_u8(((uint32)((script_record + 6))))))
+                if (!(script_record->spawn_cycles_initialized))
                 {
-                    v50 = ((sint16)(r_u16(cursor)));
-                    w_u8(((uint32)((script_record + 6))), 1);
-                    w_u16(((uint32)((script_record + 8))), v50);
+                    cycles = ((sint16)(cursor.Read16()));
+                    script_record->spawn_cycles_initialized = 1;
+                    script_record->spawn_cycles_left = cycles;
                 }
-                goto LABEL_60;
+                goto SkipCommandWord;
 
             case 135:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_104;
-                v60 = ((unsigned short)(((sint16)(r_u16(cursor)))));
-                v61 = ((unsigned short)(((sint16)(r_u16((cursor + (1) * 2))))));
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandPair;
+                value = ((uint16)(((sint16)(cursor.Read16()))));
+                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
                 cursor += (2) * 2;
-                sub_800785D8(receiver, v60, v61);
+                SetCameraOrbitDistanceTransition(value, duration);
                 continue;
 
             case 136:
-                sub_8002FB18(1);
+                SetCdAudioEnabled(1);
                 continue;
 
             case 137:
-                sub_8002FB18(0);
+                SetCdAudioEnabled(0);
                 continue;
 
             case 138:
-                v75 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                sub_8002FBE4(v75);
+                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                SeekCdAudioEntry(value);
                 continue;
 
             case 139:
-                ::SelectCdVoice(r_u16(cursor), r_u16(cursor + 2));
-                goto LABEL_104;
+                ::SelectCdVoice(cursor.Read16(), (cursor + 2).Read16());
+                goto SkipCommandPair;
 
             case 140:
 
             case 176:
-                v16 = r_u32(0x800FF620);
-                SelectStartRecord(((sint32)(cursor)));
-                cursor = ((uint32)(SkipRecordString(((uint32)(cursor)))));
-                if (((v16 != 0xFFFF) && (r_u32(0x800FF620) != v16)))
+                previous_start = GetStartRecordIndex();
+                SelectStartRecord(cursor.CStr());
+                cursor = SkipRecordString(cursor);
+                if (((previous_start != 0xFFFF) && (GetStartRecordIndex() != previous_start)))
                 {
-                    if ((v13 != 176))
+                    if ((command != 176))
                     {
                         ClearAnimatedHudText();
-                        ::AddAnimatedHudText(((sint32)(r_u32((0x800A5720 + (0) * 4)))), ((sint32)(0x800A57A8)));
+                        ::AddAnimatedHudText(HudMessage::checkpoint, hud_pickup_animation);
                     }
                     CaptureCurrentPlayerSave();
                 }
                 continue;
 
             case 141:
-                v27 = r_u16((cursor += 2, cursor - 2));
-                while ((((sint16)(r_u16(cursor))) != 255))
+                region_enabled = ((cursor += 2, cursor - 2)).Read16();
+                while ((((sint16)(cursor.Read16())) != 255))
                 {
-                    v28 = ((uint32)(((((uint32)(cursor)) + 3) & 0xFFFFFFFC)));
-                    v29 = r_u32((v28 += 4, v28 - 4));
-                    origin[0] = (uint32)v29 << 12;
-                    v30 = r_u32((v28 += 4, v28 - 4));
-                    origin[1] = (uint32)v30 << 12;
-                    v31 = r_u32((v28 += 4, v28 - 4));
-                    origin[2] = (uint32)v31 << 12;
-                    v32 = r_u32((v28 += 4, v28 - 4));
-                    v81[0] = (uint32)v32 << 12;
-                    v33 = r_u32((v28 += 4, v28 - 4));
-                    v81[1] = (uint32)v33 << 12;
-                    v34 = ((sint32)(r_u32(v28)));
-                    cursor = ((uint32)((v28 + (1) * 4)));
-                    v81[2] = (uint32)v34 << 12;
-                    SetRegionObjectsEnabled(origin, (const uint32 *)v81, v27 != 0);
+                    ReadRegionBounds(cursor, origin, region_end);
+                    SetRegionObjectsEnabled(origin.words, region_end.words, region_enabled != 0);
                 }
 
-                goto LABEL_60;
+                goto SkipCommandWord;
 
             case 142:
-                w_u32(0x800FF62C, ((sint32)(cursor)));
-                cursor = ((uint32)(SkipRecordString(((uint32)(cursor)))));
-                w_u8(0x800FF644, FindModelBankByName(r_u32(0x800FF62C)));
+                SelectRecordModelBank(cursor.CStr());
+                cursor = SkipRecordString(cursor);
                 continue;
 
             case 143:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_104;
-                v62 = ((sint16)(r_u16(cursor)));
-                v63 = ((unsigned short)(((sint16)(r_u16((cursor + (1) * 2))))));
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandPair;
+                value = ((sint16)(cursor.Read16()));
+                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
                 cursor += (2) * 2;
-                sub_80078618(receiver, v62, v63);
+                SetCameraOrbitHeightTransition(value, duration);
                 continue;
 
             case 144:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_104;
-                v64 = ((sint16)(r_u16(cursor)));
-                v65 = ((unsigned short)(((sint16)(r_u16((cursor + (1) * 2))))));
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandPair;
+                value = ((sint16)(cursor.Read16()));
+                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
                 cursor += (2) * 2;
-                sub_8007865C(receiver, v64, v65);
+                SetCameraTargetLateralOffsetTransition(value, duration);
                 continue;
 
             case 145:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_104;
-                v66 = ((sint16)(r_u16(cursor)));
-                v67 = ((unsigned short)(((sint16)(r_u16((cursor + (1) * 2))))));
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandPair;
+                value = ((sint16)(cursor.Read16()));
+                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
                 cursor += (2) * 2;
-                sub_800786A0(receiver, v66, v67);
+                SetCameraTargetHeightOffsetTransition(value, duration);
                 continue;
 
             case 146:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_104;
-                v68 = ((sint16)(r_u16(cursor)));
-                v69 = ((unsigned short)(((sint16)(r_u16((cursor + (1) * 2))))));
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandPair;
+                value = ((sint16)(cursor.Read16()));
+                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
                 cursor += (2) * 2;
-                sub_800786E4(receiver, v68, v69);
+                SetCameraTargetForwardOffsetTransition(value, duration);
                 continue;
 
             case 147:
-                w_u32(0x800FF378, ((unsigned short)(r_u16((cursor += 2, cursor - 2)))));
+                level_environment.area_kind = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
                 continue;
 
             case 148:
-                v49 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                if ((r_u8(((uint32)((script_record + 7)))) == v49))
+                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                if ((script_record->spawn_count == value))
                     continue;
-                if ((((sint16)(r_u16(cursor))) == 149))
-                    goto LABEL_60;
+                if ((((sint16)(cursor.Read16())) == 149))
+                    goto SkipCommandWord;
                 do
-                    cursor = ((uint32)(SkipRecordCommand(((uint32)(cursor)))));
-                while ((((sint16)(r_u16(cursor))) != 149));
+                    cursor = SkipRecordCommand(cursor);
+                while ((((sint16)(cursor.Read16())) != 149));
                 (cursor += 2);
                 break;
 
             case 150:
-                v43 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                sub_8006A490(v43);
+                // The original fade-step word has no consumers
+                cursor.Read16();
+                cursor += 2;
                 continue;
 
             case 151:
-                ReleaseScriptHeap();
-                v15 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                AllocateScriptHeap((uint32)v15 * 1000);
+                ReleaseScriptWorkspace();
+                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                AllocateScriptWorkspace((uint32)value * 1000);
                 continue;
 
             case 152:
                 receiver = visual_lists.players;
                 if (receiver)
-                    sub_8005E708(receiver);
+                    static_cast<Player *>(visual_lists.players->owner)->EnterDeathState();
                 continue;
 
             case 153:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_60;
-                v70 = (uint32)(sint32)r_s16((cursor += 2, cursor - 2));
-                sub_8007749C(receiver, v70);
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandWord;
+                value = (uint32)(sint32)(sint16)((cursor += 2, cursor - 2)).Read16();
+                camera->SetLateralColDistance(value);
                 continue;
 
             case 154:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_60;
-                v71 = (uint32)(sint32)r_s16((cursor += 2, cursor - 2));
-                sub_800774A4(receiver, v71);
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandWord;
+                value = (uint32)(sint32)(sint16)((cursor += 2, cursor - 2)).Read16();
+                camera->SetRearColDistance(value);
                 continue;
 
             case 155:
-                v44 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
+                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
                 RestoreMusicPlayback();
                 continue;
 
             case 156:
-                v45 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                sub_8006A3C4();
+                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                StopMusicSequence();
                 continue;
 
             case 157:
-                v46 = r_u8(((uint32)((cursor += 2, cursor - 2))));
-                SetSoundReverbMode(v46);
+                value = ((((cursor += 2, cursor - 2))))[0];
+                SetSoundReverbMode(value);
                 continue;
 
             case 158:
@@ -571,106 +526,107 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 continue;
 
             case 159:
-                LoadAudioSequence((const char *)psx_addr(cursor, 1));
-            LABEL_63:
-                cursor = ((uint32)(SkipRecordString(((uint32)(cursor)))));
+                LoadAudioSequence(cursor.CStr());
+            SkipCommandString:
+                cursor = SkipRecordString(cursor);
 
                 continue;
 
             case 160:
-                receiver = visual_lists.cameras;
-                if (receiver)
-                    w_u32(receiver + 564, r_u16(cursor));
-                goto LABEL_60;
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (camera)
+                    camera->mode = cursor.Read16();
+                goto SkipCommandWord;
 
             case 161:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_60;
-                v74 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                sub_80077624(receiver, v74);
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandWord;
+                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                camera->SetModePreset(value);
                 break;
 
             case 163:
-                receiver = visual_lists.players;
-                if (receiver)
+            {
+                ModelInstance *player = visual_lists.players;
+                if (player)
                 {
-                    v47 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                    w_u32(receiver + 452, v47);
+                    value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                    static_cast<Player *>(player->owner)->disable_timer = value;
                 }
                 continue;
+            }
 
             case 164:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_60;
-                v72 = r_u16((cursor += 2, cursor - 2));
-                sub_800774AC(receiver, v72);
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandWord;
+                value = ((cursor += 2, cursor - 2)).Read16();
+                camera->SetColYawStrength(value);
                 break;
 
             case 165:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_60;
-                v73 = r_u16((cursor += 2, cursor - 2));
-                sub_800774B4(receiver, v73);
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandWord;
+                value = ((cursor += 2, cursor - 2)).Read16();
+                camera->SetColPitchStrength(value);
                 break;
 
             case 166:
-                w_u16(0x800FFAAC, r_u16((cursor += 2, cursor - 2)));
+                model_render_state.depth_bias[0] = ((cursor += 2, cursor - 2)).Read16();
                 continue;
 
             case 167:
-                receiver = visual_lists.cameras;
-                if (!receiver)
-                    goto LABEL_104;
-                v56 = ((unsigned short)(((sint16)(r_u16(cursor)))));
-                v57 = ((unsigned short)(((sint16)(r_u16((cursor + (1) * 2))))));
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (!camera)
+                    goto SkipCommandPair;
+                value = ((uint16)(((sint16)(cursor.Read16()))));
+                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
                 cursor += (2) * 2;
-                sub_80078728(receiver, v56, v57);
+                camera->SetProjDistanceTransition(value, duration);
                 break;
 
             case 168:
-                receiver = visual_lists.cameras;
-                if (receiver)
-                    w_u16(receiver + 412, r_u16(cursor));
-                goto LABEL_60;
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (camera)
+                    camera->vertical_pitch = cursor.Read16();
+                goto SkipCommandWord;
 
             case 169:
-                w_u16(0x800FFAAE, r_u16((cursor += 2, cursor - 2)));
+                model_render_state.depth_bias[1] = ((cursor += 2, cursor - 2)).Read16();
                 continue;
 
             case 170:
-                w_u32(0x800FF5EC, ((unsigned short)(r_u16((cursor += 2, cursor - 2)))));
+                visual_activation_distance = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
                 continue;
 
             case 171:
-                v35 = (cursor + 3) & ~3;
-                data_prefix[0] = r_u16(v35 + 4);
-                v36 = r_u32(v35);
-                data_prefix[1] = r_u16(v35 + 6);
-                data_prefix[2] = r_u16(v35 + 8);
-                cursor = v35 + 10;
-                receiver = sub_800625AC(300);
-                if (receiver)
-                    InitializeScriptVisual(receiver, v36, data_prefix);
+                visual_data = cursor.Aligned(4);
+                visual_data.Require(10);
+                resource = visual_data.Read32();
+                cursor = visual_data + 10;
+                reservation = AllocateZeroedObject(300);
+                if (reservation)
+                {
+                    new (reservation) VisualRegistryEntry(resource);
+                }
                 continue;
 
             case 172:
-                receiver = visual_lists.cameras;
-                if (receiver)
-                    w_u16(receiver + 414, r_u16(cursor));
-            LABEL_60:
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (camera)
+                    camera->vertical_offset_gain = cursor.Read16();
+            SkipCommandWord:
                 (cursor += 2);
 
                 break;
 
             case 173:
-                receiver = visual_lists.cameras;
-                if (receiver)
+                camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
+                if (camera)
                 {
-                    v76 = r_u32(receiver + 296);
-                    w_u32(receiver + 336, v76);
+                    camera->aim.target.SetObject(camera->follow.target.GetObject());
                 }
                 break;
 
@@ -678,12 +634,12 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
                 receiver = visual_lists.players;
                 if (receiver)
                 {
-                    v75 = r_u16(cursor);
-                    v76 = r_u16(cursor + 2);
-                    w_u32(receiver + 484, (uint32)v75);
-                    w_u32(receiver + 488, (uint32)v76);
+                    value = cursor.Read16();
+                    duration = (cursor + 2).Read16();
+                    static_cast<Player *>(visual_lists.players->owner)->fall_damage_threshold = (uint32)value;
+                    static_cast<Player *>(visual_lists.players->owner)->fatal_fall_distance = (uint32)duration;
                 }
-            LABEL_104:
+            SkipCommandPair:
                 cursor += (2) * 2;
 
                 break;
@@ -691,15 +647,15 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
             case 175:
                 receiver = visual_lists.players;
                 if (receiver)
-                    w_u32(receiver + 484, 0);
+                    static_cast<Player *>(visual_lists.players->owner)->fall_damage_threshold = 0;
                 break;
 
             case 177:
                 receiver = visual_lists.players;
                 if (receiver)
                 {
-                    v48 = ((unsigned short)(r_u16((cursor += 2, cursor - 2))));
-                    sub_8005F62C(receiver, v48);
+                    value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                    static_cast<Player *>(visual_lists.players->owner)->SetWeaponStop(value);
                 }
                 break;
 
@@ -708,15 +664,7 @@ uint32 ExecuteRecordCommands(uint32 cursor, uint32 index, uint32 synchronous)
         }
     }
 
-    if (has_final_call)
-        return ::ConfigureProjectionDepth(final_first, final_second, final_third);
-    return result;
+    if (has_projection_config)
+        return ::ConfigureProjectionDepth(projection_args[0], projection_args[1], projection_args[2]);
+    return 0xFFFF;
 }
-
-
-
-
-
-
-
-

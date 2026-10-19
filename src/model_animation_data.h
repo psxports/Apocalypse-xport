@@ -1,6 +1,8 @@
 #ifndef MODEL_ANIMATION_DATA_H
 #define MODEL_ANIMATION_DATA_H
 
+#include "vector3.h"
+
 extern "C"
 {
 #include "psx.h"
@@ -8,14 +10,14 @@ extern "C"
 
 struct ModelPose
 {
-    uint16 rotation[3][3];
-    uint16 translation[3];
+    ShortVector3 rotation[3];
+    ShortVector3 translation;
 };
 
 struct ModelJointAngles
 {
-    uint16 rotation[3];
-    uint16 translation[3];
+    ShortVector3 rotation;
+    ShortVector3 translation;
 };
 
 struct ModelAnimation

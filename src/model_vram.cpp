@@ -1,6 +1,7 @@
-#include "game_sdk_bindings.h"
-#include "model_vram.h"
 #include <stdlib.h>
+
+#include "game_diagnostics.h"
+#include "model_vram.h"
 
 struct VramRecord
 {
@@ -13,8 +14,8 @@ struct VramRecord
     uint8 mode;
     uint8 depth;
     uint8 flags;
-    uint16 source_width;
-    uint16 source_height;
+    uint16 src_width;
+    uint16 src_height;
 };
 
 static VramRecord *free_rects;
@@ -105,107 +106,102 @@ void InitializeModelVramRectangles()
     CreateFreeVramRectangle(512, 0, 512, 256);
 }
 
-static void StoreModelVramCoordinate(uint32 *output, uint32 value)
-{
-    *output = value;
-}
-
-static VramRecord *MergeFreeVramRectangles(VramRecord *first, VramRecord *second)
+static VramRecord *MergeFreeVramRectangles(VramRecord *rect0, VramRecord *rect1)
 {
     FUNCTION_MARKER(0x80068E80, "SLUS_003.73");
-    uint32 first_y = first->y;
-    uint32 second_y = second->y;
+    uint32 y0 = rect0->y;
+    uint32 y1 = rect1->y;
     uint32 result, x, y, width, height;
-    if (first_y == second_y)
+    if (y0 == y1)
     {
-        uint32 first_x = first->x;
-        uint32 second_x = second->x;
-        result = second_x < first_x;
-        if (first_x < second_x)
+        uint32 x0 = rect0->x;
+        uint32 x1 = rect1->x;
+        result = x1 < x0;
+        if (x0 < x1)
         {
-            uint32 first_width = first->width;
-            result = first_x + first_width;
-            if (result != second_x)
+            uint32 width0 = rect0->width;
+            result = x0 + width0;
+            if (result != x1)
                 return 0;
-            uint32 first_height = first->height;
-            result = second->height;
-            if (first_height != result)
+            uint32 height0 = rect0->height;
+            result = rect1->height;
+            if (height0 != result)
                 return 0;
-            x = first_x;
-            y = first->y;
-            uint32 second_width = second->width;
-            height = first->height;
-            width = first_width + second_width;
+            x = x0;
+            y = rect0->y;
+            uint32 width1 = rect1->width;
+            height = rect0->height;
+            width = width0 + width1;
         }
-        else if (second_x < first_x)
+        else if (x1 < x0)
         {
-            second_x = second->x;
-            uint32 second_width = second->width;
-            first_x = first->x;
-            result = second_x + second_width;
-            if (result != first_x)
+            x1 = rect1->x;
+            uint32 width1 = rect1->width;
+            x0 = rect0->x;
+            result = x1 + width1;
+            if (result != x0)
                 return 0;
-            uint32 first_height = first->height;
-            result = second->height;
-            if (first_height != result)
+            uint32 height0 = rect0->height;
+            result = rect1->height;
+            if (height0 != result)
                 return 0;
-            x = second_x;
-            y = second->y;
-            uint32 first_width = first->width;
-            height = first->height;
-            width = first_width + second_width;
+            x = x1;
+            y = rect1->y;
+            uint32 width0 = rect0->width;
+            height = rect0->height;
+            width = width0 + width1;
         }
         else
             return 0;
     }
     else
     {
-        uint32 first_x = first->x;
-        result = second->x;
-        if (first_x != result)
+        uint32 x0 = rect0->x;
+        result = rect1->x;
+        if (x0 != result)
             return 0;
-        result = second_y < first_y;
-        if (first_y < second_y)
+        result = y1 < y0;
+        if (y0 < y1)
         {
-            first_y = first->y;
-            uint32 first_height = first->height;
-            second_y = second->y;
-            result = first_y + first_height;
-            if (result != second_y)
+            y0 = rect0->y;
+            uint32 height0 = rect0->height;
+            y1 = rect1->y;
+            result = y0 + height0;
+            if (result != y1)
                 return 0;
-            uint32 first_width = first->width;
-            result = second->width;
-            if (first_width != result)
+            uint32 width0 = rect0->width;
+            result = rect1->width;
+            if (width0 != result)
                 return 0;
-            y = first_y;
-            x = first->x;
-            uint32 second_height = second->height;
-            width = first->width;
-            height = first_height + second_height;
+            y = y0;
+            x = rect0->x;
+            uint32 height1 = rect1->height;
+            width = rect0->width;
+            height = height0 + height1;
         }
-        else if (second_y < first_y)
+        else if (y1 < y0)
         {
-            second_y = second->y;
-            uint32 second_height = second->height;
-            first_y = first->y;
-            result = second_y + second_height;
-            if (result != first_y)
+            y1 = rect1->y;
+            uint32 height1 = rect1->height;
+            y0 = rect0->y;
+            result = y1 + height1;
+            if (result != y0)
                 return 0;
-            uint32 first_width = first->width;
-            result = second->width;
-            if (first_width != result)
+            uint32 width0 = rect0->width;
+            result = rect1->width;
+            if (width0 != result)
                 return 0;
-            y = second_y;
-            x = second->x;
-            uint32 first_height = first->height;
-            width = first->width;
-            height = first_height + second_height;
+            y = y1;
+            x = rect1->x;
+            uint32 height0 = rect0->height;
+            width = rect0->width;
+            height = height0 + height1;
         }
         else
             return 0;
     }
-    RemoveVramRecord(&free_rects, first);
-    RemoveVramRecord(&free_rects, second);
+    RemoveVramRecord(&free_rects, rect0);
+    RemoveVramRecord(&free_rects, rect1);
     return CreateFreeVramRectangle(x, y, width, height);
 }
 
@@ -305,354 +301,351 @@ uint32 ReleaseUsedVramRectangle(uint32 x, uint32 y)
 
 static bool IsVramRecordAreaSmaller(VramRecord *candidate, VramRecord *selected)
 {
-    uint32 width, height, selected_width, selected_height;
+    uint32 width, height, sel_width, selected_height;
     width = candidate->width;
     height = candidate->height;
-    selected_width = selected->width;
+    sel_width = selected->width;
     selected_height = selected->height;
-    return (sint32)(width * height) < (sint32)(selected_width * selected_height);
+    return (sint32)(width * height) < (sint32)(sel_width * selected_height);
 }
 
-VramRecord *AllocateModelTextureRectangle(uint32 owner, uint32 width, uint32 height, uint32 *x, uint32 *y, uint32 depth, uint32 flags, uint32 name)
+VramRecord *AllocateModelTextureRectangle(uint32 owner, uint32 width, uint32 height, uint32 *x, uint32 *y, uint32 depth, uint32 flags, uint32 resource_key)
 {
-    sint32 v12;
-    sint32 v14;
-    VramRecord *v15;
-    sint32 v16;
-    sint32 v17;
-    sint32 v18;
-    sint32 v19;
-    unsigned short v20;
-    unsigned short v21;
-    sint32 v22;
-    VramRecord *v23;
-    VramRecord *v24;
-    VramRecord *v25;
-    VramRecord *v26;
+    sint32 width_words;
+    VramRecord *aligned_record;
+    sint32 remaining_width;
+    sint32 remaining_height;
+    sint32 reserve_x;
+    sint32 reserve_y;
+    uint16 aligned_x_half;
+    uint16 aligned_y_half;
+    sint32 aligned_x_output;
+    VramRecord *left_padding;
+    VramRecord *right_padding;
+    VramRecord *top_padding;
+    VramRecord *bottom_padding;
     VramRecord *result;
-    sint8 v28;
-    unsigned short v29;
-    VramRecord *v30;
-    VramRecord *v31;
-    sint32 v32;
-    signed int v33;
-    signed int v34;
-    sint32 v35;
-    sint32 v36;
-    VramRecord *v37;
-    sint32 v38;
-    signed int v39;
-    sint32 v40;
-    VramRecord *v41;
-    sint32 v42;
-    uint32 v43;
-    sint32 v44;
-    sint32 v45;
-    sint32 v46;
-    VramRecord *v47;
-    sint32 v48;
-    sint32 v49;
-    sint32 v50;
-    sint32 v51;
-    VramRecord *v52;
-    sint32 v53;
-    VramRecord *v54;
-    sint32 v55;
-    sint32 v56;
-    sint32 v57;
-    VramRecord *v58;
-    VramRecord *v59;
-    sint32 v60;
-    sint32 v61;
-    sint32 v62;
-    sint32 v63;
-    VramRecord *v64;
-    sint32 v65;
-    sint32 v66;
-    sint32 v67;
-    VramRecord *v68;
-    sint8 v69;
-    short v70;
-    sint32 v71;
-    sint32 v72;
-    sint32 v73;
-    sint32 v74;
+    sint8 aligned_mode;
+    uint16 aligned_source_height;
+    VramRecord *sel;
+    VramRecord *candidate;
+    sint32 candidate_x;
+    sint32 candidate_right;
+    sint32 page_right;
+    sint32 crosses_page;
+    sint32 candidate_width;
+    VramRecord *right_candidate;
+    sint32 free_right;
+    sint32 right_page_limit;
+    sint32 right_crosses_page;
+    VramRecord *aligned_candidate;
+    sint32 sel_x;
+    uint32 alignment_x;
+    sint32 sel_width;
+    sint32 alignment_padding;
+    sint32 aligned_remainder_width;
+    VramRecord *right_split_record;
+    sint32 right_split_x;
+    sint32 split_y;
+    sint32 right_split_width;
+    sint32 right_split_height;
+    VramRecord *allocated;
+    sint32 right_remainder_y;
+    VramRecord *left_of_allocation;
+    sint32 right_remainder_x;
+    sint32 right_remainder_width;
+    sint32 right_remainder_height;
+    VramRecord *right_split_remainder;
+    VramRecord *left_split_record;
+    sint32 left_split_x;
+    sint32 left_split_width;
+    sint32 left_split_height;
+    sint32 left_remainder_y;
+    VramRecord *right_of_allocation;
+    sint32 left_remainder_x;
+    sint32 left_remainder_width;
+    sint32 left_remainder_height;
+    VramRecord *left_split_remainder;
+    sint8 mode_byte;
+    sint16 source_height_half;
+    uint32 aligned_pos[2];
+    sint32 requested_width;
+    sint32 requested_height;
     FUNCTION_MARKER(0x80068450, "SLUS_003.73");
     // TODO Audit extreme signed dimensions
     // TODO Original recursive allocation failure is dereferenced without a null check
-    v12 = width;
-    v73 = width;
-    v14 = width;
-    v74 = height;
+    requested_width = width;
+    width_words = width;
+    requested_height = height;
     if (!flags)
-        goto LABEL_28;
+        goto SearchFreeRectangles;
     if (((width == 256) && (height == 256)))
         flags = 0;
     if (!flags)
     {
-    LABEL_28:
+    SearchFreeRectangles:
         if ((depth != 16))
-            v14 = (((sint32)(((uint32)(width) + (uint32)(1)))) / 2);
+            width_words = (((sint32)(((uint32)(width) + (uint32)(1)))) / 2);
 
         if ((depth == 4))
-            v14 = (((sint32)(((uint32)(v14) + (uint32)(1)))) / 2);
-        v31 = free_rects;
-        v30 = 0;
-        if (v31)
+            width_words = (((sint32)(((uint32)(width_words) + (uint32)(1)))) / 2);
+        candidate = free_rects;
+        sel = 0;
+        if (candidate)
         {
             do
             {
-                v32 = ((sint32)v31->x);
-                v33 = ((sint32)(((uint32)(v32) + (uint32)(v14))));
+                candidate_x = ((sint32)candidate->x);
+                candidate_right = ((sint32)(((uint32)(candidate_x) + (uint32)(width_words))));
                 if ((depth == 8))
-                    v34 = ((uint32)((v32 & 0xFFFFFFC0)) + (uint32)(128));
+                    page_right = ((uint32)((candidate_x & 0xFFFFFFC0)) + (uint32)(128));
                 else
-                    v34 = ((uint32)((v32 & 0xFFFFFFC0)) + (uint32)(64));
-                v35 = (((sint32)(v34)) < ((sint32)(v33)));
-                if (((!allocation_mode || ((((sint32)v31->y) + height) & 255)) && ((((sint32)(owner)) < 0) || !v35)))
+                    page_right = ((uint32)((candidate_x & 0xFFFFFFC0)) + (uint32)(64));
+                crosses_page = (((sint32)(page_right)) < ((sint32)(candidate_right)));
+                if (((!allocation_mode || ((((sint32)candidate->y) + height) & 255)) && ((((sint32)(owner)) < 0) || !crosses_page)))
                 {
-                    v36 = ((sint32)v31->width);
-                    if (((v36 == v14) && (((sint32)v31->height) == height)))
+                    candidate_width = ((sint32)candidate->width);
+                    if (((candidate_width == width_words) && (((sint32)candidate->height) == height)))
                     {
-                        v30 = v31;
+                        sel = candidate;
                         break;
                     }
-                    if (((((((!v30 || ((((sint32)v30->width) != v14) && (((sint32)v30->height) != height))) || (v36 == v14)) || (((sint32)v31->height) == height)) && (((sint32)v31->width) >= ((sint32)(v14)))) && (((sint32)v31->height) >= ((sint32)(height)))) && (!v30 || IsVramRecordAreaSmaller(v31, v30))))
+                    if (((((((!sel || ((((sint32)sel->width) != width_words) && (((sint32)sel->height) != height))) || (candidate_width == width_words)) || (((sint32)candidate->height) == height)) && (((sint32)candidate->width) >= ((sint32)(width_words)))) && (((sint32)candidate->height) >= ((sint32)(height)))) && (!sel || IsVramRecordAreaSmaller(candidate, sel))))
                     {
-                        v30 = v31;
+                        sel = candidate;
                     }
                 }
-                v31 = v31->next;
-            } while (v31);
+                candidate = candidate->next;
+            } while (candidate);
         }
-        if (!v30)
+        if (!sel)
         {
-            v37 = free_rects;
-            if (v37)
+            right_candidate = free_rects;
+            if (right_candidate)
             {
                 do
                 {
-                    v38 = ((uint32)(((sint32)v37->x)) + (uint32)(((sint32)v37->width)));
+                    free_right = ((uint32)(((sint32)right_candidate->x)) + (uint32)(((sint32)right_candidate->width)));
                     if ((depth == 8))
-                        v39 = ((uint32)((((sint32)(((uint32)(v38) - (uint32)(v14)))) & 0xFFFFFFC0)) + (uint32)(128));
+                        right_page_limit = ((uint32)((((sint32)(((uint32)(free_right) - (uint32)(width_words)))) & 0xFFFFFFC0)) + (uint32)(128));
                     else
-                        v39 = ((uint32)((((sint32)(((uint32)(v38) - (uint32)(v14)))) & 0xFFFFFFC0)) + (uint32)(64));
-                    v40 = (((sint32)(v39)) < ((sint32)(v38)));
-                    if ((((!allocation_mode || ((((sint32)v37->y) + height) & 255)) && ((((sint32)(owner)) < 0) || !v40)) && (((((sint32)v37->width) == v14) && (((sint32)v37->height) == height)) || ((((((!v30 || ((((sint32)v30->width) != v14) && (((sint32)v30->height) != height))) || (((sint32)v37->width) == v14)) || (((sint32)v37->height) == height)) && (((sint32)v37->width) >= ((sint32)(v14)))) && (((sint32)v37->height) >= ((sint32)(height)))) && (!v30 || IsVramRecordAreaSmaller(v37, v30))))))
+                        right_page_limit = ((uint32)((((sint32)(((uint32)(free_right) - (uint32)(width_words)))) & 0xFFFFFFC0)) + (uint32)(64));
+                    right_crosses_page = (((sint32)(right_page_limit)) < ((sint32)(free_right)));
+                    if ((((!allocation_mode || ((((sint32)right_candidate->y) + height) & 255)) && ((((sint32)(owner)) < 0) || !right_crosses_page)) && (((((sint32)right_candidate->width) == width_words) && (((sint32)right_candidate->height) == height)) || ((((((!sel || ((((sint32)sel->width) != width_words) && (((sint32)sel->height) != height))) || (((sint32)right_candidate->width) == width_words)) || (((sint32)right_candidate->height) == height)) && (((sint32)right_candidate->width) >= ((sint32)(width_words)))) && (((sint32)right_candidate->height) >= ((sint32)(height)))) && (!sel || IsVramRecordAreaSmaller(right_candidate, sel))))))
                     {
-                        v30 = v37;
+                        sel = right_candidate;
                     }
-                    v37 = v37->next;
-                } while (v37);
+                    right_candidate = right_candidate->next;
+                } while (right_candidate);
             }
-            if (!v30)
+            if (!sel)
             {
-                v41 = free_rects;
-                if (v41)
+                aligned_candidate = free_rects;
+                if (aligned_candidate)
                 {
                     do
                     {
-                        if ((!allocation_mode || ((((sint32)v41->y) + height) & 255)) && (!v30 || (((sint32)v30->width) != v14 && ((sint32)v30->height) != height) || ((sint32)v41->width) == v14 || ((sint32)v41->height) == height) && (sint32)(((sint32)v41->width) - (((((sint32)v41->x) + 64) & 0xFFFFFFC0) - ((sint32)v41->x))) >= v14 && (sint32)((sint32)v41->height) >= (sint32)height && (!v30 || (sint32)((uint32)((sint32)v41->width) * ((sint32)v41->height)) < (sint32)((uint32)((sint32)v30->width) * ((sint32)v30->height))))
+                        if ((!allocation_mode || ((((sint32)aligned_candidate->y) + height) & 255)) && (!sel || (((sint32)sel->width) != width_words && ((sint32)sel->height) != height) || ((sint32)aligned_candidate->width) == width_words || ((sint32)aligned_candidate->height) == height) && (sint32)(((sint32)aligned_candidate->width) - (((((sint32)aligned_candidate->x) + 64) & 0xFFFFFFC0) - ((sint32)aligned_candidate->x))) >= width_words && (sint32)((sint32)aligned_candidate->height) >= (sint32)height && (!sel || (sint32)((uint32)((sint32)aligned_candidate->width) * ((sint32)aligned_candidate->height)) < (sint32)((uint32)((sint32)sel->width) * ((sint32)sel->height))))
                         {
-                            v30 = v41;
+                            sel = aligned_candidate;
                         }
-                        v41 = v41->next;
-                    } while (v41);
+                        aligned_candidate = aligned_candidate->next;
+                    } while (aligned_candidate);
                 }
-                if (!v30)
+                if (!sel)
                 {
-                    GameDiagnostic("Out of VRAM whilst packing %x, (%d,%d)\n", name, v73, v74);
+                    GameDiagnostic("Out of VRAM whilst packing %x, (%d,%d)\n", resource_key, requested_width, requested_height);
                     return 0;
                 }
-                v42 = ((sint32)v30->x);
-                v43 = (((uint32)(v42) + (uint32)(64)) & 0xFFFFFFC0);
-                v44 = ((sint32)v30->width);
-                v45 = ((uint32)(v43) - (uint32)(v42));
-                v46 = ((sint32)(((uint32)(v44) - (uint32)(v45))));
-                if ((((sint32)(((sint32)(((uint32)(v44) - (uint32)(v45)))))) > 0))
+                sel_x = ((sint32)sel->x);
+                alignment_x = (((uint32)(sel_x) + (uint32)(64)) & 0xFFFFFFC0);
+                sel_width = ((sint32)sel->width);
+                alignment_padding = ((uint32)(alignment_x) - (uint32)(sel_x));
+                aligned_remainder_width = ((sint32)(((uint32)(sel_width) - (uint32)(alignment_padding))));
+                if ((((sint32)(((sint32)(((uint32)(sel_width) - (uint32)(alignment_padding)))))) > 0))
                 {
-                    CreateFreeVramRectangle(v43, ((sint32)v30->y), ((sint32)(((uint32)(v44) - (uint32)(v45)))), ((sint32)v30->height));
-                    v30->width = (uint16)(v30->width - (uint32)v46);
-                    width = v12;
+                    CreateFreeVramRectangle(alignment_x, ((sint32)sel->y), ((sint32)(((uint32)(sel_width) - (uint32)(alignment_padding)))), ((sint32)sel->height));
+                    sel->width = (uint16)(sel->width - (uint32)aligned_remainder_width);
+                    width = requested_width;
                 }
-                result = AllocateModelTextureRectangle(owner, width, height, x, y, depth, 0, name);
+                result = AllocateModelTextureRectangle(owner, width, height, x, y, depth, 0, resource_key);
                 result->depth = (uint8)(depth);
                 result->flags = (uint8)(flags);
                 result->owner = (uint8)(owner);
-                goto LABEL_114;
+                goto StoreSourceDimensions;
             }
-            v47 = v30;
-            v48 = ((sint32)v30->x);
-            v49 = ((sint32)v30->y);
-            v50 = ((sint32)v47->width);
-            v51 = ((sint32)v47->height);
-            RemoveVramRecord(&free_rects, v47);
-            v52 = CreateUsedVramRectangle(((sint32)(((uint32)(((sint32)(((uint32)(v48) + (uint32)(v50))))) - (uint32)(v14)))), v49, v14, height);
-            if ((v50 == v14))
+            right_split_record = sel;
+            right_split_x = ((sint32)sel->x);
+            split_y = ((sint32)sel->y);
+            right_split_width = ((sint32)right_split_record->width);
+            right_split_height = ((sint32)right_split_record->height);
+            RemoveVramRecord(&free_rects, right_split_record);
+            allocated = CreateUsedVramRectangle(((sint32)(((uint32)(((sint32)(((uint32)(right_split_x) + (uint32)(right_split_width))))) - (uint32)(width_words)))), split_y, width_words, height);
+            if ((right_split_width == width_words))
             {
-                v53 = ((sint32)(((uint32)(v49) + (uint32)(height))));
-                if ((v51 == height))
+                right_remainder_y = ((sint32)(((uint32)(split_y) + (uint32)(height))));
+                if ((right_split_height == height))
                 {
-                LABEL_103:
-                    StoreModelVramCoordinate(x, ((sint32)(((uint32)(((sint32)(((uint32)(v48) + (uint32)(v50))))) - (uint32)(v14)))));
+                StoreRightAlignedX:
+                    *x = ((sint32)(((uint32)(((sint32)(((uint32)(right_split_x) + (uint32)(right_split_width))))) - (uint32)(width_words))));
 
-                LABEL_113:
-                    StoreModelVramCoordinate(y, v49);
+                StoreYAndMetadata:
+                    *y = split_y;
 
-                    v52->depth = (uint8)(depth);
-                    result = v52;
-                    v52->flags = (uint8)(flags);
-                    v52->owner = (uint8)(owner);
-                LABEL_114:
-                    v69 = allocation_mode;
+                    allocated->depth = (uint8)(depth);
+                    result = allocated;
+                    allocated->flags = (uint8)(flags);
+                    allocated->owner = (uint8)(owner);
+                StoreSourceDimensions:
+                    mode_byte = allocation_mode;
 
-                    result->source_width = (uint16)(v73);
-                    v70 = v74;
-                    result->mode = (uint8)(v69);
-                    result->source_height = (uint16)(v70);
+                    result->src_width = (uint16)(requested_width);
+                    source_height_half = requested_height;
+                    result->mode = (uint8)(mode_byte);
+                    result->src_height = (uint16)(source_height_half);
                     return result;
                 }
-                v55 = v48;
-                v56 = v50;
+                right_remainder_x = right_split_x;
+                right_remainder_width = right_split_width;
             }
             else
             {
-                v53 = v49;
-                if ((v51 == height))
+                right_remainder_y = split_y;
+                if ((right_split_height == height))
                 {
-                    v55 = v48;
-                    v56 = ((sint32)(((uint32)(v50) - (uint32)(v14))));
-                    v57 = v51;
-                LABEL_102:
-                    v58 = CreateFreeVramRectangle(v55, v53, v56, v57);
+                    right_remainder_x = right_split_x;
+                    right_remainder_width = ((sint32)(((uint32)(right_split_width) - (uint32)(width_words))));
+                    right_remainder_height = right_split_height;
+                CoalesceRightRemainder:
+                    right_split_remainder = CreateFreeVramRectangle(right_remainder_x, right_remainder_y, right_remainder_width, right_remainder_height);
 
-                    CoalesceFreeVramRectangles(v58);
-                    goto LABEL_103;
+                    CoalesceFreeVramRectangles(right_split_remainder);
+                    goto StoreRightAlignedX;
                 }
-                v54 = CreateFreeVramRectangle(v48, v49, ((sint32)(((uint32)(v50) - (uint32)(v14)))), v51);
-                CoalesceFreeVramRectangles(v54);
-                v55 = ((sint32)(((uint32)(((sint32)(((uint32)(v48) + (uint32)(v50))))) - (uint32)(v14))));
-                v53 = ((sint32)(((uint32)(v49) + (uint32)(height))));
-                v56 = v14;
+                left_of_allocation = CreateFreeVramRectangle(right_split_x, split_y, ((sint32)(((uint32)(right_split_width) - (uint32)(width_words)))), right_split_height);
+                CoalesceFreeVramRectangles(left_of_allocation);
+                right_remainder_x = ((sint32)(((uint32)(((sint32)(((uint32)(right_split_x) + (uint32)(right_split_width))))) - (uint32)(width_words))));
+                right_remainder_y = ((sint32)(((uint32)(split_y) + (uint32)(height))));
+                right_remainder_width = width_words;
             }
-            v57 = ((sint32)(((uint32)(v51) - (uint32)(height))));
-            goto LABEL_102;
+            right_remainder_height = ((sint32)(((uint32)(right_split_height) - (uint32)(height))));
+            goto CoalesceRightRemainder;
         }
-        v59 = v30;
-        v60 = ((sint32)v30->x);
-        v49 = ((sint32)v30->y);
-        v61 = ((sint32)v59->width);
-        v62 = ((sint32)v59->height);
-        RemoveVramRecord(&free_rects, v59);
-        v52 = CreateUsedVramRectangle(v60, v49, v14, height);
-        if ((v61 == v14))
+        left_split_record = sel;
+        left_split_x = ((sint32)sel->x);
+        split_y = ((sint32)sel->y);
+        left_split_width = ((sint32)left_split_record->width);
+        left_split_height = ((sint32)left_split_record->height);
+        RemoveVramRecord(&free_rects, left_split_record);
+        allocated = CreateUsedVramRectangle(left_split_x, split_y, width_words, height);
+        if ((left_split_width == width_words))
         {
-            v63 = ((sint32)(((uint32)(v49) + (uint32)(height))));
-            if ((v62 == height))
+            left_remainder_y = ((sint32)(((uint32)(split_y) + (uint32)(height))));
+            if ((left_split_height == height))
             {
-            LABEL_112:
-                StoreModelVramCoordinate(x, v60);
+            StoreLeftAlignedX:
+                *x = left_split_x;
 
-                goto LABEL_113;
+                goto StoreYAndMetadata;
             }
-            v65 = v60;
-            v66 = v61;
+            left_remainder_x = left_split_x;
+            left_remainder_width = left_split_width;
         }
         else
         {
-            v63 = v49;
-            if ((v62 == height))
+            left_remainder_y = split_y;
+            if ((left_split_height == height))
             {
-                v65 = ((sint32)(((uint32)(v60) + (uint32)(v14))));
-                v66 = ((sint32)(((uint32)(v61) - (uint32)(v14))));
-                v67 = v62;
-            LABEL_111:
-                v68 = CreateFreeVramRectangle(v65, v63, v66, v67);
+                left_remainder_x = ((sint32)(((uint32)(left_split_x) + (uint32)(width_words))));
+                left_remainder_width = ((sint32)(((uint32)(left_split_width) - (uint32)(width_words))));
+                left_remainder_height = left_split_height;
+            CoalesceLeftRemainder:
+                left_split_remainder = CreateFreeVramRectangle(left_remainder_x, left_remainder_y, left_remainder_width, left_remainder_height);
 
-                CoalesceFreeVramRectangles(v68);
-                goto LABEL_112;
+                CoalesceFreeVramRectangles(left_split_remainder);
+                goto StoreLeftAlignedX;
             }
-            v64 = CreateFreeVramRectangle(((sint32)(((uint32)(v60) + (uint32)(v14)))), v49, ((sint32)(((uint32)(v61) - (uint32)(v14)))), v62);
-            CoalesceFreeVramRectangles(v64);
-            v65 = v60;
-            v63 = ((sint32)(((uint32)(v49) + (uint32)(height))));
-            v66 = v14;
+            right_of_allocation = CreateFreeVramRectangle(((sint32)(((uint32)(left_split_x) + (uint32)(width_words)))), split_y, ((sint32)(((uint32)(left_split_width) - (uint32)(width_words)))), left_split_height);
+            CoalesceFreeVramRectangles(right_of_allocation);
+            left_remainder_x = left_split_x;
+            left_remainder_y = ((sint32)(((uint32)(split_y) + (uint32)(height))));
+            left_remainder_width = width_words;
         }
-        v67 = ((sint32)(((uint32)(v62) - (uint32)(height))));
-        goto LABEL_111;
+        left_remainder_height = ((sint32)(((uint32)(left_split_height) - (uint32)(height))));
+        goto CoalesceLeftRemainder;
     }
     if (((width == 256) || (height == 256)))
     {
-        v15 = (AllocateModelTextureRectangle(owner, 256, 256, (uint32 *)&v71, (uint32 *)&v72, depth, 0, 0));
-        v16 = 128;
-        v17 = 256;
+        aligned_record = (AllocateModelTextureRectangle(owner, 256, 256, &aligned_pos[0], &aligned_pos[1], depth, 0, 0));
+        remaining_width = 128;
+        remaining_height = 256;
         if ((depth != 16))
-            v14 = (((sint32)(((uint32)(v14) + (uint32)(1)))) >> 1);
+            width_words = (((sint32)(((uint32)(width_words) + (uint32)(1)))) >> 1);
         if ((depth == 4))
         {
-            v14 = (((sint32)(((uint32)(v14) + (uint32)(1)))) >> 1);
-            v16 = 64;
+            width_words = (((sint32)(((uint32)(width_words) + (uint32)(1)))) >> 1);
+            remaining_width = 64;
         }
-        v18 = ((sint32)v15->x);
-        v19 = ((sint32)v15->y);
+        reserve_x = ((sint32)aligned_record->x);
+        reserve_y = ((sint32)aligned_record->y);
     }
     else
     {
-        v15 = (AllocateModelTextureRectangle(owner, 2 * width, 2 * height, (uint32 *)&v71, (uint32 *)&v72, depth, 0, name));
+        aligned_record = (AllocateModelTextureRectangle(owner, 2 * width, 2 * height, &aligned_pos[0], &aligned_pos[1], depth, 0, resource_key));
         if ((depth != 16))
-            v14 = (((sint32)(((uint32)(v14) + (uint32)(1)))) / 2);
-        v16 = ((uint32)(2) * (uint32)(v14));
+            width_words = (((sint32)(((uint32)(width_words) + (uint32)(1)))) / 2);
+        remaining_width = ((uint32)(2) * (uint32)(width_words));
         if ((depth == 4))
         {
-            v14 = (((sint32)(((uint32)(v14) + (uint32)(1)))) / 2);
-            v16 = ((uint32)(2) * (uint32)(v14));
+            width_words = (((sint32)(((uint32)(width_words) + (uint32)(1)))) / 2);
+            remaining_width = ((uint32)(2) * (uint32)(width_words));
         }
-        v17 = ((uint32)(2) * (uint32)(height));
-        v18 = ((sint32)v15->x);
-        v19 = ((sint32)v15->y);
-        v71 = (((uint32)(((sint32)(((uint32)(v71) + (uint32)(v14))))) - (uint32)(1)) & (0 - (uint32)v14));
-        v72 = (((uint32)(((sint32)(((uint32)(v72) + (uint32)(height))))) - (uint32)(1)) & (0 - height));
+        remaining_height = ((uint32)(2) * (uint32)(height));
+        reserve_x = ((sint32)aligned_record->x);
+        reserve_y = ((sint32)aligned_record->y);
+        aligned_pos[0] = (((uint32)(((sint32)(((uint32)(aligned_pos[0]) + (uint32)(width_words))))) - (uint32)(1)) & (0 - (uint32)width_words));
+        aligned_pos[1] = (((uint32)(((sint32)(((uint32)(aligned_pos[1]) + (uint32)(height))))) - (uint32)(1)) & (0 - height));
     }
-    v20 = v71;
-    v21 = v72;
-    v22 = v71;
-    v15->width = (uint16)(v14);
-    v15->height = (uint16)(height);
-    v15->x = (uint16)(v20);
-    v15->y = (uint16)(v21);
-    StoreModelVramCoordinate(x, v22);
-    StoreModelVramCoordinate(y, v72);
-    if ((((sint32)(v18)) < ((sint32)(v71))))
+    aligned_x_half = aligned_pos[0];
+    aligned_y_half = aligned_pos[1];
+    aligned_x_output = aligned_pos[0];
+    aligned_record->width = (uint16)(width_words);
+    aligned_record->height = (uint16)(height);
+    aligned_record->x = (uint16)(aligned_x_half);
+    aligned_record->y = (uint16)(aligned_y_half);
+    *x = aligned_x_output;
+    *y = aligned_pos[1];
+    if ((((sint32)(reserve_x)) < ((sint32)(aligned_pos[0]))))
     {
-        v23 = CreateFreeVramRectangle(v18, v19, ((sint32)(((uint32)(v71) - (uint32)(v18)))), v17);
-        CoalesceFreeVramRectangles(v23);
-        v16 = (sint32)((uint32)v16 - ((uint32)v71 - (uint32)v18));
+        left_padding = CreateFreeVramRectangle(reserve_x, reserve_y, ((sint32)(((uint32)(aligned_pos[0]) - (uint32)(reserve_x)))), remaining_height);
+        CoalesceFreeVramRectangles(left_padding);
+        remaining_width = (sint32)((uint32)remaining_width - ((uint32)aligned_pos[0] - (uint32)reserve_x));
     }
-    if ((((sint32)(v14)) < ((sint32)(v16))))
+    if ((((sint32)(width_words)) < ((sint32)(remaining_width))))
     {
-        v24 = CreateFreeVramRectangle(((sint32)(((uint32)(v71) + (uint32)(v14)))), v19, ((sint32)(((uint32)(v16) - (uint32)(v14)))), v17);
-        CoalesceFreeVramRectangles(v24);
+        right_padding = CreateFreeVramRectangle(((sint32)(((uint32)(aligned_pos[0]) + (uint32)(width_words)))), reserve_y, ((sint32)(((uint32)(remaining_width) - (uint32)(width_words)))), remaining_height);
+        CoalesceFreeVramRectangles(right_padding);
     }
-    if ((((sint32)(v19)) < ((sint32)(v72))))
+    if ((((sint32)(reserve_y)) < ((sint32)(aligned_pos[1]))))
     {
-        v25 = CreateFreeVramRectangle(v71, v19, v14, ((sint32)(((uint32)(v72) - (uint32)(v19)))));
-        CoalesceFreeVramRectangles(v25);
-        v17 = (sint32)((uint32)v17 - ((uint32)v72 - (uint32)v19));
+        top_padding = CreateFreeVramRectangle(aligned_pos[0], reserve_y, width_words, ((sint32)(((uint32)(aligned_pos[1]) - (uint32)(reserve_y)))));
+        CoalesceFreeVramRectangles(top_padding);
+        remaining_height = (sint32)((uint32)remaining_height - ((uint32)aligned_pos[1] - (uint32)reserve_y));
     }
-    if ((((sint32)(height)) < ((sint32)(v17))))
+    if ((((sint32)(height)) < ((sint32)(remaining_height))))
     {
-        v26 = CreateFreeVramRectangle(v71, ((sint32)(((uint32)(v72) + (uint32)(height)))), v14, ((sint32)(((uint32)(v17) - (uint32)(height)))));
-        CoalesceFreeVramRectangles(v26);
+        bottom_padding = CreateFreeVramRectangle(aligned_pos[0], ((sint32)(((uint32)(aligned_pos[1]) + (uint32)(height)))), width_words, ((sint32)(((uint32)(remaining_height) - (uint32)(height)))));
+        CoalesceFreeVramRectangles(bottom_padding);
     }
-    v15->depth = (uint8)(depth);
-    result = v15;
-    v15->flags = (uint8)(flags);
-    v15->owner = (uint8)(owner);
-    v28 = allocation_mode;
-    v15->source_width = (uint16)(v73);
-    v29 = v74;
-    v15->mode = (uint8)(v28);
-    v15->source_height = (uint16)(v29);
+    aligned_record->depth = (uint8)(depth);
+    result = aligned_record;
+    aligned_record->flags = (uint8)(flags);
+    aligned_record->owner = (uint8)(owner);
+    aligned_mode = allocation_mode;
+    aligned_record->src_width = (uint16)(requested_width);
+    aligned_source_height = requested_height;
+    aligned_record->mode = (uint8)(aligned_mode);
+    aligned_record->src_height = (uint16)(aligned_source_height);
     return result;
 }
 
@@ -682,7 +675,7 @@ void RebuildModelVramAllocations()
     for (VramRecord *node = copies; node; node = node->next)
     {
         allocation_mode = node->mode;
-        AllocateModelTextureRectangle((uint32)(sint32)node->owner, node->source_width, node->source_height, &coordinates[0], &coordinates[1], node->depth, node->flags, 0);
+        AllocateModelTextureRectangle((uint32)(sint32)node->owner, node->src_width, node->src_height, &coordinates[0], &coordinates[1], node->depth, node->flags, 0);
     }
     while (copies)
     {

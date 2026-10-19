@@ -1,74 +1,66 @@
+#include <new>
+#include <string.h>
+#include <stdlib.h>
+
+#include "game_heap.h"
+#include "game_tick.h"
+
+#include "effect_object.h"
+
 #include "visual_object.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
 #include "flamethrower.h"
 #include "audio_voice.h"
 #include "angle_math.h"
 #include "ribbon_segments.h"
 #include "effect_sprite.h"
-#include "native_object_storage.h"
 #include "audio_session.h"
 #include "vector_arithmetic.h"
 #include "vector_distance.h"
-#include "object_collision_events.h"
+#include "collision.h"
 #include "object_damage.h"
 #include "effect_lifecycle.h"
 #include "game_random.h"
-#include <new>
-#include <string.h>
 
-Flamethrower::Flamethrower(ModelInstance **list, ModelInstance **secondary_list)
-    : WeaponNode(list, secondary_list)
+Flamethrower::Flamethrower(ModelInstance **list, ModelInstance **secondary_list) : WeaponNode(list, secondary_list), impact_count(0), segment_len(0), beam()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80024428, "SLUS_003.73");
-    w_u32(object, 0x800A14C8);
     this->type = WPN_FLAMETHROWER;
     Configure(3000);
 }
 
+Flamethrower::~Flamethrower()
+{
+    ClearBeam();
+}
+
 uint32 Flamethrower::Destroy(uint32 reason)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80024470, "SLUS_003.73");
-    w_u32(object, 0x800A14C8);
     ClearBeam();
     uint32 result = WeaponNode::Destroy(0);
-    return (reason & 1) ? ReleaseWeaponStorage(object) : result;
+    return (reason & 1) ? ReleaseWeaponStorage(this) : result;
 }
 
 // TODO Recover original units for configuration field68
 uint32 Flamethrower::Configure(uint32 amount)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x800244CC, "SLUS_003.73");
     uint32 result = (uint32)((sint32)amount / 20);
-    w_u32(object + 68, result);
+    this->segment_len = result;
     return result;
 }
 
 void Flamethrower::ClearBeam()
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 child, table, receiver, target, sound;
     FUNCTION_MARKER(0x800244F0, "SLUS_003.73");
-    child = r_u32(object + 60);
-    if (child)
-    {
-        table = r_u32(child + 68);
-        receiver = child + (uint32)(sint32)(sint16)r_u16(table + 8);
-        target = r_u32(table + 12);
-        apocalypse_object_cleanup(target, receiver, 3);
-        w_u32(object + 60, 0);
-    }
-    sound = this->sound;
+    if (beam)
+        beam->Destroy(3);
+    beam = 0;
     if (sound)
     {
         StopSoundVoices(sound);
-        this->sound = 0;
+        sound = 0;
     }
 }
 
@@ -92,176 +84,169 @@ static uint32 DivideFlamethrowerDistance(uint32 numerator, uint32 denominator)
     return (uint32)(n / d);
 }
 
-// Native input and output bridges preserve the original three-word copies
-static void ReadFlamethrowerPoint(uint32 output[3], const uint32 *input)
-{
-    uint32 guest = GuestMemoryAddress(input), axis;
-    for (axis = 0; axis < 3; ++axis)
-        if (guest)
-            output[axis] = r_u32(guest + 4 * axis);
-        else
-            memcpy(output + axis, (const uint8 *)input + 4 * axis, 4);
-}
-
-static void StoreFlamethrowerPoint(uint32 address, const uint32 input[3])
-{
-    w_u32(address, input[0]);
-    w_u32(address + 4, input[1]);
-    w_u32(address + 8, input[2]);
-}
-
 uint32 Flamethrower::Fire(const uint32 *position, const sint16 *angles)
 {
+    ModelBorrow model_borrow;
     CollisionRay &shared_ray = GetSharedCollisionRay();
-    const uint32 weapon = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80024598, "SLUS_003.73");
-    uint32 step[3], direction[3], point[3], endpoint[3], start[3], scaled[3];
-    uint32 temporary[3], difference[3], impact[3], fireball_velocity[3];
-    uint32 surface, buffer, value, shade, index, offset, previous, count, scale;
-    uint32 target, object_hit = 0, geometry_hit = 0, distance = 0;
+    Vector3 step, direction, point, endpoint, start, scaled, tmp, difference, impact, fireball_velocity;
+    uint32 value, shade, index, previous, count, scale;
+    RibbonPoint *buffer;
+    ModelInstance *target;
+    uint32 object_hit = 0, geometry_hit = 0, distance = 0;
     ModelInstance **list;
-    uint32 first_distance, second_distance, receiver, damage, fragment;
+    uint32 first_distance;
+    uint32 second_distance;
+    uint32 damage;
+    GameHeapBlock *fragment;
     sint32 wave;
     ConsumeAmmo(4);
-    scale = r_u32(weapon + 68);
-    BuildDirectionVector(step, scale, (const uint16 *)angles);
-    DivideVector(direction, step, (const uint32 *)psx_addr(weapon + 68, 4));
-    surface = r_u32(weapon + 60);
-    if (!surface)
+    scale = this->segment_len;
+    BuildDirectionVector(step.words, scale, (const uint16 *)angles);
+    DivideVector(direction.words, step.words, this->segment_len);
+    if (!beam)
     {
-        surface = AllocateEffectStorage(108);
-        if (surface)
+        ClearBeam();
+        GameHeapBlock *allocation = AllocateEffectStorage(108);
+        if (!allocation)
         {
-            void *dram_addr = AllocateNativeObjectStorage(surface, sizeof(RibbonSegments));
-            new (dram_addr) RibbonSegments(20, 1);
+            GameDiagnostic("Flamethrower ribbon allocation failed\n");
+            abort();
         }
-        w_u32(weapon + 60, surface);
-        w_u8(surface + 66, 1);
-        RibbonSegments::Attach(r_u32(weapon + 60)).SetMaterial(0x68B7B136);
-        surface = r_u32(weapon + 60);
-        w_u32(surface + 96, 1);
-        for (index = 0; index < 3; ++index)
-        {
-            buffer = r_u32(r_u32(weapon + 60) + 104);
-            w_u8(buffer + 12 + index, 0);
-        }
-        for (index = 1, offset = 36; index < 20; ++index, offset += 36)
+        beam = new (allocation) RibbonSegments(20, 1);
+        beam->persistent = 1;
+        beam->SetMaterial(0x68B7B136);
+        beam->waving = 1;
+        // Original leaves the first point edge RGB untouched
+        buffer = beam->points;
+        buffer->center.r = 0;
+        buffer->center.g = 0;
+        buffer->center.b = 0;
+        for (index = 1; index < 20; ++index)
         {
             value = (index << 10) / 10;
-            for (count = 0; count < 3; ++count)
-            {
-                shade = ReadFlamethrowerShade(value);
-                buffer = r_u32(r_u32(weapon + 60) + 104);
-                w_u8(buffer + offset + 12 + count, shade);
-            }
+            shade = ReadFlamethrowerShade(value);
+            buffer = beam->points;
+            buffer[index].center.r = shade;
+            shade = ReadFlamethrowerShade(value);
+            buffer = beam->points;
+            buffer[index].center.g = shade;
+            shade = ReadFlamethrowerShade(value);
+            buffer = beam->points;
+            buffer[index].center.b = shade;
             value = LookupDistanceRoot(((value * (index << 10)) / 10) + 0x100000);
-            for (count = 0; count < 3; ++count)
-            {
-                shade = ReadFlamethrowerShade(value);
-                buffer = r_u32(r_u32(weapon + 60) + 104);
-                w_u8(buffer + offset + 20 + count, shade);
-            }
+            shade = ReadFlamethrowerShade(value);
+            buffer = beam->points;
+            buffer[index].edge.r = shade;
+            shade = ReadFlamethrowerShade(value);
+            buffer = beam->points;
+            buffer[index].edge.g = shade;
+            shade = ReadFlamethrowerShade(value);
+            buffer = beam->points;
+            buffer[index].edge.b = shade;
         }
-        w_u32(r_u32(weapon + 60) + 92, 8);
-        ReadFlamethrowerPoint(point, position);
-        for (index = 0, offset = 0; index < 20; ++index, offset += 36)
+        beam->v_step = 8;
+        point.words[0] = (position)[0];
+        point.words[1] = (position)[1];
+        point.words[2] = (position)[2];
+        for (index = 0; index < 20; ++index)
         {
-            buffer = r_u32(r_u32(weapon + 60) + 104);
-            StoreFlamethrowerPoint(buffer + offset, point);
-            AddVectors(point, step);
+            buffer = beam->points;
+            buffer[index].pos = point;
+            AddVectors(point.words, step.words);
         }
         value = PlaySoundEffect(18, 8192, 0);
         this->sound = value;
-        surface = r_u32(weapon + 60);
     }
-    index = r_u32(surface + 100) - 1;
+    index = beam->point_count - 1;
     if ((sint32)index > 0)
     {
-        offset = index * 36;
-        previous = offset - 36;
         do
         {
-            buffer = r_u32(r_u32(weapon + 60) + 104);
-            target = buffer + offset;
+            buffer = beam->points;
+            RibbonPoint *point_dst = buffer + index;
             scale = 1;
-            MultiplyVector(temporary, step, &scale);
-            buffer = r_u32(r_u32(weapon + 60) + 104);
-            AddVectors(point, (const uint32 *)psx_addr(buffer + previous, 12), temporary);
-            StoreFlamethrowerPoint(target, point);
+            MultiplyVector(tmp.words, step.words, scale);
+            buffer = beam->points;
+            AddVectors(point.words, buffer[index - 1].pos.words, tmp.words);
+            point_dst->pos = point;
             --index;
-            offset -= 36;
-            previous -= 36;
         } while ((sint32)index > 0);
     }
-    ReadFlamethrowerPoint(point, position);
-    buffer = r_u32(r_u32(weapon + 60) + 104);
-    StoreFlamethrowerPoint(buffer, point);
-    AddVectors(point, step);
-    value = 2100 - r_u32(0x800FF2F0) * 800;
-    for (index = 2, offset = 72, count = 12; index < 20;
-         ++index, offset += 36, count += 6, value += 1050)
+    point.words[0] = (position)[0];
+    point.words[1] = (position)[1];
+    point.words[2] = (position)[2];
+    buffer = beam->points;
+    buffer->pos = point;
+    AddVectors(point.words, step.words);
+    value = 2100 - game_clock.tick * 800;
+    for (index = 2, count = 12; index < 20; ++index, count += 6, value += 1050)
     {
         wave = rsin(value & 4095);
-        buffer = r_u32(r_u32(weapon + 60) + 104) + offset;
+        buffer = beam->points + index;
         wave = (6 * wave) / 4096;
-        w_u16(buffer + 16, (uint32)wave + 12 + count);
-        buffer = r_u32(r_u32(weapon + 60) + 104) + offset;
-        w_u16(buffer + 18, r_u16(buffer + 16) + 50);
+        buffer->width = (uint32)wave + 12 + count;
+        buffer = beam->points + index;
+        buffer->height = buffer->width + 50;
     }
-    buffer = r_u32(r_u32(weapon + 60) + 104);
-    w_u16(buffer + 16, 2);
-    buffer = r_u32(r_u32(weapon + 60) + 104);
-    w_u16(buffer + 18, 15);
-    surface = r_u32(weapon + 60);
-    value = r_u32(0x800FF2F0);
-    buffer = r_u32(surface + 104);
-    w_u16(buffer + 52, 15);
+    buffer = beam->points;
+    buffer->width = 2;
+    buffer = beam->points;
+    buffer->height = 15;
+
+    value = game_clock.tick;
+    buffer = beam->points;
+    buffer[1].width = 15;
     wave = rsin(((960 * value) & 0x3FC0) >> 2);
-    surface = r_u32(weapon + 60);
-    buffer = r_u32(surface + 104);
-    w_u16(buffer + 54, (uint32)((9 * wave) / 4096) + 45);
-    surface = r_u32(weapon + 60);
-    value = r_u32(surface + 88);
+
+    buffer = beam->points;
+    buffer[1].height = (uint32)((9 * wave) / 4096) + 45;
+
+    value = beam->v_scroll;
     scale = 20;
-    w_u32(surface + 88, value + 8);
-    MultiplyScalarVector(scaled, &scale, step);
-    AddVectors(endpoint, position, scaled);
-    ReadFlamethrowerPoint(start, position);
-    OffsetPositionByAngles(start, (const uint16 *)angles);
-    memcpy(shared_ray.pos[0], start, sizeof(shared_ray.pos[0]));
-    memcpy(shared_ray.pos[1], endpoint, sizeof(shared_ray.pos[1]));
+    beam->v_scroll = value + 8;
+    MultiplyScalarVector(scaled.words, scale, step.words);
+    AddVectors(endpoint.words, position, scaled.words);
+    start.words[0] = (position)[0];
+    start.words[1] = (position)[1];
+    start.words[2] = (position)[2];
+    OffsetPositionByAngles(start.words, (const uint16 *)angles);
+    shared_ray.endpoints[0] = start;
+    shared_ray.endpoints[1] = endpoint;
     InitializeCollisionRay(shared_ray);
-    w_u32(0x800FF974, 1);
+    collision_query.reject_surface40 = true;
     QueryCollisionRay(shared_ray, 1);
-    ReadFlamethrowerPoint(point, position);
+    point.words[0] = (position)[0];
+    point.words[1] = (position)[1];
+    point.words[2] = (position)[2];
     list = this->owner_list;
-    w_u32(0x800FF974, 0);
-    target = IntersectObjectSpheres(point, endpoint, start, *list, 0);
+    collision_query.reject_surface40 = false;
+    target = IntersectObjectSpheres(point.words, endpoint.words, start.words, *list, 0);
     if (!target)
     {
         list = this->secondary_list;
         if (list)
-            target = IntersectObjectSpheres(point, endpoint, start, *list, 0);
+            target = IntersectObjectSpheres(point.words, endpoint.words, start.words, *list, 0);
     }
     if (target && target == visual_lists.players)
     {
-        first_distance = MeasurePositionDistance((const uint32 *)psx_addr(target + 4, 12), position);
-        scale = r_u32(weapon + 68);
+        first_distance = MeasurePositionDistance(target->pos.words, position);
+        scale = this->segment_len;
         if (19 * scale < first_distance)
             target = 0;
     }
     if (shared_ray.hit.GetObject())
     {
-        endpoint[0] = shared_ray.hit_pos[0];
-        endpoint[1] = shared_ray.hit_pos[1];
+        endpoint.words[0] = shared_ray.hit_pos.words[0];
+        endpoint.words[1] = shared_ray.hit_pos.words[1];
         distance = shared_ray.distance - 100;
-        endpoint[2] = shared_ray.hit_pos[2];
+        endpoint.words[2] = shared_ray.hit_pos.words[2];
         if (!target)
             geometry_hit = 1;
         else
         {
-            first_distance = MeasurePositionDistance(position, (const uint32 *)psx_addr(target + 4, 12));
-            second_distance = MeasurePositionDistance(position, endpoint);
+            first_distance = MeasurePositionDistance(position, target->pos.words);
+            second_distance = MeasurePositionDistance(position, endpoint.words);
             if (first_distance >= second_distance)
                 geometry_hit = 1;
             else
@@ -272,157 +257,97 @@ uint32 Flamethrower::Fire(const uint32 *position, const sint16 *angles)
         object_hit = 1;
     if (object_hit)
     {
-        ReadFlamethrowerPoint(endpoint, (const uint32 *)psx_addr(target + 4, 12));
-        distance = MeasureEuclideanDistance(position, (const uint32 *)psx_addr(target + 4, 12));
+        endpoint.words[0] = (target->pos.words)[0];
+        endpoint.words[1] = (target->pos.words)[1];
+        endpoint.words[2] = (target->pos.words)[2];
+        distance = MeasureEuclideanDistance(position, target->pos.words);
         damage = this->damage;
-        receiver = target;
-        ApplyObjectDamage(receiver, damage, (const sint32 *)direction, 5);
+        static_cast<VisualObject *>(target->owner)->Damage(damage, direction.components, 5);
     }
     if (geometry_hit)
     {
-        value = shared_ray.hit.GetObject();
-
+        ModelInstance *level_target = shared_ray.hit.GetObject();
         damage = this->damage;
-        DamageLevelObject(value, shared_ray.hit.GetPolygon(), damage);
-        value = shared_ray.hit.GetObject();
-        if (r_u16(value) & 16)
+        DamageLevelObject(level_target, shared_ray.hit.GetPolygon(), damage);
+        level_target = shared_ray.hit.GetObject();
+        if (level_target && (level_target->flags & 16))
         {
-            if (r_u16(value + 58) != 205 || this->owner_list != 0x800FF5A0)
+            if (static_cast<VisualObject *>(level_target->owner)->kind != 205 || this->owner_list != &visual_lists.players)
             {
                 damage = this->damage;
-                receiver = value;
-                ApplyObjectDamage(receiver, damage, (const sint32 *)direction, 5);
+                static_cast<VisualObject *>(level_target->owner)->Damage(damage, direction.components, 5);
             }
         }
     }
     if (object_hit || geometry_hit)
     {
-        scale = r_u32(weapon + 68);
+        scale = this->segment_len;
         index = DivideFlamethrowerDistance(distance, scale);
-        offset = index * 36;
-        buffer = r_u32(r_u32(weapon + 60) + 104);
-        previous = (sint32)index < 19 ? offset : offset - 36;
-        value = (sint32)index < 19 ? offset + 36 : offset;
-        SubtractVectors(difference, (const uint32 *)psx_addr(buffer + value, 12), (const uint32 *)psx_addr(buffer + previous, 12));
-        scale = r_u32(weapon + 68);
+        buffer = beam->points;
+        previous = (sint32)index < 19 ? index : index - 1;
+        value = (sint32)index < 19 ? index + 1 : index;
+        SubtractVectors(difference.words, buffer[value].pos.words, buffer[previous].pos.words);
+        scale = this->segment_len;
         value = distance - index * scale;
-        MultiplyVector(scaled, difference, &value);
-        DivideVector(impact, scaled, (const uint32 *)psx_addr(weapon + 68, 4));
-        buffer = r_u32(r_u32(weapon + 60) + 104);
-        AddVectors(impact, (const uint32 *)psx_addr(buffer + offset, 12));
-        for (++index; (sint32)index < 20; ++index, offset += 36)
+        MultiplyVector(scaled.words, difference.words, value);
+        DivideVector(impact.words, scaled.words, this->segment_len);
+        buffer = beam->points;
+        AddVectors(impact.words, buffer[index].pos.words);
+        for (++index; (sint32)index < 20; ++index)
         {
-            value = index * 36;
-            buffer = r_u32(r_u32(weapon + 60) + 104);
-            StoreFlamethrowerPoint(buffer + value, impact);
-            buffer = r_u32(r_u32(weapon + 60) + 104);
-            w_u16(buffer + value + 16, 0);
-            buffer = r_u32(r_u32(weapon + 60) + 104);
-            w_u16(buffer + value + 18, 0);
+            value = index;
+            buffer = beam->points;
+            buffer[value].pos = impact;
+            buffer = beam->points;
+            buffer[value].width = 0;
+            buffer = beam->points;
+            buffer[value].height = 0;
         }
     }
     else
-        ReadFlamethrowerPoint(impact, (const uint32 *)psx_addr(r_u32(r_u32(weapon + 60) + 104) + 648, 12));
-    value = r_u32(weapon + 64) + 1;
-    w_u32(weapon + 64, value);
+        impact = beam->points[18].pos;
+    value = this->impact_count + 1;
+    this->impact_count = value;
     if (value & 1)
     {
-        fireball_velocity[0] = 0;
+        fireball_velocity.words[0] = 0;
         value = RandomRange(20);
-        fireball_velocity[1] = (0 - 10 - value) << 12;
-        fireball_velocity[2] = 0;
+        fireball_velocity.words[1] = (0 - 10 - value) << 12;
+        fireball_velocity.words[2] = 0;
+        MovingSprite *sprite = 0;
         fragment = AllocateEffectStorage(112);
         if (fragment)
         {
             value = RandomRange(1200) + 2900;
-            void *dram_addr = AllocateNativeObjectStorage(fragment, sizeof(MovingSprite));
-            new (dram_addr) MovingSprite(impact, fireball_velocity, (const char *)psx_addr(0x800A12E0, 1), value, 0, 10);
+            sprite = new (fragment) MovingSprite(impact.words, fireball_velocity.words, "Fireball", value, 0, 10);
         }
-        w_u16(fragment + 64, 300);
-        MovingSprite::Attach(fragment).AddFlags(8);
+        if (!sprite)
+        {
+            GameDiagnostic("Flamethrower impact sprite allocation failed\n");
+            abort();
+        }
+        sprite->depth_bias = 300;
+        sprite->AddFlags(8);
     }
     return 1;
 }
 
-uint32 Flamethrower::Update(const sint32 *, const sint16 *)
+uint32 Flamethrower::Update(const uint32 *, const sint16 *)
 {
     FUNCTION_MARKER(0x80024FDC, "SLUS_003.73");
     ClearBeam();
     return 0;
 }
 
-// Native output bridge preserves the original RGB byte stores
-static void StoreFlamethrowerLight(uint8 *output, uint32 value)
-{
-    uint32 address = GuestMemoryAddress(output);
-    if (address)
-        w_u8(address, value);
-    else
-        *output = (uint8)value;
-}
-
 uint32 Flamethrower::ReadLight(uint8 *red, uint8 *green, uint8 *blue)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80024FFC, "SLUS_003.73");
-    if (!r_u32(object + 60))
+    if (!beam)
         return 0;
     if (ReadWeaponLightRandom() >= 16384)
         return 0;
-    StoreFlamethrowerLight(red, 255);
-    StoreFlamethrowerLight(green, 128);
-    StoreFlamethrowerLight(blue, 0);
+    *red = 255;
+    *green = 128;
+    *blue = 0;
     return 1;
-}
-
-Flamethrower &Flamethrower::Attach(uint32 object)
-{
-    return *static_cast<Flamethrower *>(FindNativeObjectStorage(object));
-}
-
-extern "C" uint32 sub_80024428(uint32 object, uint32 list, uint32 mode)
-{
-    FUNCTION_MARKER(0x80024428, "SLUS_003.73");
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(Flamethrower));
-    new (dram_addr) Flamethrower(list, mode);
-    return object;
-}
-
-extern "C" uint32 sub_80024470(uint32 object, uint32 reason)
-{
-    FUNCTION_MARKER(0x80024470, "SLUS_003.73");
-    return Flamethrower::Attach(object).Flamethrower::Destroy(reason);
-}
-
-extern "C" uint32 sub_800244CC(uint32 object, uint32 amount)
-{
-    FUNCTION_MARKER(0x800244CC, "SLUS_003.73");
-    return Flamethrower::Attach(object).Configure(amount);
-}
-
-
-
-extern "C" void sub_80024FDC(uint32 object)
-{
-    FUNCTION_MARKER(0x80024FDC, "SLUS_003.73");
-    Flamethrower::Attach(object).Flamethrower::Update(0, 0);
-}
-
-extern "C" uint32 sub_80024FFC(uint32 object, uint32 red_address, uint32 green_address, uint32 blue_address)
-{
-    FUNCTION_MARKER(0x80024FFC, "SLUS_003.73");
-    return Flamethrower::Attach(object).Flamethrower::ReadLight((uint8 *)psx_addr(red_address, 1), (uint8 *)psx_addr(green_address, 1), (uint8 *)psx_addr(blue_address, 1));
-}
-
-
-
-extern "C" uint32 sub_80024598(uint32 weapon, uint32 position, uint32 angles)
-{
-    FUNCTION_MARKER(0x80024598, "SLUS_003.73");
-    return Flamethrower::Attach(weapon).Flamethrower::Fire((const uint32 *)psx_addr(position, 12), (const sint16 *)psx_addr(angles, 6));
-}
-
-extern "C" uint32 apocalypse_beam_24598_native(uint32 weapon, const void *position, const void *angles)
-{
-    return Flamethrower::Attach(weapon).Flamethrower::Fire((const uint32 *)position, (const sint16 *)angles);
 }

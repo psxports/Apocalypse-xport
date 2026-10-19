@@ -1,139 +1,96 @@
+#include <new>
+#include <string.h>
+#include <stdlib.h>
+
+#include "game_heap.h"
+#include "effect_object.h"
+
 #include "game_random.h"
 #include "effect_lifecycle.h"
 #include "effect_color.h"
-#include "game_heap.h"
-extern "C" {
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
 #include "ring_effect.h"
-#include "native_object_storage.h"
-#include <new>
-#include <string.h>
 
-RingEffect::RingEffect(uint32 segments, uint32 rows) : EffectObject()
+RingEffect::RingEffect(uint32 segs, uint32 rows) : EffectObject(), ring_points(0), row_points(0), point_count(segs << 1), row_count(rows), center_color(0x32000000), angle_step(0), hide_center(0), angle(0), seg_mask(0xFFFFFFFF)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 count, buffer, total, index, step;
     FUNCTION_MARKER(0x80034598, "SLUS_003.73");
-    count = segments << 1;
-    step = count ? 4096 / count : 0xFFFFFFFF;
-    w_u32(object + 80, count);
-    w_u32(object + 68, 0x800A1D08);
-    w_u32(object + 84, rows);
-    w_u16(object + 92, step);
-    buffer = AllocateHeapBlock((count + count * rows) << 3, 0, 1);
-    count = r_u32(object + 80);
-    total = count * r_u32(object + 84);
-    w_u32(object + 72, buffer);
-    count = r_u32(object + 80);
-    w_u32(object + 76, buffer + (count << 3));
-    if (total)
+    uint64 count = (uint64)point_count * ((uint64)rows + 1);
+    // Preserve representable original allocation arithmetic and native spans
+    if (!segs || segs > 0x7FFFFFFF || count > 0xFFFFFFFF / 8 || count > (size_t)-1 / sizeof(*ring_points))
     {
-        index = 0;
-        do
-        {
-            buffer = r_u32(object + 76);
-            w_u32(buffer + (index << 3) + 4, 0x3A000000);
-            count = r_u32(object + 80);
-            total = count * r_u32(object + 84);
-            ++index;
-        } while (index < total);
+        GameDiagnostic("Invalid ring dimensions %u/%u\n", segs, rows);
+        abort();
     }
-    w_u32(object + 88, 0x32000000);
-    w_u32(object + 100, (uint32)-1);
-    AddToList((uint32 *)psx_addr(0x800FF450, 4));
+    uint64 native_bytes = count * sizeof(*ring_points) + 2 * ((uint64)rows + 1) * sizeof(XY);
+    if (native_bytes > (size_t)-1)
+    {
+        GameDiagnostic("Ring native storage span overflow\n");
+        abort();
+    }
+    angle_step = 4096 / point_count;
+    ring_points = (RingPoint *)malloc((size_t)native_bytes);
+    if (!ring_points)
+    {
+        GameDiagnostic("Ring geometry allocation failed\n");
+        abort();
+    }
+    row_points = ring_points + point_count;
+    proj_rows[0] = (XY *)(ring_points + (size_t)count);
+    proj_rows[1] = proj_rows[0] + row_count + 1;
+    for (uint32 i = 0; i < point_count * row_count; ++i)
+        row_points[i].color = 0x3A000000;
+    // Callers initialize inner distances/colors and row distances before rendering
+    AddToList(effect_lists.rings);
 }
 
-RingEffect::RingEffect(const uint32 *position, uint32 radius, uint32 extent, uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue) : EffectObject()
+RingEffect::RingEffect(const uint32 *position, uint32 radius, uint32 extent, uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue) : EffectObject(), ring_points(0), row_points(0), point_count(8), row_count(1), center_color(0), angle_step(512), hide_center(0), angle(0), seg_mask(0xFFFFFFFF)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 guest_position = GuestMemoryAddress(position);
-    const uint32 *native_position = guest_position ? 0 : position;
-    uint32 count, buffer, x, y, z, index, color;
     FUNCTION_MARKER(0x800346A8, "SLUS_003.73");
-    red &= 255;
-    green &= 255;
-    blue &= 255;
-    tail_red &= 255;
-    tail_green &= 255;
-    tail_blue &= 255;
-    w_u32(object + 68, 0x800A1D08);
-    w_u32(object + 80, 8);
-    w_u16(object + 92, 512);
-    count = r_u32(object + 80);
-    w_u32(object + 84, 1);
-    buffer = AllocateHeapBlock(count << 4, 0, 1);
-    count = r_u32(object + 80);
-    w_u32(object + 72, buffer);
-    w_u32(object + 76, buffer + (count << 3));
-    AddToList((uint32 *)psx_addr(0x800FF450, 4));
-    if (native_position)
+    ring_points = (RingPoint *)malloc(16 * sizeof(*ring_points) + 4 * sizeof(XY));
+    if (!ring_points)
     {
-        memcpy(&x, native_position, 4);
-        memcpy(&y, (const uint8 *)native_position + 4, 4);
-        memcpy(&z, (const uint8 *)native_position + 8, 4);
+        GameDiagnostic("Ring geometry allocation failed\n");
+        abort();
     }
-    else
+    row_points = ring_points + point_count;
+    proj_rows[0] = (XY *)(ring_points + 16);
+    proj_rows[1] = proj_rows[0] + row_count + 1;
+    AddToList(effect_lists.rings);
+    const uint32 x = position[0];
+    const uint32 y = position[1];
+    const uint32 z = position[2];
+    pos.words[0] = x;
+    pos.words[1] = y;
+    pos.words[2] = z;
+    for (uint32 i = 0; i < point_count; ++i)
+        ring_points[i].distance = radius;
+    center_color = 0x32000000 | ((blue & 255) << 16) | ((green & 255) << 8) | (red & 255);
+    uint32 color = ((tail_blue & 255) << 16) | ((tail_green & 255) << 8) | (tail_red & 255);
+    for (uint32 i = 0; i < point_count; ++i)
+        ring_points[i].color = color;
+    for (uint32 i = 0; i < point_count; ++i)
     {
-        x = r_u32(guest_position);
-        y = r_u32(guest_position + 4);
-        z = r_u32(guest_position + 8);
+        row_points[i].distance = extent;
+        row_points[i].color = 0x3A000000;
     }
-    w_u32(object + 24, x);
-    w_u32(object + 28, y);
-    w_u32(object + 32, z);
-    count = r_u32(object + 80);
-    index = 0;
-    if (count)
-        do
-        {
-            buffer = r_u32(object + 72);
-            w_u32(buffer + (index << 3), radius);
-            count = r_u32(object + 80);
-            ++index;
-        } while (index < count);
-    color = 0x32000000 | (blue << 16) | (green << 8) | red;
-    w_u32(object + 88, color);
-    color = (tail_blue << 16) | (tail_green << 8) | tail_red;
-    count = r_u32(object + 80);
-    index = 0;
-    if (count)
-        do
-        {
-            buffer = r_u32(object + 72);
-            w_u32(buffer + (index << 3) + 4, color);
-            count = r_u32(object + 80);
-            ++index;
-        } while (index < count);
-    count = r_u32(object + 80);
-    index = 0;
-    if (count)
-        do
-        {
-            buffer = r_u32(object + 76);
-            w_u32(buffer + (index << 3), extent);
-            buffer = r_u32(object + 76);
-            w_u32(buffer + (index << 3) + 4, 0x3A000000);
-            count = r_u32(object + 80);
-            ++index;
-        } while (index < count);
-    w_u32(object + 100, (uint32)-1);
+}
+
+RingEffect::~RingEffect()
+{
+    free(ring_points);
 }
 
 uint32 RingEffect::Destroy(uint32 reason)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 buffer, result;
     FUNCTION_MARKER(0x800348A8, "SLUS_003.73");
-    buffer = r_u32(object + 72);
-    w_u32(object + 68, 0x800A1D08);
-    ReleaseHeapBlock(buffer);
-    RemoveFromList((uint32 *)psx_addr(0x800FF450, 4));
-    result = EffectObject::Destroy(0);
-    if (reason & 1)
-        result = ReleaseEffectStorage(object);
-    return result;
+    free(ring_points);
+    ring_points = 0;
+    row_points = 0;
+    proj_rows[0] = 0;
+    proj_rows[1] = 0;
+    RemoveFromList(effect_lists.rings);
+    uint32 result = EffectObject::Destroy(0);
+    return reason & 1 ? ReleaseEffectStorage(this) : result;
 }
 
 void RingEffect::Update()
@@ -141,252 +98,111 @@ void RingEffect::Update()
     FUNCTION_MARKER(0x8003A118, "SLUS_003.73");
 }
 
-uint32 RingEffect::SetOddRadii(uint32 value)
+uint32 RingEffect::SetOddRadii(uint32 val)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 index = 1, count, result, buffer;
     FUNCTION_MARKER(0x80034918, "SLUS_003.73");
-    count = r_u32(object + 80);
-    result = index < count;
-    while (result)
-    {
-        buffer = r_u32(object + 72);
-        w_u32(buffer + 8 * index, value);
-        count = r_u32(object + 80);
-        index += 2;
-        result = index < count;
-    }
-    return result;
+    for (uint32 i = 1; i < point_count; i += 2)
+        ring_points[i].distance = val;
+    return 0;
 }
 
-uint32 RingEffect::SetEvenRadii(uint32 value)
+uint32 RingEffect::SetEvenRadii(uint32 val)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 index = 0, count, result, buffer;
     FUNCTION_MARKER(0x80034958, "SLUS_003.73");
-    count = r_u32(object + 80);
-    result = count;
-    while (result)
-    {
-        buffer = r_u32(object + 72);
-        w_u32(buffer + 8 * index, value);
-        count = r_u32(object + 80);
-        index += 2;
-        result = index < count;
-    }
-    return result;
+    for (uint32 i = 0; i < point_count; i += 2)
+        ring_points[i].distance = val;
+    return 0;
 }
 
-uint32 RingEffect::SetRadii(uint32 value)
+uint32 RingEffect::SetRadii(uint32 val)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 index = 0, count, result, buffer;
     FUNCTION_MARKER(0x80034994, "SLUS_003.73");
-    count = r_u32(object + 80);
-    result = count;
-    while (result)
-    {
-        buffer = r_u32(object + 72);
-        w_u32(buffer + 8 * index, value);
-        count = r_u32(object + 80);
-        ++index;
-        result = index < count;
-    }
-    return result;
+    for (uint32 i = 0; i < point_count; i += 1)
+        ring_points[i].distance = val;
+    return 0;
 }
 
-uint32 RingEffect::SetRowExtent(uint32 row, uint32 value)
+uint32 RingEffect::SetRowExtent(uint32 row, uint32 val)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 count, index = 0, buffer, result;
     FUNCTION_MARKER(0x800349D0, "SLUS_003.73");
-    count = r_u32(object + 80);
-    result = 8 * (row * count);
-    buffer = r_u32(object + 76) + result;
-    if (count)
-    {
-        do
-        {
-            w_u32(buffer, value);
-            count = r_u32(object + 80);
-            ++index;
-            result = index < count;
-            buffer += 8;
-        } while (result);
-    }
-    return result;
+    RingPoint *points = row_points + row * point_count;
+    for (uint32 i = 0; i < point_count; ++i)
+        points[i].distance = val;
+    return 0;
 }
 
-uint32 RingEffect::SetCenterColor(uint32 red, uint32 green, uint32 blue)
+uint32 RingEffect::SetCenterColor(uint32 r, uint32 g, uint32 b)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    const uint32 opcode = 0x32000000;
     FUNCTION_MARKER(0x80034A18, "SLUS_003.73");
-    w_u32(object + 88, opcode | ((blue & 255) << 16) | ((green & 255) << 8) | (red & 255));
-    return opcode;
+    center_color = 0x32000000 | ((b & 255) << 16) | ((g & 255) << 8) | (r & 255);
+    return 0x32000000;
 }
 
-uint32 RingEffect::SetRingColors(uint32 red, uint32 green, uint32 blue)
+uint32 RingEffect::SetRingColors(uint32 r, uint32 g, uint32 b)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 index = 0, count, result, buffer;
-    uint32 value = (red & 255) | ((green & 255) << 8) | ((blue & 255) << 16);
     FUNCTION_MARKER(0x80034A44, "SLUS_003.73");
-    count = r_u32(object + 80);
-    result = count;
-    while (result)
-    {
-        buffer = r_u32(object + 72);
-        w_u32(buffer + 8 * index + 4, value);
-        count = r_u32(object + 80);
-        index += 1;
-        result = index < count;
-    }
-    return result;
+    uint32 color = (r & 255) | ((g & 255) << 8) | ((b & 255) << 16);
+    for (uint32 i = 0; i < point_count; ++i)
+        ring_points[i].color = color;
+    return 0;
 }
 
-uint32 RingEffect::SetRowColors(uint32 row, uint32 red, uint32 green, uint32 blue)
+uint32 RingEffect::SetRowColors(uint32 row, uint32 r, uint32 g, uint32 b)
 {
-    uint32 object = NativeObjectGuestAddress(this);
-    uint32 count, index = 0, buffer, result;
-    uint32 value = 0x3A000000 | (red & 255) | ((green & 255) << 8) | ((blue & 255) << 16);
     FUNCTION_MARKER(0x80034A9C, "SLUS_003.73");
-    count = r_u32(object + 80);
-    result = 8 * (row * count);
-    buffer = r_u32(object + 76) + result;
-    if (count)
-    {
-        do
-        {
-            w_u32(buffer + 4, value);
-            count = r_u32(object + 80);
-            ++index;
-            result = index < count;
-            buffer += 8;
-        } while (result);
-    }
-    return result;
+    uint32 color = 0x3A000000 | (r & 255) | ((g & 255) << 8) | ((b & 255) << 16);
+    RingPoint *points = row_points + row * point_count;
+    for (uint32 i = 0; i < point_count; ++i)
+        points[i].color = color;
+    return 0;
 }
 
-uint32 RingEffect::SetColumnColors(uint32 column, uint32 red, uint32 green, uint32 blue)
+void RingEffect::SetColumnColors(uint32 column, uint32 r, uint32 g, uint32 b)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 index = 0, offset = column << 3;
-    uint32 color = 0x3A000000 | ((blue & 255) << 16) | ((green & 255) << 8) | (red & 255);
-    uint32 result, buffer, rows, stride;
     FUNCTION_MARKER(0x80034B08, "SLUS_003.73");
-    w_u32(r_u32(object + 72) + offset + 4, color);
-    result = r_u32(object + 76);
-    buffer = result + offset;
-    rows = r_u32(object + 84);
-    if (rows)
-    {
-        do
-        {
-            ++index;
-            w_u32(buffer + 4, color);
-            stride = r_u32(object + 80) << 3;
-            rows = r_u32(object + 84);
-            result = index < rows;
-            buffer += stride;
-        } while (result);
-    }
-    return result;
+    uint32 color = 0x3A000000 | ((b & 255) << 16) | ((g & 255) << 8) | (r & 255);
+    ring_points[column].color = color;
+    for (uint32 i = 0; i < row_count; ++i)
+        row_points[i * point_count + column].color = color;
 }
 
 uint32 RingEffect::FadeCenter(uint32 amount)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
     FUNCTION_MARKER(0x80034B7C, "SLUS_003.73");
-    return FadePackedColor((uint32 *)psx_addr(object + 88, 4), (sint32)amount);
+    return FadePackedColor(&center_color, (sint32)amount);
 }
 
 uint32 RingEffect::FadeRing(uint32 amount)
 {
-    const uint32 object = NativeObjectGuestAddress(this);
-    uint32 index = 0, count, offset, buffer;
     FUNCTION_MARKER(0x80034B9C, "SLUS_003.73");
-    count = r_u32(object + 80);
-    offset = count;
-    if (count)
-    {
-        offset = 0;
-        do
-        {
-            buffer = r_u32(object + 72);
-            FadePackedColor((uint32 *)psx_addr(buffer + offset + 4, 4), (sint32)amount);
-            count = r_u32(object + 80);
-            ++index;
-            offset = index << 3;
-        } while (index < count);
-    }
-    return offset;
+    for (uint32 i = 0; i < point_count; ++i)
+        FadePackedColor(&ring_points[i].color, (sint32)amount);
+    return point_count << 3;
 }
 
-RingEffect &RingEffect::Attach(uint32 object)
+RingEffect *SpawnProjectileRingTrail(const uint32 *position, uint32 red, uint32 green, uint32 blue)
 {
-    return *static_cast<RingEffect *>(FindNativeObjectStorage(object));
-}
-
-
-
-
-
-extern "C" uint32 sub_80034994(uint32 object, uint32 value)
-{
-    FUNCTION_MARKER(0x80034994, "SLUS_003.73");
-    return RingEffect::Attach(object).SetRadii(value);
-}
-
-
-
-
-
-
-
-extern "C" uint32 sub_800348A8(uint32 a1, uint32 a2)
-{
-    FUNCTION_MARKER(0x800348A8, "SLUS_003.73");
-    return RingEffect::Attach(a1).RingEffect::Destroy(a2);
-}
-
-
-
-extern "C" uint32 apocalypse_ring_effect_native(uint32 object, const void *position, uint32 radius, uint32 extent, uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue)
-{
-    void *dram_addr = AllocateNativeObjectStorage(object, sizeof(RingEffect));
-    new (dram_addr) RingEffect((const uint32 *)position, radius, extent, red, green, blue, tail_red, tail_green, tail_blue);
-    return object;
-}
-
-uint32 SpawnProjectileRingTrail(const uint32 *position, uint32 red, uint32 green, uint32 blue)
-{
-    uint32 object, random;
     FUNCTION_MARKER(0x8002557C, "SLUS_003.73");
-    object = AllocateEffectStorage(104);
-    if (object)
+    GameHeapBlock *allocation = AllocateEffectStorage(104);
+    if (!allocation)
     {
-        void *dram_addr = AllocateNativeObjectStorage(object, sizeof(RingEffect));
-        new (dram_addr) RingEffect(4, 2);
+        GameDiagnostic("Projectile ring trail allocation failed\n");
+        abort();
     }
-    // TODO Original allocation failure falls through with a null receiver; native binding fails fast
-    RingEffect &effect = RingEffect::Attach(object);
-    effect.SetCenterColor(255, 255, 255);
+    RingEffect *effect = new (allocation) RingEffect(4, 2);
+    effect->SetCenterColor(255, 255, 255);
     red &= 255;
     green &= 255;
     blue &= 255;
-    effect.SetRingColors(red, green, blue);
-    effect.SetRowColors(0, ((39 * red) >> 7) & 255, ((39 * green) >> 7) & 255, ((39 * blue) >> 7) & 255);
-    effect.SetRowColors(1, 0, 0, 0);
-    effect.SetOddRadii(21);
-    effect.SetEvenRadii(12);
-    effect.SetRowExtent(0, 20);
-    effect.SetRowExtent(1, 20);
-    effect.SetPosition(position);
-    random = RandomRange(1024);
-    w_u16(object + 96, random);
-    w_u8(object + 66, 1);
-    return object;
+    effect->SetRingColors(red, green, blue);
+    effect->SetRowColors(0, ((39 * red) >> 7) & 255, ((39 * green) >> 7) & 255, ((39 * blue) >> 7) & 255);
+    effect->SetRowColors(1, 0, 0, 0);
+    effect->SetOddRadii(21);
+    effect->SetEvenRadii(12);
+    effect->SetRowExtent(0, 20);
+    effect->SetRowExtent(1, 20);
+    effect->SetPosition(position);
+    effect->angle = RandomRange(1024);
+    effect->persistent = 1;
+    return effect;
 }
-
-

@@ -1,9 +1,9 @@
+#include "level_session.h"
+#include "scene_lifecycle.h"
+#include "input_recording.h"
+#include "game_pad_poll.h"
 #include "cheat_input.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
-}
+#include "game_diagnostics.h"
 #include "game_tick.h"
 #include "visual_object.h"
 #include "pause_menu.h"
@@ -20,29 +20,38 @@ extern "C"
 #include "model_resources.h"
 #include "resource_io.h"
 
-uint32 PollPadPackets(void);
+GameClock game_clock = {0, 0, 0, 0, 0};
+
+void ResetGameClock()
+{
+    game_clock.tick = 0;
+    game_clock.step = 0;
+    game_clock.elapsed = 0;
+    game_clock.active_frame = 0;
+    game_clock.vblank_frame = 0;
+}
 
 uint32 AdvanceGameTick(void)
 {
     FUNCTION_MARKER(0x8002FF90, "SLUS_003.73");
-    if (r_u32(0x800FF818) == 1 && r_u8(0x800EC1E8))
+    if (input_recording.GetMode() == InputRecording::Recording && game_pads[0].buttons[15].down)
     {
-        w_u32(0x800FF818, 0);
-        w_u32(0x800FF2EC, 7);
+        input_recording.Stop();
+        game_session.exit_reason = 7;
         // Original 8002FF88 is an empty handler
     }
-    uint32 frame = r_u32(0x800FF2F4);
-    uint32 elapsed = r_u32(0x800FF38C);
+    uint32 frame = game_clock.step;
+    uint32 elapsed = game_clock.elapsed;
     uint32 result = frame + 1;
-    w_u32(0x800FF38C, elapsed + 1);
-    w_u32(0x800FF2F4, result);
+    game_clock.elapsed = elapsed + 1;
+    game_clock.step = result;
     if (frame & 1)
         return result;
-    w_u32(0x800FF2F0, r_u32(0x800FF2F0) + 1);
+    ++game_clock.tick;
     UpdateObjectFlashes();
     ResetHudTextQueue();
     PollPadPackets();
-    if (r_u32(0x800FF008) || r_u32(0x800FF300))
+    if (scene_frame.paused || scene_frame.camera_paused)
         UpdateVisualObjects(visual_lists.cameras);
     else
     {
@@ -75,5 +84,3 @@ uint32 AdvanceGameTick(void)
     }
     return result;
 }
-
-

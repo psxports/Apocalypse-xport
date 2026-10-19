@@ -1,13 +1,18 @@
 #ifndef WAR_H
 #define WAR_H
 
+#include "vector3.h"
+
 #include "enemy.h"
+#include "angle_math.h"
+
+class ParticleBeam;
 
 class War : public Enemy
 {
 public:
-    War(const uint8 *record_data, uint32 index);
-    static War &Attach(uint32 object);
+    War(const RecordCursor &record_data, uint32 index);
+    virtual ~War();
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Update();
     void UpdateState();
@@ -18,20 +23,30 @@ public:
     uint32 Configure();
     uint32 Resize(uint32 increment);
     uint32 SetDestination(const uint32 *position);
-    uint32 TrackTarget(uint32 target);
+    uint32 TrackTarget(ModelInstance *target);
     uint16 *ClearFacing();
     uint32 SpawnProjectileWave(uint32 count);
 
 private:
+    AngleMotion aim;
+    ModelReference tracked_target;
+    Vector3 aim_pos;
+    uint16 jump_timer;
+    ObjectReference<ParticleBeam> beam;
+    ObjectReference<ParticleBeam> attack_beam;
+    ObjectReference<ParticleBeam> death_beams[5];
+    uint8 last_voice;
+    uint8 group_cursor;
+    uint8 threshold_index;
     // Native helpers retain inline blocks from the original state machine
     void AdvancePhase();
     void AdvanceState();
     void RestoreState();
     void ClearVelocity();
-    void SelectPoint(uint32 table, uint32 minimum, uint32 attempts, uint32 point[3]);
+    void SelectPoint(const uint16 *table, uint32 minimum, uint32 attempts, Vector3 &point);
     void ActivateGroup(uint32 maximum);
     void FireDeathWeapons();
-    void CreateDeathWeapon(uint32 offset);
+    void CreateDeathWeapon(uint32 index);
 };
 
 #endif

@@ -6,7 +6,10 @@ extern "C"
 #include "psx.h"
 }
 
-uint32 AllocateZeroedObject(uint32 size);
-uint32 ReleaseObjectStorage(uint32 object);
+class Object;
+struct GameHeapBlock;
+
+GameHeapBlock *AllocateZeroedObject(uint32 size);
+uint32 ReleaseObjectStorage(Object *object);
 
 #endif

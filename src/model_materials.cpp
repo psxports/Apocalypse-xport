@@ -1,10 +1,8 @@
-#include "game_sdk_bindings.h"
-#include "model_materials.h"
-extern "C"
-{
-#include "draft_first_adapters.h"
-}
 #include <stdlib.h>
+
+#include "geometry_commands.h"
+#include "game_diagnostics.h"
+#include "model_materials.h"
 
 static const ModelPalette *current_model_palette;
 
@@ -272,7 +270,7 @@ void AdvanceModelColors(ModelPalette &palette, ModelColorAnimation &animation, u
             xport_gte_write_data(25 + axis, base[axis]);
         for (uint32 axis = 0; axis < 3; ++axis)
             xport_gte_write_data(9 + axis, delta[axis]);
-        xport_draft_gte_execute(0x1A8003E);
+        ExecuteGeometryCommand(0x1A8003E);
         // The palette owner is validated when the complete bank is loaded
         if (track.color_index >= palette.count)
         {

@@ -1,15 +1,15 @@
-#include "game_sdk_bindings.h"
-extern "C"
-{
-#include "draft_first_signatures.h"
-#include "draft_first_adapters.h"
 #include <stdlib.h>
 #include <stdio.h>
-}
+#include <string.h>
+#include <new>
+
+#include "game_diagnostics.h"
+
 #include "model_resources.h"
+static uint32 PrepareModelBankGeometry(uint32 bank);
+static void UnloadModelBank(uint32 bank, uint32 release_unused);
 #include "model_clipping.h"
 #include "game_string.h"
-#include "native_object_storage.h"
 #include "resource_io.h"
 #include "game_heap.h"
 #include "palette_resources.h"
@@ -17,8 +17,6 @@ extern "C"
 #include "object_damage.h"
 #include "hud_text.h"
 #include "game_panel.h"
-#include <string.h>
-#include <new>
 
 void InvalidateTextureBindings(const TextureResource *tex)
 {
@@ -34,6 +32,7 @@ void InvalidateTextureBindings(const TextureGroup *grp)
 }
 
 static ModelBank model_banks[40];
+uint8 items_bank;
 
 struct RetiredModelMemory
 {
@@ -111,8 +110,6 @@ static void DestroyModelInstances(void *memory, uint32 count)
     free(objects);
 }
 
-
-
 static void ReleaseModelSceneObjects(ModelSceneObjects &scene)
 {
     ForgetModelObjectFlashes(scene.objects, scene.count);
@@ -155,8 +152,8 @@ static bool DecodeModelSceneObjects(ModelSceneObjects &scene, const uint8 *data,
         object.generation = xport_load_le16(src + 2);
         for (uint32 axis = 0; axis < 3; ++axis)
         {
-            object.pos[axis] = xport_load_le32(src + 4 + axis * 4);
-            object.angles[axis] = xport_load_le16(src + 16 + axis * 2);
+            object.pos.words[axis] = xport_load_le32(src + 4 + axis * 4);
+            object.angles.words[axis] = xport_load_le16(src + 16 + axis * 2);
         }
         object.model_idx = model_idx;
         object.frame = src[24];
@@ -171,8 +168,6 @@ static bool DecodeModelSceneObjects(ModelSceneObjects &scene, const uint8 *data,
     scene = decoded;
     return true;
 }
-
-
 
 struct ActiveModelState
 {
@@ -251,6 +246,7 @@ void ResetModelBanks()
         ReleaseModelTextureAnimation(model_banks[i].texture_animation);
     }
     memset(model_banks, 0, sizeof(model_banks));
+    items_bank = 0;
     ResetTextureResources();
     ResetPaletteResources();
 }
@@ -389,8 +385,7 @@ ModelInstance *FindModelObject(uint32 key)
     return 0;
 }
 
-
-void DecrementModelResourceReferences(uint32 bank)
+static void DecrementModelResourceReferences(uint32 bank)
 {
     FUNCTION_MARKER(0x8006E394, "SLUS_003.73");
     ReleaseTextureReferences(GetModelBank(bank).textures);
@@ -405,7 +400,7 @@ static void CheckModelSourceSpan(const ModelBank &bank, uint32 offset, uint32 co
     }
 }
 
-uint32 LoadModelResourceData(uint32 bank)
+static uint32 LoadModelResourceData(uint32 bank)
 {
     uint8 *data;
     uint32 model_count, reference_count;
@@ -578,13 +573,7 @@ uint32 LoadModelResourceData(uint32 bank)
     return 1;
 }
 
-extern "C" uint32 sub_8006E4A0(uint32 bank)
-{
-    FUNCTION_MARKER(0x8006E4A0, "SLUS_003.73");
-    return LoadModelResourceData(bank);
-}
-
-void AttachModelBankObjects(uint32 bank)
+static void AttachModelBankObjects(uint32 bank)
 {
     FUNCTION_MARKER(0x8006EBF4, "SLUS_003.73");
     ModelInstance *head = GetModelBank(bank).scene.objects;
@@ -597,7 +586,7 @@ void AttachModelBankObjects(uint32 bank)
     active_model_state.scene_objects = head;
 }
 
-void DetachModelBankObjects(uint32 slot)
+static void DetachModelBankObjects(uint32 slot)
 {
     FUNCTION_MARKER(0x8006ECAC, "SLUS_003.73");
     CheckActiveModelSlot(slot);
@@ -630,12 +619,7 @@ uint32 FindModelBankByName(const char *name)
     return 0xFFFFFFFF;
 }
 
-uint32 FindModelBankByName(uint32 name)
-{
-    return FindModelBankByName(name ? (const char *)psx_addr(name, 1) : 0);
-}
-
-void UnloadModelBankByName(uint32 name)
+void UnloadModelBankByName(const char *name)
 {
     uint32 bank;
     FUNCTION_MARKER(0x8006EDD4, "SLUS_003.73");
@@ -659,7 +643,7 @@ uint32 UnloadUnprotectedModelBanks()
     return 0;
 }
 
-void UnloadModelBank(uint32 bank, uint32 release_unused)
+static void UnloadModelBank(uint32 bank, uint32 release_unused)
 {
     uint32 slot;
     FUNCTION_MARKER(0x8006EE94, "SLUS_003.73");
@@ -692,17 +676,11 @@ void UnloadModelBank(uint32 bank, uint32 release_unused)
         ReleaseUnusedModelResources();
 }
 
-
-
-
-
-
-
 uint32 UnloadInactiveModelBanks()
 {
     FUNCTION_MARKER(0x8006EF74, "SLUS_003.73");
     for (uint32 bank = 0; bank < 40; ++bank)
-        if (GetModelBank(bank).loaded && bank != active_model_state.banks[0] && bank != active_model_state.banks[1] && !GetModelBank(bank).protected_bank)
+        if ((GetModelBank(bank).data || GetModelBank(bank).loaded) && bank != active_model_state.banks[0] && bank != active_model_state.banks[1] && !GetModelBank(bank).protected_bank)
             UnloadModelBank(bank, 0);
     ReleaseUnusedModelResources();
     return 0;
@@ -720,8 +698,6 @@ uint32 UnloadActiveModelBanks()
     return 0;
 }
 
-
-
 uint32 FindActiveModelBankSlot(uint32 bank)
 {
     FUNCTION_MARKER(0x8006F4D0, "SLUS_003.73");
@@ -731,15 +707,6 @@ uint32 FindActiveModelBankSlot(uint32 bank)
         return 1;
     return 0xFFFFFFFF;
 }
-
-
-
-
-
-
-
-
-
 
 static uint32 WriteModelLoadFilename(const char *name, const char *suffix)
 {
@@ -821,12 +788,6 @@ uint32 QueueModelBankLoad(const char *name, uint32 active)
     index = model_load_queue.write_idx + 1;
     model_load_queue.write_idx = (uint32)((sint32)index % 20);
     return bank;
-}
-
-uint32 QueueModelBankLoad(uint32 name, uint32 active)
-{
-    // Incoming script/resource names remain a temporary binary boundary
-    return QueueModelBankLoad((const char *)psx_addr(name, 1), active);
 }
 
 uint32 ProcessModelBankLoadQueue()
@@ -916,15 +877,6 @@ uint32 ProcessModelBankLoadQueue()
     return quotient;
 }
 
-
-
-extern "C" uint32 sub_8006F29C(uint32 name, uint32 active)
-{
-    FUNCTION_MARKER(0x8006F29C, "SLUS_003.73");
-    return QueueModelBankLoad(name, active);
-}
-
-
 uint32 WaitForModelBankLoads()
 {
     uint32 busy, pending;
@@ -944,14 +896,11 @@ uint32 WaitForModelBankLoads()
     }
 }
 
-
-
-uint32 PrepareModelBankGeometry(uint32 bank)
+static uint32 PrepareModelBankGeometry(uint32 bank)
 {
     FUNCTION_MARKER(0x8007D8E8, "SLUS_003.73");
     ModelBank &source = GetModelBank(bank);
-    if (!DecodeModelGeometrySet(source.geometry, source.data, source.source_bytes, source.textures) ||
-        !DecodeModelSceneObjects(source.scene, source.data, source.source_bytes, bank, source.geometry))
+    if (!DecodeModelGeometrySet(source.geometry, source.data, source.source_bytes, source.textures) || !DecodeModelSceneObjects(source.scene, source.data, source.source_bytes, bank, source.geometry))
     {
         GameDiagnostic("Invalid model geometry or scene in bank %u\n", bank);
         abort();
