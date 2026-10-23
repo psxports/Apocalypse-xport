@@ -44,24 +44,24 @@ struct ModelWaterPlane
 
 struct ModelRenderState
 {
-    uint32 translated;
+    bool translated;
     uint32 pass_count;
     uint32 previous_frame;
     uint32 effect_frame;
     uint32 effect_pass;
-    uint32 part_hidden;
+    bool part_hidden;
     bool water_clip_enabled;
     uint32 frame;
-    uint32 use_scratch;
+    bool use_scratch;
     ModelViewport *viewport;
     uint32 *ordering_table;
     ModelWaterPlane water_plane;
     uint32 reflection_clut;
     uint32 reflection_tpage;
     uint32 reflection_uv;
-    uint32 scratch_cache_index;
+    uint32 scratch_cache_idx;
     uint32 cache_index;
-    uint32 generated_vertex_index;
+    uint32 generated_vertex_idx;
     bool generated_cursor_valid;
     uint32 invalid_generated_cursor;
     ModelDrawContext draw;
@@ -71,10 +71,8 @@ struct ModelRenderState
 extern ModelRenderState model_render_state;
 void ResetModelRenderState();
 
-void EmitScratchModelPackets(const ModelPolygon *descriptor, uint32 count);
-void RenderModelObjectList(ModelInstance *object);
-void RenderVisibleModelObjectList(ModelInstance *object);
+void EmitScratchModelPackets(const ModelPolygon *desc, uint32 count);
+
 uint32 AdvanceModelRenderCounter();
 void LoadModelLineClipMatrices();
-uint32 ConfigureModelRenderView(ModelRenderView &camera, ModelViewport &bounds, uint32 *ordering_table);
 #endif

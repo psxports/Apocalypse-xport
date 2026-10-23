@@ -1,26 +1,24 @@
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "game_settings.h"
-
 #include "camera.h"
 #include "visual_object.h"
 #include "game_diagnostics.h"
-
 #include "audio_session.h"
-static sint16 LoadSoundBank(const char *name);
-static void ReleaseSoundBank(sint16 bank);
 #include "game_data_io.h"
 #include "sequence_transport.h"
 #include "audio_voice.h"
+#include "global.h"
 #include "resource_io.h"
 #include "game_heap.h"
-#include "vector_distance.h"
 #include "psx_spu.h"
 
+static void ReleaseSoundBank(sint16 bank);
+static sint16 LoadSoundBank(const char *name);
+
 #if !defined(XPORT_NATIVE_VAB) || !XPORT_NATIVE_VAB
-    #error Native VAB resources require XPORT_NATIVE_VAB in the shared VM
+    #error Native VAB resources require XPORT_NATIVE_VAB in the shared SDK
 #endif
 #if !defined(XPORT_NATIVE_SEQUENCE) || !XPORT_NATIVE_SEQUENCE
     #error Native SEQ resources require XPORT_NATIVE_SEQUENCE in the shared sequencer
@@ -38,7 +36,7 @@ void ResetSoundBankHandles()
 
 struct SoundDefinition
 {
-    uint32 configuration;
+    uint32 cfg;
     uint8 note;
 };
 
@@ -55,15 +53,15 @@ PositionedSoundEvent positioned_sound_event;
 
 void ResetSoundEvents()
 {
-    PositionedSoundEvent initial = {0, {0, 0, 0}};
+    PositionedSoundEvent initial = {false, {0, 0, 0}};
     positioned_sound_event = initial;
 }
 
-AudioPlaybackState audio_playback = {{0}, {0}, -1, 0, 0, 1, 0, 0, 0};
+AudioPlaybackState audio_playback = {{0}, {0}, -1, false, false, true, 0, 0, false};
 
 void ResetAudioPlayback()
 {
-    AudioPlaybackState initial = {{0}, {0}, -1, 0, 0, 1, 0, 0, 0};
+    AudioPlaybackState initial = {{0}, {0}, -1, false, false, true, 0, 0, false};
     audio_playback = initial;
 }
 
@@ -80,40 +78,39 @@ uint32 InitializeAudioOutput()
 
 uint32 InitializeAudioSession(const char *resource)
 {
-    uint32 bank;
     FUNCTION_MARKER(0x8006994C, "SLUS_003.73");
     SetSoundReverbMode(0);
-    bank = LoadSoundBank(resource);
-    sound_banks.common = bank;
+    sound_banks.common = LoadSoundBank(resource);
     InitializeSequenceTracks(1, 1);
     InitializeSequenceCallbacks();
     InitializeMusicSequenceTimer();
     SetMusicSequenceTickMode(4096);
     SsSetReservedVoice(24);
     StartMusicSequencer();
-    audio_playback.resume_pending = 0;
-    audio_playback.start_pending = 1;
+    audio_playback.resume_pending = false;
+    audio_playback.start_pending = true;
     return 1;
 }
 
 uint32 ReleaseAudioSession()
 {
-    uint32 result, bank;
+    sint16 result;
+    sint16 bank;
     FUNCTION_MARKER(0x80069A94, "SLUS_003.73");
     result = audio_playback.sequence;
-    if ((sint32)result >= 0)
+    if (result >= 0)
     {
         StopAndResetSequence(audio_playback.sequence);
-        result = 0xFFFFFFFF;
+        result = -1;
         audio_playback.sequence = -1;
     }
     free(sequence_data);
     sequence_data = 0;
     bank = sound_banks.music;
-    if ((sint32)bank >= 0)
+    if (bank >= 0)
     {
-        ReleaseSoundBank((sint16)bank);
-        result = 0xFFFFFFFF;
+        ReleaseSoundBank(bank);
+        result = -1;
         sound_banks.music = -1;
     }
     return result;
@@ -130,26 +127,26 @@ static sint16 LoadSoundBank(const char *name)
     FUNCTION_MARKER(0x80069D2C, "SLUS_003.73");
     uint32 file_size = LookupResource(name);
     // The decoded resource directory bounds rounded reads below 2 GiB
-    size_t capacity = (size_t)file_size + 64;
+    uint32 capacity = file_size + 64;
     uint8 *image = (uint8 *)malloc(capacity);
     if (!image)
     {
-        GameDiagnostic("Cannot allocate sound bank %s\n", name);
+        GameDiagnostic(("Cannot allocate sound bank %s\n", name));
         abort();
     }
     BeginResourceRead(image);
     WaitForResourceRead();
     if (file_size < 32)
     {
-        GameDiagnostic("Truncated sound bank %s\n", name);
+        GameDiagnostic(("Truncated sound bank %s\n", name));
         abort();
     }
     VabHdr *header = (VabHdr *)image;
-    uint32 header_bytes = ((uint32)header->ps << 9) + 0xA20;
+    uint32 header_bytes = (header->ps << 9) + 0xA20;
     uint32 total_bytes = header->fsize;
     if (header_bytes > file_size || total_bytes < header_bytes || total_bytes > file_size)
     {
-        GameDiagnostic("Invalid sound bank spans %s\n", name);
+        GameDiagnostic(("Invalid sound bank spans %s\n", name));
         abort();
     }
     total_bytes = header_bytes + ((total_bytes - header_bytes + 63) & 0xFFFFFFC0);
@@ -158,7 +155,7 @@ static sint16 LoadSoundBank(const char *name)
     SpuVabNativeView view;
     if (!spu_vab_native_view(bank, &view) || view.body_bytes > capacity - header_bytes)
     {
-        GameDiagnostic("Cannot open native sound bank %s\n", name);
+        GameDiagnostic(("Cannot open native sound bank %s\n", name));
         abort();
     }
     SsVabTransBody(image + header_bytes, bank);
@@ -170,22 +167,22 @@ static sint16 LoadSoundBank(const char *name)
 
 static uint32 BuildAudioBankFilename(char (&filename)[24], const char *basename)
 {
-    uint32 index = 0;
-    while (basename[index])
+    uint32 idx = 0;
+    while (basename[idx])
     {
-        if (index >= sizeof(filename) - 5)
+        if (idx >= sizeof(filename) - 5)
         {
-            GameDiagnostic("Audio resource basename exceeds the local buffer\n");
+            GameDiagnostic(("Audio resource basename exceeds the local buffer\n"));
             abort();
         }
-        filename[index] = basename[index];
-        ++index;
+        filename[idx] = basename[idx];
+        ++idx;
     }
-    memcpy(filename + index, ".VAB", 5);
-    return index;
+    memcpy(filename + idx, ".VAB", 5);
+    return idx;
 }
 
-uint32 LoadLevelSoundBank(const char *basename)
+sint16 LoadLevelSoundBank(const char *basename)
 {
     char filename[24];
     FUNCTION_MARKER(0x80069B0C, "SLUS_003.73");
@@ -209,166 +206,144 @@ void ReleaseLevelSoundBank()
 uint32 LoadAudioSequence(const char *basename)
 {
     char filename[24];
-    uint32 file_size, data_size, result, tempo;
+    uint32 file_size, data_size, result;
     FUNCTION_MARKER(0x80069BC4, "SLUS_003.73");
-    uint32 index = BuildAudioBankFilename(filename, basename);
+    uint32 idx = BuildAudioBankFilename(filename, basename);
     sint16 bank = LoadSoundBank(filename);
     sound_banks.music = bank;
-    filename[index + 1] = 'S';
-    filename[index + 2] = 'E';
-    filename[index + 3] = 'Q';
+    filename[idx + 1] = 'S';
+    filename[idx + 2] = 'E';
+    filename[idx + 3] = 'Q';
     data_size = GetResourceFileSize(filename);
     file_size = LookupResource(filename);
     if (sequence_data)
     {
-        GameDiagnostic("SEQ data must be released before loading another sequence\n");
+        GameDiagnostic(("SEQ data must be released before loading another sequence\n"));
         abort();
     }
     sequence_data = (uint8 *)malloc(file_size);
     if (!sequence_data)
     {
-        GameDiagnostic("Cannot allocate SEQ data %s\n", filename);
+        GameDiagnostic(("Cannot allocate SEQ data %s\n", filename));
         abort();
     }
     BeginResourceRead(sequence_data);
     WaitForResourceRead();
     bank = sound_banks.music;
-    result = (uint32)(sint32)(sint16)OpenAudioSequence(sequence_data, data_size, bank);
-    audio_playback.sequence = (sint16)result;
+    audio_playback.sequence = OpenAudioSequence(sequence_data, data_size, bank);
     if (data_size < 13)
     {
-        GameDiagnostic("Truncated SEQ tempo %s\n", filename);
+        GameDiagnostic(("Truncated SEQ tempo %s\n", filename));
         abort();
     }
-    tempo = sequence_data[10];
-    tempo += (uint32)sequence_data[11] << 8;
-    result = (uint32)sequence_data[12] << 16;
-    audio_playback.tempo = tempo + result;
+    result = sequence_data[12] << 16;
+    audio_playback.tempo = sequence_data[10] | (sequence_data[11] << 8) | result;
     return result;
 }
 
 uint32 PlaySoundEffect(sint32 sound_id, sint16 volume, uint32 pitch_variation)
 {
-    uint32 product, configuration;
+    sint32 product;
     sint16 scaled;
-    uint8 note;
     FUNCTION_MARKER(0x80069DF0, "SLUS_003.73");
     if (sound_id < 0)
         return 0;
-    product = (uint32)(sint32)volume * (uint32)(sint32)(sint16)game_settings.effects_volume;
-    // TODO Establish sound ID bounds for every external script consumer
-    if (sound_id >= SoundDefinitionCount)
+    product = volume * game_settings.effects_volume;
+    // The original word shift discards the upper three ID bits
+    uint32 idx = sound_id & 0x1FFFFFFF;
+    if (idx >= SoundDefinitionCount)
     {
-        GameDiagnostic("Invalid sound definition %d\n", sound_id);
+        GameDiagnostic(("Invalid sound definition %d\n", sound_id));
         abort();
     }
-    const SoundDefinition *sound = sound_definitions + sound_id;
-    note = sound->note;
-    configuration = sound->configuration;
-    scaled = (sint16)((sint32)(product << 2) >> 16);
-    return PlaySoundVoices(configuration, note, scaled, scaled, pitch_variation);
+    const SoundDefinition &sound = sound_definitions[idx];
+    scaled = product >> 14;
+    return PlaySoundVoices(sound.cfg, sound.note, scaled, scaled, pitch_variation);
 }
 
 uint32 PlayScaledSound(sint32 sound_id, sint16 left, sint16 right, uint32 pitch_variation)
 {
-    uint32 scale, left_product, right_product, program, note, left_volume, right_volume;
+    sint32 left_product, right_product;
+    sint16 scale;
     FUNCTION_MARKER(0x80069E68, "SLUS_003.73");
     if (sound_id < 0)
         return 0;
-    scale = (uint32)(sint32)(sint16)game_settings.effects_volume;
-    left_product = (uint32)(sint32)left * scale;
-    right_product = (uint32)(sint32)right * scale;
-    // TODO Establish sound ID bounds for every external script consumer
-    if (sound_id >= SoundDefinitionCount)
+    scale = game_settings.effects_volume;
+    left_product = left * scale;
+    right_product = right * scale;
+    // The original word shift discards the upper three ID bits
+    uint32 idx = sound_id & 0x1FFFFFFF;
+    if (idx >= SoundDefinitionCount)
     {
-        GameDiagnostic("Invalid sound definition %d\n", sound_id);
+        GameDiagnostic(("Invalid sound definition %d\n", sound_id));
         abort();
     }
-    const SoundDefinition *sound = sound_definitions + sound_id;
-    note = sound->note;
-    left_volume = (uint32)((sint32)(left_product << 2) >> 16);
-    program = sound->configuration;
-    right_volume = (uint32)((sint32)(right_product << 2) >> 16);
-    return PlaySoundVoices(program, (uint8)note, left_volume, right_volume, pitch_variation);
+    const SoundDefinition &sound = sound_definitions[idx];
+    return PlaySoundVoices(sound.cfg, sound.note, left_product >> 14, right_product >> 14, pitch_variation);
 }
 
-uint32 PlayPositionedSound(sint32 sound_id, const uint32 *source, uint32 pitch_variation)
+uint32 PlayPositionedSound(sint32 sound_id, const Vector3 *src, uint32 pitch_variation)
 {
-    uint32 packed, scale, left, right, note, program;
+    uint32 packed;
+    sint32 left_gain, right_gain;
+    sint16 scale;
     FUNCTION_MARKER(0x80069EF4, "SLUS_003.73");
     if (sound_id < 0)
         return 0;
-    packed = CalculateSoundBalance(source, 256, 12000);
-    scale = (uint32)(sint32)(sint16)game_settings.effects_volume;
-    left = ((packed & 4095) * scale) >> 12;
-    right = (((packed >> 16) & 4095) * scale) >> 12;
-    if ((sint32)packed < 0)
-        left = 0 - left;
-    // TODO Establish sound ID bounds for every external script consumer
-    if (sound_id >= SoundDefinitionCount)
+    packed = CalculateSoundBalance(src, 256, 12000);
+    scale = game_settings.effects_volume;
+    left_gain = ((packed & 4095) * scale) >> 12;
+    right_gain = (((packed >> 16) & 4095) * scale) >> 12;
+    if (packed & 0x80000000)
+        left_gain = -left_gain;
+    // The original word shift discards the upper three ID bits
+    uint32 idx = sound_id & 0x1FFFFFFF;
+    if (idx >= SoundDefinitionCount)
     {
-        GameDiagnostic("Invalid sound definition %d\n", sound_id);
+        GameDiagnostic(("Invalid sound definition %d\n", sound_id));
         abort();
     }
-    const SoundDefinition *sound = sound_definitions + sound_id;
-    note = sound->note;
-    left = (uint32)(sint32)(sint16)left;
-    program = sound->configuration;
-    right = (uint32)(sint32)(sint16)right;
-    return PlaySoundVoices(program, (uint8)note, left, right, pitch_variation);
+    const SoundDefinition &sound = sound_definitions[idx];
+    return PlaySoundVoices(sound.cfg, sound.note, left_gain, right_gain, pitch_variation);
 }
 
-static uint32 ReadSoundPositionWord(const uint32 *origin, uint32 axis)
-{
-    uint32 value;
-    memcpy(&value, (const uint8 *)origin + axis * 4, 4);
-    return value;
-}
-
-uint32 CalculateSoundBalance(const uint32 *origin, sint32 minimum, sint32 maximum)
+uint32 CalculateSoundBalance(const Vector3 *origin, sint32 minimum, sint32 maximum)
 {
     Camera *listener;
-    uint32 numerator, weight, angle, flag = 0, delta, magnitude;
-    Vector3 position;
-    uint32 origin_z, origin_x, product, low, high;
-    sint32 distance;
+    uint32 numerator, weight, angle, flag = 0, delta;
+    Vector3 pos;
+    uint32 product, low, high;
+    sint32 distance, orientation;
     FUNCTION_MARKER(0x80067E9C, "SLUS_003.73");
     listener = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
     if (!listener)
         return 0;
-    position = listener->model.pos;
-    distance = (sint32)MeasurePositionDistance(origin, position.words);
+    pos = listener->model.pos;
+    distance = origin->Distance(pos);
     if (minimum >= distance)
         return 0x0FFF0FFF;
     if (distance >= maximum)
         return 0;
-    delta = (uint32)maximum - (uint32)distance;
+    delta = (uint32)maximum - distance;
     numerator = (delta << 12) - delta;
     listener = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-    delta = (uint32)(sint32)(sint16)listener->model.angles.words[0];
-    if (!maximum)
-        weight = (sint32)numerator < 0 ? 1 : 0xFFFFFFFF;
-    else if (numerator == 0x80000000 && maximum == -1)
-        weight = numerator;
-    else
-        weight = (uint32)((sint32)numerator / maximum);
-    delta -= 1024;
-    magnitude = (delta ^ (uint32)((sint32)delta >> 31)) - (uint32)((sint32)delta >> 31);
-    if ((sint32)magnitude < 64)
+    orientation = listener->model.angles.x - 1024;
+    weight = DivideSignedWord(numerator, maximum);
+    if (orientation < 0)
+        orientation = -orientation;
+    if (orientation < 64)
         return weight | (weight << 16);
-    origin_z = ReadSoundPositionWord(origin, 2);
-    origin_x = ReadSoundPositionWord(origin, 0);
-    angle = (uint32)ratan2((sint32)(origin_z - position.words[2]), (sint32)(origin_x - position.words[0]));
+    angle = ratan2((uint32)origin->z - pos.z, (uint32)origin->x - pos.x);
     listener = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-    delta = listener->angles.words[1];
+    delta = (uint16)listener->angles.y;
     angle = (1024 - angle - (delta - 2048)) & 4095;
     if (angle - 1025 < 2047)
     {
         flag = 0x80000000;
-        weight -= (uint32)((sint32)weight >> 4);
+        weight -= (sint32)weight >> 4;
     }
-    product = weight * (uint32)rsin(angle);
-    product = (uint32)((sint32)product >> 12);
+    product = weight * rsin(angle);
+    product = (sint32)product >> 12;
     if (angle < 2048)
     {
         high = weight;
@@ -413,16 +388,16 @@ uint32 DisableSoundReverb()
 uint32 MarkMusicRestorePending()
 {
     FUNCTION_MARKER(0x8006A0EC, "SLUS_003.73");
-    audio_playback.restore_pending = 1;
+    audio_playback.restore_pending = true;
     return 1;
 }
 
 uint32 ResetMusicPlaybackState()
 {
     FUNCTION_MARKER(0x8006A0FC, "SLUS_003.73");
-    audio_playback.suspended = 0;
-    audio_playback.resume_pending = 0;
-    audio_playback.start_pending = 1;
+    audio_playback.suspended = false;
+    audio_playback.resume_pending = false;
+    audio_playback.start_pending = true;
     return 1;
 }
 
@@ -430,8 +405,8 @@ uint32 StopMusicSequence()
 {
     FUNCTION_MARKER(0x8006A3C4, "SLUS_003.73");
     RequestSequenceStop(audio_playback.sequence, 0);
-    audio_playback.resume_pending = 1;
-    audio_playback.start_pending = 0;
+    audio_playback.resume_pending = true;
+    audio_playback.start_pending = false;
     return 1;
 }
 
@@ -440,30 +415,31 @@ uint32 StopMusicPlayback()
     FUNCTION_MARKER(0x8006A3F0, "SLUS_003.73");
     if (audio_playback.sequence != -1)
         StopSequenceImmediately(audio_playback.sequence, 0);
-    audio_playback.start_pending = 1;
-    audio_playback.resume_pending = 0;
+    audio_playback.start_pending = true;
+    audio_playback.resume_pending = false;
     return 1;
 }
 
 uint32 RestoreMusicPlayback()
 {
-    uint32 sequence, volume, result;
+    sint16 sequence, volume;
+    uint32 result;
     FUNCTION_MARKER(0x8006A428, "SLUS_003.73");
     if (audio_playback.resume_pending)
     {
         sequence = audio_playback.sequence;
-        RequestSequenceReplay((uint32)(sint32)(sint16)sequence, 0);
+        RequestSequenceReplay(sequence, 0);
     }
     else if (audio_playback.start_pending)
     {
         sequence = audio_playback.sequence;
         PlaySequence(sequence, 1, 0);
     }
-    volume = (uint32)(sint32)(sint16)game_settings.music_volume;
+    volume = game_settings.music_volume;
     sequence = audio_playback.sequence;
     result = SetSequenceVolumes(sequence, volume, volume);
-    audio_playback.resume_pending = 0;
-    audio_playback.start_pending = 0;
+    audio_playback.resume_pending = false;
+    audio_playback.start_pending = false;
     return result;
 }
 
@@ -474,68 +450,63 @@ uint32 SetSoundReverbDepth(uint8 left, uint8 right)
     return 0;
 }
 
-static uint32 ReadSavedVoiceVolumes(sint16 voice, sint16 *left_output, sint16 *right_output)
+static void ReadSavedVoiceVolumes(sint16 voice, sint16 &left_output, sint16 &right_output)
 {
     SpuVoiceAttr attributes = {0};
-    uint32 left, right;
-    if ((uint16)voice >= 24)
-        return 0xFFFFFFFF;
-    attributes.voice = (uint32)1 << voice;
+    sint32 left, right;
+    if (voice < 0 || voice >= 24)
+        return;
+    attributes.voice = 1 << voice;
     SpuGetVoiceAttr(&attributes);
     left = (uint16)attributes.volume.left;
     right = (uint16)attributes.volume.right;
     if (left >= 0x4000)
         left -= 0x8000;
-    *left_output = left;
+    left_output = left;
     if (right >= 0x4000)
         right -= 0x8000;
-    *right_output = right;
-    return 0;
+    right_output = right;
 }
 
 uint32 SuspendAudioPlayback()
 {
-    uint32 pending;
     SndRegisterAttr attributes = {0};
     FUNCTION_MARKER(0x8006A114, "SLUS_003.73");
-    pending = audio_playback.suspended;
-    if (pending)
-        return pending;
-    audio_playback.suspended = 1;
+    if (audio_playback.suspended)
+        return audio_playback.suspended;
+    audio_playback.suspended = true;
     attributes.volume.right = 0;
     attributes.volume.left = 0;
     attributes.mask = 3;
     for (uint32 voice = 0; voice < 24; ++voice)
     {
-        ReadSavedVoiceVolumes(voice, audio_playback.saved_left + voice, audio_playback.saved_right + voice);
+        ReadSavedVoiceVolumes(voice, audio_playback.saved_left[voice], audio_playback.saved_right[voice]);
         SsQueueRegisters(voice, &attributes);
     }
     if (audio_playback.resume_pending)
-        audio_playback.restore_pending = 1;
+        audio_playback.restore_pending = true;
     else
     {
         StopMusicSequence();
-        audio_playback.restore_pending = 0;
+        audio_playback.restore_pending = false;
     }
-    return FastControlDataCd(11, 0);
+    return FastControlDataCd(CdlMute, 0);
 }
 
 uint32 ResumeAudioPlayback()
 {
-    uint32 pending;
-    uint16 left, right;
+    sint16 left, right;
     SndRegisterAttr attributes = {0};
     FUNCTION_MARKER(0x8006A1DC, "SLUS_003.73");
-    pending = audio_playback.suspended;
-    if (!pending)
-        return pending;
-    audio_playback.suspended = 0;
+    if (!audio_playback.suspended)
+        return audio_playback.suspended;
+    audio_playback.suspended = false;
     attributes.mask = 3;
     for (uint32 voice = 0; voice < 24; ++voice)
     {
         left = audio_playback.saved_left[voice];
         right = audio_playback.saved_right[voice];
-        if (left | right)
+        if (left || right)
         {
             attributes.volume.left = left;
             attributes.volume.right = audio_playback.saved_right[voice];
@@ -544,7 +515,7 @@ uint32 ResumeAudioPlayback()
     }
     if (!audio_playback.restore_pending)
         RestoreMusicPlayback();
-    return FastControlDataCd(12, 0);
+    return FastControlDataCd(CdlDemute, 0);
 }
 
 uint32 FlushPendingPositionedSound(void)
@@ -552,8 +523,8 @@ uint32 FlushPendingPositionedSound(void)
     FUNCTION_MARKER(0x80022860, "SLUS_003.73");
     uint32 result = positioned_sound_event.pending;
     if (result)
-        result = PlayPositionedSound(3, positioned_sound_event.pos.words, 0);
-    positioned_sound_event.pending = 0;
+        result = PlayPositionedSound(3, &positioned_sound_event.pos, 0);
+    positioned_sound_event.pending = false;
     return result;
 }
 

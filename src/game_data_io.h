@@ -9,6 +9,6 @@ uint32 SyncDataCd(sint32 mode, uint8 *response);
 
 bool InitializeDataCd();
 bool FindDataCdFile(CdlFILE *result, const char *name);
-bool ReadDataResource(void *destination, uint32 offset, uint32 bytes);
+bool ReadDataResource(void *dst, uint32 offset, uint32 bytes);
 
 #endif

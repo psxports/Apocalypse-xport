@@ -1,17 +1,16 @@
-#include <string.h>
-
 extern "C"
 {
 #include "psx.h"
 }
 #include "fading_particle.h"
-#include "particle_settings.h"
-#include "game_random.h"
+#include "effect_object.h"
+#include "primitive_particle.h"
+#include "global.h"
 #include "effect_lifecycle.h"
 
-FadingParticle::FadingParticle(const uint32 *position, uint32 speed, uint32 acceleration, uint32 lifetime_range) : PrimitiveParticle(), age(0), lifetime(0)
+FadingParticle::FadingParticle(const Vector3 *src_pos, uint32 speed, sint32 vertical_accel, uint32 lifetime_range) : PrimitiveParticle(), age(0), lifetime(0)
 {
-    const ParticleSettings &settings = GetParticleSettings();
+    const ParticleSettings &settings = PrimitiveParticle::GetSettings();
     uint32 size = settings.packed_size & 15;
     FUNCTION_MARKER(0x80035124, "SLUS_003.73");
     if (size == 1)
@@ -30,9 +29,9 @@ FadingParticle::FadingParticle(const uint32 *position, uint32 speed, uint32 acce
     fade_step.r = settings.color_step.r;
     fade_step.g = settings.color_step.g;
     fade_step.b = settings.color_step.b;
-    memcpy(pos.words, position, sizeof(pos.words));
-    BuildParticleVelocity(velocity.words, speed);
-    this->acceleration.words[1] = acceleration;
+    pos = *src_pos;
+    PrimitiveParticle::BuildVelocity(&velocity, speed);
+    acceleration.y = vertical_accel;
     drag[0] = 3;
     drag[1] = 3;
     drag[2] = 3;
@@ -46,21 +45,20 @@ uint32 FadingParticle::Destroy(uint32 reason)
     uint32 result;
     FUNCTION_MARKER(0x8003525C, "SLUS_003.73");
     result = PrimitiveParticle::Destroy(0);
-    return (reason & 1) ? ReleaseEffectStorage(this) : result;
+    return (reason & 1) ? ReleaseStorage() : result;
 }
 
 void FadingParticle::Update()
 {
     FUNCTION_MARKER(0x800352B0, "SLUS_003.73");
-    for (uint32 axis = 0; axis < 3; ++axis)
-        pos.words[axis] += velocity.words[axis];
+    pos.Add(velocity);
     for (uint32 axis = 0; axis < 3; ++axis)
     {
-        const uint32 speed = velocity.words[axis] + acceleration.words[axis];
-        velocity.words[axis] = speed - (uint32)((sint32)speed >> 3);
+        const sint32 speed = (uint32)velocity.comp[axis] + acceleration.comp[axis];
+        velocity.comp[axis] = speed - (speed >> 3);
     }
     ++age;
-    if ((sint16)age >= (sint32)lifetime)
+    if (age >= lifetime)
         Finish();
     primitive.rgbc.r -= fade_step.r;
     primitive.rgbc.g -= fade_step.g;

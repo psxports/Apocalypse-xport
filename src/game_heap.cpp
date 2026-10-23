@@ -1,7 +1,6 @@
-#include <stdio.h>
 #include <stdlib.h>
 
-#include "game_image_resource.h"
+#include "psx.h"
 #include "game_diagnostics.h"
 #include "game_heap.h"
 
@@ -43,11 +42,11 @@ bool IsGameHeapUnderPressure()
     return heap_state.pressure;
 }
 
-void StopWithHeapErrorColor(uint32 red, uint32 green, uint32 blue)
+void StopWithHeapErrorColor(uint32 r, uint32 g, uint32 b)
 {
     FUNCTION_MARKER(0x8006B484, "SLUS_003.73");
-    static const PSX_RECT error_rectangle = {0, 0, 512, 480};
-    ClearImageRectangle(error_rectangle, red & 255, green & 255, blue & 255);
+    PSX_RECT error_rect = {0, 0, 512, 480};
+    ClearImage(&error_rect, r, g, b);
     // The original fatal handler stops here after clearing the error rectangle
     for (;;)
     {
@@ -98,11 +97,11 @@ uint32 InitializeGameHeaps()
         root->free = true;
         heap_state.used[heap] = 0;
     }
-    for (uint32 index = 0; index < 100; ++index)
+    for (uint32 idx = 0; idx < 100; ++idx)
     {
-        GameHeapBlock *block = heap_state.small_blocks + index;
+        GameHeapBlock *block = heap_state.small_blocks + idx;
         block->prev = 0;
-        block->next = index < 99 ? block + 1 : 0;
+        block->next = idx < 99 ? block + 1 : 0;
         block->size = 160;
         block->heap = -1;
         block->free = true;
@@ -131,7 +130,7 @@ GameHeapBlock *AllocateHeapBlock(uint32 requested, sint32 heap, sint32 fatal)
     }
     if (heap < 0 || heap > 1)
     {
-        GameDiagnostic("Allocator heap index is outside the reviewed range\n");
+        GameDiagnostic(("Allocator heap index is outside the reviewed range\n"));
         return 0;
     }
     GameHeapBlock *block = heap_state.roots + heap;
@@ -153,7 +152,7 @@ GameHeapBlock *AllocateHeapBlock(uint32 requested, sint32 heap, sint32 fatal)
         GameHeapBlock *tail = (GameHeapBlock *)malloc(sizeof(*tail));
         if (!tail)
         {
-            GameDiagnostic("Cannot allocate native heap metadata\n");
+            GameDiagnostic(("Cannot allocate native heap metadata\n"));
             abort();
         }
         tail->prev = block;

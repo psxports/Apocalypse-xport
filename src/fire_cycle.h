@@ -1,28 +1,35 @@
 #ifndef FIRE_CYCLE_H
 #define FIRE_CYCLE_H
 
+#include "object_reference.h"
+#include "vector3.h"
 #include "effect_object.h"
+#include "effect_controller.h"
+#include "animated_sprite.h"
 
 class AnimatedSprite;
 
 class FireCycle : public EffectController
 {
-public:
-    FireCycle(const uint32 *position, uint32 size, uint32 enabled, uint32 count);
-    virtual ~FireCycle();
-    virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
-
 private:
-    void SpawnSprite(uint32 idx);
-    uint16 age;
+    sint16 age;
     uint16 lifetime;
     uint16 spawn_age;
     uint8 damage;
-    uint8 enabled;
-    ObjectReference<AnimatedSprite> sprites[20];
-};
+    bool enabled;
+    ObjectReference<AnimatedSprite> sprs[20];
 
-FireCycle *SpawnFireCycle(const uint32 *position, uint32 size, uint32 enabled, uint32 count);
+public:
+    FireCycle(const Vector3 *pos, uint16 lifetime, uint8 enabled, uint8 damage);
+    virtual uint32 Destroy(uint32 reason);
+
+private:
+    void SpawnSpr(uint32 idx);
+
+public:
+    virtual void Update();
+    static FireCycle *Spawn(const Vector3 *pos, uint16 lifetime, uint8 enabled, uint8 damage);
+    virtual ~FireCycle();
+};
 
 #endif

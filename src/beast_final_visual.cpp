@@ -1,26 +1,29 @@
-#include <string.h>
-
-#include "record_scripts.h"
+#include "resource_script.h"
 #include "visual_object.h"
-#include "model_resources.h"
+#include "model_bank.h"
 #include "game_diagnostics.h"
 #include "beast_final_visual.h"
 #include "game_object_allocation.h"
 
 // Native constructor extraction of the inline42360 block43918..43984
-BeastFinalVisual::BeastFinalVisual(const uint32 *position) : VisualObject()
+BeastFinalVisual::BeastFinalVisual(const Vector3 *pos) : VisualObject()
 {
-    uint32 value, flags;
-    Vector3 coordinates;
+    uint8 bank;
+    uint16 model_idx, flags;
     AddToList(visual_lists.actors);
-    SetModelBank(GetRecordModelBankName());
-    value = GetRecordModelBankSlot();
-    value = ::FindModelResourceIndex(0x4E5B6ED6, value);
-    flags = this->model.flags;
-    this->model.model_idx = value;
-    this->model.flags = flags & 65533;
-    memcpy(coordinates.words, position, sizeof(coordinates.words));
-    this->model.pos = coordinates;
+    SetModelBank(GetRecModelBankName());
+    bank = GetRecModelBankSlot();
+    model_idx = ModelBank::FindResourceIdx(0x4E5B6ED6, bank);
+    flags = model.flags;
+    model.model_idx = model_idx;
+    model.flags = flags & 65533;
+    model.pos = *pos;
+}
+
+uint32 BeastFinalVisual::Update()
+{
+    FUNCTION_MARKER(0x800449EC, "SLUS_003.73");
+    return 0;
 }
 
 uint32 BeastFinalVisual::Destroy(uint32 reason)
@@ -29,11 +32,5 @@ uint32 BeastFinalVisual::Destroy(uint32 reason)
     FUNCTION_MARKER(0x800449F4, "SLUS_003.73");
     RemoveFromList(visual_lists.actors);
     result = VisualObject::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(this) : result;
-}
-
-uint32 BeastFinalVisual::Update()
-{
-    FUNCTION_MARKER(0x800449EC, "SLUS_003.73");
-    return 0;
+    return (reason & 1) ? ReleaseStorage() : result;
 }

@@ -24,6 +24,6 @@ struct ModelFileLayout
 bool DecodeModelFileLayout(ModelFileLayout &layout, const uint8 *data, uint32 bytes);
 void ReleaseModelKeys(ModelKeys &keys);
 ModelFileLayout LoadModelKeys(ModelKeys &keys, const uint8 *data, uint32 bytes);
-uint32 ReadModelKey(const ModelKeys &keys, uint32 index);
+uint32 ReadModelKey(const ModelKeys &keys, uint32 idx);
 
 #endif

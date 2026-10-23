@@ -8,13 +8,13 @@ extern "C"
 
 struct ModelHierarchyLink
 {
-    uint32 bone;
-    uint32 parent;
+    uint16 bone;
+    uint16 parent;
 };
 
 struct ModelHierarchyTable
 {
-    uint32 count;
+    uint16 count;
     const ModelHierarchyLink *links;
 };
 

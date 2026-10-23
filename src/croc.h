@@ -1,10 +1,12 @@
 #ifndef CROC_H
 #define CROC_H
+
+#include "vector3.h"
 #include "enemy.h"
 
 class Croc : public Enemy
 {
-public:
+private:
     struct PhaseConfig
     {
         uint16 speed[4];
@@ -15,30 +17,39 @@ public:
 
         PhaseConfig() : reinforcement_count(0)
         {
-            uint32 index;
-            for (index = 0; index < 4; ++index)
+            uint32 idx;
+            for (idx = 0; idx < 4; ++idx)
             {
-                speed[index] = 0;
-                opening_spawn[index] = 0;
+                speed[idx] = 0;
+                opening_spawn[idx] = 0;
             }
-            for (index = 0; index < 3; ++index)
-                health_threshold[index] = 0;
-            for (index = 0; index < 13; ++index)
-                reinforcement_spawn[index] = 0;
+            for (idx = 0; idx < 3; ++idx)
+                health_threshold[idx] = 0;
+            for (idx = 0; idx < 13; ++idx)
+                reinforcement_spawn[idx] = 0;
         }
     } phase_config;
 
-    Croc(const RecordCursor &record_data, uint32 index);
-    virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 kind);
-    virtual uint32 Update();
-    void UpdateState();
-    virtual void SetParameters(uint32 command);
-    virtual uint32 ExecuteCommand(uint32 command);
-    uint32 SetDestination(const uint32 *position);
+public:
+    Croc(const RecordCursor &rec_data, uint16 idx);
 
 private:
     uint32 Initialize();
+
+public:
+    virtual uint32 Destroy(uint32 reason);
+    virtual uint32 Update();
+    virtual void SetParameters(uint16 command);
+    virtual uint32 ExecuteCommand(uint16 command);
+
+private:
+    void UpdateState();
+    uint32 SetDst(const Vector3 *pos);
+
+public:
+    virtual uint32 Damage(uint32 damage, const Vector3 *vector, uint32 kind);
+
+private:
     void ClearAngularVelocity();
 };
 

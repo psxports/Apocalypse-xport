@@ -3,6 +3,12 @@
 
 #include "texture_resources.h"
 
+struct Vector3;
+struct ShortVector3;
+struct CollisionVertex;
+struct CollisionRay;
+struct ModelInstance;
+
 struct ModelBounds
 {
     sint16 max;
@@ -23,12 +29,16 @@ struct ModelPolygon
     uint32 window;
     // Short reflection polygons borrow the following polygon color word
     const uint32 *window_alias;
-    uint16 source_stride;
+    uint16 src_stride;
     ModelPolygon *next;
 };
 
 struct ModelGeometry
 {
+private:
+    friend struct ModelInstance;
+
+public:
     uint32 flags;
     uint32 radius;
     ModelBounds bounds[3];
@@ -39,6 +49,21 @@ struct ModelGeometry
     const SVECTOR *vertices;
     const SVECTOR *normals;
     ModelPolygon *polys;
+
+public:
+    void RenderProjectionEffect(const MATRIX &matrix, const SVECTOR &vector, const Vector3 *pos, const ShortVector3 &dir_vector, uint32 color) const;
+    uint32 RenderShadow(const MATRIX &matrix, uint32 rgb, uint32 scale, sint32 depth_bias, const TextureResource &tex) const;
+    void RenderProj() const;
+    void RenderOffsetScratch(const Vector3 *pos) const;
+    void RenderTranslatedClipped() const;
+    void RenderTranslated() const;
+    void RenderScratch() const;
+    void RenderOffset(const Vector3 *vector) const;
+    void RenderUntranslatedClipped() const;
+
+private:
+    uint16 TransformColVertices(CollisionVertex *output, sint32 depth_limit, const Vector3 &translation) const;
+    void IntersectColPolygons(const CollisionVertex *output, CollisionRay &rec, ModelInstance *object) const;
 };
 
 struct ModelGeometrySet

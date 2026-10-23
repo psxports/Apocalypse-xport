@@ -6,9 +6,10 @@ extern "C"
 #include "psx.h"
 }
 
+// Signed channels retain fade values before GPU byte conversion
 struct Color32
 {
-    uint32 r, g, b;
+    sint32 r, g, b;
 };
 
 #endif

@@ -11,9 +11,9 @@ struct PlayerTuning
     sint16 gravity;
     uint8 ground_offset;
     sint16 jump_first_frame;
-    uint16 collision_probe_size;
+    uint16 col_probe_size;
     sint16 ground_probe_offset;
-    sint16 ground_probe_length;
+    sint16 ground_probe_len;
     uint16 move_speed;
     sint16 jump_last_frame;
     sint16 airborne_last_frame;
@@ -34,8 +34,8 @@ struct GameTuning
     uint16 pickup_floor_offset;
     sint16 tracking_projectile_ticks;
     sint16 health_pickup_amount[3];
-    // TODO: Identify the weapon-activity value written at original 800FF5C4
-    sint16 weapon_activity_value;
+    // Published to the session after a weapon action
+    sint16 weapon_activity;
     uint16 shadow_height;
     uint16 shadow_radius;
     sint16 launched_projectile_seconds;
@@ -45,6 +45,6 @@ struct GameTuning
 
 const GameTuning &GetGameTuning();
 void ResetGameTuning();
-uint32 ReloadGameConfiguration();
+uint32 ReloadGameCfg();
 
 #endif

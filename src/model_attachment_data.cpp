@@ -1,8 +1,6 @@
 #include <stddef.h>
-#include <stdlib.h>
 
 #include "model_attachment_data.h"
-#include "game_diagnostics.h"
 
 // Compact attachment points cross the GTE input boundary
 typedef char ModelAttachmentSizeCheck[sizeof(ModelAttachmentPoint) == 8 ? 1 : -1];
@@ -160,13 +158,3 @@ static const ModelAttachmentPoint mini_tank_attachments_points[] = {
 };
 
 const ModelAttachmentTable MiniTankAttachments = {2, mini_tank_attachments_points};
-
-const ModelAttachmentPoint &GetModelAttachmentPoint(const ModelAttachmentTable *table, uint32 index)
-{
-    if (!table || index >= table->count)
-    {
-        GameDiagnostic("Invalid model attachment point\n");
-        abort();
-    }
-    return table->points[index];
-}

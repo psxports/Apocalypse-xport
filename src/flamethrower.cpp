@@ -2,30 +2,29 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "collision_ray.h"
+#include "weapon_type.h"
+#include "weapon_node.h"
 #include "game_heap.h"
 #include "game_tick.h"
-
 #include "effect_object.h"
-
 #include "visual_object.h"
 #include "game_diagnostics.h"
 #include "flamethrower.h"
 #include "audio_voice.h"
 #include "angle_math.h"
 #include "ribbon_segments.h"
-#include "effect_sprite.h"
+#include "moving_sprite.h"
 #include "audio_session.h"
-#include "vector_arithmetic.h"
-#include "vector_distance.h"
+#include "global.h"
 #include "collision.h"
 #include "object_damage.h"
 #include "effect_lifecycle.h"
-#include "game_random.h"
 
-Flamethrower::Flamethrower(ModelInstance **list, ModelInstance **secondary_list) : WeaponNode(list, secondary_list), impact_count(0), segment_len(0), beam()
+Flamethrower::Flamethrower(ModelInstance **list, ModelInstance **secondary_list) : WeaponNode(list, secondary_list), beam(), impact_count(0), seg_len(0)
 {
     FUNCTION_MARKER(0x80024428, "SLUS_003.73");
-    this->type = WPN_FLAMETHROWER;
+    type = WPN_FLAMETHROWER;
     Configure(3000);
 }
 
@@ -39,15 +38,14 @@ uint32 Flamethrower::Destroy(uint32 reason)
     FUNCTION_MARKER(0x80024470, "SLUS_003.73");
     ClearBeam();
     uint32 result = WeaponNode::Destroy(0);
-    return (reason & 1) ? ReleaseWeaponStorage(this) : result;
+    return (reason & 1) ? ReleaseStorage() : result;
 }
 
-// TODO Recover original units for configuration field68
-uint32 Flamethrower::Configure(uint32 amount)
+sint32 Flamethrower::Configure(sint32 range)
 {
     FUNCTION_MARKER(0x800244CC, "SLUS_003.73");
-    uint32 result = (uint32)((sint32)amount / 20);
-    this->segment_len = result;
+    sint32 result = range / 20;
+    seg_len = result;
     return result;
 }
 
@@ -65,56 +63,48 @@ void Flamethrower::ClearBeam()
 }
 
 // Original beam color attenuation helper
-static uint32 ReadFlamethrowerShade(uint32 value)
+uint8 Flamethrower::ReadShade(sint32 val)
 {
     FUNCTION_MARKER(0x8002455C, "SLUS_003.73");
-    if ((sint32)value < 0 || (sint32)value >= 2049)
+    if (val < 0 || val >= 2049)
         return 0;
-    return 255 - ((255 * value) >> 11);
+    return 255 - ((255 * val) >> 11);
 }
 
-// Native helper retains the original signed DIV result words
-static uint32 DivideFlamethrowerDistance(uint32 numerator, uint32 denominator)
-{
-    sint32 n = (sint32)numerator, d = (sint32)denominator;
-    if (!d)
-        return n < 0 ? 1 : (uint32)-1;
-    if (n == (sint32)0x80000000 && d == -1)
-        return 0x80000000;
-    return (uint32)(n / d);
-}
-
-uint32 Flamethrower::Fire(const uint32 *position, const sint16 *angles)
+uint32 Flamethrower::Fire(const Vector3 &input_pos, const ShortVector3 &input_angles)
 {
     ModelBorrow model_borrow;
-    CollisionRay &shared_ray = GetSharedCollisionRay();
+    CollisionRay &shared_ray = CollisionRay::GetShared();
     FUNCTION_MARKER(0x80024598, "SLUS_003.73");
-    Vector3 step, direction, point, endpoint, start, scaled, tmp, difference, impact, fireball_velocity;
-    uint32 value, shade, index, previous, count, scale;
+    Vector3 step, dir, point, endpoint, start, scaled, difference, impact, fireball_velocity;
+    uint32 val, scale;
+    sint32 idx, prev, next, count;
+    uint8 shade;
     RibbonPoint *buffer;
     ModelInstance *target;
-    uint32 object_hit = 0, geometry_hit = 0, distance = 0;
+    bool object_hit = false, geometry_hit = false;
+    uint32 distance = 0;
     ModelInstance **list;
-    uint32 first_distance;
-    uint32 second_distance;
+    uint32 target_distance;
+    uint32 endpoint_distance;
     uint32 damage;
     GameHeapBlock *fragment;
     sint32 wave;
     ConsumeAmmo(4);
-    scale = this->segment_len;
-    BuildDirectionVector(step.words, scale, (const uint16 *)angles);
-    DivideVector(direction.words, step.words, this->segment_len);
+    scale = seg_len;
+    step.SetDir(scale, input_angles);
+    dir.Divide(step, seg_len);
     if (!beam)
     {
         ClearBeam();
-        GameHeapBlock *allocation = AllocateEffectStorage(108);
+        GameHeapBlock *allocation = EffectObject::AllocateStorage(108);
         if (!allocation)
         {
-            GameDiagnostic("Flamethrower ribbon allocation failed\n");
+            GameDiagnostic(("Flamethrower ribbon allocation failed\n"));
             abort();
         }
         beam = new (allocation) RibbonSegments(20, 1);
-        beam->persistent = 1;
+        beam->persistent = true;
         beam->SetMaterial(0x68B7B136);
         beam->waving = 1;
         // Original leaves the first point edge RGB untouched
@@ -122,147 +112,116 @@ uint32 Flamethrower::Fire(const uint32 *position, const sint16 *angles)
         buffer->center.r = 0;
         buffer->center.g = 0;
         buffer->center.b = 0;
-        for (index = 1; index < 20; ++index)
+        for (idx = 1; idx < 20; ++idx)
         {
-            value = (index << 10) / 10;
-            shade = ReadFlamethrowerShade(value);
-            buffer = beam->points;
-            buffer[index].center.r = shade;
-            shade = ReadFlamethrowerShade(value);
-            buffer = beam->points;
-            buffer[index].center.g = shade;
-            shade = ReadFlamethrowerShade(value);
-            buffer = beam->points;
-            buffer[index].center.b = shade;
-            value = LookupDistanceRoot(((value * (index << 10)) / 10) + 0x100000);
-            shade = ReadFlamethrowerShade(value);
-            buffer = beam->points;
-            buffer[index].edge.r = shade;
-            shade = ReadFlamethrowerShade(value);
-            buffer = beam->points;
-            buffer[index].edge.g = shade;
-            shade = ReadFlamethrowerShade(value);
-            buffer = beam->points;
-            buffer[index].edge.b = shade;
+            val = (idx << 10) / 10;
+            shade = Flamethrower::ReadShade(val);
+            RibbonPoint *entry = beam->points + idx;
+            entry->center.r = shade;
+            entry->center.g = shade;
+            entry->center.b = shade;
+            val = LookupDistanceRoot(((val * (idx << 10)) / 10) + 0x100000);
+            shade = Flamethrower::ReadShade(val);
+            entry->edge.r = shade;
+            entry->edge.g = shade;
+            entry->edge.b = shade;
         }
         beam->v_step = 8;
-        point.words[0] = (position)[0];
-        point.words[1] = (position)[1];
-        point.words[2] = (position)[2];
-        for (index = 0; index < 20; ++index)
+        point = input_pos;
+        for (idx = 0; idx < 20; ++idx)
         {
             buffer = beam->points;
-            buffer[index].pos = point;
-            AddVectors(point.words, step.words);
+            buffer[idx].pos = point;
+            point.Add(step);
         }
-        value = PlaySoundEffect(18, 8192, 0);
-        this->sound = value;
+        sound = PlaySoundEffect(18, 8192, 0);
     }
-    index = beam->point_count - 1;
-    if ((sint32)index > 0)
+    idx = beam->point_count - 1;
+    if (idx > 0)
     {
         do
         {
-            buffer = beam->points;
-            RibbonPoint *point_dst = buffer + index;
-            scale = 1;
-            MultiplyVector(tmp.words, step.words, scale);
-            buffer = beam->points;
-            AddVectors(point.words, buffer[index - 1].pos.words, tmp.words);
-            point_dst->pos = point;
-            --index;
-        } while ((sint32)index > 0);
+            RibbonPoint *point_dst = beam->points + idx;
+            point_dst->pos.Add(point_dst[-1].pos, step);
+            --idx;
+        } while (idx > 0);
     }
-    point.words[0] = (position)[0];
-    point.words[1] = (position)[1];
-    point.words[2] = (position)[2];
+    point = input_pos;
     buffer = beam->points;
     buffer->pos = point;
-    AddVectors(point.words, step.words);
-    value = 2100 - game_clock.tick * 800;
-    for (index = 2, count = 12; index < 20; ++index, count += 6, value += 1050)
+    point.Add(step);
+    val = 2100 - game_clock.tick * 800;
+    for (idx = 2, count = 12; idx < 20; ++idx, count += 6, val += 1050)
     {
-        wave = rsin(value & 4095);
-        buffer = beam->points + index;
-        wave = (6 * wave) / 4096;
-        buffer->width = (uint32)wave + 12 + count;
-        buffer = beam->points + index;
+        wave = rsin(val & 4095);
+        buffer = beam->points + idx;
+        wave = (6 * wave) / ONE;
+        buffer->width = wave + 12 + count;
         buffer->height = buffer->width + 50;
     }
     buffer = beam->points;
     buffer->width = 2;
-    buffer = beam->points;
     buffer->height = 15;
 
-    value = game_clock.tick;
+    val = game_clock.tick;
     buffer = beam->points;
     buffer[1].width = 15;
-    wave = rsin(((960 * value) & 0x3FC0) >> 2);
+    wave = rsin(((960 * val) & 0x3FC0) >> 2);
 
-    buffer = beam->points;
-    buffer[1].height = (uint32)((9 * wave) / 4096) + 45;
+    buffer[1].height = (9 * wave) / ONE + 45;
 
-    value = beam->v_scroll;
     scale = 20;
-    beam->v_scroll = value + 8;
-    MultiplyScalarVector(scaled.words, scale, step.words);
-    AddVectors(endpoint.words, position, scaled.words);
-    start.words[0] = (position)[0];
-    start.words[1] = (position)[1];
-    start.words[2] = (position)[2];
-    OffsetPositionByAngles(start.words, (const uint16 *)angles);
+    beam->v_scroll += 8;
+    scaled.Scale(scale, step);
+    endpoint.Add(input_pos, scaled);
+    start = input_pos;
+    OffsetByAngles(start, input_angles);
     shared_ray.endpoints[0] = start;
     shared_ray.endpoints[1] = endpoint;
-    InitializeCollisionRay(shared_ray);
-    collision_query.reject_surface40 = true;
-    QueryCollisionRay(shared_ray, 1);
-    point.words[0] = (position)[0];
-    point.words[1] = (position)[1];
-    point.words[2] = (position)[2];
-    list = this->owner_list;
-    collision_query.reject_surface40 = false;
-    target = IntersectObjectSpheres(point.words, endpoint.words, start.words, *list, 0);
+    shared_ray.Initialize();
+    col_query.reject_surface40 = true;
+    shared_ray.Query(1);
+    point = input_pos;
+    list = owner_list;
+    col_query.reject_surface40 = false;
+    target = CollisionRay::IntersectSpheres(point, endpoint, &start, *list, 0);
     if (!target)
     {
-        list = this->secondary_list;
+        list = secondary_list;
         if (list)
-            target = IntersectObjectSpheres(point.words, endpoint.words, start.words, *list, 0);
+            target = CollisionRay::IntersectSpheres(point, endpoint, &start, *list, 0);
     }
     if (target && target == visual_lists.players)
     {
-        first_distance = MeasurePositionDistance(target->pos.words, position);
-        scale = this->segment_len;
-        if (19 * scale < first_distance)
+        target_distance = target->pos.Distance(input_pos);
+        scale = seg_len;
+        if (19 * scale < target_distance)
             target = 0;
     }
     if (shared_ray.hit.GetObject())
     {
-        endpoint.words[0] = shared_ray.hit_pos.words[0];
-        endpoint.words[1] = shared_ray.hit_pos.words[1];
+        endpoint = shared_ray.hit_pos;
         distance = shared_ray.distance - 100;
-        endpoint.words[2] = shared_ray.hit_pos.words[2];
         if (!target)
-            geometry_hit = 1;
+            geometry_hit = true;
         else
         {
-            first_distance = MeasurePositionDistance(position, target->pos.words);
-            second_distance = MeasurePositionDistance(position, endpoint.words);
-            if (first_distance >= second_distance)
-                geometry_hit = 1;
+            target_distance = input_pos.Distance(target->pos);
+            endpoint_distance = input_pos.Distance(endpoint);
+            if (target_distance >= endpoint_distance)
+                geometry_hit = true;
             else
-                object_hit = 1;
+                object_hit = true;
         }
     }
     else if (target)
-        object_hit = 1;
+        object_hit = true;
     if (object_hit)
     {
-        endpoint.words[0] = (target->pos.words)[0];
-        endpoint.words[1] = (target->pos.words)[1];
-        endpoint.words[2] = (target->pos.words)[2];
-        distance = MeasureEuclideanDistance(position, target->pos.words);
+        endpoint = target->pos;
+        distance = input_pos.EuclideanDistance(target->pos);
         damage = this->damage;
-        static_cast<VisualObject *>(target->owner)->Damage(damage, direction.components, 5);
+        static_cast<VisualObject *>(target->owner)->Damage(damage, &dir, 5);
     }
     if (geometry_hit)
     {
@@ -272,82 +231,84 @@ uint32 Flamethrower::Fire(const uint32 *position, const sint16 *angles)
         level_target = shared_ray.hit.GetObject();
         if (level_target && (level_target->flags & 16))
         {
-            if (static_cast<VisualObject *>(level_target->owner)->kind != 205 || this->owner_list != &visual_lists.players)
+            if (static_cast<VisualObject *>(level_target->owner)->kind != 205 || owner_list != &visual_lists.players)
             {
                 damage = this->damage;
-                static_cast<VisualObject *>(level_target->owner)->Damage(damage, direction.components, 5);
+                static_cast<VisualObject *>(level_target->owner)->Damage(damage, &dir, 5);
             }
         }
     }
     if (object_hit || geometry_hit)
     {
-        scale = this->segment_len;
-        index = DivideFlamethrowerDistance(distance, scale);
-        buffer = beam->points;
-        previous = (sint32)index < 19 ? index : index - 1;
-        value = (sint32)index < 19 ? index + 1 : index;
-        SubtractVectors(difference.words, buffer[value].pos.words, buffer[previous].pos.words);
-        scale = this->segment_len;
-        value = distance - index * scale;
-        MultiplyVector(scaled.words, difference.words, value);
-        DivideVector(impact.words, scaled.words, this->segment_len);
-        buffer = beam->points;
-        AddVectors(impact.words, buffer[index].pos.words);
-        for (++index; (sint32)index < 20; ++index)
+        scale = seg_len;
+        idx = DivideSignedWord(distance, scale);
+        if (idx < 0 || idx >= 20)
         {
-            value = index;
-            buffer = beam->points;
-            buffer[value].pos = impact;
-            buffer = beam->points;
-            buffer[value].width = 0;
-            buffer = beam->points;
-            buffer[value].height = 0;
+            GameDiagnostic(("Flamethrower impact index %d is outside the ribbon\n", idx));
+            abort();
+        }
+        buffer = beam->points;
+        prev = idx < 19 ? idx : idx - 1;
+        next = idx < 19 ? idx + 1 : idx;
+        difference.Subtract(buffer[next].pos, buffer[prev].pos);
+        scale = seg_len;
+        val = distance - idx * scale;
+        scaled.Multiply(difference, val);
+        impact.Divide(scaled, seg_len);
+        buffer = beam->points;
+        impact.Add(buffer[idx].pos);
+        for (++idx; idx < 20; ++idx)
+        {
+            RibbonPoint *entry = beam->points + idx;
+            entry->pos = impact;
+            entry->width = 0;
+            entry->height = 0;
         }
     }
     else
         impact = beam->points[18].pos;
-    value = this->impact_count + 1;
-    this->impact_count = value;
-    if (value & 1)
+    val = impact_count + 1;
+    impact_count = val;
+    if (val & 1)
     {
-        fireball_velocity.words[0] = 0;
-        value = RandomRange(20);
-        fireball_velocity.words[1] = (0 - 10 - value) << 12;
-        fireball_velocity.words[2] = 0;
-        MovingSprite *sprite = 0;
-        fragment = AllocateEffectStorage(112);
+        fireball_velocity.x = 0;
+        sint32 rise = RandomRange(20);
+        fireball_velocity.y = -(10 + rise) * ONE;
+        fireball_velocity.z = 0;
+        MovingSprite *spr = 0;
+        fragment = EffectObject::AllocateStorage(112);
         if (fragment)
         {
-            value = RandomRange(1200) + 2900;
-            sprite = new (fragment) MovingSprite(impact.words, fireball_velocity.words, "Fireball", value, 0, 10);
+            uint16 size = RandomRange(1200) + 2900;
+            spr = new (fragment) MovingSprite(&impact, &fireball_velocity, "Fireball", size, 0, 10);
         }
-        if (!sprite)
+        if (!spr)
         {
-            GameDiagnostic("Flamethrower impact sprite allocation failed\n");
+            GameDiagnostic(("Flamethrower impact sprite allocation failed\n"));
             abort();
         }
-        sprite->depth_bias = 300;
-        sprite->AddFlags(8);
+        spr->depth_bias = 300;
+        spr->AddFlags(8);
     }
     return 1;
 }
 
-uint32 Flamethrower::Update(const uint32 *, const sint16 *)
+uint32 Flamethrower::Update(const Vector3 *)
 {
     FUNCTION_MARKER(0x80024FDC, "SLUS_003.73");
     ClearBeam();
     return 0;
 }
 
-uint32 Flamethrower::ReadLight(uint8 *red, uint8 *green, uint8 *blue)
+uint32 Flamethrower::ReadLight(uint8 *r, uint8 *g, uint8 *b)
 {
     FUNCTION_MARKER(0x80024FFC, "SLUS_003.73");
     if (!beam)
         return 0;
-    if (ReadWeaponLightRandom() >= 16384)
+    if (randPSX() >= 16384)
         return 0;
-    *red = 255;
-    *green = 128;
-    *blue = 0;
+    *r = 255;
+    *g = 128;
+    *b = 0;
     return 1;
 }

@@ -1,7 +1,10 @@
 #ifndef PROXIMITY_RING_EMITTER_H
 #define PROXIMITY_RING_EMITTER_H
 
+#include "object_reference.h"
+#include "vector3.h"
 #include "effect_object.h"
+#include "effect_controller.h"
 
 class OscillatingRing;
 
@@ -9,19 +12,26 @@ class OscillatingRing;
 class ProximityRingEmitter : public EffectController
 {
 public:
-    ProximityRingEmitter(const uint32 *position, uint32 index, uint32 range, uint32 radius, uint32 extent, uint32 amplitude, uint32 red0, uint32 green0, uint32 blue0, uint32 red1, uint32 green1, uint32 blue1);
-    virtual ~ProximityRingEmitter();
-    virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
-    uint16 record_idx;
+    uint16 rec_idx;
 
 private:
     uint32 radius;
     uint32 extent;
-    CVECTOR colors[2];
+
+    struct Color
+    {
+        uint8 r, g, b;
+    } colors[2];
+
     uint32 amplitude;
-    uint32 range;
+    sint32 range;
     ObjectReference<OscillatingRing> child;
+
+public:
+    ProximityRingEmitter(const Vector3 *pos, uint16 idx, sint32 range, uint32 radius, uint32 extent, uint32 amplitude, uint8 r0, uint8 g0, uint8 b0, uint8 r1, uint8 g1, uint8 b1);
+    virtual uint32 Destroy(uint32 reason);
+    virtual void Update();
+    virtual ~ProximityRingEmitter();
 };
 
 #endif

@@ -4,22 +4,22 @@
 #include "vector3.h"
 #include "point_segments.h"
 
-// TODO Recover the original name for the 0x800A1518 effect family
+// Short line particle with floor bounce and randomized deflection
 class BouncingPointEffect : public PointSegments
 {
 public:
-    BouncingPointEffect(const uint32 *position, const uint16 *angles);
-
     virtual ~BouncingPointEffect()
     {
     }
 
-    virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
-
 private:
     Vector3 dir;
-    uint32 floor_y;
+    sint32 floor_y;
     uint32 spawn_tick;
+
+public:
+    BouncingPointEffect(const Vector3 *pos, const ShortVector3 *angles);
+    virtual void Update();
+    virtual uint32 Destroy(uint32 reason);
 };
 #endif

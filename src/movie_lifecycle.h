@@ -17,15 +17,15 @@ enum
 struct MoviePlaybackState
 {
     Vector3 positions[MoviePositionCount];
-    uint32 double_buffer;
-    uint32 at_end;
-    uint32 active;
-    uint32 refresh_pending;
+    bool double_buffer;
+    bool at_end;
+    bool active;
+    bool refresh_pending;
     // Updated by the MDEC output callback
-    volatile uint32 slice_index;
-    uint32 decode_index;
-    uint32 frame_ready;
-    uint32 paused;
+    volatile uint32 slice_idx;
+    uint32 decode_idx;
+    bool frame_ready;
+    bool paused;
     uint32 balance_ticks;
     uint32 frame_number;
     uint32 start_sector;
@@ -38,28 +38,26 @@ struct MoviePlaybackState
     uint16 end_x;
     uint16 width;
     uint16 height;
-    uint32 position_count;
-    uint8 rgb24;
-    uint8 selected;
-    volatile uint16 slice_x;
-    volatile uint16 slice_y;
-    uint16 slice_width;
-    uint16 slice_height;
+    sint32 pos_count;
+    bool rgb24;
+    uint8 sel;
+    volatile sint16 slice_x;
+    volatile sint16 slice_y;
+    sint16 slice_width;
+    sint16 slice_height;
 };
 
 extern MoviePlaybackState movie_playback;
 void ResetMoviePlaybackState();
 
-uint32 PlayMovie(uint32 movie);
+uint32 PrepareMovieTex(uint32 resource);
+uint32 QueueMoviePos(const Vector3 *pos);
 uint32 InitializeMovieResourceTable();
-uint32 SelectMovieRecord(uint32 movie);
-uint32 PrepareMovieTexture(uint32 resource);
-uint32 QueueMoviePosition(const uint32 *position);
-struct TextureResource;
-
-uint32 UpdateMoviePlayback(void);
-uint32 PrepareMoviePlaybackBuffers(void);
+uint32 PlayMovie(uint32 movie);
+uint32 SelectMovieRec(uint32 movie);
 uint32 RequestCdStreamRefresh();
+uint32 PrepareMoviePlaybackBuffers();
 uint32 ResetMoviePlayback();
+uint32 UpdateMoviePlayback();
 
 #endif

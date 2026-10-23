@@ -1,5 +1,8 @@
 #ifndef EXPANDING_RING_H
 #define EXPANDING_RING_H
+
+#include "vector3.h"
+
 extern "C"
 {
 #include "psx.h"
@@ -9,19 +12,20 @@ extern "C"
 // Geometric XZ ring expands and fades without a texture resource
 class ExpandingRing : public PointSegments
 {
+private:
+    uint8 rgb[3];
+    sint32 max_radius;
+    sint32 radius;
+    uint32 growth;
+    uint16 phase;
+
 public:
-    ExpandingRing(const sint32 *position, uint32 scale, uint32 red, uint32 green, uint32 blue, uint32 count, uint32 tail);
+    ExpandingRing(const Vector3 *src_pos, sint32 max_radius, uint8 r, uint8 g, uint8 b, uint32 count, uint32 growth);
     virtual uint32 Destroy(uint32 reason);
     virtual void Update();
 
 private:
-    uint8 rgb[3];
-    uint32 max_radius;
-    uint32 radius;
-    uint32 growth;
-    uint32 phase;
-    static uint32 Divide(sint32 numerator, sint32 denominator);
-    static uint32 ProjectRadius(uint32 radius, sint16 trigonometric_value);
+    static uint32 ProjectRadius(sint32 radius, sint16 trigonometric_val);
 };
 
 #endif

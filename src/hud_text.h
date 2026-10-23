@@ -1,6 +1,8 @@
 #ifndef HUD_TEXT_H
 #define HUD_TEXT_H
 
+#include "animated_hud_text.h"
+
 extern "C"
 {
 #include "psx.h"
@@ -32,9 +34,9 @@ struct HudTextStyle
 
 struct HudTextGlow
 {
-    uint32 amplitude[40];
-    uint32 rate[40];
-    uint32 curve[41];
+    uint8 amplitude[40];
+    uint8 rate[40];
+    sint32 curve[41];
     uint32 timer;
     // TODO Recover the producer of the alternate glow cycle flag
     uint32 alternate;
@@ -69,26 +71,20 @@ extern const char grenades[];
 
 void InitializeHudFonts();
 const TextureGroup *GetHudFont();
-const TextureResource *GetHudGlowTexture();
-void ForgetHudTexture(const TextureGroup *grp);
-void ForgetHudTexture(const TextureResource *tex);
-void ClearHudTextureBindings();
+const TextureResource *GetHudGlowTex();
+void ForgetHudTex(const TextureGroup *grp);
+void ForgetHudTex(const TextureResource *tex);
 void ResetHudTextQueue();
 uint32 DrawHudTextQueue();
 
-uint32 QueueHudText(uint32 x, uint32 y, const char *text, uint32 red, uint32 green, uint32 blue, uint32 flags);
-uint32 QueueHudNumber(uint32 x, uint32 y, uint32 value, uint32 red, uint32 green, uint32 blue, uint32 flags);
+uint32 QueueHudText(uint16 x, uint16 y, const char *text, uint8 r, uint8 g, uint8 b, uint8 flags);
+uint32 QueueHudNumber(uint16 x, uint16 y, sint32 val, uint8 r, uint8 g, uint8 b, uint8 flags);
 
-void ClearAnimatedHudText();
-void AddAnimatedHudText(const char *text, const HudTextAnimation *animation);
-uint32 UpdateAnimatedHudText();
-void DrawAnimatedHudText();
-
-sint32 GetHudGlyphIndex(uint32 character);
-void SetHudTextAlignment(uint32 alignment);
-void SetHudTextScale(uint32 scale);
-void SetHudTextDepth(uint32 depth);
-uint32 SetHudTextColor(uint32 red, uint32 green, uint32 blue, uint32 semi_transparent);
+sint32 GetHudGlyphIdx(uint8 character);
+void SetHudTextAlignment(uint8 alignment);
+void SetHudTextScale(uint16 scale);
+void SetHudTextDepth(uint16 depth);
+uint32 SetHudTextColor(uint8 r, uint8 g, uint8 b, bool semi_transparent);
 
 uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, uint32 color, uint32 scale);
 

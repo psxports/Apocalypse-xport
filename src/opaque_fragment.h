@@ -4,24 +4,33 @@
 #include "effect_object.h"
 #include "vector3.h"
 
-// TODO Recover the original name for the untextured fragment owner
+// Untextured triangle fragments with independent bounce and color fade
 class OpaqueFragment : public EffectObject
 {
-public:
+private:
     uint16 bounce_count;
     uint16 lifetime;
+
+public:
     Vector3 vertices[3];
+
+private:
     sint32 floor_y;
     RGBC base_color;
+
+public:
     RGBC draw_color;
+
+private:
     uint8 fade_step;
 
-    OpaqueFragment(const Vector3 &position, const Vector3 &velocity, uint32 floor, uint32 red, uint32 green, uint32 blue, uint32 extent_x, uint32 extent_y, uint32 extent_z);
-
+public:
     virtual ~OpaqueFragment()
     {
     }
 
+public:
+    OpaqueFragment(const Vector3 &pos, const Vector3 &velocity, sint32 floor, uint8 r, uint8 g, uint8 b, uint32 extent_x, uint32 extent_y, uint32 extent_z);
     virtual uint32 Destroy(uint32 reason);
     virtual void Update();
 };

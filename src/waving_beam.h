@@ -1,42 +1,38 @@
 #ifndef WAVING_BEAM_H
 #define WAVING_BEAM_H
-extern "C"
-{
-#include "psx.h"
-}
+
 #include "ribbon_segments.h"
 
 class WavingBeam : public RibbonSegments
 {
 public:
-    WavingBeam(const uint32 *position, const uint16 *angles, uint32 length, uint32 height, uint32 lifetime, uint32 red, uint32 green, uint32 blue, uint32 mode, uint32 material);
-
     virtual ~WavingBeam()
     {
     }
 
-    virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
-    uint32 SetPosition(const uint32 *position);
-
 private:
     struct Width
     {
-        uint32 tick;
-        uint32 target;
+        uint8 tick;
+        sint32 target;
     } width[10];
 
     uint32 rest_x[10];
-    uint32 phase[10];
-    uint32 phase_step[10];
-    uint32 amplitude[10];
+    uint16 phase[10];
+    sint32 amplitude[10];
     uint8 scroll_step;
-    uint8 damage_actors;
+    bool damage_actors;
     uint16 damage;
-    uint16 damage_timer;
+    uint8 damage_timer;
     ShortVector3 angles;
-    uint32 length;
+    sint32 length;
     uint16 lifetime;
+
+public:
+    WavingBeam(const Vector3 *pos, const ShortVector3 *angles, sint32 len, uint16 lifetime, uint16 damage, uint32 r, uint32 g, uint32 b, uint8 scroll_step, uint32 material);
+    virtual uint32 Destroy(uint32 reason);
+    uint32 SetPos(const Vector3 *pos);
+    virtual void Update();
 };
 
 #endif

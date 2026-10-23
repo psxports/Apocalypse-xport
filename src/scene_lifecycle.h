@@ -10,10 +10,10 @@ extern "C"
 
 struct SceneFrameState
 {
-    uint32 paused;
-    uint32 camera_paused;
+    bool paused;
+    bool camera_paused;
     uint32 submit_pending;
-    uint32 service_enabled;
+    bool service_enabled;
 };
 
 struct SceneRenderBuffer
@@ -43,14 +43,14 @@ void ResetSceneSmoothing();
 uint32 ServiceGameFrame();
 void SceneVBlankCallback();
 uint32 AdvanceSceneVBlank();
-void ResetSceneDisplayOffsets();
-uint32 InitializeSceneDisplay();
-uint32 WaitForGameFrames(uint32 frames);
+void ResetSceneDispOffsets();
+uint32 InitializeSceneDisp();
+bool WaitForGameFrames(uint32 frames);
 uint32 RunLevelLoop();
 void BeginSceneFrame();
 void UpdateScenePacketLimit();
 void SubmitSceneFrame();
 
-uint32 ResetScene(uint32 retain_resources);
+sint32 ResetScene(bool retain_resources);
 
 #endif

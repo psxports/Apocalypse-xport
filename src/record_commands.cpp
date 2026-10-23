@@ -6,7 +6,7 @@
 #include "camera.h"
 #include "player.h"
 #include "visual_object.h"
-#include "visual_registry.h"
+#include "visual_registry_entry.h"
 #include "audio_voice.h"
 #include "cd_voice_event.h"
 #include "model_projection.h"
@@ -15,12 +15,12 @@
 #include "level_session.h"
 #include "game_diagnostics.h"
 #include "record_commands.h"
-#include "record_scripts.h"
+#include "resource_script.h"
 #include "record_groups.h"
 #include "record_data.h"
 #include "enemy_list.h"
 #include "player_save_state.h"
-#include "model_resources.h"
+#include "model_bank.h"
 #include "audio_session.h"
 #include "region_actions.h"
 #include "game_heap.h"
@@ -29,13 +29,13 @@ static void ReadRegionBounds(RecordCursor &cursor, Vector3 &lower, Vector3 &uppe
 {
     cursor = cursor.Aligned(4);
     for (uint32 axis = 0; axis < 3; ++axis)
-        lower.words[axis] = (cursor + axis * 4).Read32() << 12;
+        lower.comp[axis] = (cursor + axis * 4).Read32() << 12;
     for (uint32 axis = 0; axis < 3; ++axis)
-        upper.words[axis] = (cursor + 12 + axis * 4).Read32() << 12;
+        upper.comp[axis] = (cursor + 12 + axis * 4).Read32() << 12;
     cursor += 24;
 }
 
-RecordCursor SkipRecordString(RecordCursor cursor)
+RecordCursor SkipRecString(RecordCursor cursor)
 {
     FUNCTION_MARKER(0x800650B4, "SLUS_003.73");
     while (cursor.Read8())
@@ -43,17 +43,17 @@ RecordCursor SkipRecordString(RecordCursor cursor)
     return (cursor + 1).Aligned(2);
 }
 
-static RecordCursor SkipRecordCommand(RecordCursor cursor)
+static RecordCursor SkipRecCommand(RecordCursor cursor)
 {
-    uint32 command;
+    uint16 command;
     FUNCTION_MARKER(0x800650EC, "SLUS_003.73");
     command = cursor.Read16();
     cursor += 2;
     switch (command)
     {
         case 2:
-            while ((cursor)[0])
-                cursor = SkipRecordString(cursor);
+            while (cursor[0])
+                cursor = SkipRecString(cursor);
             return cursor + 2;
         case 13:
         case 105:
@@ -89,7 +89,7 @@ static RecordCursor SkipRecordCommand(RecordCursor cursor)
         case 140:
         case 142:
         case 176:
-            return SkipRecordString(cursor);
+            return SkipRecString(cursor);
         case 130:
         case 135:
         case 139:
@@ -125,13 +125,13 @@ struct ScriptWorkspace
     uint32 references;
 };
 
-static ScriptWorkspace *current_workspace;
+static ScriptWorkspace *cur_workspace;
 
 ScriptWorkspace *AcquireScriptWorkspace()
 {
-    if (current_workspace)
-        ++current_workspace->references;
-    return current_workspace;
+    if (cur_workspace)
+        ++cur_workspace->references;
+    return cur_workspace;
 }
 
 void ReleaseScriptWorkspaceReference(ScriptWorkspace *workspace)
@@ -157,63 +157,65 @@ uint32 GetScriptWorkspaceSize(const ScriptWorkspace *workspace)
 void AllocateScriptWorkspace(uint32 size)
 {
     FUNCTION_MARKER(0x800653B8, "SLUS_003.73");
-    if (current_workspace)
+    if (cur_workspace)
         ReleaseScriptWorkspace();
     GameHeapBlock *reservation = AllocateHeapBlock(size, 1, 1);
     ScriptWorkspace *workspace = (ScriptWorkspace *)malloc(sizeof(*workspace));
     uint8 *data = (uint8 *)malloc(size ? size : 1);
     if (!workspace || !data)
     {
-        GameDiagnostic("Cannot allocate script movie workspace\n");
+        GameDiagnostic(("Cannot allocate script movie workspace\n"));
         abort();
     }
     workspace->reservation = reservation;
     workspace->data = data;
     workspace->size = size;
     workspace->references = 1;
-    current_workspace = workspace;
+    cur_workspace = workspace;
     FUNCTION_MARKER(0x8006B70C, "SLUS_003.73");
 }
 
 void ReleaseScriptWorkspace()
 {
     FUNCTION_MARKER(0x800653F4, "SLUS_003.73");
-    ScriptWorkspace *workspace = current_workspace;
+    ScriptWorkspace *workspace = cur_workspace;
     if (!workspace)
         return;
     if (workspace->reservation)
         ReleaseHeapBlock(workspace->reservation);
     workspace->reservation = 0;
-    current_workspace = 0;
+    cur_workspace = 0;
     ReleaseScriptWorkspaceReference(workspace);
 }
 
-uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchronous)
+uint32 ExecuteRecCommands(RecordCursor cursor, uint32 idx, bool synchronous)
 {
     GameHeapBlock *reservation;
     ResourceScriptBorrow script_borrow;
-    bool has_projection_config;
-    sint32 projection_args[3];
+    bool has_proj_config;
+    sint32 proj_args[3];
     ModelInstance *receiver;
-    uint32 command, resource;
-    RecordCursor record_payload;
+    uint16 command;
+    uint32 resource;
+    RecordCursor rec_payload;
     Camera *camera;
-    ResourceScript *script_record;
-    sint32 value, previous_start;
-    uint32 duration;
-    sint32 load_bank_active;
+    ResourceScript *script_rec;
+    sint32 val;
+    uint16 prev_start;
+    uint16 duration;
+    bool load_bank_active;
     RecordCursor bank_name;
     RecordCursor visual_data;
-    sint16 cycles, region_enabled;
+    uint16 cycles, region_enabled;
     Vector3 origin, region_end;
     FUNCTION_MARKER(0x8006541C, "SLUS_003.73");
-    has_projection_config = false;
-    script_record = FindScriptRecord(index);
+    has_proj_config = false;
+    script_rec = FindScriptRec(idx);
     while (1)
     {
         command = cursor.Read16();
-        (cursor += 2);
-        if ((command == 0xFFFF))
+        cursor += 2;
+        if (command == 0xFFFF)
             break;
         switch (command)
         {
@@ -222,52 +224,52 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 while (cursor[0])
                 {
                     checkpoint_names.Add(cursor.CStr());
-                    cursor = SkipRecordString(cursor);
+                    cursor = SkipRecString(cursor);
                 }
 
                 goto SkipCommandWord;
 
             case 3:
-                if (script_record)
+                if (script_rec)
                 {
-                    if (script_record->spawn_cycles_left)
+                    if (script_rec->spawn_cycles_left)
                     {
-                        record_payload = GetRecordPayload(index);
-                        SpawnEnemyIndices(record_payload);
-                        value = script_record->spawn_cycles_left;
-                        if ((value != 0xFFFF))
-                            script_record->spawn_cycles_left = value - 1;
+                        rec_payload = GetRecPayload(idx);
+                        SpawnEnemyIndices(rec_payload);
+                        val = script_rec->spawn_cycles_left;
+                        if (val != 0xFFFF)
+                            script_rec->spawn_cycles_left = val - 1;
                     }
                 }
                 else
                 {
-                    record_payload = GetRecordPayload(index);
-                    SpawnEnemyIndices(record_payload);
+                    rec_payload = GetRecPayload(idx);
+                    SpawnEnemyIndices(rec_payload);
                 }
                 continue;
 
             case 4:
 
             case 5:
-                record_payload = GetRecordPayload(index);
-                SetObjectRecordGroupMode(record_payload, command);
+                rec_payload = GetRecPayload(idx);
+                SetObjectRecGrpMode(rec_payload, command);
                 continue;
 
             case 10:
-                record_payload = GetRecordPayload(index);
-                ActivateEnemyIndices(record_payload);
+                rec_payload = GetRecPayload(idx);
+                ActivateEnemyIndices(rec_payload);
                 continue;
 
             case 11:
-                ApplyRecordGroupAction(index, 0);
+                ApplyRecGrpAction(idx, 0);
                 continue;
 
             case 12:
-                ApplyRecordGroupAction(index, 1);
+                ApplyRecGrpAction(idx, 1);
                 continue;
 
             case 13:
-                SetRecordGroupEnabled(index, cursor.Read16());
+                SetRecGrpEnabled(idx, cursor.Read16() != 0);
                 goto SkipCommandWord;
 
             case 102:
@@ -276,21 +278,21 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 continue;
 
             case 104:
-                projection_args[0] = cursor.Read16();
-                projection_args[1] = (cursor + 2).Read16();
-                projection_args[2] = (cursor + 4).Read16();
+                proj_args[0] = cursor.Read16();
+                proj_args[1] = (cursor + 2).Read16();
+                proj_args[2] = (cursor + 4).Read16();
                 cursor += 6;
-                has_projection_config = true;
+                has_proj_config = true;
                 continue;
 
             case 105:
-                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
-                PlaySoundEffect(value, 0x2000, 0);
+                val = (cursor += 2, cursor - 2).Read16();
+                PlaySoundEffect(val, 0x2000, 0);
                 continue;
 
             case 106:
-                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
-                ::StopSoundVoices(value);
+                val = (cursor += 2, cursor - 2).Read16();
+                ::StopSoundVoices(val);
                 continue;
 
             case 119:
@@ -298,62 +300,62 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
 
             case 126:
                 bank_name = cursor;
-                load_bank_active = 0;
+                load_bank_active = false;
                 goto QueueBankLoad;
 
             case 127:
-                UnloadModelBankByName(cursor.CStr());
+                ModelBank::UnloadByName(cursor.CStr());
                 goto SkipCommandString;
 
             case 128:
                 bank_name = cursor;
-                load_bank_active = 1;
+                load_bank_active = true;
             QueueBankLoad:
-                QueueModelBankLoad(bank_name.CStr(), load_bank_active);
+                ModelBank::QueueLoad(bank_name.CStr(), load_bank_active);
 
                 if (synchronous)
-                    WaitForModelBankLoads();
+                    ModelBank::WaitForLoads();
                 goto SkipCommandString;
 
             case 129:
-                WaitForModelBankLoads();
+                ModelBank::WaitForLoads();
                 continue;
 
             case 130:
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandPair;
-                value = ((sint16)(cursor.Read16()));
-                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
-                cursor += (2) * 2;
-                camera->SetYawTransition(value, duration);
+                val = (sint16)cursor.Read16();
+                duration = (cursor + 2).Read16();
+                cursor += 4;
+                camera->SetYawTransition(val, duration);
                 continue;
 
             case 131:
-                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
-                EnableVisualRegistryEntry(value);
+                val = (cursor += 2, cursor - 2).Read16();
+                VisualRegistryEntry::Enable(val);
                 continue;
 
             case 132:
-                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
-                DisableVisualRegistryEntry(value);
+                val = (cursor += 2, cursor - 2).Read16();
+                VisualRegistryEntry::Disable(val);
                 continue;
 
             case 133:
-                while ((((sint16)(cursor.Read16())) != 255))
+                while (cursor.Read16() != 255)
                 {
                     ReadRegionBounds(cursor, origin, region_end);
-                    ClearRegion(origin.words, region_end.words);
+                    ClearRegion(&origin, &region_end);
                 }
 
                 goto SkipCommandWord;
 
             case 134:
-                if (!(script_record->spawn_cycles_initialized))
+                if (!script_rec->spawn_cycles_initialized)
                 {
-                    cycles = ((sint16)(cursor.Read16()));
-                    script_record->spawn_cycles_initialized = 1;
-                    script_record->spawn_cycles_left = cycles;
+                    cycles = cursor.Read16();
+                    script_rec->spawn_cycles_initialized = true;
+                    script_rec->spawn_cycles_left = cycles;
                 }
                 goto SkipCommandWord;
 
@@ -361,10 +363,10 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandPair;
-                value = ((uint16)(((sint16)(cursor.Read16()))));
-                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
-                cursor += (2) * 2;
-                SetCameraOrbitDistanceTransition(value, duration);
+                val = cursor.Read16();
+                duration = (cursor + 2).Read16();
+                cursor += 4;
+                camera->SetOrbitDistanceTransition(val, duration);
                 continue;
 
             case 136:
@@ -376,8 +378,8 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 continue;
 
             case 138:
-                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
-                SeekCdAudioEntry(value);
+                val = (cursor += 2, cursor - 2).Read16();
+                SeekCdAudioEntry(val);
                 continue;
 
             case 139:
@@ -387,89 +389,89 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
             case 140:
 
             case 176:
-                previous_start = GetStartRecordIndex();
-                SelectStartRecord(cursor.CStr());
-                cursor = SkipRecordString(cursor);
-                if (((previous_start != 0xFFFF) && (GetStartRecordIndex() != previous_start)))
+                prev_start = GetStartRecIdx();
+                SelectStartRec(cursor.CStr());
+                cursor = SkipRecString(cursor);
+                if (prev_start != 0xFFFF && GetStartRecIdx() != prev_start)
                 {
-                    if ((command != 176))
+                    if (command != 176)
                     {
-                        ClearAnimatedHudText();
-                        ::AddAnimatedHudText(HudMessage::checkpoint, hud_pickup_animation);
+                        AnimatedHudText::ClearAll();
+                        AnimatedHudText::Add(HudMessage::checkpoint, hud_pickup_animation);
                     }
-                    CaptureCurrentPlayerSave();
+                    CaptureCurPlayerSave();
                 }
                 continue;
 
             case 141:
-                region_enabled = ((cursor += 2, cursor - 2)).Read16();
-                while ((((sint16)(cursor.Read16())) != 255))
+                region_enabled = (cursor += 2, cursor - 2).Read16();
+                while (cursor.Read16() != 255)
                 {
                     ReadRegionBounds(cursor, origin, region_end);
-                    SetRegionObjectsEnabled(origin.words, region_end.words, region_enabled != 0);
+                    SetRegionObjectsEnabled(&origin, &region_end, region_enabled != 0);
                 }
 
                 goto SkipCommandWord;
 
             case 142:
-                SelectRecordModelBank(cursor.CStr());
-                cursor = SkipRecordString(cursor);
+                SelectRecModelBank(cursor.CStr());
+                cursor = SkipRecString(cursor);
                 continue;
 
             case 143:
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandPair;
-                value = ((sint16)(cursor.Read16()));
-                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
-                cursor += (2) * 2;
-                SetCameraOrbitHeightTransition(value, duration);
+                val = (sint16)cursor.Read16();
+                duration = (cursor + 2).Read16();
+                cursor += 4;
+                camera->SetOrbitHeightTransition(val, duration);
                 continue;
 
             case 144:
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandPair;
-                value = ((sint16)(cursor.Read16()));
-                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
-                cursor += (2) * 2;
-                SetCameraTargetLateralOffsetTransition(value, duration);
+                val = (sint16)cursor.Read16();
+                duration = (cursor + 2).Read16();
+                cursor += 4;
+                camera->SetTargetLateralOffsetTransition(val, duration);
                 continue;
 
             case 145:
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandPair;
-                value = ((sint16)(cursor.Read16()));
-                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
-                cursor += (2) * 2;
-                SetCameraTargetHeightOffsetTransition(value, duration);
+                val = (sint16)cursor.Read16();
+                duration = (cursor + 2).Read16();
+                cursor += 4;
+                camera->SetTargetHeightOffsetTransition(val, duration);
                 continue;
 
             case 146:
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandPair;
-                value = ((sint16)(cursor.Read16()));
-                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
-                cursor += (2) * 2;
-                SetCameraTargetForwardOffsetTransition(value, duration);
+                val = (sint16)cursor.Read16();
+                duration = (cursor + 2).Read16();
+                cursor += 4;
+                camera->SetTargetForwardOffsetTransition(val, duration);
                 continue;
 
             case 147:
-                level_environment.area_kind = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                level_environment.area_kind = (cursor += 2, cursor - 2).Read16();
                 continue;
 
             case 148:
-                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
-                if ((script_record->spawn_count == value))
+                val = (cursor += 2, cursor - 2).Read16();
+                if (script_rec->spawn_count == val)
                     continue;
-                if ((((sint16)(cursor.Read16())) == 149))
+                if (cursor.Read16() == 149)
                     goto SkipCommandWord;
                 do
-                    cursor = SkipRecordCommand(cursor);
-                while ((((sint16)(cursor.Read16())) != 149));
-                (cursor += 2);
+                    cursor = SkipRecCommand(cursor);
+                while (cursor.Read16() != 149);
+                cursor += 2;
                 break;
 
             case 150:
@@ -480,8 +482,8 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
 
             case 151:
                 ReleaseScriptWorkspace();
-                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
-                AllocateScriptWorkspace((uint32)value * 1000);
+                val = (cursor += 2, cursor - 2).Read16();
+                AllocateScriptWorkspace(val * 1000);
                 continue;
 
             case 152:
@@ -494,31 +496,31 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandWord;
-                value = (uint32)(sint32)(sint16)((cursor += 2, cursor - 2)).Read16();
-                camera->SetLateralColDistance(value);
+                val = (sint16)(cursor += 2, cursor - 2).Read16();
+                camera->SetLateralColDistance(val);
                 continue;
 
             case 154:
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandWord;
-                value = (uint32)(sint32)(sint16)((cursor += 2, cursor - 2)).Read16();
-                camera->SetRearColDistance(value);
+                val = (sint16)(cursor += 2, cursor - 2).Read16();
+                camera->SetRearColDistance(val);
                 continue;
 
             case 155:
-                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                (cursor += 2, cursor - 2).Read16();
                 RestoreMusicPlayback();
                 continue;
 
             case 156:
-                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                (cursor += 2, cursor - 2).Read16();
                 StopMusicSequence();
                 continue;
 
             case 157:
-                value = ((((cursor += 2, cursor - 2))))[0];
-                SetSoundReverbMode(value);
+                val = (cursor += 2, cursor - 2)[0];
+                SetSoundReverbMode(val);
                 continue;
 
             case 158:
@@ -528,7 +530,7 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
             case 159:
                 LoadAudioSequence(cursor.CStr());
             SkipCommandString:
-                cursor = SkipRecordString(cursor);
+                cursor = SkipRecString(cursor);
 
                 continue;
 
@@ -542,8 +544,8 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandWord;
-                value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
-                camera->SetModePreset(value);
+                val = (cursor += 2, cursor - 2).Read16();
+                camera->SetModePreset(val);
                 break;
 
             case 163:
@@ -551,8 +553,8 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 ModelInstance *player = visual_lists.players;
                 if (player)
                 {
-                    value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
-                    static_cast<Player *>(player->owner)->disable_timer = value;
+                    val = (cursor += 2, cursor - 2).Read16();
+                    static_cast<Player *>(player->owner)->disable_timer = val;
                 }
                 continue;
             }
@@ -561,30 +563,30 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandWord;
-                value = ((cursor += 2, cursor - 2)).Read16();
-                camera->SetColYawStrength(value);
+                val = (cursor += 2, cursor - 2).Read16();
+                camera->SetColYawStrength(val);
                 break;
 
             case 165:
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandWord;
-                value = ((cursor += 2, cursor - 2)).Read16();
-                camera->SetColPitchStrength(value);
+                val = (cursor += 2, cursor - 2).Read16();
+                camera->SetColPitchStrength(val);
                 break;
 
             case 166:
-                model_render_state.depth_bias[0] = ((cursor += 2, cursor - 2)).Read16();
+                model_render_state.depth_bias[0] = (cursor += 2, cursor - 2).Read16();
                 continue;
 
             case 167:
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 if (!camera)
                     goto SkipCommandPair;
-                value = ((uint16)(((sint16)(cursor.Read16()))));
-                duration = ((uint16)(((sint16)(((cursor + (1) * 2)).Read16()))));
-                cursor += (2) * 2;
-                camera->SetProjDistanceTransition(value, duration);
+                val = cursor.Read16();
+                duration = (cursor + 2).Read16();
+                cursor += 4;
+                camera->SetProjDistanceTransition(val, duration);
                 break;
 
             case 168:
@@ -594,11 +596,11 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 goto SkipCommandWord;
 
             case 169:
-                model_render_state.depth_bias[1] = ((cursor += 2, cursor - 2)).Read16();
+                model_render_state.depth_bias[1] = (cursor += 2, cursor - 2).Read16();
                 continue;
 
             case 170:
-                visual_activation_distance = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
+                visual_activation_distance = (cursor += 2, cursor - 2).Read16();
                 continue;
 
             case 171:
@@ -618,7 +620,7 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 if (camera)
                     camera->vertical_offset_gain = cursor.Read16();
             SkipCommandWord:
-                (cursor += 2);
+                cursor += 2;
 
                 break;
 
@@ -634,13 +636,13 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 receiver = visual_lists.players;
                 if (receiver)
                 {
-                    value = cursor.Read16();
+                    val = cursor.Read16();
                     duration = (cursor + 2).Read16();
-                    static_cast<Player *>(visual_lists.players->owner)->fall_damage_threshold = (uint32)value;
-                    static_cast<Player *>(visual_lists.players->owner)->fatal_fall_distance = (uint32)duration;
+                    static_cast<Player *>(visual_lists.players->owner)->fall_damage_threshold = val;
+                    static_cast<Player *>(visual_lists.players->owner)->fatal_fall_distance = duration;
                 }
             SkipCommandPair:
-                cursor += (2) * 2;
+                cursor += 4;
 
                 break;
 
@@ -654,8 +656,8 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
                 receiver = visual_lists.players;
                 if (receiver)
                 {
-                    value = ((uint16)(((cursor += 2, cursor - 2)).Read16()));
-                    static_cast<Player *>(visual_lists.players->owner)->SetWeaponStop(value);
+                    val = (cursor += 2, cursor - 2).Read16();
+                    static_cast<Player *>(visual_lists.players->owner)->SetWeaponStop(val);
                 }
                 break;
 
@@ -664,7 +666,7 @@ uint32 ExecuteRecordCommands(RecordCursor cursor, uint32 index, uint32 synchrono
         }
     }
 
-    if (has_projection_config)
-        return ::ConfigureProjectionDepth(projection_args[0], projection_args[1], projection_args[2]);
+    if (has_proj_config)
+        return ::ConfigureProjDepth(proj_args[0], proj_args[1], proj_args[2]);
     return 0xFFFF;
 }

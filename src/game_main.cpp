@@ -1,3 +1,7 @@
+#include "collision_ray.h"
+#include "model_bank_grid.h"
+#include "model_instance.h"
+
 #if defined(LOCKSTEP_DEBUG)
     #error Native refactoring is outside lockstep; use the preserved decomp baseline
 #endif
@@ -15,7 +19,8 @@ extern "C"
 #include "object_fragments.h"
 #include "object_damage.h"
 #include "collision.h"
-#include "particle_settings.h"
+#include "effect_object.h"
+#include "primitive_particle.h"
 #include "effect_lifecycle.h"
 #include "startup_resources.h"
 #include "audio_voice.h"
@@ -34,18 +39,20 @@ extern "C"
 #include "player.h"
 #include "projectile_base.h"
 #include "swat.h"
-#include "game_pad_poll.h"
+#include "game_pad_input.h"
 #include "scene_lifecycle.h"
 #include "level_session.h"
 #include "game_data_io.h"
-#include "game_random.h"
-#include "model_resources.h"
+#include "global.h"
+#include "model_bank.h"
 #include "main_menu.h"
 #include "pause_menu.h"
 #include "screen_flash.h"
 #include "explosion_effects.h"
 #include "menu_window.h"
 #include "debug_finish_repro.h"
+#include "enemy.h"
+#include "visual_object.h"
 
 extern "C" void xport_main(void)
 {
@@ -59,14 +66,14 @@ extern "C" void xport_main(void)
 #if defined(_DEBUG)
     ResetDebugFinishRepro();
 #endif
-    ResetStartupDisplay();
+    ResetStartupDisp();
     spu_vm_reset();
-    InitializeScreenFlash();
+    InitializeScrFlash();
     ResetExplosionState();
     ResetFragmentState();
-    ResetObjectDestruction();
-    ResetParticleSettings();
-    ResetEffectDrawMode();
+    ModelInstance::ResetDestruction();
+    PrimitiveParticle::ResetSettings();
+    EffectObject::ResetDrawMode();
     ResetRandomGenerators();
     ResetGameClock();
     ResetGameSettings();
@@ -80,32 +87,32 @@ extern "C" void xport_main(void)
     ResetGameTuning();
     ResetGameLighting();
     ResetModelRenderState();
-    ResetCollisionState();
-    ResetPlayerRuntime();
-    ResetSwatPopulation();
-    ResetEnemyPopulation();
-    ResetProjectilePopulation();
-    ResetGamePadState();
-    input_recording.Clear();
+    CollisionRay::ResetSharedState();
+    Player::ResetRuntime();
+    Swat::ResetPopulation();
+    Enemy::ResetPopulation();
+    ProjectileBase::ResetPopulation();
+    GamePadInput::ResetAll();
+    ClearInputRecording();
     input_recording.ResetTimestamp();
     ResetCardSaveState();
     ResetPlayerSaveStorage();
     ResetPlayerSaveTemplates();
-    ResetCurrentLevelName();
+    ResetCurLevelName();
     ResetGameSession();
     ResetGameProgress();
     ResetLevelEnvironment();
     ResetSceneFrameState();
     ResetSceneRenderState();
     ResetSceneSmoothing();
-    ResetModelBanks();
+    ModelBank::ResetAll();
     ResetModelPoseWorkspace();
-    ResetActiveModelState();
-    ClearModelBankGrids();
-    ResetModelBankLoadQueue();
+    ModelBank::ResetActive();
+    ModelBankGrid::ClearAll();
+    ModelBank::ResetLoadQueue();
     ResetMenuScenes();
-    ResetVisualLists();
-    ResetMenuRepeat();
+    VisualObject::ResetLists();
+    MenuWindow::ResetRepeat();
     ResetMenuRuntime();
     ResetPanelText();
     ResetHudTextState();

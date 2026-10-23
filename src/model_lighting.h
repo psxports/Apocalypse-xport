@@ -10,6 +10,7 @@ extern "C"
 
 struct ModelLightingValue
 {
+    // IR1 receives this complete packed word before the SDK narrows it
     uint32 xy;
 
     union
@@ -19,10 +20,13 @@ struct ModelLightingValue
     };
 };
 
-void ResetModelLightingValues();
-ModelLightingValue &GetModelLightingValue(uint32 index);
-void ReadRendererNormal(const ModelLightingValue &value, uint32 normal[3]);
-void LoadRendererVertexLighting(uint32 color_offset, const ModelPalette *color_table, const ModelLightingValue &value);
+void ResetModelLightingVals();
+ModelLightingValue &GetModelLightingVal(uint32 idx);
+void GenerateModelNormalColors(const SVECTOR *vertices, uint32 count);
+uint32 ReadModelTableColor(uint32 color_offset, const ModelPalette *table);
+void LoadPackedProjIr(const ModelLightingValue &val);
+void LoadModelTableColor(uint32 color_offset, const ModelPalette *table, uint32 ir1, uint32 ir2, uint32 ir3);
+void LoadRendererVertexLighting(uint32 color_offset, const ModelPalette *color_table, const ModelLightingValue &val);
 void LoadModelDrawLighting();
 
 #endif

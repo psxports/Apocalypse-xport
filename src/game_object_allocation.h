@@ -10,6 +10,5 @@ class Object;
 struct GameHeapBlock;
 
 GameHeapBlock *AllocateZeroedObject(uint32 size);
-uint32 ReleaseObjectStorage(Object *object);
 
 #endif

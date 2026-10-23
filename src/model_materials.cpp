@@ -1,12 +1,25 @@
+#include <string.h>
 #include <stdlib.h>
 
-#include "geometry_commands.h"
+#include "psx.h"
 #include "game_diagnostics.h"
 #include "model_materials.h"
+#include "global.h"
 
-static const ModelPalette *current_model_palette;
+struct ModelTextureTrackFile
+{
+    uint32 object;
+    sint16 scroll_x;
+    sint16 scroll_y;
+    uint32 phase_speed;
+    uint32 quad_count;
+};
 
-void ReleaseModelTextureAnimation(ModelTextureAnimation &animation)
+typedef char ModelTextureTrackFileSize[sizeof(ModelTextureTrackFile) == 16 ? 1 : -1];
+
+static const ModelPalette *cur_model_pal;
+
+void ReleaseModelTexAnimation(ModelTextureAnimation &animation)
 {
     for (uint32 i = 0; i < animation.count; ++i)
         free(animation.tracks[i].quads);
@@ -15,14 +28,15 @@ void ReleaseModelTextureAnimation(ModelTextureAnimation &animation)
     animation.count = 0;
 }
 
-static bool DecodeModelTextureAnimation(ModelTextureAnimation &animation, const uint8 *data, uint32 bytes, uint32 object_count)
+static bool DecodeModelTexAnimation(ModelTextureAnimation &animation, const uint8 *data, uint32 bytes, uint32 object_count)
 {
     uint32 offset = 0, count = 0;
     for (;;)
     {
         if (bytes - offset < 16)
             return false;
-        const uint32 object = xport_load_le32(data + offset);
+        const ModelTextureTrackFile &file = *(const ModelTextureTrackFile *)(data + offset);
+        const uint32 object = file.object;
         if (!object)
         {
             for (uint32 i = offset; i < bytes; ++i)
@@ -30,7 +44,7 @@ static bool DecodeModelTextureAnimation(ModelTextureAnimation &animation, const 
                     return false;
             break;
         }
-        const uint32 quads = xport_load_le32(data + offset + 12);
+        const uint32 quads = file.quad_count;
         if (object < 12 || (object - 12) % 36 || (object - 12) / 36 >= object_count || quads > (bytes - offset - 16) / 16)
             return false;
         ++count;
@@ -50,11 +64,12 @@ static bool DecodeModelTextureAnimation(ModelTextureAnimation &animation, const 
     for (uint32 i = 0; i < count; ++i)
     {
         ModelTextureTrack &track = animation.tracks[i];
-        track.object_index = (xport_load_le32(data + offset) - 12) / 36;
-        track.scroll_x = (sint16)((uint32)data[offset + 4] | ((uint32)data[offset + 5] << 8));
-        track.scroll_y = (sint16)((uint32)data[offset + 6] | ((uint32)data[offset + 7] << 8));
-        track.phase_speed = xport_load_le32(data + offset + 8);
-        track.quad_count = xport_load_le32(data + offset + 12);
+        const ModelTextureTrackFile &file = *(const ModelTextureTrackFile *)(data + offset);
+        track.object_idx = (file.object - 12) / 36;
+        track.scroll_x = file.scroll_x;
+        track.scroll_y = file.scroll_y;
+        track.phase_speed = file.phase_speed;
+        track.quad_count = file.quad_count;
         if (track.quad_count)
         {
             track.quads = (ModelUvQuad *)malloc(track.quad_count * sizeof(ModelUvQuad));
@@ -64,82 +79,81 @@ static bool DecodeModelTextureAnimation(ModelTextureAnimation &animation, const 
         for (uint32 quad = 0; quad < track.quad_count; ++quad)
             for (uint32 vertex = 0; vertex < 4; ++vertex)
             {
-                const uint8 *source = data + offset + 16 + quad * 16 + vertex * 4;
+                const uint8 *src = data + offset + 16 + quad * 16 + vertex * 4;
                 ModelUvVertex &target = track.quads[quad].vertices[vertex];
-                target.u = source[0];
-                target.v = source[1];
-                target.wave_x = source[2];
-                target.wave_y = source[3];
+                target.u = src[0];
+                target.v = src[1];
+                target.wave_x = src[2];
+                target.wave_y = src[3];
             }
         offset += 16 + track.quad_count * 16;
     }
     return true;
 }
 
-void LoadModelTextureAnimation(ModelTextureAnimation &animation, const uint8 *data, uint32 bytes, uint32 object_count)
+void LoadModelTexAnimation(ModelTextureAnimation &animation, const uint8 *data, uint32 bytes, uint32 object_count)
 {
     ModelTextureAnimation decoded = {0, 0};
-    if (!DecodeModelTextureAnimation(decoded, data, bytes, object_count))
+    if (!DecodeModelTexAnimation(decoded, data, bytes, object_count))
     {
-        ReleaseModelTextureAnimation(decoded);
-        GameDiagnostic("Invalid model texture animation or allocation failure\n");
+        ReleaseModelTexAnimation(decoded);
+        GameDiagnostic(("Invalid model texture animation or allocation failure\n"));
         abort();
     }
-    ReleaseModelTextureAnimation(animation);
+    ReleaseModelTexAnimation(animation);
     animation = decoded;
 }
 
-void ReleaseModelPalette(ModelPalette &palette)
+void ReleaseModelPal(ModelPalette &pal)
 {
-    free(palette.words);
-    palette.words = 0;
-    palette.count = 0;
+    free(pal.words);
+    pal.words = 0;
+    pal.count = 0;
 }
 
-void LoadModelPalette(ModelPalette &palette, const uint8 *data, uint32 bytes)
+void LoadModelPal(ModelPalette &pal, const uint8 *data, uint32 bytes)
 {
     if (!bytes || (bytes & 3))
     {
-        GameDiagnostic("Invalid model palette size\n");
+        GameDiagnostic(("Invalid model palette size\n"));
         abort();
     }
     const uint32 count = bytes / 4;
-    uint32 *words = (uint32 *)malloc(count * sizeof(uint32));
+    uint32 *words = (uint32 *)malloc(count * sizeof(*words));
     if (!words)
     {
-        GameDiagnostic("Cannot allocate model palette\n");
+        GameDiagnostic(("Cannot allocate model palette\n"));
         abort();
     }
-    for (uint32 i = 0; i < count; ++i)
-        words[i] = xport_load_le32(data + i * 4);
-    ReleaseModelPalette(palette);
-    palette.count = count;
-    palette.words = words;
+    memcpy(words, data, bytes);
+    ReleaseModelPal(pal);
+    pal.count = count;
+    pal.words = words;
 }
 
-uint32 ReadModelPaletteColor(const ModelPalette *palette, uint32 index)
+uint32 ReadModelPalColor(const ModelPalette *pal, uint32 idx)
 {
-    if (!palette || !palette->words || index >= palette->count)
+    if (!pal || !pal->words || idx >= pal->count)
     {
-        GameDiagnostic("Invalid model palette color index\n");
+        GameDiagnostic(("Invalid model palette color index\n"));
         abort();
     }
-    return palette->words[index];
+    return pal->words[idx];
 }
 
-void SelectModelPalette(const ModelPalette &palette)
+void SelectModelPal(const ModelPalette &pal)
 {
-    current_model_palette = &palette;
+    cur_model_pal = &pal;
 }
 
-const ModelPalette *GetCurrentModelPalette()
+const ModelPalette *GetCurModelPal()
 {
-    return current_model_palette;
+    return cur_model_pal;
 }
 
-void ResetModelPaletteSelection()
+void ResetModelPalSelection()
 {
-    current_model_palette = 0;
+    cur_model_pal = 0;
 }
 
 void ReleaseModelColorAnimation(ModelColorAnimation &animation)
@@ -185,7 +199,7 @@ static bool DecodeModelColorAnimation(ModelColorAnimation &animation, const uint
     for (uint32 i = 0; i < count; ++i)
     {
         ModelColorTrack &track = animation.tracks[i];
-        track.color_index = data[offset];
+        track.color_idx = data[offset];
         track.key_count = data[offset + 1];
         track.key = data[offset + 2];
         track.elapsed = data[offset + 3];
@@ -194,10 +208,10 @@ static bool DecodeModelColorAnimation(ModelColorAnimation &animation, const uint
             return false;
         for (uint32 key = 0; key < track.key_count; ++key)
         {
-            const uint8 *source = data + offset + 4 + key * 4;
+            const uint8 *src = data + offset + 4 + key * 4;
             for (uint32 axis = 0; axis < 3; ++axis)
-                track.keys[key].rgb[axis] = source[axis];
-            track.keys[key].duration = source[3];
+                track.keys[key].rgb[axis] = src[axis];
+            track.keys[key].duration = src[3];
         }
         offset += 4 + track.key_count * 4;
     }
@@ -211,72 +225,63 @@ void LoadModelColorAnimation(ModelColorAnimation &animation, const uint8 *data, 
     if (!DecodeModelColorAnimation(decoded, data, bytes))
     {
         ReleaseModelColorAnimation(decoded);
-        GameDiagnostic("Invalid model color animation\n");
+        GameDiagnostic(("Invalid model color animation\n"));
         abort();
     }
     ReleaseModelColorAnimation(animation);
     animation = decoded;
 }
 
-void ValidateModelColorAnimation(const ModelPalette &palette, const ModelColorAnimation &animation)
+void ValidateModelColorAnimation(const ModelPalette &pal, const ModelColorAnimation &animation)
 {
     for (uint32 i = 0; i < animation.count; ++i)
-        if (!palette.words || animation.tracks[i].color_index >= palette.count)
+        if (!pal.words || animation.tracks[i].color_idx >= pal.count)
         {
-            GameDiagnostic("Color animation references missing palette color\n");
+            GameDiagnostic(("Color animation references missing palette color\n"));
             abort();
         }
 }
 
-static uint32 DivideColorWord(uint32 numerator, uint32 denominator)
-{
-    if (!denominator)
-        return (sint32)numerator < 0 ? 1 : (uint32)-1;
-    if (numerator == 0x80000000 && denominator == 0xFFFFFFFF)
-        return numerator;
-    return (uint32)((sint32)numerator / (sint32)denominator);
-}
-
-void AdvanceModelColors(ModelPalette &palette, ModelColorAnimation &animation, uint32 step)
+void AdvanceModelColors(ModelPalette &pal, ModelColorAnimation &animation, uint32 step)
 {
     for (uint32 i = 0; i < animation.count; ++i)
     {
         ModelColorTrack &track = animation.tracks[i];
         uint32 key = track.key;
-        uint32 elapsed = (uint32)track.elapsed + step;
-        uint32 duration = track.keys[key].duration;
-        if ((sint32)elapsed >= (sint32)duration)
+        uint32 elapsed = track.elapsed + step;
+        uint8 duration = track.keys[key].duration;
+        if ((sint32)elapsed >= duration)
             do
             {
                 elapsed -= track.keys[key].duration;
                 ++key;
                 if (key == track.key_count)
                     key = 0;
-            } while ((sint32)elapsed >= (sint32)track.keys[key].duration);
-        track.key = (uint8)key;
-        track.elapsed = (uint8)elapsed;
+            } while ((sint32)elapsed >= track.keys[key].duration);
+        track.key = key;
+        track.elapsed = elapsed;
         const ModelColorKey &active = track.keys[key];
         uint32 next = key + 1;
         if (next == track.key_count)
             next = 0;
-        uint32 base[3], delta[3];
+        sint32 base[3], delta[3];
         for (uint32 axis = 0; axis < 3; ++axis)
-            base[axis] = (uint32)active.rgb[axis] << 4;
+            base[axis] = active.rgb[axis] << 4;
         for (uint32 axis = 0; axis < 3; ++axis)
-            delta[axis] = ((uint32)track.keys[next].rgb[axis] << 4) - base[axis];
+            delta[axis] = (track.keys[next].rgb[axis] << 4) - base[axis];
         xport_gte_write_data(6, 0);
-        xport_gte_write_data(8, DivideColorWord(elapsed << 12, active.duration));
+        xport_gte_write_data(8, DivideSignedWord(elapsed << 12, active.duration));
         for (uint32 axis = 0; axis < 3; ++axis)
             xport_gte_write_data(25 + axis, base[axis]);
         for (uint32 axis = 0; axis < 3; ++axis)
             xport_gte_write_data(9 + axis, delta[axis]);
-        ExecuteGeometryCommand(0x1A8003E);
+        xport_gte_execute(0x1A8003E);
         // The palette owner is validated when the complete bank is loaded
-        if (track.color_index >= palette.count)
+        if (track.color_idx >= pal.count)
         {
-            GameDiagnostic("Color animation palette owner changed\n");
+            GameDiagnostic(("Color animation palette owner changed\n"));
             abort();
         }
-        palette.words[track.color_index] = xport_gte_read_data(22);
+        pal.words[track.color_idx] = xport_gte_read_data(22);
     }
 }

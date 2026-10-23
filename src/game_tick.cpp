@@ -1,9 +1,9 @@
+#include "model_instance.h"
 #include "level_session.h"
 #include "scene_lifecycle.h"
 #include "input_recording.h"
-#include "game_pad_poll.h"
+#include "game_pad_input.h"
 #include "cheat_input.h"
-#include "game_diagnostics.h"
 #include "game_tick.h"
 #include "visual_object.h"
 #include "pause_menu.h"
@@ -13,12 +13,13 @@
 #include "object_damage.h"
 #include "hud_text.h"
 #include "enemy_list.h"
-#include "record_scripts.h"
+#include "resource_script.h"
 #include "activation_record.h"
 #include "effect_lifecycle.h"
 #include "game_panel.h"
-#include "model_resources.h"
+#include "model_bank.h"
 #include "resource_io.h"
+#include "effect_object.h"
 
 GameClock game_clock = {0, 0, 0, 0, 0};
 
@@ -31,7 +32,7 @@ void ResetGameClock()
     game_clock.vblank_frame = 0;
 }
 
-uint32 AdvanceGameTick(void)
+uint32 AdvanceGameTick()
 {
     FUNCTION_MARKER(0x8002FF90, "SLUS_003.73");
     if (input_recording.GetMode() == InputRecording::Recording && game_pads[0].buttons[15].down)
@@ -40,47 +41,45 @@ uint32 AdvanceGameTick(void)
         game_session.exit_reason = 7;
         // Original 8002FF88 is an empty handler
     }
-    uint32 frame = game_clock.step;
-    uint32 elapsed = game_clock.elapsed;
-    uint32 result = frame + 1;
-    game_clock.elapsed = elapsed + 1;
-    game_clock.step = result;
-    if (frame & 1)
-        return result;
+    uint32 step = game_clock.step;
+    ++game_clock.elapsed;
+    game_clock.step = step + 1;
+    if (step & 1)
+        return game_clock.step;
     ++game_clock.tick;
-    UpdateObjectFlashes();
+    ModelInstance::UpdateFlashes();
     ResetHudTextQueue();
-    PollPadPackets();
+    GamePadInput::Poll();
     if (scene_frame.paused || scene_frame.camera_paused)
-        UpdateVisualObjects(visual_lists.cameras);
+        VisualObject::UpdateList(visual_lists.cameras);
     else
     {
-        UpdateScreenFlash();
+        UpdateScrFlash();
         ResetExplosionQueue();
-        ClearObjectActivationFlags(visual_lists.actors);
-        ClearObjectActivationFlags(visual_lists.solids);
+        VisualObject::ClearActivationFlags(visual_lists.actors);
+        VisualObject::ClearActivationFlags(visual_lists.solids);
         ClearScriptTouches();
-        UpdateVisualObjects(visual_lists.players);
+        VisualObject::UpdateList(visual_lists.players);
         ReleaseUntouchedScripts();
-        UpdateEffects();
-        UpdateVisualObjects(visual_lists.pickups);
-        UpdateVisualObjects(visual_lists.projectiles);
-        UpdateVisualObjects(visual_lists.solids);
-        UpdateVisualObjects(visual_lists.registry);
-        UpdateVisualObjects(visual_lists.actors);
-        RestoreNearbyObjects();
-        RestoreNearbySuspendedObjects();
-        DestroyFinishedEffects();
+        EffectObject::UpdateAll();
+        VisualObject::UpdateList(visual_lists.pickups);
+        VisualObject::UpdateList(visual_lists.projectiles);
+        VisualObject::UpdateList(visual_lists.solids);
+        VisualObject::UpdateList(visual_lists.registry);
+        VisualObject::UpdateList(visual_lists.actors);
+        ActivationRecord::RestoreNearby();
+        VisualObject::RestoreNearbySuspended();
+        EffectObject::DestroyFinished();
     }
     FlushPendingPositionedSound();
     DrawDebugPanel();
     UpdatePauseMenu();
-    UpdateAnimatedHudText();
-    result = GetCheatOptions().suspend_resource_loading;
-    if (!result)
+    AnimatedHudText::UpdateAll();
+    uint32 loading_suspended = GetCheatOptions().suspend_resource_loading;
+    if (!loading_suspended)
     {
-        ProcessModelBankLoadQueue();
+        ModelBank::ProcessLoadQueue();
         return ProcessResourceRead();
     }
-    return result;
+    return loading_suspended;
 }

@@ -1,41 +1,24 @@
-#include <new>
-#include <string.h>
-
-#include "game_diagnostics.h"
 #include "expanding_ring.h"
-#include "game_random.h"
-#include "effect_lifecycle.h"
+#include "global.h"
 
-ExpandingRing::ExpandingRing(const sint32 *position, uint32 scale, uint32 red, uint32 green, uint32 blue, uint32 count, uint32 tail) : PointSegments(count), max_radius(scale), radius(0), growth(tail), phase(0)
+ExpandingRing::ExpandingRing(const Vector3 *src_pos, sint32 max_radius, uint8 r, uint8 g, uint8 b, uint32 count, uint32 growth) : PointSegments(count), max_radius(max_radius), radius(0), growth(growth), phase(0)
 {
     FUNCTION_MARKER(0x8001ECFC, "SLUS_003.73");
-    uint32 x = position[0];
-    uint32 y = position[1];
-    uint32 z = position[2];
-    pos.words[0] = x;
-    pos.words[1] = y;
-    pos.words[2] = z;
-    origin[0] = position[0];
-    origin[1] = position[1];
-    origin[2] = position[2];
-    rgb[0] = red;
-    rgb[1] = green;
-    rgb[2] = blue;
-    for (uint32 i = 0; i < point_count; ++i)
+    pos = *src_pos;
+    origin = *src_pos;
+    rgb[0] = r;
+    rgb[1] = g;
+    rgb[2] = b;
+    for (sint32 i = 0; i < point_count; ++i)
     {
         EffectPoint *point = points + i;
-        point->rgbc.r = red;
-        point->rgbc.g = green;
-        point->rgbc.b = blue;
-        x = position[0];
-        y = position[1];
-        z = position[2];
-        point->pos.words[0] = x;
-        point->pos.words[1] = y;
-        point->pos.words[2] = z;
+        point->rgbc.r = r;
+        point->rgbc.g = g;
+        point->rgbc.b = b;
+        point->pos = *src_pos;
     }
     phase = RandomRange(4096);
-    EnableSegments();
+    EnableSegs();
 }
 
 uint32 ExpandingRing::Destroy(uint32 reason)
@@ -44,7 +27,7 @@ uint32 ExpandingRing::Destroy(uint32 reason)
     FUNCTION_MARKER(0x8001EE48, "SLUS_003.73");
     result = PointSegments::Destroy(0);
     if (reason & 1)
-        result = ReleaseEffectStorage(this);
+        result = ReleaseStorage();
     return result;
 }
 
@@ -52,57 +35,47 @@ void ExpandingRing::Update()
 {
     FUNCTION_MARKER(0x8001EE9C, "SLUS_003.73");
     radius += growth;
-    if ((sint32)radius >= (sint32)max_radius)
+    if (radius >= max_radius)
     {
         radius = max_radius;
         Finish();
     }
-    uint32 fade = Divide((sint32)((max_radius - radius) << 8), (sint32)max_radius);
+    uint32 fade_numerator = max_radius;
+    fade_numerator = (fade_numerator - radius) << 8;
+    uint32 fade = DivideSignedWord(fade_numerator, max_radius);
     uint32 angle = phase;
     sint16 c = rcos(angle & 4095);
-    uint32 step = Divide(4096, (sint32)point_count);
-    origin[0] = pos.words[0] + ProjectRadius(radius, c);
+    uint32 step = DivideSignedWord(4096, point_count);
+    origin[0] = (uint32)pos.x + ProjectRadius(radius, c);
     sint16 s = rsin(angle & 4095);
-    origin[2] = pos.words[2] + ProjectRadius(radius, s);
-    for (uint32 i = 0; i < point_count; ++i)
+    origin[2] = (uint32)pos.z + ProjectRadius(radius, s);
+    for (sint32 i = 0; i < point_count; ++i)
     {
         EffectPoint *point = points + i;
-        uint32 product = rgb[0] * fade;
-        point->rgbc.r = (sint32)product >> 8;
+        sint32 product = rgb[0] * fade;
+        point->rgbc.r = product >> 8;
         product = rgb[1] * fade;
-        point->rgbc.g = (sint32)product >> 8;
+        point->rgbc.g = product >> 8;
         product = rgb[2] * fade;
-        point->rgbc.b = (sint32)product >> 8;
+        point->rgbc.b = product >> 8;
         angle += step;
         if (i == point_count - 1)
         {
-            point->pos.words[0] = origin[0];
-            point->pos.words[1] = origin[1];
-            point->pos.words[2] = origin[2];
+            point->pos = origin;
         }
         else
         {
             c = rcos(angle & 4095);
-            point->pos.words[0] = pos.words[0] + ProjectRadius(radius, c);
+            point->pos.x = (uint32)pos.x + ProjectRadius(radius, c);
             s = rsin(angle & 4095);
-            point->pos.words[2] = pos.words[2] + ProjectRadius(radius, s);
+            point->pos.z = (uint32)pos.z + ProjectRadius(radius, s);
         }
     }
 }
 
-uint32 ExpandingRing::Divide(sint32 numerator, sint32 denominator)
+uint32 ExpandingRing::ProjectRadius(sint32 radius, sint16 trigonometric_val)
 {
-    if (!denominator)
-        return numerator < 0 ? 1 : (uint32)-1;
-    if ((uint32)numerator == 0x80000000 && denominator == -1)
-        return 0x80000000;
-    return (uint32)(numerator / denominator);
-}
-
-uint32 ExpandingRing::ProjectRadius(uint32 radius, sint16 trigonometric_value)
-{
-    uint32 product = radius * (uint32)(sint32)trigonometric_value;
-    if ((sint32)product < 0)
-        product += 4095;
-    return (uint32)((sint32)product >> 12) << 12;
+    // The original multiplies modulo one word before truncating Q12 toward zero
+    sint32 product = (uint32)radius * trigonometric_val;
+    return (uint32)(product / ONE) << 12;
 }

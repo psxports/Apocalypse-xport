@@ -2,6 +2,7 @@
 #define EFFECT_OBJECT_H
 
 #include "vector3.h"
+
 extern "C"
 {
 #include "psx.h"
@@ -39,127 +40,61 @@ public:
     Vector3 velocity;
     Vector3 acceleration;
     uint8 drag[3];
-    uint8 finished;
+    bool finished;
     uint16 depth_bias;
-    uint8 persistent;
+    bool persistent;
     uint8 kind;
-
-    virtual ~EffectObject();
-    virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
-    uint32 Finish();
-    void IntegrateMotion();
-    uint32 SetPosition(const uint32 *position);
-    EffectObject *AddToList(EffectObject *&head);
-    EffectObject *RemoveFromList(EffectObject *&head);
 
 private:
     EffectObject **list_head;
 
-protected:
-    EffectObject();
-};
-
-// TODO: Recover the original name of the line-effect base at 800A1B08
-class LineEffect : public EffectObject
-{
 public:
-    uint32 color[2];
-    Vector3 endpoint[2];
-
-    virtual ~LineEffect()
-    {
-    }
-
-    virtual uint32 Destroy(uint32 reason);
-
-protected:
-    LineEffect();
-};
-
-class RenderableEffect : public EffectObject
-{
-public:
-    virtual ~RenderableEffect()
-    {
-    }
-
-    virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Render();
-
-protected:
-    RenderableEffect();
-};
-
-// Base for primitive particles rendered from the particle list
-class PrimitiveParticle : public EffectObject
-{
-public:
-    PrimitiveParticle();
-
-    virtual ~PrimitiveParticle()
-    {
-    }
-
-    TILE primitive;
-    virtual uint32 Destroy(uint32 reason);
-};
-
-// Update-only list owner whose children provide rendering
-class EffectController : public EffectObject
-{
-public:
-    virtual ~EffectController()
-    {
-    }
-
-    virtual uint32 Destroy(uint32 reason);
-
-protected:
-    EffectController();
-};
-
-class TexturedEffect : public EffectObject
-{
-public:
-    sint16 color_step;
-    uint16 shrink_step;
-    uint32 color;
-    uint8 flags;
-    uint8 frame_count;
-    sint8 frame;
-    uint8 frame_fraction;
-    uint16 frame_step;
-    uint16 size;
-    const TextureFrame &GetTextureFrame() const;
-
-    virtual ~TexturedEffect()
-    {
-    }
-
-    virtual uint32 Destroy(uint32 reason);
-    uint32 SelectResource(const char *name);
-    uint32 SelectResource(uint32 resource);
-    uint32 SetColors(uint32 red, uint32 green, uint32 blue);
-    uint32 SetBrightness(uint32 intensity);
-    uint32 RandomizeFrame();
-    uint32 EnableSemiTransparency();
-    uint32 AddFlags(uint32 flags);
-    void SetSize(uint32 size);
-    void SetFrameStep(uint32 value);
-    void SetColorStep(uint32 step);
-    uint32 SetFrame(uint32 frame);
-    uint32 AdvanceFrame();
-    uint32 AdvanceLoopingFrame();
-    uint32 Shrink(uint32 finish_when_empty);
-    uint32 FadeColors(uint32 finish_when_empty);
-
-protected:
-    TexturedEffect();
+    static void InitializeResources();
 
 private:
-    const TextureGroup *tex_group;
-    sint32 tex_frame;
+    static void DestroyTransientList(EffectObject *object);
+
+public:
+    static void DestroyTransient();
+
+private:
+    static void DestroyFinishedList(EffectObject *object);
+
+public:
+    static void DestroyFinished();
+    static GameHeapBlock *AllocateStorage(uint32 size);
+
+protected:
+    EffectObject *AddToList(EffectObject *&head);
+    EffectObject *RemoveFromList(EffectObject *&head);
+
+public:
+    uint32 Finish();
+    uint32 SetPos(const Vector3 *src_pos);
+
+protected:
+    EffectObject();
+
+public:
+    virtual uint32 Destroy(uint32 reason);
+
+protected:
+    void IntegrateMotion();
+
+private:
+    static void UpdateList(EffectObject *node);
+
+public:
+    static void UpdateAll(void);
+    virtual void Update();
+    static const TextureResource *GetShadowTex();
+    static const TextureGroup *GetButtonResourceGrp();
+    static const TextureGroup *GetResourceGrp(uint32 resource);
+    static const DR_TPAGE &GetDrawMode();
+    static void ForgetTex(const TextureGroup *grp);
+    static void ForgetTex(const TextureResource *tex);
+    static void ResetDrawMode();
+    virtual ~EffectObject();
 };
 
 #endif

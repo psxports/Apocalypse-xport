@@ -10,40 +10,27 @@ extern "C"
 
 // TODO Recover the original class names
 #include "object.h"
-
-class ActivationRecordBase : public Object
-{
-public:
-    virtual ~ActivationRecordBase()
-    {
-    }
-
-    virtual uint32 Destroy(uint32 reason);
-
-protected:
-    ActivationRecordBase()
-    {
-    }
-};
+#include "activation_record_base.h"
 
 class ActivationRecord : public ActivationRecordBase
 {
 public:
-    ActivationRecord(uint32 index, uint32 state);
-    uint16 record_idx;
-    sint16 saved_health;
-    Vector3 pos;
-    ActivationRecord *next;
-
     virtual ~ActivationRecord()
     {
     }
 
-    virtual uint32 Destroy(uint32 reason);
-};
+private:
+    uint16 rec_idx;
+    sint16 saved_health;
+    Vector3 pos;
+    ActivationRecord *next;
 
-uint32 ClearActivationRecords();
-void DeleteActivationRecords();
-void RestoreNearbyObjects();
+public:
+    static uint32 ClearAll();
+    static void DeleteAll();
+    ActivationRecord(uint16 idx, sint16 health);
+    virtual uint32 Destroy(uint32 reason);
+    static void RestoreNearby();
+};
 
 #endif

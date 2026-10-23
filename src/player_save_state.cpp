@@ -1,47 +1,25 @@
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "game_diagnostics.h"
 #include "level_session.h"
-#include "game_string.h"
+#include "global.h"
 #include "record_data.h"
-
-#include "record_scripts.h"
-#include "weapon_nodes.h"
+#include "resource_script.h"
+#include "weapon_type.h"
+#include "weapon_node.h"
 #include "visual_object.h"
 #include "player_save_state.h"
 #include "game_settings.h"
 #include "player.h"
 
+typedef char PlayerSaveProgressOffset[offsetof(PlayerSaveRecord, progress) == 4 ? 1 : -1];
+typedef char PlayerSaveSettingsOffset[offsetof(PlayerSaveRecord, settings) == 112 ? 1 : -1];
+typedef char PlayerSaveHealthOffset[offsetof(PlayerSaveProgress, health) == 96 ? 1 : -1];
+typedef char PlayerSaveFileSize[sizeof(PlayerSaveRecord) == PlayerSaveSize ? 1 : -1];
+
 PlayerSaveStorage player_saves;
-
-static void CopyProgressName(const char *src, char *dst, uint32 capacity)
-{
-    if (!src)
-    {
-        GameDiagnostic("Missing player save name\n");
-        abort();
-    }
-    uint32 len = 0;
-    while (len < capacity && src[len])
-        ++len;
-    if (len == capacity)
-    {
-        GameDiagnostic("Player save name exceeds its field capacity\n");
-        abort();
-    }
-    CopyGameString(src, dst);
-}
-
-void PlayerSaveProgress::SetLevel(const char *name)
-{
-    CopyProgressName(name, level, sizeof(level));
-}
-
-void PlayerSaveProgress::SetCheckpoint(const char *name)
-{
-    CopyProgressName(name, checkpoint, sizeof(checkpoint));
-}
 
 void ResetPlayerSaveStorage()
 {
@@ -64,154 +42,83 @@ static const uint8 initial_demo_saves[3][140] = {
     },
 };
 
-static PlayerSaveRecord native_default_save;
+static PlayerSaveRecord default_record;
 static PlayerSaveRecord demo_saves[3];
 
 void ResetPlayerSaveTemplates()
 {
-    DecodePlayerSave(native_default_save, default_save, sizeof(default_save));
-    for (uint32 index = 0; index < 3; ++index)
-        DecodePlayerSave(demo_saves[index], initial_demo_saves[index], sizeof(initial_demo_saves[index]));
+    DecodePlayerSave(default_record, default_save, sizeof(default_save));
+    for (uint32 idx = 0; idx < 3; ++idx)
+        DecodePlayerSave(demo_saves[idx], initial_demo_saves[idx], sizeof(initial_demo_saves[idx]));
 }
 
 const PlayerSaveRecord &GetDefaultPlayerSave()
 {
-    return native_default_save;
+    return default_record;
 }
 
-PlayerSaveRecord &GetDemoPlayerSave(uint32 index)
+PlayerSaveRecord &GetDemoPlayerSave(uint32 idx)
 {
-    if (index >= 3)
+    if (idx >= 3)
     {
-        GameDiagnostic("Demo save index outside original presets\n");
+        GameDiagnostic(("Demo save index outside original presets\n"));
         abort();
     }
-    return demo_saves[index];
+    return demo_saves[idx];
 }
 
-uint32 CaptureCurrentPlayerSave()
+uint32 CaptureCurPlayerSave()
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     FUNCTION_MARKER(0x800189EC, "SLUS_003.73");
-    PlayerSaveRecord &record = player_saves.current;
-    Vector3 position;
-    record.progress.SetLevel(GetCurrentLevelName());
-    RecordCursor checkpoint = ReadRecordPosition(position.words, GetStartRecordIndex()) + 6;
-    record.progress.SetCheckpoint(checkpoint.CStr());
+    PlayerSaveRecord &rec = player_saves.cur;
+    Vector3 pos;
+    rec.progress.SetLevel(GetCurLevelName());
+    RecordCursor checkpoint = ReadRecPos(&pos, GetStartRecIdx()) + 6;
+    rec.progress.SetCheckpoint(checkpoint.CStr());
     Player *player = visual_lists.players ? static_cast<Player *>(visual_lists.players->owner) : 0;
     if (player)
     {
-        record.progress.health = player->health;
+        rec.progress.health = player->health;
         uint32 smartbombs = player->smartbombs;
         uint32 lives = game_progress.lives;
-        record.progress.weapon_mask = 0;
-        record.progress.lives = lives;
-        record.progress.smartbombs = smartbombs;
-        for (uint32 index = 0; index < 8; ++index)
+        rec.progress.weapon_mask = 0;
+        rec.progress.lives = lives;
+        rec.progress.smartbombs = smartbombs;
+        for (uint32 idx = 0; idx < 8; ++idx)
         {
-            WeaponNode *weapon = player->weapons[index];
+            WeaponNode *weapon = player->weapons[idx];
             if (weapon)
             {
-                record.progress.weapon_mask |= 1 << index;
-                weapon = player->weapons[index];
-                record.progress.ammo[index] = weapon->ammo;
+                rec.progress.weapon_mask |= 1 << idx;
+                weapon = player->weapons[idx];
+                rec.progress.ammo[idx] = weapon->ammo;
             }
         }
-        record.progress.sel_weapon = player->sel_weapon;
+        rec.progress.sel_weapon = player->sel_weapon;
     }
-    SaveGameSettings(record.settings);
-    uint32 result = CalculatePlayerSaveChecksum(record);
-    record.checksum = result;
-    return result;
-}
-
-uint32 CalculatePlayerSaveChecksum(const PlayerSaveRecord &record)
-{
-    uint32 index, result = 0;
-    FUNCTION_MARKER(0x80018B44, "SLUS_003.73");
-    uint8 data[PlayerSaveSize];
-    EncodePlayerSave(data, sizeof(data), record);
-    for (index = 1; index < PlayerSaveSize / 4; ++index)
-        result ^= xport_load_le32(data + index * 4);
-    return result | 1;
-}
-
-uint32 RestorePlayerInventory(PlayerSaveRecord &record)
-{
-    uint32 health, index, mask, ammo, selected;
-    WeaponNode *weapon;
-    FUNCTION_MARKER(0x80018B70, "SLUS_003.73");
-    health = record.progress.smartbombs;
-    Player &player = *static_cast<Player *>(visual_lists.players->owner);
-    if ((sint32)health < 3)
-    {
-        health = 3;
-        record.progress.smartbombs = health;
-    }
-    health = record.progress.smartbombs;
-    player.smartbombs = health;
-    for (index = 1; index < 8; ++index)
-    {
-        mask = record.progress.weapon_mask;
-        if ((mask >> index) & 1)
-        {
-            player.ReplaceWeapon(index);
-            weapon = player.weapons[index];
-            ammo = record.progress.ammo[index];
-            weapon->ammo = ammo;
-        }
-    }
-    selected = record.progress.sel_weapon;
-    player.sel_weapon = selected;
-    return selected;
+    SaveGameSettings(rec.settings);
+    rec.checksum = rec.CalculateChecksum();
+    return rec.checksum;
 }
 
 // Only the file codec retains the original byte layout
-void DecodePlayerSave(PlayerSaveRecord &record, const uint8 *data, uint32 bytes)
+void DecodePlayerSave(PlayerSaveRecord &rec, const uint8 *data, uint32 bytes)
 {
     if (!data || bytes < PlayerSaveSize)
     {
-        GameDiagnostic("Truncated player save\n");
+        GameDiagnostic(("Truncated player save\n"));
         abort();
     }
-    record.checksum = xport_load_le32(data);
-    memcpy(record.progress.level, data + 4, sizeof(record.progress.level));
-    memcpy(record.progress.checkpoint, data + 13, sizeof(record.progress.checkpoint));
-    record.progress.weapon_mask = data[66];
-    record.progress.sel_weapon = data[67];
-    for (uint32 index = 0; index < 8; ++index)
-        record.progress.ammo[index] = xport_load_le32(data + 68 + index * 4);
-    record.progress.health = xport_load_le32(data + 100);
-    record.progress.smartbombs = xport_load_le32(data + 104);
-    record.progress.lives = xport_load_le32(data + 108);
-    record.settings.difficulty = xport_load_le32(data + 112);
-    record.settings.effects_volume = xport_load_le32(data + 116);
-    record.settings.music_volume = xport_load_le32(data + 120);
-    record.settings.voice_volume = xport_load_le32(data + 124);
-    memcpy(record.settings.bindings, data + 128, sizeof(record.settings.bindings));
+    memcpy(&rec, data, sizeof(rec));
 }
 
-void EncodePlayerSave(uint8 *data, uint32 bytes, const PlayerSaveRecord &record)
+void EncodePlayerSave(uint8 *data, uint32 bytes, const PlayerSaveRecord &rec)
 {
     if (!data || bytes < PlayerSaveSize)
     {
-        GameDiagnostic("Player save output is too small\n");
+        GameDiagnostic(("Player save output is too small\n"));
         abort();
     }
-    // Encode the external memory-card format without native layout or padding
-    xport_store_le32(data, record.checksum);
-    memcpy(data + 4, record.progress.level, sizeof(record.progress.level));
-    memcpy(data + 13, record.progress.checkpoint, sizeof(record.progress.checkpoint));
-    data[66] = record.progress.weapon_mask;
-    data[67] = record.progress.sel_weapon;
-    for (uint32 index = 0; index < 8; ++index)
-        xport_store_le32(data + 68 + index * 4, record.progress.ammo[index]);
-    xport_store_le32(data + 100, record.progress.health);
-    xport_store_le32(data + 104, record.progress.smartbombs);
-    xport_store_le32(data + 108, record.progress.lives);
-    xport_store_le32(data + 112, record.settings.difficulty);
-    xport_store_le32(data + 116, record.settings.effects_volume);
-    xport_store_le32(data + 120, record.settings.music_volume);
-    xport_store_le32(data + 124, record.settings.voice_volume);
-    memcpy(data + 128, record.settings.bindings, sizeof(record.settings.bindings));
+    memcpy(data, &rec, sizeof(rec));
 }

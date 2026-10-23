@@ -5,10 +5,10 @@
 
 struct ModelProjectedVertex;
 
-uint8 *SubdivideColoredPolygon(uint8 *packet, uint8 *limit, const ModelProjectedVertex *const points[4], uint32 area, uint32 quad, uint32 *last_stride);
-uint8 *SubdivideFlatTriangle(uint8 *packet, uint8 *limit, const ModelProjectedVertex *const points[4], uint32 area, uint32 textured, uint32 *last_stride);
-uint8 *SubdivideColoredTexturedPolygon(uint8 *packet, uint8 *limit, const ModelProjectedVertex *const points[4], uint32 area, uint32 quad, uint32 *last_stride);
-uint8 *SubdivideFlatTexturedQuad(uint8 *packet, uint8 *limit, const ModelProjectedVertex *const points[4], uint32 area, uint32 *last_stride);
-uint8 *SubdivideFlatQuad(uint8 *packet, uint8 *limit, const ModelProjectedVertex *const points[4], uint32 area, uint32 *last_stride);
+uint8 *SubdivColoredPolygon(uint8 *packet, uint8 *limit, const ModelProjectedVertex *const points[4], uint32 area, bool quad, uint32 &last_stride);
+uint8 *SubdivFlatTriangle(uint8 *packet, uint8 *limit, const ModelProjectedVertex *const points[4], uint32 area, bool textured, uint32 &last_stride);
+uint8 *SubdivColoredTexturedPolygon(uint8 *packet, uint8 *limit, const ModelProjectedVertex *const points[4], uint32 area, bool quad, uint32 &last_stride);
+uint8 *SubdivFlatTexturedQuad(uint8 *packet, uint8 *limit, const ModelProjectedVertex *const points[4], uint32 area, uint32 &last_stride);
+uint8 *SubdivFlatQuad(uint8 *packet, uint8 *limit, const ModelProjectedVertex *const points[4], uint32 area, uint32 &last_stride);
 
 #endif

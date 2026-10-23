@@ -1,23 +1,24 @@
 #ifndef PANEL_PARTICLE_H
 #define PANEL_PARTICLE_H
 
-#include "effect_sprite.h"
+#include "vector3.h"
+#include "sprite.h"
 
-// TODO Recover the original class name for the Panel resource particle
+// Fading particle using the Panel resource
 class PanelParticle : public Sprite
 {
 public:
-    PanelParticle(const uint32 *position);
-
     virtual ~PanelParticle()
     {
     }
 
-    virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
-
 private:
     uint8 intensity;
+
+public:
+    PanelParticle(const Vector3 *pos);
+    virtual uint32 Destroy(uint32 reason);
+    virtual void Update();
 };
 
 #endif

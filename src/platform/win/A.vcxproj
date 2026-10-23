@@ -110,7 +110,7 @@
 
       <TreatWarningAsError>true</TreatWarningAsError>
 
-      <DisableSpecificWarnings>4100;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4100;4146;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
 
       <SDLCheck>true</SDLCheck>
 
@@ -157,7 +157,7 @@
 
       <TreatWarningAsError>true</TreatWarningAsError>
 
-      <DisableSpecificWarnings>4100;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4100;4146;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
 
       <SDLCheck>false</SDLCheck>
 
@@ -278,7 +278,7 @@
 
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
 
-      <DisableSpecificWarnings>4100;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4100;4146;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
 
       <PreprocessorDefinitions>GAPI_OGL;_DEBUG;XPORT_ENABLE_AUDIT;XPORT_MEMORY_DIAGNOSTICS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
 
@@ -342,7 +342,7 @@
 
       <ControlFlowGuard>false</ControlFlowGuard>
 
-      <DisableSpecificWarnings>4100;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4100;4146;4244;4554;%(DisableSpecificWarnings)</DisableSpecificWarnings>
 
       <PreprocessorDefinitions>GAPI_OGL;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
 
@@ -425,6 +425,148 @@
 
     <Image Include="icon.ico" />
 
+    <ClCompile Include="..\..\explosion_ring.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\checkpoint_names.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\record_cursor.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\record_data_borrow.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\resource_script.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\resource_script_borrow.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\collision_ray.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\model_instance.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\force.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\model_reference.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\object_reference_base.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\scaled_object.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\texture_group.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\texture_group_block.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\texture_resource.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\animated_hud_text.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\control_bindings.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\game_pad_input.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\model_bank.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\model_uv_vertex.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\pad_button.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\player_save_progress.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\player_save_record.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\short_vector3.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\activation_record_base.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\animated_sprite.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\ballistic_hazard.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\beast_ground_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\beast_orbit_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\death_fading_ring.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\death_persistent_ring.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\droplet.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\effect_controller.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\endpoint_sprite.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\expanding_glow.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\fireball.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\flamethrower_pickup_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\flexible_traversal_rail.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\floating_hazard.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\grenades.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\homing_missiles.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\impact_ring.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\line_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\line_projectile.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\looping_endpoint_sprite.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\mini_tank_ring.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\moving_sprite.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\one_shot_activator.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\particle_beam.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\particle_beam_pickup_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\particle_sprite.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\pickup_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\plague_ground_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\plague_impact_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\primitive_particle.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\projectile_tracer.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\pulse_laser.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\pulse_laser_pickup_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\renderable_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\resetting_activator.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\ribbon_trail.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\rip_laser.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\rip_laser_pickup_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\rockets.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\smoke.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\sprite.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\textured_effect.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\textured_triangle.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\traversal_region.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\weapon_node.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
+    <ClCompile Include="..\..\weapon_node_base.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+
     <ClCompile Include="..\..\..\..\xport\src\platform\win\xcrt.c">
 
       <ExcludedFromBuild Condition="'$(XcrtEnabled)'!='true'">true</ExcludedFromBuild>
@@ -466,7 +608,7 @@
   </ImportGroup>
 
   <ItemGroup>
-
+    <ClCompile Include="..\..\global.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
     <ClCompile Include="..\..\game_main.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
@@ -504,9 +646,8 @@
 
     </ClCompile>
 
-    <ClInclude Include="..\..\geometry_commands.h" />
     <ClInclude Include="..\..\game_diagnostics.h" />
-    <ClInclude Include="..\..\game_image_resource.h" />
+
 
     <ClInclude Include="..\..\..\..\xport\src\xport.h" />
 
@@ -526,12 +667,6 @@
 
     <ClInclude Include="..\..\scene_effect_packets.h" />
 
-    <ClCompile Include="..\..\death_effects.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
     <ClInclude Include="..\..\death_effects.h" />
 
     <ClCompile Include="..\..\plague_area.cpp">
@@ -543,12 +678,6 @@
     <ClInclude Include="..\..\plague_area.h" />
 
     <ClCompile Include="..\..\game_boot.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\geometry_commands.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -567,24 +696,6 @@
     </ClCompile>
 
     <ClInclude Include="..\..\game_sdk_bindings.h" />
-
-    <ClCompile Include="..\..\movie_stream.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\game_image_resource.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\game_pad_poll.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
 
     <ClCompile Include="..\..\game_gpu_present.cpp">
 
@@ -738,12 +849,6 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\player_collision.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
     <ClCompile Include="..\..\camera.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
@@ -752,25 +857,19 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\quaternion_math.cpp">
+    <ClCompile Include="..\..\quaternion.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
     </ClCompile>
 
-    <ClCompile Include="..\..\weapon_nodes.cpp">
+    <ClCompile Include="..\..\tracking_projectile.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
     </ClCompile>
 
-    <ClCompile Include="..\..\projectile_tracking.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\projectile_ballistic.cpp">
+    <ClCompile Include="..\..\ballistic_projectile.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -782,7 +881,7 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\projectile_weaving.cpp">
+    <ClCompile Include="..\..\weaving_projectile.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -794,19 +893,13 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\projectile_launch.cpp">
+    <ClCompile Include="..\..\launched_projectile.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
     </ClCompile>
 
-    <ClCompile Include="..\..\effect_launch_explosion.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\effect_sprite.cpp">
+    <ClCompile Include="..\..\launch_explosion_effect.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -818,25 +911,13 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\weapon_targeting.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\projectile_oscillating.cpp">
+    <ClCompile Include="..\..\oscillating_projectile.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
     </ClCompile>
 
     <ClCompile Include="..\..\textured_quad.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\visual_object_update.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -862,13 +943,7 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\beast_effects.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\projectile_guided.cpp">
+    <ClCompile Include="..\..\guided_projectile.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -918,7 +993,7 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\war_effects.cpp">
+    <ClCompile Include="..\..\war_impact.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -930,7 +1005,7 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\beam_endpoint.cpp">
+    <ClCompile Include="..\..\endpoint_beam.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -942,7 +1017,7 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\particle_debris.cpp">
+    <ClCompile Include="..\..\debris.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -966,19 +1041,13 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\level_hazards.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
     <ClCompile Include="..\..\beam_trigger.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
     </ClCompile>
 
-    <ClCompile Include="..\..\effect_segments.cpp">
+    <ClCompile Include="..\..\segment_effect.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -1003,30 +1072,6 @@
     </ClCompile>
 
     <ClCompile Include="..\..\object_force.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\object_fragments.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\object_damage.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\collision.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\pickup_effects.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -1065,18 +1110,6 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\model_shadow.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\angle_math.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
     <ClCompile Include="..\..\hud_text.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
@@ -1084,12 +1117,6 @@
     </ClCompile>
 
     <ClCompile Include="..\..\cd_audio.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\menu_saves.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -1112,12 +1139,6 @@
     </ClCompile>
 
     <ClInclude Include="..\..\credits_player.h" />
-
-    <ClCompile Include="..\..\credits.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
 
     <ClInclude Include="..\..\credits.h" />
 
@@ -1172,7 +1193,7 @@
     </ClCompile>
     <ClInclude Include="..\..\model_subdivision.h" />
 
-    <ClCompile Include="..\..\visual_registry.cpp">
+    <ClCompile Include="..\..\visual_registry_entry.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -1197,12 +1218,6 @@
       <CompileAs>CompileAsCpp</CompileAs>
 
       <DisableSpecificWarnings>4101;%(DisableSpecificWarnings)</DisableSpecificWarnings>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\level_interactions.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
 
     </ClCompile>
 
@@ -1260,12 +1275,6 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\spawn_points.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
     <ClCompile Include="..\..\record_factory.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
@@ -1290,25 +1299,7 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\record_data.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\record_scripts.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
     <ClCompile Include="..\..\activation_record.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\vector_distance.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -1320,10 +1311,8 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\vector_arithmetic.cpp">
-
+    <ClCompile Include="..\..\vector3.cpp">
       <CompileAs>CompileAsCpp</CompileAs>
-
     </ClCompile>
 
     <ClCompile Include="..\..\game_panel.cpp">
@@ -1380,7 +1369,7 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\model_grid.cpp">
+    <ClCompile Include="..\..\model_bank_grid.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -1392,13 +1381,7 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\model_resources.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClCompile Include="..\..\palette_resources.cpp">
+    <ClCompile Include="..\..\palette_resource.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
@@ -1422,12 +1405,6 @@
 
     </ClCompile>
 
-    <ClCompile Include="..\..\fireball_effects.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
     <ClInclude Include="..\..\fireball_effects.h" />
 
     <ClCompile Include="..\..\panel_particle.cpp">
@@ -1438,21 +1415,7 @@
 
     <ClInclude Include="..\..\panel_particle.h" />
 
-    <ClCompile Include="..\..\effect_lifecycle.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
     <ClInclude Include="..\..\effect_lifecycle.h" />
-
-    <ClCompile Include="..\..\effect_color.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClInclude Include="..\..\effect_color.h" />
 
     <ClCompile Include="..\..\fading_particle.cpp">
 
@@ -1461,14 +1424,6 @@
     </ClCompile>
 
     <ClInclude Include="..\..\fading_particle.h" />
-
-    <ClCompile Include="..\..\particle_settings.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClInclude Include="..\..\particle_settings.h" />
 
     <ClCompile Include="..\..\player_save_state.cpp">
 
@@ -1512,21 +1467,15 @@
 
     <ClInclude Include="..\..\record_commands.h" />
 
-    <ClCompile Include="..\..\plague_ground_effects.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
     <ClInclude Include="..\..\plague_ground_effects.h" />
 
-    <ClCompile Include="..\..\projectile_trail.cpp">
+    <ClCompile Include="..\..\trail_projectile.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
 
     </ClCompile>
 
-    <ClInclude Include="..\..\projectile_trail.h" />
+    <ClInclude Include="..\..\trail_projectile.h" />
 
     <ClCompile Include="..\..\hud_text_packets.cpp">
 
@@ -1551,14 +1500,6 @@
     </ClCompile>
 
     <ClInclude Include="..\..\world_gravity.h" />
-
-    <ClCompile Include="..\..\game_random.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClInclude Include="..\..\game_random.h" />
 
     <ClCompile Include="..\..\startup_resources.cpp">
 
@@ -1617,14 +1558,6 @@
 
     <ClInclude Include="..\..\bouncing_point_effect.h" />
 
-    <ClCompile Include="..\..\pickup_factory.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClInclude Include="..\..\pickup_factory.h" />
-
     <ClCompile Include="..\..\pickup.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
@@ -1661,13 +1594,7 @@
 
     <ClInclude Include="..\..\pause_menu.h" />
 
-    <ClCompile Include="..\..\game_string.cpp">
-
-      <CompileAs>CompileAsCpp</CompileAs>
-
-    </ClCompile>
-
-    <ClInclude Include="..\..\game_string.h" />
+    <ClInclude Include="..\..\global.h" />
 
     <ClCompile Include="..\..\menu_window.cpp">
 

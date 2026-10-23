@@ -1,24 +1,21 @@
 #include <string.h>
 #include <new>
-#include <stdio.h>
 #include <stdlib.h>
 
 #include "level_session.h"
 #include "player_save_state.h"
 #include "game_tick.h"
-#include "game_pad_poll.h"
-
-#include "menu_saves.h"
+#include "game_pad_input.h"
 #include "scene_lifecycle.h"
 #include "cheat_input.h"
 #include "game_diagnostics.h"
 #include "pause_menu.h"
-#include "record_scripts.h"
+#include "resource_script.h"
 #include "card_save.h"
 #include "menu_input.h"
 #include "menu_window.h"
 #include "menu_lifecycle.h"
-#include "game_string.h"
+#include "global.h"
 #include "audio_session.h"
 #include "audio_voice.h"
 #include "game_panel.h"
@@ -44,81 +41,81 @@ void ResetMenuRuntime()
     menu_runtime = initial;
 }
 
-void UpdatePauseMenu(void)
+void UpdatePauseMenu()
 {
     FUNCTION_MARKER(0x80017914, "SLUS_003.73");
     sint32 card_status;
     uint32 session_state, timer_snapshot;
     MenuWindow *cleanup_menu;
-    sint32 selected_sound;
-    sint32 close_menu;
+    sint32 sel_sound;
+    bool close_menu;
     sint32 action_sound;
     MenuWindow *pause_menu;
     sint32 pause_sound;
     sint32 selection_sound;
-    sint32 quit_selected;
+    bool quit_sel;
     MenuWindow *level_menu;
-    uint32 level_index;
+    uint32 level_idx;
     sint32 quit_sound;
-    sint32 progress_in_range;
+    bool progress_in_range;
+    sint32 target_percent;
     sint32 remaining;
-    sint32 operation_failed;
-    sint32 card_state;
+    bool can_save;
+    MenuScreen card_state;
     MenuWindow *card_menu;
     MenuWindow *confirmation_menu;
-    sint32 next_state;
-    sint32 status_state;
+    MenuScreen next_state;
+    MenuScreen status_state;
     MenuWindow *menu_to_destroy;
-    sint32 next_card_screen;
+    MenuScreen next_card_scr;
     sint32 retries_left;
-    sint32 result;
-    uint8 prefix[4];
+    char prefix[4];
 
-    // TODO Original skipped-input path has no initialized button locals
+    // Input words are unused on the paused cheat-entry path
     uint32 confirm = 0;
     uint32 cancel = 0;
     uint32 acknowledge = 0;
     uint32 pause_pressed = 0;
-    selected_sound = -1;
-    close_menu = 0;
-    if ((!game_pads[0].buttons[4].down || (menu_runtime.screen != MENU_SCREEN_PAUSED)))
+    sel_sound = -1;
+    close_menu = false;
+    if (!game_pads[0].buttons[4].down || (menu_runtime.screen != MENU_SCREEN_PAUSED))
     {
         ReadMenuInput(&confirm, &cancel, &acknowledge, &pause_pressed);
         ClearCheatInputBuffer();
     }
     if (menu_runtime.screen)
         UpdateCardStatus(0, 0);
-    if ((game_pads[0].buttons[15].down && game_pads[0].buttons[14].down))
+    if (game_pads[0].buttons[15].down && game_pads[0].buttons[14].down)
     {
         if (!menu_runtime.exit_hold)
         {
-            menu_runtime.exit_hold = 1;
+            menu_runtime.exit_hold = true;
             menu_runtime.exit_frame = game_clock.vblank_frame;
         }
         if (game_clock.vblank_frame - menu_runtime.exit_frame >= 121)
         {
-            menu_runtime.exit_hold = 0;
+            menu_runtime.exit_hold = false;
             game_session.exit_reason = 7;
-            close_menu = 1;
+            close_menu = true;
         }
     }
     else
     {
-        menu_runtime.exit_hold = 0;
+        menu_runtime.exit_hold = false;
     }
     switch (menu_runtime.screen)
     {
         case MENU_SCREEN_GAMEPLAY:
-            if ((pause_pressed || !game_pads[0].type))
+            if (pause_pressed || !game_pads[0].type)
             {
-                ClearAnimatedHudText();
+                AnimatedHudText::ClearAll();
                 game_pads[0].ClearPresses();
                 menu_runtime.shake_amplitude = 0;
                 SuspendAudioPlayback();
                 PlaySoundEffect(23, 0x2000, 0);
-                ClearGamePadActuator(0, 0);
-                ClearGamePadActuator(0, 1);
-                scene_frame.paused = 1;
+                GamePadInput::ClearActuator(0, 0);
+                GamePadInput::ClearActuator(0, 1);
+                scene_frame.paused = true;
                 pause_menu = new MenuWindow(256, 0, 0, 320, 256, 26);
                 menu_runtime.pause = pause_menu;
                 pause_menu->AddItem(MenuText::continue_game);
@@ -127,7 +124,7 @@ void UpdatePauseMenu(void)
                     menu_runtime.pause->DisableItem(MenuText::skip_to_restart);
                 menu_runtime.pause->AddItem(MenuText::quit);
                 menu_runtime.pause->CenterVertical();
-                menu_runtime.pause->scr_pos[1] += 5;
+                menu_runtime.pause->scr_pos.y += 5;
                 if (!game_pads[0].type)
                     goto ControllerDisconnected;
                 menu_runtime.screen = MENU_SCREEN_PAUSED;
@@ -135,9 +132,9 @@ void UpdatePauseMenu(void)
             goto FinalizeMenuFrame;
 
         case MENU_SCREEN_PAUSED:
-            ResetPanelDisplayTimer();
+            ResetPanelDispTimer();
             if (!scene_frame.paused)
-                close_menu = 1;
+                close_menu = true;
             if (!game_pads[0].type)
                 menu_runtime.screen = MENU_SCREEN_CONTROLLER_MISSING;
             if (game_pads[0].buttons[4].down)
@@ -161,23 +158,23 @@ void UpdatePauseMenu(void)
             if (pause_pressed)
             {
                 selection_sound = 19;
-                close_menu = 1;
+                close_menu = true;
             }
             else
             {
-                if (menu_runtime.pause->IsSelected(MenuText::continue_game))
+                if (menu_runtime.pause->IsSel(MenuText::continue_game))
                 {
-                    selected_sound = 19;
-                    close_menu = 1;
+                    sel_sound = 19;
+                    close_menu = true;
                 }
-                if (menu_runtime.pause->IsSelected(MenuText::skip_to_restart))
+                if (menu_runtime.pause->IsSel(MenuText::skip_to_restart))
                 {
-                    selected_sound = 23;
+                    sel_sound = 23;
                     menu_runtime.screen = MENU_SCREEN_RESTART_SELECTION;
                 }
-                quit_selected = menu_runtime.pause->IsSelected(MenuText::quit);
-                pause_sound = selected_sound;
-                if (!quit_selected)
+                quit_sel = menu_runtime.pause->IsSel(MenuText::quit);
+                pause_sound = sel_sound;
+                if (!quit_sel)
                     goto PlayPauseSelectionSound;
                 selection_sound = 23;
                 menu_runtime.confirm->ResetSelection();
@@ -193,24 +190,24 @@ void UpdatePauseMenu(void)
             if (!menu_runtime.restart)
             {
                 level_menu = new MenuWindow(256, 0, 0, 256, 192, 26);
-                level_index = 0;
+                level_idx = 0;
                 menu_runtime.restart = level_menu;
                 level_menu->spacing = 18;
-                while (level_index < checkpoint_names.Count())
+                while (level_idx < checkpoint_names.Count())
                 {
-                    const char *name = checkpoint_names.Get(level_index);
+                    const char *name = checkpoint_names.Get(level_idx);
                     // Short labels are zero-padded before the three-character comparison
-                    uint32 length = 0;
-                    while (length < 3 && name[length])
+                    uint32 len = 0;
+                    while (len < 3 && name[len])
                     {
-                        prefix[length] = name[length];
-                        ++length;
+                        prefix[len] = name[len];
+                        ++len;
                     }
-                    while (length < 4)
-                        prefix[length++] = 0;
-                    if (!NamesEqualIgnoringCase((const char *)prefix, "de_"))
+                    while (len < 4)
+                        prefix[len++] = 0;
+                    if (!NamesEqualIgnoringCase(prefix, "de_"))
                         level_menu->AddOwnedItem(name);
-                    ++level_index;
+                    ++level_idx;
                 }
 
                 menu_runtime.restart->CenterVertical();
@@ -218,10 +215,10 @@ void UpdatePauseMenu(void)
             menu_runtime.restart->Update();
             if (confirm)
             {
-                SelectStartRecord(menu_runtime.restart->GetSelectedLabel());
+                SelectStartRec(menu_runtime.restart->GetSelLabel());
                 if (menu_runtime.restart)
                     DestroyMenuObject(menu_runtime.restart);
-                close_menu = 1;
+                close_menu = true;
                 menu_runtime.restart = 0;
                 game_session.exit_reason = 6;
                 PlaySoundEffect(23, 0x2000, 0);
@@ -249,13 +246,13 @@ void UpdatePauseMenu(void)
                 goto HandleQuitCancel;
             if (pause_pressed)
             {
-                close_menu = 1;
+                close_menu = true;
             }
             else
             {
-                if (menu_runtime.confirm->IsSelected(MenuText::yes))
+                if (menu_runtime.confirm->IsSel(MenuText::yes))
                 {
-                    close_menu = 1;
+                    close_menu = true;
                     game_session.exit_reason = 7;
                     quit_sound = 23;
                     goto PlayQuitSound;
@@ -283,7 +280,7 @@ void UpdatePauseMenu(void)
             goto FinalizeMenuFrame;
 
         case MENU_SCREEN_RESULTS_CAPTION:
-            if ((uint8)panel_text.caption[panel_text.visible])
+            if (panel_text.caption[panel_text.visible])
             {
                 if (game_clock.vblank_frame - panel_text.reveal_frame >= 4)
                 {
@@ -302,35 +299,40 @@ void UpdatePauseMenu(void)
             goto FinalizeMenuFrame;
 
         case MENU_SCREEN_RESULTS_PERCENT:
-            progress_in_range = ((sint32)game_progress.completion.target_percent < 101);
-            if (((sint32)game_progress.completion.target_percent < 0))
+            target_percent = game_progress.completion.target_percent;
+            progress_in_range = target_percent < 101;
+            if (target_percent < 0)
             {
+                target_percent = 0;
                 game_progress.completion.target_percent = 0;
-                progress_in_range = 1;
+                progress_in_range = true;
             }
             if (!progress_in_range)
-                game_progress.completion.target_percent = 100;
-            remaining = (sint32)(game_progress.completion.display_percent + 1);
-            game_progress.completion.display_percent = (uint32)remaining;
-            if ((sint32)game_progress.completion.target_percent < remaining)
             {
-                game_progress.completion.display_percent = game_progress.completion.target_percent;
+                target_percent = 100;
+                game_progress.completion.target_percent = 100;
+            }
+            remaining = game_progress.completion.disp_percent + 1;
+            game_progress.completion.disp_percent = remaining;
+            if (target_percent < remaining)
+            {
+                game_progress.completion.disp_percent = game_progress.completion.target_percent;
                 StopSoundVoices(game_progress.completion.voices);
                 goto EnterSaveSelection;
             }
             goto FinalizeMenuFrame;
 
         case MENU_SCREEN_EXIT_FADE_START:
-            FadeScreenToWhite(32, 1);
+            FadeScrToWhite(32, 1);
             menu_runtime.screen = MENU_SCREEN_EXIT_FADE;
             goto FinalizeMenuFrame;
 
         case MENU_SCREEN_EXIT_FADE:
-            UpdateScreenFlash();
-            if (IsScreenFadeComplete())
+            UpdateScrFlash();
+            if (IsScrFadeComplete())
             {
                 game_session.exit_reason = 3;
-                close_menu = 1;
+                close_menu = true;
             }
             goto FinalizeMenuFrame;
 
@@ -339,7 +341,7 @@ void UpdatePauseMenu(void)
             if (confirm)
             {
                 PlaySoundEffect(23, 0x2000, 0);
-                if (!menu_runtime.confirm->IsSelected(MenuText::yes))
+                if (!menu_runtime.confirm->IsSel(MenuText::yes))
                     goto ExitSaveMenu;
                 game_progress.completion.blink_ticks = 0;
                 menu_runtime.screen = MENU_SCREEN_CARD_POLL_DELAY;
@@ -348,10 +350,10 @@ void UpdatePauseMenu(void)
 
         case MENU_SCREEN_CARD_POLL_DELAY:
             timer_snapshot = menu_runtime.card_poll_delay;
-            remaining = (sint32)(timer_snapshot - 1);
+            remaining = timer_snapshot - 1;
             if (timer_snapshot)
             {
-                menu_runtime.card_poll_delay = (uint32)remaining;
+                menu_runtime.card_poll_delay = remaining;
                 if (!remaining)
                     menu_runtime.screen = MENU_SCREEN_CARD_QUERY;
             }
@@ -363,22 +365,22 @@ void UpdatePauseMenu(void)
 
         case MENU_SCREEN_CARD_QUERY:
             card_status = card_save_state.status;
-            if ((card_status == -1))
+            if (card_status == -1)
             {
                 menu_runtime.screen = MENU_SCREEN_CARD_MISSING;
             }
-            else if ((card_status >= 0))
+            else if (card_status >= 0)
             {
-                if ((card_status == 1))
+                if (card_status == 1)
                 {
-                    operation_failed = QueryCardSaveFile() == 0;
+                    can_save = QueryCardSaveFile() == 0;
                     card_state = MENU_SCREEN_SAVE_SLOT;
-                    if (!operation_failed)
+                    if (!can_save)
                     {
                         ::WaitForGameFrames(1);
-                        operation_failed = (sint32)GetFreeCardBlocks(0, 0) > 0;
+                        can_save = GetFreeCardBlocks(0, 0) > 0;
                         card_state = MENU_SCREEN_SAVE_SLOT;
-                        if (!operation_failed)
+                        if (!can_save)
                             card_state = MENU_SCREEN_CARD_FULL;
                     }
                     menu_runtime.screen = card_state;
@@ -386,12 +388,12 @@ void UpdatePauseMenu(void)
                     {
                         card_menu = new MenuWindow(256, 55, 0, 256, 192, 18);
                         menu_runtime.save = card_menu;
-                        card_menu->numbered = 1;
-                        ::PopulateSaveSelectionMenu(menu_runtime.save);
+                        card_menu->numbered = true;
+                        menu_runtime.save->PopulateSaveSelection();
                     }
                 }
             }
-            else if ((card_status == -2))
+            else if (card_status == -2)
             {
                 confirmation_menu = menu_runtime.confirm;
                 next_state = MENU_SCREEN_CARD_FORMAT_CONFIRM;
@@ -400,8 +402,13 @@ void UpdatePauseMenu(void)
             goto FinalizeMenuFrame;
 
         case MENU_SCREEN_SAVE_SLOT:
+            if (!menu_runtime.save)
+            {
+                GameDiagnostic(("Save selection has no window\n"));
+                abort();
+            }
             menu_runtime.save->Update();
-            if ((card_save_state.status == -1))
+            if (card_save_state.status == -1)
             {
                 menu_to_destroy = menu_runtime.save;
                 menu_runtime.screen = MENU_SCREEN_CARD_MISSING;
@@ -415,14 +422,14 @@ void UpdatePauseMenu(void)
             if (cancel)
             {
                 PlaySoundEffect(19, 0x2000, 0);
-                ::EnterSaveSelectionMenu();
+                MenuWindow::EnterSaveSelection();
                 menu_to_destroy = menu_runtime.save;
                 goto DestroySaveSelection;
             }
             if (confirm)
             {
                 PlaySoundEffect(23, 0x2000, 0);
-                if (card_save_image.slots[menu_runtime.save->selected].checksum)
+                if (card_save_image.slots[menu_runtime.save->sel].checksum)
                 {
                     confirmation_menu = menu_runtime.confirm;
                     next_state = MENU_SCREEN_SAVE_OVERWRITE;
@@ -433,8 +440,8 @@ void UpdatePauseMenu(void)
                 }
                 else
                 {
-                    player_saves.current.checksum = CalculatePlayerSaveChecksum(player_saves.current);
-                    card_save_image.slots[menu_runtime.save->selected] = player_saves.current;
+                    player_saves.cur.checksum = player_saves.cur.CalculateChecksum();
+                    card_save_image.slots[menu_runtime.save->sel] = player_saves.cur;
                     menu_runtime.screen = MENU_SCREEN_CARD_WRITE;
                     menu_runtime.operation_delay = 4;
                     menu_runtime.retries_left = 4;
@@ -446,11 +453,11 @@ void UpdatePauseMenu(void)
             menu_runtime.confirm->Update();
             if (confirm)
             {
-                if (menu_runtime.confirm->IsSelected(MenuText::yes))
+                if (menu_runtime.confirm->IsSel(MenuText::yes))
                 {
                     PlaySoundEffect(23, 0x2000, 0);
-                    player_saves.current.checksum = CalculatePlayerSaveChecksum(player_saves.current);
-                    card_save_image.slots[menu_runtime.save->selected] = player_saves.current;
+                    player_saves.cur.checksum = player_saves.cur.CalculateChecksum();
+                    card_save_image.slots[menu_runtime.save->sel] = player_saves.cur;
                     menu_runtime.screen = MENU_SCREEN_CARD_WRITE;
                     menu_runtime.operation_delay = 4;
                     menu_runtime.retries_left = 4;
@@ -467,22 +474,22 @@ void UpdatePauseMenu(void)
             goto FinalizeMenuFrame;
 
         case MENU_SCREEN_CARD_WRITE:
-            if ((card_save_state.status == -1))
+            if (card_save_state.status == -1)
             {
                 if (menu_runtime.save)
                     DestroyMenuObject(menu_runtime.save);
                 menu_runtime.save = 0;
                 menu_runtime.screen = MENU_SCREEN_CARD_MISSING;
             }
-            remaining = (sint32)(menu_runtime.operation_delay - 1);
+            remaining = menu_runtime.operation_delay - 1;
             menu_runtime.operation_delay = remaining;
-            if (remaining < 0 && (uint32)card_save_state.status)
+            if (remaining < 0 && card_save_state.status)
             {
                 if (WriteCardSaveFile())
                 {
-                    retries_left = (menu_runtime.retries_left - 1);
+                    retries_left = menu_runtime.retries_left - 1;
                     menu_runtime.retries_left = retries_left;
-                    if ((retries_left >= 0))
+                    if (retries_left >= 0)
                         goto ScheduleCardRetry;
                     menu_runtime.screen = MENU_SCREEN_CARD_WRITE_ERROR;
                 }
@@ -519,25 +526,25 @@ void UpdatePauseMenu(void)
         case MENU_SCREEN_CARD_FULL:
             status_state = MENU_SCREEN_CARD_MISSING;
             card_status = card_save_state.status;
-            if ((card_status == -1))
+            if (card_status == -1)
                 goto ShowCardStatus;
-            if ((card_status >= 0))
+            if (card_status >= 0)
             {
                 status_state = MENU_SCREEN_CARD_POLL_DELAY;
-                if ((card_status == 2))
+                if (card_status == 2)
                     goto ShowCardStatus;
             }
             else
             {
                 status_state = MENU_SCREEN_CARD_POLL_DELAY;
-                if ((card_status == -2))
+                if (card_status == -2)
                     goto ShowCardStatus;
             }
             goto HandleCardStatus;
 
         case MENU_SCREEN_CARD_MISSING:
             card_status = card_save_state.status;
-            if (((card_status == -2) || (((card_status >= -2) && (card_status < 3)) && (card_status > 0))))
+            if (card_status == -2 || (card_status > 0 && card_status < 3))
             {
                 status_state = MENU_SCREEN_CARD_POLL_DELAY;
             ShowCardStatus:
@@ -552,24 +559,24 @@ void UpdatePauseMenu(void)
         case MENU_SCREEN_CARD_FORMAT_CONFIRM:
             menu_runtime.confirm->Update();
             card_status = card_save_state.status;
-            if ((card_status == -1))
+            if (card_status == -1)
             {
-                next_card_screen = MENU_SCREEN_CARD_MISSING;
+                next_card_scr = MENU_SCREEN_CARD_MISSING;
             ReturnFromFormatConfirm:
-                menu_runtime.screen = next_card_screen;
+                menu_runtime.screen = next_card_scr;
 
                 goto HandleFormatConfirmation;
             }
-            if (((card_status >= -1) && (card_status < 3)))
+            if (card_status >= -1 && card_status < 3)
             {
-                next_card_screen = MENU_SCREEN_CARD_POLL_DELAY;
-                if ((card_status > 0))
+                next_card_scr = MENU_SCREEN_CARD_POLL_DELAY;
+                if (card_status > 0)
                     goto ReturnFromFormatConfirm;
             }
         HandleFormatConfirmation:
             if (confirm)
             {
-                if (menu_runtime.confirm->IsSelected(MenuText::yes))
+                if (menu_runtime.confirm->IsSel(MenuText::yes))
                 {
                     PlaySoundEffect(23, 0x2000, 0);
                     menu_runtime.screen = MENU_SCREEN_CARD_FORMAT;
@@ -589,25 +596,23 @@ void UpdatePauseMenu(void)
                 PlaySoundEffect(action_sound, 0x2000, 0);
 
             EnterSaveSelection:
-                ::EnterSaveSelectionMenu();
+                MenuWindow::EnterSaveSelection();
             }
         FinalizeMenuFrame:
             if (scene_frame.paused)
             {
-                result = menu_runtime.retained_fire_buffers;
-                if (!result)
-                    result = ::CreateMenuBuffers(951706923, 64, 64, 127);
+                if (!menu_runtime.retained_fire_buffers)
+                    ::CreateMenuBuffers(951706923, 64, 64, 127);
             }
             else
             {
-                result = ::HasMenuBuffers();
-                menu_runtime.retained_fire_buffers = result;
+                menu_runtime.retained_fire_buffers = ::HasMenuBuffers();
             }
 
             if (close_menu)
             {
                 cleanup_menu = menu_runtime.pause;
-                scene_frame.paused = 0;
+                scene_frame.paused = false;
                 menu_runtime.screen = MENU_SCREEN_GAMEPLAY;
                 if (cleanup_menu)
                     DestroyMenuObject(cleanup_menu);
@@ -615,8 +620,7 @@ void UpdatePauseMenu(void)
                 session_state = game_session.exit_reason;
                 if (session_state != 7 && session_state != 3)
                     ResumeAudioPlayback();
-                result = menu_runtime.retained_fire_buffers;
-                if (!result)
+                if (!menu_runtime.retained_fire_buffers)
                 {
                     ReleaseMenuBuffers();
                     return;
@@ -625,7 +629,7 @@ void UpdatePauseMenu(void)
             return;
 
         case MENU_SCREEN_CARD_FORMAT:
-            remaining = (sint32)(menu_runtime.operation_delay - 1);
+            remaining = menu_runtime.operation_delay - 1;
             menu_runtime.operation_delay = remaining;
             if (remaining < 0)
             {
@@ -637,11 +641,11 @@ void UpdatePauseMenu(void)
                     }
                     else
                     {
-                        retries_left = (menu_runtime.retries_left - 1);
+                        retries_left = menu_runtime.retries_left - 1;
                         menu_runtime.retries_left = retries_left;
-                        if ((retries_left >= 0))
+                        if (retries_left >= 0)
                         ScheduleCardRetry:
-                            menu_runtime.operation_delay = 60 * (4 - (uint32)retries_left);
+                            menu_runtime.operation_delay = 60 * (4 - retries_left);
 
                         else
                             menu_runtime.screen = MENU_SCREEN_CARD_FORMAT_ERROR;
@@ -651,7 +655,7 @@ void UpdatePauseMenu(void)
             goto FinalizeMenuFrame;
 
         case MENU_SCREEN_CARD_FORMAT_ERROR:
-            if ((card_save_state.status == -1))
+            if (card_save_state.status == -1)
                 menu_runtime.screen = MENU_SCREEN_CARD_MISSING;
             action_sound = 23;
             if (acknowledge)

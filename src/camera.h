@@ -1,12 +1,14 @@
 #ifndef CAMERA_H
 #define CAMERA_H
 
+struct CameraTransition;
+struct CollisionRay;
+struct PadButton;
+
 #include "vector3.h"
-
 #include "visual_object.h"
-#include "quaternion_math.h"
+#include "quaternion.h"
 
-void ResetCameraDefaults();
 extern ModelReference camera_subject;
 
 class Camera : public VisualObject
@@ -24,8 +26,8 @@ public:
         {
             for (uint32 axis = 0; axis < 3; ++axis)
             {
-                pos.words[axis] = 0;
-                step.words[axis] = 0;
+                pos.comp[axis] = 0;
+                step.comp[axis] = 0;
             }
         }
     };
@@ -38,60 +40,97 @@ public:
     uint32 clamp_enabled;
     Vector3 clamp_start;
     Vector3 clamp_end;
-    uint16 vertical_pitch;
-    uint16 vertical_offset_gain;
+    sint16 vertical_pitch;
+    sint16 vertical_offset_gain;
+
+private:
+    Vector3 view_up;
+
+public:
     Quaternion rotation;
-    Quaternion collision_rotation;
+    Quaternion col_rotation;
     Quaternion blend_rotation;
     Quaternion saved_rotation;
     ShortVector3 angles;
-    uint32 col_lateral_dist;
-    uint32 col_rear_dist;
-    uint16 col_yaw_strength;
-    uint16 col_pitch_strength;
+
+private:
+    Vector3 view_from;
+    Vector3 view_to;
+
+public:
+    sint32 col_lateral_dist;
+    sint32 col_rear_dist;
+    sint16 col_yaw_strength;
+    sint16 col_pitch_strength;
 
     struct Shake
     {
-        uint16 amplitude[3];
+        ShortVector3 amplitude;
         uint8 decay[3];
-        uint16 frequency[3];
+        ShortVector3 frequency;
     } shake;
 
     uint32 mode;
-    uint32 turn_step;
+    uint16 turn_step;
+    uint32 update_ticks;
 
     virtual ~Camera()
     {
     }
 
+private:
+    // Native helpers extracted from the original tracking and update bodies
+
+public:
+    static sint16 ShortestAngleDelta(sint16 src_angle, sint16 target_angle);
     Camera(VisualObject &target);
     virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
-    void ClearTargetTransition();
-    void SetColDistances(uint32 value);
-    void SetLateralColDistance(uint32 value);
-    void SetRearColDistance(uint32 value);
-    void SetColYawStrength(uint32 value);
-    void SetColPitchStrength(uint32 value);
-    uint32 SetModePreset(uint32 mode);
-    uint32 ApplyExplosionShake(uint32 kind);
-    void SetTargetTransition(const uint32 *position, uint32 frames);
-    uint32 ClampTargetToSegment();
-    uint32 SetProjDistanceTransition(uint32 target, uint32 frames);
-    uint32 GetProjDistance();
-    uint32 SetYawTransition(uint32 target, uint32 frames);
+    void SetColDistances(sint32 val);
+    void SetLateralColDistance(sint32 val);
+    void SetRearColDistance(sint32 val);
+    void SetColYawStrength(sint16 val);
+    void SetColPitchStrength(sint16 val);
+    static void MarkShakeList(ModelInstance *list);
+    void ApplyExplosionShake(uint32 kind);
+    uint32 SetModePreset(uint16 mode);
+
+private:
     MATRIX *PrepareView();
-    uint32 BuildView();
     void ResolveCollisions();
+
+public:
+    void SetTargetTransition(const Vector3 &pos, uint32 frames);
+    void ClearTargetTransition();
+
+private:
+    void ClampTargetToSeg();
+
+public:
+    void SetYawTransition(uint16 target, uint16 frames);
+    void SetOrbitDistanceTransition(uint16 target, uint16 frames);
+    void SetOrbitHeightTransition(sint16 target, uint16 frames);
+    void SetTargetLateralOffsetTransition(sint16 target, uint16 frames);
+    void SetTargetHeightOffsetTransition(sint16 target, uint16 frames);
+    void SetTargetForwardOffsetTransition(sint16 target, uint16 frames);
+    void SetProjDistanceTransition(uint16 target, uint16 frames);
+    uint32 GetProjDistance();
+    virtual uint32 Update();
+
+private:
+    uint32 BuildView();
     uint32 UpdatePlayerRelativeTracking();
     uint32 UpdateFixedOriginTracking();
-};
 
-// Shared camera tuning transitions have no instance receiver
-uint32 SetCameraOrbitDistanceTransition(uint32 target, uint32 frames);
-uint32 SetCameraOrbitHeightTransition(uint32 target, uint32 frames);
-uint32 SetCameraTargetLateralOffsetTransition(uint32 target, uint32 frames);
-uint32 SetCameraTargetHeightOffsetTransition(uint32 target, uint32 frames);
-uint32 SetCameraTargetForwardOffsetTransition(uint32 target, uint32 frames);
+public:
+    static void ResetDefaults();
+
+private:
+    static void AdvanceGlobalTransition(CameraTransition &transition);
+    static void AdjustDebugVal(const PadButton &button, uint32 &val, bool subtract);
+    static sint16 ReadColAngle(CollisionRay &rec, sint16 strength, bool reverse);
+    static void RotateVector(const MATRIX &matrix, const Vector3 &input, Vector3 &output);
+    void TurnTracking(sint16 delta, sint32 distance, bool fine_turn);
+    sint16 ReadOscillation(uint32 axis) const;
+};
 
 #endif

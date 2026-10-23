@@ -20,7 +20,7 @@ void ResetSoundBankHandles();
 
 struct PositionedSoundEvent
 {
-    uint32 pending;
+    bool pending;
     Vector3 pos;
 };
 
@@ -32,12 +32,12 @@ struct AudioPlaybackState
     sint16 saved_left[24];
     sint16 saved_right[24];
     sint16 sequence;
-    uint32 suspended;
-    uint32 resume_pending;
-    uint32 start_pending;
+    bool suspended;
+    bool resume_pending;
+    bool start_pending;
     uint32 tempo;
     uint32 reverb_ticks;
-    uint32 restore_pending;
+    bool restore_pending;
 };
 
 extern AudioPlaybackState audio_playback;
@@ -47,18 +47,18 @@ uint32 InitializeAudioOutput();
 uint32 InitializeAudioSession(const char *resource);
 uint32 ReleaseAudioSession();
 
-uint32 LoadLevelSoundBank(const char *basename);
+sint16 LoadLevelSoundBank(const char *basename);
 void ReleaseLevelSoundBank();
 uint32 LoadAudioSequence(const char *basename);
 uint32 SwitchMenuAudioSequence(const char *basename);
 
 uint32 PlaySoundEffect(sint32 sound_id, sint16 volume, uint32 pitch_variation);
 uint32 PlayScaledSound(sint32 sound_id, sint16 left, sint16 right, uint32 pitch_variation);
-uint32 PlayPositionedSound(sint32 sound_id, const uint32 *source, uint32 pitch_variation);
+uint32 PlayPositionedSound(sint32 sound_id, const Vector3 *src, uint32 pitch_variation);
 
 uint32 FlushPendingPositionedSound(void);
 
-uint32 CalculateSoundBalance(const uint32 *origin, sint32 minimum, sint32 maximum);
+uint32 CalculateSoundBalance(const Vector3 *origin, sint32 minimum, sint32 maximum);
 
 uint32 SetSoundReverbMode(uint8 mode);
 uint32 EnableSoundReverb();

@@ -1,71 +1,64 @@
 #include <new>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "collision_ray.h"
 #include "game_heap.h"
 #include "level_session.h"
 #include "game_tick.h"
-
 #include "record_data.h"
-
 #include "collision.h"
-
 #include "world_gravity.h"
-
 #include "object_initializers.h"
-
 #include "visual_object.h"
 #include "object_damage.h"
 #include "model_animation.h"
+#include "model_attachment_data.h"
 #include "game_diagnostics.h"
 #include "player.h"
 #include "explosion_effects.h"
 #include "ring_burst_effect.h"
-
 #include "mini_tank.h"
+#include "mini_tank_ring.h"
 #include "game_object_allocation.h"
 #include "audio_voice.h"
 #include "effect_lifecycle.h"
-#include "vector_arithmetic.h"
+#include "global.h"
 #include "model_attachment.h"
 #include "angle_math.h"
-#include "projectile_oscillating.h"
-#include "game_random.h"
-#include "vector_distance.h"
+#include "oscillating_projectile.h"
 #include "sprite_trail.h"
+#include "ribbon_trail.h"
 #include "audio_session.h"
+#include "enemy.h"
+#include "ring_effect.h"
+#include "mesh_ring_effect.h"
+#include "effect_object.h"
 
-MiniTank::MiniTank(const RecordCursor &record_data, uint32 index) : Enemy(), trail(0), state_timer(0), engine_sound(0), sound_period(0), bounce_speed(0), age(0)
+MiniTank::MiniTank(const RecordCursor &rec_data, uint16 idx) : Enemy(), trail(0), state_timer(0), engine_sound(0), sound_period(0), bounce_speed(0), age(0)
 {
-    RecordDataBorrow record_borrow;
-    uint32 angle;
+    RecordDataBorrow rec_borrow;
+    uint16 angle;
     RecordCursor cursor;
     FUNCTION_MARKER(0x8007488C, "SLUS_003.73");
-    target_angles.words[0] = target_angles.words[1] = target_angles.words[2] = 0;
+    target_angles.x = target_angles.y = target_angles.z = 0;
 
-    cursor = ReadPosition(record_data);
+    cursor = ReadPos(rec_data);
     angle = cursor.Read16();
-    this->model.angles.words[0] = angle;
+    model.angles.x = angle;
     angle = (cursor + 2).Read16();
-    this->model.angles.words[1] = angle;
+    model.angles.y = angle;
     angle = (cursor + 4).Read16();
     script_cursor = cursor + 6;
-    this->record_idx = index;
-    this->model.angles.words[2] = angle;
+    rec_idx = idx;
+    model.angles.z = angle;
     Init();
     cursor = script_cursor;
     if (cursor)
     {
-        this->control.script_active = 1;
-        ExecuteScript(RecordCursor(cursor));
+        control.script_active = 1;
+        ExecuteScript(cursor);
     }
-}
-
-MiniTank::~MiniTank()
-{
-    if (engine_sound)
-        StopSoundVoices(engine_sound);
 }
 
 uint32 MiniTank::Destroy(uint32 reason)
@@ -79,278 +72,179 @@ uint32 MiniTank::Destroy(uint32 reason)
         StopSoundVoices(sound);
     engine_sound = 0;
     Enemy::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(this) : 0;
+    return (reason & 1) ? ReleaseStorage() : 0;
 }
 
 uint32 MiniTank::Init()
 {
-    uint32 total, floor, sound, height;
+    uint32 floor, sound;
     FUNCTION_MARKER(0x80074A58, "SLUS_003.73");
-    total = game_progress.level.enemy_total;
-    target_angles.words[0] = model.angles.words[0];
-    target_angles.words[1] = model.angles.words[1];
-    target_angles.words[2] = model.angles.words[2];
-    game_progress.level.enemy_total = total + 1u;
+    target_angles = model.angles;
+    ++game_progress.level.enemy_total;
     SetModelBank("MiniTank");
     AddToList(visual_lists.actors);
-    this->kind = 207;
-    this->ground_offset = 64u;
+    kind = 207;
+    ground_offset = 64;
     AllocateBehaviorTable(1, 4);
     ai.parameters[0] = 50;
     ai.parameters[1] = 128;
-    this->health = (sint16)(uint16)(20u);
-    SetBehaviorValue(0, 1, 10);
-    SetBehaviorValue(0, 2, 140);
-    SetBehaviorValue(0, 3, 50);
-    floor = FindGroundHeight(model.pos.words, 512, 512);
+    health = 20;
+    SetBehaviorVal(0, 1, 10);
+    SetBehaviorVal(0, 2, 140);
+    SetBehaviorVal(0, 3, 50);
+    floor = CollisionRay::FindGroundHeight(model.pos, 512, 512);
     if (floor != 0xFFFFFFFF)
     {
-        height = (uint32)(sint32)(sint16)(uint32)this->ground_offset;
-        this->model.pos.words[1] = floor - (height << 12);
+        model.pos.y = floor - ground_offset * ONE;
     }
     sound_period = 0xFFFFFFFF;
-    sound = PlayPositionedSound(89, model.pos.words, 0);
+    sound = PlayPositionedSound(89, &model.pos, 0);
     engine_sound = sound;
     if (sound)
-        sound_period = 16u;
-    this->control.script_active = 1;
+        sound_period = 16;
+    control.script_active = 1;
     return 1;
-}
-
-uint32 MiniTank::Divide(uint32 numerator, uint32 denominator)
-{
-    sint32 left = (sint32)numerator, right = (sint32)denominator;
-    if (!right)
-        return left < 0 ? 1u : 0xFFFFFFFF;
-    if (left == (-2147483647 - 1) && right == -1)
-        return numerator;
-    return (uint32)(left / right);
-}
-
-uint32 MiniTank::Remainder(uint32 numerator, uint32 denominator)
-{
-    sint32 left = (sint32)numerator, right = (sint32)denominator;
-    if (!right)
-        return numerator;
-    if (left == (-2147483647 - 1) && right == -1)
-        return 0;
-    return (uint32)(left % right);
 }
 
 uint32 MiniTank::Update()
 {
-    RecordDataBorrow record_borrow;
-    uint32 value, flags, count, radius, factor, damage;
-    uint32 index, tick, scale, period, frame, sound;
-    Vector3 constants;
+    RecordDataBorrow rec_borrow;
+    uint32 val, count, radius, factor, damage;
+    uint32 idx, period, frame, sound;
+    uint16 delay, flags, scale, angle;
     sint32 distance;
     ShortVector3 angles;
     FUNCTION_MARKER(0x80074BA8, "SLUS_003.73");
-    value = age;
-    age = value + 1u;
-    constants = zero_vector;
-    motion.acceleration = constants;
-    if ((uint32)this->control.script_active)
+    ++age;
+    motion.acceleration = zero_vector;
+    if (control.script_active)
     {
-        value = (uint32)this->control.script_delay;
-        if (value)
-            this->control.script_delay = value - 1u;
+        delay = control.script_delay;
+        if (delay)
+            control.script_delay = delay - 1;
         else
             ExecuteScript(script_cursor);
     }
     else
         UpdateState();
-    if (!(uint32)this->control.hierarchy_ready)
+    if (!control.hierarchy_ready)
     {
-        SetModelBoneTable(this->model.bank, MiniTankAttachments);
+        model.SetAttachmentTable(MiniTankAttachments);
         InitializeModelAnimation(MiniTankHierarchy);
-        flags = this->model.flags;
-        this->control.hierarchy_ready = 1;
-        this->model.flags = flags | 4u;
+        control.hierarchy_ready = 1;
+        model.flags |= 4;
     }
-    flags = this->activation_flags;
-    if (flags & 1u)
+    flags = activation_flags;
+    if (flags & 1)
     {
-        tick = (uint32)this->control.activation_count;
-        flags = this->activation_flags;
-        this->control.activation_count = tick + 1u;
-        this->activation_flags = flags & 0xFFFEu;
+        ++control.activation_count;
+        activation_flags &= 0xFFFE;
     }
-    flags = this->activation_flags;
-    if (flags & 4u)
+    flags = activation_flags;
+    if (flags & 4)
     {
-        index = 0;
+        idx = 0;
         for (;;)
         {
             count = explosion_queue.count;
-            if ((sint32)index >= (sint32)count)
+            if ((sint32)idx >= (sint32)count)
                 break;
-            const ExplosionEvent *event = &explosion_queue.entries[index];
-            distance = (sint32)MeasurePositionDistance(model.pos.words, event->pos.words);
+            const ExplosionEvent *event = &explosion_queue.entries[idx];
+            distance = (sint32)model.pos.Distance(event->pos);
             radius = event->radius;
             if (distance < (sint32)radius)
             {
-                value = radius - (uint32)distance;
+                val = radius - (uint32)distance;
                 factor = event->strength;
-                damage = Divide(factor * value, radius);
-                Damage(damage, zero_vector.components, 0);
-                if (this->health <= 0)
+                damage = DivideSignedWord(factor * val, radius);
+                Damage(damage, &zero_vector, 0);
+                if (health <= 0)
                     break;
             }
-            ++index;
+            ++idx;
         }
     }
-    else if (this->control.flags & 1u)
+    else if (control.flags & 1)
     {
-        value = MeasurePositionDistance(this->model.pos.words, this->destination.words);
-        if (value < 129u)
+        val = model.pos.Distance(dst);
+        if (val < 129)
         {
-            flags = this->control.flags;
-            this->control.flags = flags & 0xFFFFFFFE;
+            control.flags &= ~1;
         }
         else
         {
-            CalculateDirectionAngles(angles.words, this->model.pos.words, this->destination.words);
-            value = this->model.angles.words[1];
-            value = ((value - (uint16)angles.components[1]) & 4095u) - 64u;
-            if (value < 0xF81u)
+            angles.SetDir(model.pos, dst);
+            angle = ((uint16)model.angles.y - (uint16)angles.y) & 4095;
+            if (angle >= 64 && angle < 4033)
             {
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
-                motion.velocity.words[0] = 0;
-                UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, angles, 32u);
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
+                motion.velocity.x = 0;
+                UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, angles, 32);
             }
             else
             {
-                model.angles.words[0] = target_angles.words[0];
-                model.angles.words[1] = target_angles.words[1];
-                model.angles.words[2] = target_angles.words[2];
-                motion.angular_velocity.words[2] = 0;
-                motion.angular_velocity.words[1] = 0;
-                motion.angular_velocity.words[0] = 0;
-                motion.angular_acceleration.words[2] = 0;
-                motion.angular_acceleration.words[1] = 0;
+                model.angles = target_angles;
+                motion.angular_velocity.z = 0;
+                motion.angular_velocity.y = 0;
+                motion.angular_velocity.x = 0;
+                motion.angular_acceleration.z = 0;
+                motion.angular_acceleration.y = 0;
                 scale = ai.parameters[0];
-                motion.angular_acceleration.words[0] = 0;
-                BuildDirectionVector(motion.velocity.words, scale, angles.words);
+                motion.angular_acceleration.x = 0;
+                motion.velocity.SetDir(scale, angles);
             }
         }
     }
     Aim();
     UpdateModelAnimationData();
     UpdateWorldTransform();
-    BuildModelPose(*this);
-    if ((uint32)this->control.gravity_enabled)
-        AddVectors(motion.acceleration.words, world_gravity.vector.words);
+    BuildModelPose();
+    if (control.gravity_enabled)
+        motion.acceleration.Add(world_gravity.vector);
     IntegrateMotion();
     period = sound_period;
     if (period != 0xFFFFFFFF)
     {
         frame = game_clock.tick;
-        if (!Remainder(frame, period))
+        if (!RemainderSignedWord(frame, period))
         {
             sound = engine_sound;
-            UpdatePositionedSoundVoices(sound, model.pos.words, 0);
+            UpdatePositionedSoundVoices(sound, &model.pos, 0);
         }
     }
     // The legacy behavior caller discards the original return carrier
     return 0;
 }
 
-uint32 MiniTank::Aim()
+uint16 MiniTank::Aim()
 {
-    uint32 angle, yaw;
-    Vector3 position;
+    uint16 angle, yaw;
+    Vector3 pos;
     ShortVector3 rotation;
     FUNCTION_MARKER(0x80074F3C, "SLUS_003.73");
-    GetModelAttachment(position.words, *this, 1);
-    CalculateDirectionAngles(rotation.words, position.words, visual_lists.players->pos.words);
-    angle = rotation.words[1];
-    yaw = this->model.angles.words[1];
+    GetModelAttachment(pos, *this, 1);
+    rotation.SetDir(pos, visual_lists.players->pos);
+    angle = rotation.y;
+    yaw = (uint16)model.angles.y;
     angle = (angle - yaw) & 4095;
-    GetModelJointAngles(2).rotation.words[1] = (uint16)angle;
+    GetModelJointAngles(2).rotation.y = angle;
     return angle;
-}
-
-MiniTankRing::MiniTankRing(const uint32 acceleration[3]) : MeshRingEffect(12, 0xCCE0187C), age(0), lifetime(0), radius_step(0), width_step(0)
-{
-    uint32 x = acceleration[0], y = acceleration[1], z = acceleration[2];
-    // Original constructor is inlined in MiniTank state and damage handlers
-    this->velocity.words[0] = x;
-    this->velocity.words[1] = y;
-    this->velocity.words[2] = z;
-}
-
-uint32 MiniTankRing::Destroy(uint32 reason)
-{
-    uint32 result;
-    FUNCTION_MARKER(0x80075F38, "SLUS_003.73");
-    result = MeshRingEffect::Destroy(0);
-    if (reason & 1)
-        return ReleaseEffectStorage(this);
-    return result;
-}
-
-void MiniTankRing::Update()
-{
-    FUNCTION_MARKER(0x80075E7C, "SLUS_003.73");
-    ++age;
-    if (lifetime < (sint16)age)
-    {
-        Finish();
-        return;
-    }
-    AddVectors(pos.words, velocity.words);
-    SetGeometry(pos.words, radius + (uint32)(sint32)radius_step, expansion + (uint32)(sint32)width_step);
-    uint32 value = lifetime - (uint32)(sint32)(sint16)age;
-    value = (value << 8) - value;
-    uint32 color = lifetime ? (uint32)((sint32)value / (sint32)lifetime) : ((sint32)value < 0 ? 1 : (uint32)-1);
-    SetColors(color, color, (sint32)color >> 1);
-}
-
-void MiniTank::Burst(uint32 green)
-{
-    GameHeapBlock *child;
-    Vector3 acceleration;
-    HandleExplosionProximity(model.pos.words, 0);
-    SpawnExplosionRing(model.pos.words, 200, 240, green, 0, 5, 0, 100);
-    child = AllocateEffectStorage(120);
-    if (child)
-    {
-        acceleration = zero_vector;
-        MiniTankRing *ring = new (child) MiniTankRing(acceleration.words);
-        ring->SetGeometry(model.pos.words, 0, 0);
-        ring->lifetime = 32;
-        ring->radius_step = 32;
-        ring->width_step = 16;
-    }
-    acceleration.words[0] = 0;
-    acceleration.words[1] = 0xFFFEC000;
-    acceleration.words[2] = 0;
-    child = AllocateEffectStorage(120);
-    if (child)
-    {
-        MiniTankRing *ring = new (child) MiniTankRing(acceleration.words);
-        ring->SetGeometry(model.pos.words, 0, 0);
-        ring->lifetime = 32;
-        ring->radius_step = 32;
-        ring->width_step = 16;
-    }
 }
 
 void MiniTank::UpdateState()
 {
     ModelInstance *player;
-    uint32 state;
-    uint32 phase;
+    uint16 state;
+    uint16 phase;
     uint32 flags;
     uint32 count;
     uint32 parameter;
-    uint32 random;
-    uint32 value;
+    sint32 random;
+    uint32 val;
     GameHeapBlock *child;
-    uint32 damage, x, y, z, dx, dy, dz, height;
-    Vector3 candidate, position;
+    uint32 damage;
+    Vector3 candidate, pos;
     sint32 distance, floor;
     FUNCTION_MARKER(0x80074FA8, "SLUS_003.73");
     state = ai.state;
@@ -360,76 +254,67 @@ void MiniTank::UpdateState()
         switch (phase)
         {
             case 0:
-                flags = this->control.flags;
-                if (!(flags & 1u))
+                flags = control.flags;
+                if (!(flags & 1))
                 {
-                    player = visual_lists.players;
-                    value = ChoosePosition(candidate.words, visual_lists.players->pos.words, 128u, 512u, 64u, 1024u, 1u, 1u);
-                    if (value)
-                        SetTarget(candidate.words);
+                    if (ChoosePos(&candidate, &visual_lists.players->pos, 128, 512, 64, 1024, 1, 1))
+                        SetTarget(&candidate);
                 }
                 player = visual_lists.players;
-                distance = (sint32)MeasurePositionDistance(this->model.pos.words, player->pos.words);
+                distance = (sint32)model.pos.Distance(player->pos);
                 if (distance < 204)
                 {
-                    phase = ai.phase;
-                    ai.phase = phase + 1u;
+                    ++ai.phase;
                     return;
                 }
-                count = state_timer;
-                state_timer = count + 1u;
-                parameter = GetBehaviorValue(0, 3);
+                ++state_timer;
+                parameter = GetBehaviorVal(0, 3);
                 random = RandomRange(5);
-                parameter = (parameter & 0xFFFFu) + random;
+                parameter += random;
                 count = state_timer;
                 if (count < parameter)
                     return;
-                position.words[0] = this->model.pos.words[0];
+                pos = model.pos;
                 player = visual_lists.players;
-                position.words[1] = this->model.pos.words[1];
-                position.words[2] = this->model.pos.words[2];
-                if (IsSegmentVisible(position.words, player->pos.words))
+                if (CollisionRay::IsSegVisible(pos, player->pos))
                 {
                     ai.phase = 3;
-                    flags = this->control.flags;
-                    state_timer = 0u;
-                    this->control.flags = flags & 0xFFFFFFFE;
+                    flags = control.flags;
+                    state_timer = 0;
+                    control.flags = flags & 0xFFFFFFFE;
                 }
                 return;
             case 1:
-                phase = ai.phase;
-                ai.phase = phase + 1u;
+                ++ai.phase;
                 return;
             case 2:
-                value = this->model.angles.words[1];
-                count = age & 3u;
-                this->model.angles.words[1] = value + 128u;
+                count = age & 3;
+                model.angles.y = (uint16)model.angles.y + (128);
                 if (!count)
                     SetColor(3, 255, 255, 255);
-                else if (count == 2u)
+                else if (count == 2)
                     SetColor(3, 255, 0, 0);
                 if (RandomRange(16))
                     return;
                 player = visual_lists.players;
-                distance = (sint32)MeasurePositionDistance(this->model.pos.words, player->pos.words);
+                distance = (sint32)model.pos.Distance(player->pos);
                 if (distance < 1024)
                 {
-                    damage = (uint32)((sint32)(1024u - (uint32)distance) >> 6);
+                    damage = (sint32)(1024 - (uint32)distance) >> 6;
                     VisualObject *damage_target = static_cast<VisualObject *>(visual_lists.players->owner);
-                    damage_target->Damage(damage, zero_vector.components, 0);
+                    damage_target->Damage(damage, &zero_vector, 0);
                 }
-                flags = this->lifecycle_flags;
-                this->lifecycle_flags = flags & 0xFFEFu;
-                Burst(200u);
+                lifecycle_flags &= 0xFFEF;
+                Burst(200);
                 Finish();
                 return;
             case 3:
-                value = state_timer + 1u;
-                state_timer = value;
-                if (value >= 5u)
+                val = state_timer + 1;
+                state_timer = val;
+                if (val >= 5)
                 {
                     ai.phase = 4;
-                    state_timer = 0u;
+                    state_timer = 0;
                 }
                 return;
             case 4:
@@ -443,124 +328,100 @@ void MiniTank::UpdateState()
                 return;
         }
     }
-    if (state != 2u)
+    if (state != 2)
         return;
     phase = ai.phase;
     if (!phase)
     {
-        value = this->model.pos.words[1];
-        this->control.flags = 0;
-        this->control.gravity_enabled = 1;
-        ai.work[0] = (uint32)((sint32)value >> 12);
+        sint32 height = model.pos.y;
+        control.flags = 0;
+        control.gravity_enabled = 1;
+        ai.work[0] = height >> 12;
         random = RandomRange(256);
-        ai.work[1] = 128u - random;
+        ai.work[1] = 128 - random;
         random = RandomRange(256);
-        ai.work[2] = 128u - random;
+        ai.work[2] = 128 - random;
         random = RandomRange(256);
-        ai.work[3] = 128u - random;
+        ai.work[3] = 128 - random;
         random = RandomRange(120);
-        bounce_speed = (random + 40u) << 12;
+        bounce_speed = (random + 40) * ONE;
         motion.drag[2] = 31;
         motion.drag[1] = 31;
         motion.drag[0] = 31;
         random = RandomRange(20);
-        value = bounce_speed;
-        motion.velocity.words[0] = (10u - random) << 12;
-        motion.velocity.words[1] = 0u - value;
+        motion.velocity.x = (10 - random) * ONE;
+        motion.velocity.y = -bounce_speed;
         random = RandomRange(20);
-        phase = ai.phase;
-        motion.velocity.words[2] = (10u - random) << 12;
-        ai.phase = phase + 1u;
-        SpawnExplosionRing(model.pos.words, 50, 240, 220, 0, 5, 0, 100);
+        motion.velocity.z = (10 - random) * ONE;
+        ++ai.phase;
+        RingBurstEffect::SpawnExplosion(&model.pos, 50, 240, 220, 0, 5, 0, 100);
         use_small_effect_pool = false;
-        child = AllocateEffectStorage(100);
+        child = EffectObject::AllocateStorage(100);
         if (child)
         {
-            trail = new (child) RibbonTrail(this->model.pos.words, 4, 128, 128, 128);
+            trail = new (child) RibbonTrail(&model.pos, 4, 128, 128, 128);
         }
         else
             trail = 0;
         if (!trail)
         {
-            GameDiagnostic("MiniTank trail allocation failed\n");
+            GameDiagnostic(("MiniTank trail allocation failed\n"));
             abort();
         }
         use_small_effect_pool = true;
         return;
     }
-    if (phase != 1u)
+    if (phase != 1)
         return;
     if (trail)
-        trail->SetPosition(model.pos.words);
-    dx = (uint32)(sint32)(sint16)ai.work[1];
-    x = this->model.angles.words[0];
-    x += dx;
-    dz = (uint32)(sint32)(sint16)ai.work[3];
-    this->model.angles.words[0] = x;
-    z = this->model.angles.words[2];
-    dy = (uint32)(sint32)(sint16)ai.work[2];
-    z += dz;
-    this->model.angles.words[2] = z;
-    y = this->model.angles.words[1];
-    x = this->model.angles.words[0];
-    y += dy;
-    this->model.angles.words[1] = y;
-    z = this->model.angles.words[2];
-    this->model.angles.words[0] = x & 4095u;
-    y = this->model.angles.words[1];
-    this->model.angles.words[2] = z & 4095u;
-    height = this->model.pos.words[1];
-    this->model.angles.words[1] = y & 4095u;
+        trail->SetPos(&model.pos);
+    model.angles.x = (uint16)model.angles.x + ai.work[1];
+    model.angles.z = (uint16)model.angles.z + ai.work[3];
+    model.angles.y = (uint16)model.angles.y + ai.work[2];
+    model.angles.x = (uint16)model.angles.x & (4095);
+    model.angles.z = (uint16)model.angles.z & (4095);
+    model.angles.y = (uint16)model.angles.y & (4095);
     floor = (sint16)ai.work[0];
-    if (floor >= ((sint32)height >> 12))
+    if (floor >= (model.pos.y >> 12))
         return;
-    value = bounce_speed;
-    if ((sint32)value > 163840)
+    if (bounce_speed > 163840)
     {
-        value -= 163840u;
-        bounce_speed = value;
-        motion.velocity.words[1] = 0u - value;
+        bounce_speed -= 163840;
+        motion.velocity.y = -bounce_speed;
         return;
     }
-    Burst(220u);
+    Burst(220);
     if (trail)
         trail->fading = 1;
     Finish();
 }
 
-uint32 MiniTank::Damage(uint32 damage, const sint32 *input_vector, uint32)
+uint32 MiniTank::Damage(uint32 damage, const Vector3 *input_vector, uint32)
 {
     FUNCTION_MARKER(0x80075930, "SLUS_003.73");
     ModelInstance *player;
-    uint32 tick, health, signed_health, flags;
-    uint32 shift = 6;
     Vector3 impulse;
     if (age < 60)
     {
         SetColor(3, 255, 255, 255);
         return 1;
     }
-    tick = (uint32)this->control.damage_phase;
-    this->control.damage_phase = tick + 1;
-    signed_health = (uint32)(sint32)this->health;
-    health = (uint16)this->health;
-    if ((sint32)signed_health <= 0)
+    ++control.damage_phase;
+    if (health <= 0)
         return 1;
-    this->health = (sint16)(uint16)(health - damage);
-    ShiftVectorLeft(impulse.words, (const uint32 *)input_vector, shift);
-    AddVectors(motion.velocity.words, impulse.words);
-    signed_health = (uint32)(sint32)this->health;
-    motion.velocity.words[1] = 0;
-    if ((sint32)signed_health > 0)
+    health -= damage;
+    impulse.ShiftLeft(*input_vector, 6);
+    motion.velocity.Add(impulse);
+    motion.velocity.y = 0;
+    if (health > 0)
     {
         SetColor(3, 255, 255, 255);
         return 1;
     }
     player = visual_lists.players;
     if (player)
-        TryPlayPlayerKillQuote(player->pos.words);
-    flags = this->lifecycle_flags;
-    this->lifecycle_flags = flags & 0xFFEF;
+        static_cast<Player *>(player->owner)->TryPlayKillQuote();
+    lifecycle_flags &= 0xFFEF;
     if (!RandomRange(2))
     {
         ai.state = 2;
@@ -572,73 +433,92 @@ uint32 MiniTank::Damage(uint32 damage, const sint32 *input_vector, uint32)
     return 1;
 }
 
-uint32 MiniTank::SetTarget(const uint32 *target)
+uint32 MiniTank::SetTarget(const Vector3 *target)
 {
     FUNCTION_MARKER(0x80075BE8, "SLUS_003.73");
-    uint32 x, y, z, left, right, scale, velocity_x, velocity_z, angle, flags;
+    uint16 scale, angle;
+    uint32 flags;
     Vector3 difference, normal;
-    if (this->model.animation)
+    if (model.animation)
         StartAnimation(0, 1);
-    x = target[0];
-    y = target[1];
-    z = target[2];
-    this->destination.words[0] = x;
-    this->destination.words[1] = y;
-    this->destination.words[2] = z;
-    left = this->destination.words[0];
-    right = this->model.pos.words[0];
-    difference.words[0] = (uint32)((sint32)(left - right) >> 12);
-    left = this->destination.words[1];
-    right = this->model.pos.words[1];
-    difference.words[1] = (uint32)((sint32)(left - right) >> 12);
-    left = this->destination.words[2];
-    right = this->model.pos.words[2];
-    difference.words[2] = (uint32)((sint32)(left - right) >> 12);
-    NormalizeShortVector(difference.words, normal.words);
+    dst = *target;
+    difference.x = (sint32)((uint32)dst.x - model.pos.x) >> 12;
+    difference.y = (sint32)((uint32)dst.y - model.pos.y) >> 12;
+    difference.z = (sint32)((uint32)dst.z - model.pos.z) >> 12;
+    NormalizeShortVector(difference, normal);
     scale = ai.parameters[0];
-    velocity_x = normal.words[0] * scale;
-    velocity_z = normal.words[2] * scale;
-    motion.velocity.words[0] = velocity_x;
-    motion.velocity.words[1] = 0;
-    motion.velocity.words[2] = velocity_z;
-    left = this->destination.words[2];
-    right = this->model.pos.words[2];
-    z = left - right;
-    left = this->destination.words[0];
-    right = this->model.pos.words[0];
-    angle = 3072 - (uint32)ratan2((sint32)z, (sint32)(left - right));
-    flags = this->control.flags;
-    target_angles.words[1] = angle & 4095;
-    this->control.flags = flags | 1;
+    motion.velocity.x = normal.x * scale;
+    motion.velocity.y = 0;
+    motion.velocity.z = normal.z * scale;
+    angle = 3072 - ratan2((sint32)((uint32)dst.z - model.pos.z), (sint32)((uint32)dst.x - model.pos.x));
+    flags = control.flags;
+    target_angles.y = angle & 4095;
+    control.flags = flags | 1;
     return flags | 1;
 }
 
 uint32 MiniTank::Fire()
 {
     ModelInstance *player;
-    Vector3 position, target;
+    Vector3 pos, target;
     GameHeapBlock *projectile;
-    uint32 damage;
-    uint32 lifetime;
-    uint32 speed;
+    uint16 damage;
+    uint16 lifetime;
+    uint16 speed;
     ShortVector3 rotation;
     FUNCTION_MARKER(0x80075CFC, "SLUS_003.73");
     player = visual_lists.players;
     if (!player)
         return 0;
-    GetModelAttachment(position.words, *this, 1);
+    GetModelAttachment(pos, *this, 1);
     player = visual_lists.players;
-    static_cast<Character *>(player->owner)->GetAttachment(target.words, 9);
-    target.words[1] += 65536;
-    CalculateDirectionAngles(rotation.words, position.words, target.words);
-    GetModelAttachment(position.words, *this, 0);
-    projectile = AllocateEffectStorage(108);
+    static_cast<Character *>(player->owner)->GetAttachment(target, 9);
+    target.y = (uint32)target.y + (65536);
+    rotation.SetDir(pos, target);
+    GetModelAttachment(pos, *this, 0);
+    projectile = EffectObject::AllocateStorage(108);
     if (projectile)
     {
-        damage = GetBehaviorValue(0, 1) & 65535;
-        lifetime = GetBehaviorValue(0, 2) & 65535;
-        speed = GetBehaviorValue(0, 2) & 65535;
-        new (projectile) OscillatingProjectile(position.words, rotation.components, damage, lifetime, speed, 16, 240, 240, 240, 96, 128, 0);
+        damage = GetBehaviorVal(0, 1);
+        lifetime = GetBehaviorVal(0, 2);
+        speed = GetBehaviorVal(0, 2);
+        new (projectile) OscillatingProjectile(&pos, &rotation, damage, lifetime, speed, 16, 240, 240, 240, 96, 128, 0);
     }
-    return PlayPositionedSound(20, this->model.pos.words, 0);
+    return PlayPositionedSound(20, &model.pos, 0);
+}
+
+MiniTank::~MiniTank()
+{
+    if (engine_sound)
+        StopSoundVoices(engine_sound);
+}
+
+void MiniTank::Burst(uint8 g)
+{
+    GameHeapBlock *child;
+    Vector3 velocity;
+    HandleExplosionProximity(&model.pos, 0);
+    RingBurstEffect::SpawnExplosion(&model.pos, 200, 240, g, 0, 5, 0, 100);
+    child = EffectObject::AllocateStorage(120);
+    if (child)
+    {
+        velocity = zero_vector;
+        MiniTankRing *ring = new (child) MiniTankRing(velocity);
+        ring->SetGeometry(&model.pos, 0, 0);
+        ring->lifetime = 32;
+        ring->radius_step = 32;
+        ring->width_step = 16;
+    }
+    velocity.x = 0;
+    velocity.y = -81920;
+    velocity.z = 0;
+    child = EffectObject::AllocateStorage(120);
+    if (child)
+    {
+        MiniTankRing *ring = new (child) MiniTankRing(velocity);
+        ring->SetGeometry(&model.pos, 0, 0);
+        ring->lifetime = 32;
+        ring->radius_step = 32;
+        ring->width_step = 16;
+    }
 }

@@ -1,18 +1,20 @@
 #ifndef PLAGUE_H
 #define PLAGUE_H
 
+#include "object_reference.h"
 #include "vector3.h"
 #include "enemy.h"
+#include "particle_beam.h"
 
 class ParticleBeam;
 class RingEffect;
 
 class Plague : public Enemy
 {
-public:
+private:
     struct SpawnPoints
     {
-        uint16 orbit_record;
+        uint16 orbit_rec;
         uint16 orbit_center;
         uint16 far_points[8];
         uint16 near_points[2];
@@ -22,58 +24,35 @@ public:
         uint16 late_pickups[4];
         uint16 late_health[4];
 
-        SpawnPoints() : orbit_record(0), orbit_center(0)
+        SpawnPoints() : orbit_rec(0), orbit_center(0)
         {
-            uint32 index;
-            for (index = 0; index < 2; ++index)
+            uint32 idx;
+            for (idx = 0; idx < 2; ++idx)
             {
-                near_points[index] = 0;
-                ground_effect[index] = 0;
-                early_support[index] = 0;
+                near_points[idx] = 0;
+                ground_effect[idx] = 0;
+                early_support[idx] = 0;
             }
-            for (index = 0; index < 8; ++index)
-                far_points[index] = 0;
-            for (index = 0; index < 4; ++index)
+            for (idx = 0; idx < 8; ++idx)
+                far_points[idx] = 0;
+            for (idx = 0; idx < 4; ++idx)
             {
-                early_pickups[index] = 0;
-                late_pickups[index] = 0;
-                late_health[index] = 0;
+                early_pickups[idx] = 0;
+                late_pickups[idx] = 0;
+                late_health[idx] = 0;
             }
         }
     };
 
-    Plague(const RecordCursor &record_data, uint32 index);
-    virtual ~Plague();
-    virtual uint32 Destroy(uint32 reason);
-    void Configure();
-    void UpdateState();
-    uint32 SetJumpTarget(const uint32 *position);
-    uint32 SetMoveTarget(const uint32 *position);
-    uint32 TrackTarget(ModelInstance *target);
-    uint16 *ClearFacing();
-    uint32 SpawnPickup();
-    uint32 UpdateOrbitingWeapons();
-    uint32 ReadParameters(uint32 command);
-    virtual void SetParameters(uint32 command);
-    virtual uint32 ExecuteCommand(uint32 command);
-    virtual uint32 Update();
-    virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 kind);
-
 private:
-    void StopMotion();
-    void ClearVelocity();
-    void SaveRecovery(uint32 state);
     uint32 last_pickup_tick;
-    uint8 jump_index;
+    uint8 jump_idx;
     uint8 attack_count;
     uint16 jump_timer;
     uint16 pickup_stage;
 
-public:
-    // Both original script and native buffered decoders own these values
     SpawnPoints spawn_points;
 
-private:
     uint32 orbit_sound;
     ModelReference orbit_object;
     ModelReference tracked_target;
@@ -83,9 +62,43 @@ private:
     uint16 orbit_phase;
     uint16 orbit_timer;
     ObjectReference<RingEffect> attack_ring;
-    void SelectFarTarget(Vector3 &position);
-    void CreateOrbitWeapon(uint32 index);
-    uint32 ReadOrbitDelta() const;
+
+public:
+    Plague(const RecordCursor &rec_data, uint16 idx);
+
+private:
+    void Configure();
+
+public:
+    virtual uint32 Destroy(uint32 reason);
+    virtual uint32 Update();
+    virtual uint32 Damage(uint32 damage, const Vector3 *vector, uint32 reason);
+
+private:
+    void UpdateState();
+    void SpawnPickup();
+    void UpdateOrbitingWeapons();
+
+public:
+    virtual void SetParameters(uint16 command);
+    virtual uint32 ExecuteCommand(uint16 command);
+
+private:
+    void SetJumpTarget(const Vector3 *pos);
+    void SetMoveTarget(const Vector3 *pos);
+    void TrackTarget(ModelInstance *target);
+    void ClearFacing();
+
+public:
+    virtual ~Plague();
+
+private:
+    void StopMotion();
+    void ClearVelocity();
+    void SaveRecovery(uint16 state);
+    void SelectFarTarget(Vector3 &pos);
+    void CreateOrbitWeapon(uint32 idx);
+    sint32 ReadOrbitDelta() const;
 };
 
 #endif

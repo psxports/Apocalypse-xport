@@ -1,10 +1,12 @@
-#include "game_diagnostics.h"
-
 #if !defined(NDEBUG)
     #include <stdio.h>
     #include <stdarg.h>
+#endif
 
-extern "C" sint32 GameDiagnostic(const char *format, ...)
+#include "game_diagnostics.h"
+
+#if !defined(NDEBUG)
+extern "C" sint32 PrintGameDiagnostic(const char *format, ...)
 {
     va_list arguments;
     va_start(arguments, format);

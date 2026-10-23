@@ -1,9 +1,9 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "world_gravity.h"
 #include "game_diagnostics.h"
+
 extern "C"
 {
 #include "xport.h"
@@ -34,13 +34,13 @@ void InitializeGameConstructors()
         return;
     game_constructors_initialized = true;
     /* Empty constructors and finite delay loops have no guest data effects */
-    ResetGravityVector();
-    ResetCameraDefaults();
+    WorldGravity::Reset();
+    Camera::ResetDefaults();
 }
 
 void SceneVBlankCallback()
 {
-    mdec_psyq_pump((uint32)33868800 / FIELD_RATE);
+    mdec_psyq_pump(33868800 / FIELD_RATE);
     TickMusicSequences();
     AdvanceSceneVBlank();
 }

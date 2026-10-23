@@ -6,16 +6,19 @@ extern "C"
 #include "psx.h"
 }
 
+#include "game_settings.h"
+
 struct GameSessionState
 {
-    uint32 saved_vibration;
-    uint8 demo_index;
+    VibrationMode saved_vibration;
+    uint8 demo_idx;
     uint32 exit_reason;
     // TODO Trace the original producer of the demo display and catch-up gate
     uint32 demo_mode;
-    uint32 movie_any_button_skip;
-    uint8 demo_next;
+    bool movie_any_button_skip;
+    bool demo_next;
     uint8 catchup_blocked;
+    sint32 weapon_activity;
 };
 
 extern GameSessionState game_session;
@@ -29,10 +32,10 @@ struct LevelStatistics
 
 struct CompletionProgress
 {
-    uint32 completed;
+    bool completed;
     uint32 blink_ticks;
     uint32 target_percent;
-    uint32 display_percent;
+    uint32 disp_percent;
     uint32 voices;
 };
 
@@ -58,9 +61,9 @@ void ResetLevelEnvironment();
 const char *GetLevelTestCaption();
 void RunGameSession();
 void ReleaseLevelLoadResources();
-const char *GetCurrentLevelName();
-void ResetCurrentLevelName();
+const char *GetCurLevelName();
+void ResetCurLevelName();
 
-uint32 CompleteLevel(uint32 completed);
+uint32 CompleteLevel(bool completed);
 
 #endif

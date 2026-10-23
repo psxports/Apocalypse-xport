@@ -1,31 +1,29 @@
 #include <new>
-#include <string.h>
 
+#include "collision_ray.h"
+#include "weapon_type.h"
+#include "weapon_node.h"
 #include "game_heap.h"
 #include "game_tick.h"
-
 #include "object_initializers.h"
-
-#include "particle_settings.h"
-#include "game_diagnostics.h"
+#include "effect_object.h"
+#include "primitive_particle.h"
 #include "spiral_ray_weapon.h"
 #include "visual_object.h"
 #include "projectile_line.h"
 #include "ring_burst_effect.h"
 #include "fading_particle.h"
 #include "angle_math.h"
-#include "vector_arithmetic.h"
-#include "vector_distance.h"
+#include "global.h"
 #include "object_damage.h"
 #include "collision.h"
 #include "audio_session.h"
-#include "game_random.h"
 #include "effect_lifecycle.h"
 
-SpiralRayWeapon::SpiralRayWeapon(ModelInstance **target) : WeaponNode(target, 0), pitch_spread(0), yaw_spread(0), fire_rate(0), range(0), sound_id(0), flash_scale(0), light_pending(0)
+SpiralRayWeapon::SpiralRayWeapon(ModelInstance **target) : WeaponNode(target, 0), pitch_spread(0), yaw_spread(0), fire_rate(0), range(0), sound_id(0), flash_scale(0), light_pending(false)
 {
     FUNCTION_MARKER(0x80023B2C, "SLUS_003.73");
-    this->type = WPN_SPIRAL_RAY;
+    type = WPN_SPIRAL_RAY;
     Configure(0, 0, 1, 6000, 20, 256);
 }
 
@@ -35,11 +33,11 @@ uint32 SpiralRayWeapon::Destroy(uint32 reason)
     FUNCTION_MARKER(0x80023B98, "SLUS_003.73");
     result = WeaponNode::Destroy(0);
     if (reason & 1)
-        result = ReleaseWeaponStorage(this);
+        result = ReleaseStorage();
     return result;
 }
 
-void SpiralRayWeapon::Configure(uint32 pitch_spread, uint32 yaw_spread, uint32 fire_rate, uint32 range, uint32 sound_id, uint32 flash_scale)
+void SpiralRayWeapon::Configure(uint32 pitch_spread, uint32 yaw_spread, uint8 fire_rate, uint32 range, sint32 sound_id, uint32 flash_scale)
 {
     FUNCTION_MARKER(0x80023BEC, "SLUS_003.73");
     this->pitch_spread = pitch_spread;
@@ -50,208 +48,158 @@ void SpiralRayWeapon::Configure(uint32 pitch_spread, uint32 yaw_spread, uint32 f
     this->flash_scale = flash_scale;
 }
 
-uint32 SpiralRayWeapon::Update(const uint32 *, const sint16 *)
+uint32 SpiralRayWeapon::Fire(const Vector3 &input_pos, const ShortVector3 &input_angles)
 {
-    uint32 state;
-    FUNCTION_MARKER(0x800243DC, "SLUS_003.73");
-    state = this->fire_active;
-    if (state)
-        this->fire_active = 0;
-    return state;
-}
-
-uint32 SpiralRayWeapon::ReadLight(uint8 *red, uint8 *green, uint8 *blue)
-{
-    FUNCTION_MARKER(0x800243F8, "SLUS_003.73");
-    if (!this->light_pending)
-        return 0;
-    *red = 0;
-    *green = 0;
-    *blue = 255;
-    this->light_pending = 0;
-    return 1;
-}
-
-uint32 SpiralRayWeapon::DivideBy256(uint32 value)
-{
-    if ((sint32)value < 0)
-        value += 255;
-    return (uint32)((sint32)value >> 8);
-}
-
-uint32 SpiralRayWeapon::Fire(const uint32 *input_position, const sint16 *input_angles)
-{
-    uint32 trig_angle;
-    CollisionRay &shared_ray = GetSharedCollisionRay();
+    CollisionRay &shared_ray = CollisionRay::GetShared();
     FUNCTION_MARKER(0x80023C14, "SLUS_003.73");
     ModelBorrow model_borrow;
-    uint32 x;
-    uint32 y;
-    uint32 z;
-    uint32 enabled;
-    uint32 previous;
-    uint32 frame;
-    uint32 sound;
-    uint32 radius;
-    GameHeapBlock *child;
-    uint32 scale20, scale14, scale10, random, spread, damage;
-    ModelInstance *target;
-    ModelInstance **filter;
-    uint32 distance, offset, ring_index, index, cosine, sine, old_x;
-    Vector3 ring[16];
-    Vector3 direction, endpoint, tmp, side, scaled;
-    ShortVector3 angles, effect_angles;
-    memcpy(muzzle_pos.words, input_position, sizeof(muzzle_pos.words));
-    enabled = this->fire_rate;
-    previous = this->last_fire_tick;
-    frame = game_clock.tick;
-    if ((sint32)(frame - previous) < (enabled ? 30 / (sint32)enabled : -1))
+    muzzle_pos = input_pos;
+    sint32 fire_interval = DivideSignedWord(30, fire_rate);
+    sint32 elapsed = game_clock.tick - last_fire_tick;
+    if (elapsed < fire_interval)
     {
-        this->fire_active = 1;
+        fire_active = 1;
         return 0;
     }
-    sound = PlaySoundEffect((sint32)this->sound_id, 8192, 0);
-    radius = this->flash_scale;
-    this->sound = sound;
-    this->light_pending = 1;
-    if (radius)
+    sound = PlaySoundEffect(sound_id, 8192, 0);
+    light_pending = true;
+    if (flash_scale)
     {
-        child = AllocateEffectStorage(124);
+        GameHeapBlock *child = EffectObject::AllocateStorage(124);
         if (child)
         {
-            scale20 = SpiralRayWeapon::DivideBy256(20 * this->flash_scale);
-            scale14 = SpiralRayWeapon::DivideBy256(14 * this->flash_scale);
-            scale10 = SpiralRayWeapon::DivideBy256(10 * this->flash_scale);
-            radius = SpiralRayWeapon::DivideBy256(20 * this->flash_scale);
-            new (child) RingBurstEffect(muzzle_pos.words, 5, 255, 235, 0, 2, 90, 10, 0, 20, scale20, 0, 0, scale14, 0, scale10, radius, 0, 2);
+            uint32 extent = (sint32)(20 * flash_scale) / 256;
+            sint16 odd_min = (sint32)(14 * flash_scale) / 256;
+            sint16 even_min = (sint32)(10 * flash_scale) / 256;
+            sint16 even_range = (sint32)(20 * flash_scale) / 256;
+            new (child) RingBurstEffect(&muzzle_pos, 5, 255, 235, 0, 2, 90, 10, 0, 20, extent, 0, 0, odd_min, 0, even_min, even_range, 0, 2);
         }
     }
-    OffsetPositionByAngles(muzzle_pos.words, (const uint16 *)input_angles);
-    memcpy(angles.components, input_angles, sizeof(angles.components));
-    spread = this->pitch_spread;
+    OffsetByAngles(muzzle_pos, input_angles);
+    ShortVector3 angles = input_angles;
+    uint32 spread = pitch_spread;
+    uint32 random = RandomRange((spread << 1) | 1);
+    uint16 half_spread = pitch_spread;
+    angles.x = (uint16)angles.x + (random - half_spread);
+    spread = yaw_spread;
     random = RandomRange((spread << 1) | 1);
-    spread = (uint16)this->pitch_spread;
-    angles.components[0] = (sint16)((uint32)(uint16)angles.components[0] + random - spread);
-    spread = this->yaw_spread;
-    random = RandomRange((spread << 1) | 1);
-    spread = (uint16)this->yaw_spread;
-    angles.components[1] = (sint16)((uint32)(uint16)angles.components[1] + random - spread);
-    NormalizeAngles(angles.words);
-    BuildDirectionVector(endpoint.words, this->range, angles.words);
-    DivideVector(direction.words, endpoint.words, this->range);
-    AddVectors(endpoint.words, muzzle_pos.words);
-    shared_ray.endpoints[0].words[0] = (muzzle_pos.words[0]);
-    shared_ray.endpoints[0].words[1] = (muzzle_pos.words[1]);
-    z = muzzle_pos.words[2];
-    shared_ray.endpoints[1].words[0] = (endpoint.words[0]);
-    shared_ray.endpoints[1].words[1] = (endpoint.words[1]);
-    shared_ray.endpoints[1].words[2] = (endpoint.words[2]);
-    shared_ray.endpoints[0].words[2] = (z);
-    InitializeCollisionRay(shared_ray);
-    collision_query.reject_surface40 = true;
-    QueryCollisionRay(shared_ray, 1);
-    collision_query.reject_surface40 = false;
-    target = shared_ray.hit.GetObject();
+    half_spread = yaw_spread;
+    angles.y = (uint16)angles.y + (random - half_spread);
+    angles.NormalizeAngles();
+    Vector3 dir, endpoint, tmp, side, scaled;
+    endpoint.SetDir(range, angles);
+    dir.Divide(endpoint, range);
+    endpoint.Add(muzzle_pos);
+    shared_ray.endpoints[0] = muzzle_pos;
+    shared_ray.endpoints[1] = endpoint;
+    shared_ray.Initialize();
+    col_query.reject_surface40 = true;
+    shared_ray.Query(1);
+    col_query.reject_surface40 = false;
+    ModelInstance *target = shared_ray.hit.GetObject();
     if (target)
     {
-        endpoint.words[0] = shared_ray.hit_pos.words[0];
-
-        endpoint.words[1] = shared_ray.hit_pos.words[1];
-        endpoint.words[2] = shared_ray.hit_pos.words[2];
-        damage = this->damage;
-        DamageLevelObject(target, shared_ray.hit.GetPolygon(), (sint32)damage);
+        endpoint = shared_ray.hit_pos;
+        DamageLevelObject(target, shared_ray.hit.GetPolygon(), damage);
         target = shared_ray.hit.GetObject();
         if (target && (target->flags & 16))
-        {
-            damage = this->damage;
-            static_cast<VisualObject *>(target->owner)->Damage(damage, direction.components, 28);
-        }
-        filter = this->owner_list;
-        target = IntersectObjectSpheres(muzzle_pos.words, endpoint.words, endpoint.words, *filter, 0);
+            static_cast<VisualObject *>(target->owner)->Damage(damage, &dir, 28);
+        target = CollisionRay::IntersectSpheres(muzzle_pos, endpoint, &endpoint, *owner_list, 0);
         if (target)
-        {
-            damage = this->damage;
-            static_cast<VisualObject *>(target->owner)->Damage(damage, direction.components, 28);
-        }
-        CreateProjectileImpact(4, endpoint.words);
+            static_cast<VisualObject *>(target->owner)->Damage(damage, &dir, 28);
+        CreateProjectileImpact(4, &endpoint);
     }
     else
     {
-        filter = this->owner_list;
-        target = IntersectObjectSpheres(muzzle_pos.words, endpoint.words, endpoint.words, *filter, 0);
+        target = CollisionRay::IntersectSpheres(muzzle_pos, endpoint, &endpoint, *owner_list, 0);
         if (target)
         {
-            damage = this->damage;
-            static_cast<VisualObject *>(target->owner)->Damage(damage, direction.components, 28);
-            CreateProjectileImpact(4, endpoint.words);
+            static_cast<VisualObject *>(target->owner)->Damage(damage, &dir, 28);
+            CreateProjectileImpact(4, &endpoint);
         }
     }
-    /* The original delay loop has no memory or call side effects */
-    for (index = 0; index < 16; ++index)
+    Vector3 ring[16];
+    for (uint32 idx = 0; idx < 16; ++idx)
     {
-        trig_angle = (index << 8) & 0xF00;
-        ring[index].words[0] = 48 * (uint32)rsin(trig_angle);
-        ring[index].words[2] = 0;
-        ring[index].words[1] = 0 - 48 * (uint32)rcos(trig_angle);
-        if (angles.components[0])
+        Vector3 *point = ring + idx;
+        uint32 angle = idx << 8;
+        point->x = 48 * rsin(angle);
+        point->z = 0;
+        point->y = -48 * rcos(angle);
+        if (angles.x)
         {
-            trig_angle = (uint16)angles.components[0] & 4095;
-            cosine = (uint32)rcos(trig_angle);
-            ring[index].words[1] = (uint32)((sint32)(ring[index].words[1] * cosine) >> 12);
-            sine = (uint32)rsin(trig_angle);
-            ring[index].words[2] = (uint32)((sint32)((0 - ring[index].words[1]) * sine) >> 12);
+            angle = (uint16)angles.x & 4095;
+            point->y = point->y * rcos(angle) >> 12;
+            point->z = -point->y * rsin(angle) >> 12;
         }
-        if (angles.components[1])
+        if (angles.y)
         {
-            trig_angle = (uint16)angles.components[1] & 4095;
-            old_x = ring[index].words[0];
-            cosine = (uint32)rcos(trig_angle);
-            sine = (uint32)rsin(trig_angle);
-            ring[index].words[0] = (uint32)((sint32)(old_x * cosine + ring[index].words[2] * sine) >> 12);
-            sine = (uint32)rsin(trig_angle);
-            cosine = (uint32)rcos(trig_angle);
-            ring[index].words[2] = (uint32)((sint32)(old_x * sine - ring[index].words[2] * cosine) >> 12);
+            angle = (uint16)angles.y & 4095;
+            sint32 x = point->x;
+            point->x = (x * rcos(angle) + point->z * rsin(angle)) >> 12;
+            point->z = (x * rsin(angle) - point->z * rcos(angle)) >> 12;
         }
     }
-    effect_angles.components[0] = -1024;
-    effect_angles.components[1] = effect_angles.components[2] = 0;
-    SetParticleAngles(effect_angles.components);
-    SetParticleSpread(zero_angles.components);
-    SetParticleSize(2);
-    SetParticleColor(32, 32, 128);
-    SetParticleColorStep(2, 2, 4);
+    ShortVector3 effect_angles;
+    effect_angles.x = -1024;
+    effect_angles.y = effect_angles.z = 0;
+    PrimitiveParticle::SetAngles(&effect_angles);
+    PrimitiveParticle::SetSpread(&zero_angles);
+    PrimitiveParticle::SetSize(2);
+    PrimitiveParticle::SetColor(32, 32, 128);
+    PrimitiveParticle::SetColorStep(2, 2, 4);
     use_small_effect_pool = false;
-    SubtractVectors(tmp.words, endpoint.words, muzzle_pos.words);
-    distance = MeasureVectorLength(tmp.words);
-    ring_index = 0;
-    for (offset = 0; (sint32)offset < (sint32)distance; offset += 64)
+    tmp.Subtract(endpoint, muzzle_pos);
+    sint32 distance = tmp.Len();
+    uint32 ring_idx = 0;
+    for (sint32 offset = 0; offset < distance; offset += 64)
     {
-        AddVectors(side.words, muzzle_pos.words, ring[ring_index].words);
-        MultiplyVector(scaled.words, direction.words, offset);
-        AddVectors(tmp.words, side.words, scaled.words);
-        child = AllocateEffectStorage(88);
+        side.Add(muzzle_pos, ring[ring_idx]);
+        scaled.Multiply(dir, offset);
+        tmp.Add(side, scaled);
+        GameHeapBlock *child = EffectObject::AllocateStorage(88);
         if (child)
         {
-            random = RandomRange(1024);
-            new (child) FadingParticle(tmp.words, 0, 0 - (random + 2048), 16);
+            sint32 accel = RandomRange(1024) + 2048;
+            new (child) FadingParticle(&tmp, 0, -accel, 16);
         }
-        ring_index = (ring_index + 2) & 15;
+        ring_idx = (ring_idx + 2) & 15;
     }
-    SetParticleColor(64, 64, 64);
-    SetParticleColorStep(4, 4, 4);
-    for (offset = 0; (sint32)offset < (sint32)distance; offset += 48)
+    PrimitiveParticle::SetColor(64, 64, 64);
+    PrimitiveParticle::SetColorStep(4, 4, 4);
+    for (sint32 offset = 0; offset < distance; offset += 48)
     {
-        MultiplyVector(side.words, direction.words, offset);
-        AddVectors(tmp.words, muzzle_pos.words, side.words);
-        child = AllocateEffectStorage(88);
+        side.Multiply(dir, offset);
+        tmp.Add(muzzle_pos, side);
+        GameHeapBlock *child = EffectObject::AllocateStorage(88);
         if (child)
-        {
-            new (child) FadingParticle(tmp.words, 0, 0, 12);
-        }
+            new (child) FadingParticle(&tmp, 0, 0, 12);
     }
-    frame = game_clock.tick;
+    uint32 frame = game_clock.tick;
     use_small_effect_pool = true;
-    this->fire_active = 1;
-    this->last_fire_tick = frame;
+    fire_active = 1;
+    last_fire_tick = frame;
+    return 1;
+}
+
+uint32 SpiralRayWeapon::Update(const Vector3 *)
+{
+    uint32 state;
+    FUNCTION_MARKER(0x800243DC, "SLUS_003.73");
+    state = fire_active;
+    if (state)
+        fire_active = 0;
+    return state;
+}
+
+uint32 SpiralRayWeapon::ReadLight(uint8 *r, uint8 *g, uint8 *b)
+{
+    FUNCTION_MARKER(0x800243F8, "SLUS_003.73");
+    if (!light_pending)
+        return 0;
+    *r = 0;
+    *g = 0;
+    *b = 255;
+    light_pending = false;
     return 1;
 }

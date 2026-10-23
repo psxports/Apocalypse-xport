@@ -1,11 +1,6 @@
 #include "object_force.h"
 #include "visual_object.h"
 #include "player.h"
-#include "vector_arithmetic.h"
-#include "vector_distance.h"
-#include "angle_math.h"
-#include "weapon_nodes.h"
-#include "game_diagnostics.h"
 
 static ObjectForce *force_head;
 
@@ -38,10 +33,10 @@ uint32 ObjectForce::Destroy(uint32 reason)
     FUNCTION_MARKER(0x8003A188, "SLUS_003.73");
     Unlink();
     MarkDestroyed();
-    return reason & 1 ? ReleaseWeaponStorage(this) : 0;
+    return reason & 1 ? ReleaseStorage() : 0;
 }
 
-void ObjectForce::SetPosition(VisualObject &src)
+void ObjectForce::SetPos(VisualObject &src)
 {
     FUNCTION_MARKER(0x8003A214, "SLUS_003.73");
     // The recovered producer borrows its model position rather than copying it
@@ -55,13 +50,13 @@ void ObjectForce::SetStrength(sint16 strength, uint8 range_shift)
     this->range_shift = range_shift;
 }
 
-void ObjectForce::SetDirection(const uint16 *angles)
+void ObjectForce::SetDir(const ShortVector3 &angles)
 {
     FUNCTION_MARKER(0x8003A228, "SLUS_003.73");
     Vector3 vector;
-    BuildDirectionVector(vector.words, 1, angles);
+    vector.SetDir(1, angles);
     for (uint32 axis = 0; axis < 3; ++axis)
-        dir[axis] = vector.words[axis];
+        dir[axis] = vector.comp[axis];
 }
 
 void ObjectForce::SetRadius(uint16 radius)
@@ -70,12 +65,13 @@ void ObjectForce::SetRadius(uint16 radius)
     radius_sq = (uint32)radius * radius;
 }
 
-void ObjectForce::ApplyDirectional(ModelInstance *list)
+void ObjectForce::ApplyDirectional(ModelInstance *const *head)
 {
     FUNCTION_MARKER(0x8003A288, "SLUS_003.73");
     ModelBorrow borrow;
     if (!strength || !pos_owner)
         return;
+    ModelInstance *list = *head;
     while (list)
     {
         VisualObject *object = static_cast<VisualObject *>(list->owner);
@@ -83,45 +79,45 @@ void ObjectForce::ApplyDirectional(ModelInstance *list)
         {
             Vector3 delta, shifted;
             uint32 shift = 12;
-            SubtractVectors(delta.words, list->pos.words, pos_owner->model.pos.words);
-            ShiftVectorRight(shifted.words, delta.words, shift);
-            uint32 dot = shifted.words[0] * (uint32)dir.x;
-            dot += shifted.words[1] * (uint32)dir.y;
-            dot += shifted.words[2] * (uint32)dir.z;
-            uint32 proj = (sint32)dot >> 12;
+            delta.Subtract(list->pos, pos_owner->model.pos);
+            shifted.ShiftRight(delta, shift);
+            sint32 dot = (uint32)shifted.x * dir.x;
+            dot += (uint32)shifted.y * dir.y;
+            dot += (uint32)shifted.z * dir.z;
+            uint32 proj = dot >> 12;
             for (uint32 axis = 0; axis < 3; ++axis)
-                delta.words[axis] = (shifted.words[axis] << 12) - (uint32)dir[axis] * proj;
-            if ((sint32)proj > 0 && MeasureSquaredVectorLength(delta.words) < radius_sq)
+                delta.comp[axis] = ((uint32)shifted.comp[axis] << 12) - dir[axis] * proj;
+            if ((sint32)proj > 0 && delta.LenSq() < radius_sq)
             {
                 uint32 range = (uint32)1 << (range_shift & 31);
                 if ((sint32)proj < (sint32)range)
                 {
                     if (list == visual_lists.players)
                         static_cast<Player *>(object)->active_force = this;
-                    uint32 amount = (range - proj) * (uint32)strength;
+                    uint32 amount = (range - proj) * strength;
                     bool large_product = (sint32)amount > 262143;
                     if (mode != 3 && large_product)
                         amount = (sint32)amount >> 8;
                     for (uint32 axis = 0; axis < 3; ++axis)
                     {
-                        uint32 product;
+                        sint32 product;
                         if (mode == 3)
-                            product = (uint32)dir[axis] * (uint32)strength;
+                            product = dir[axis] * strength;
                         else
                         {
-                            product = (uint32)dir[axis] * amount;
+                            product = dir[axis] * amount;
                             // The large-product branch removes eight bits before multiplication
                             if (large_product)
                             {
                                 if (range_shift < 8)
-                                    product <<= (8 - range_shift) & 31;
+                                    product = (uint32)product << ((8 - range_shift) & 31);
                                 else
-                                    product = (sint32)product >> ((range_shift - 8) & 31);
+                                    product >>= (range_shift - 8) & 31;
                             }
                             else
-                                product = (sint32)product >> (range_shift & 31);
+                                product >>= range_shift & 31;
                         }
-                        object->motion.velocity.words[axis] += product;
+                        object->motion.velocity.comp[axis] = (uint32)object->motion.velocity.comp[axis] + product;
                     }
                 }
             }
@@ -130,11 +126,12 @@ void ObjectForce::ApplyDirectional(ModelInstance *list)
     }
 }
 
-void ObjectForce::ApplyRadial(ModelInstance *list, bool directional)
+void ObjectForce::ApplyRadial(ModelInstance *const *head, bool directional)
 {
     ModelBorrow borrow;
     if (!strength || !pos_owner)
         return;
+    ModelInstance *list = *head;
     while (list)
     {
         VisualObject *object = static_cast<VisualObject *>(list->owner);
@@ -142,19 +139,19 @@ void ObjectForce::ApplyRadial(ModelInstance *list, bool directional)
         {
             Vector3 delta, n;
             uint32 shift = 12;
-            SubtractVectors(delta.words, list->pos.words, pos_owner->model.pos.words);
-            uint32 mag = MeasureVectorLength(delta.words);
+            delta.Subtract(list->pos, pos_owner->model.pos);
+            uint32 mag = delta.Len();
             if (mag)
-                DivideVector(n.words, delta.words, mag);
-            uint32 dot = 1;
+                n.Divide(delta, mag);
+            sint32 dot = 1;
             if (directional)
             {
-                ShiftVectorRight(delta.words, shift);
-                dot = delta.words[0] * (uint32)dir.x;
-                dot += delta.words[1] * (uint32)dir.y;
-                dot += delta.words[2] * (uint32)dir.z;
+                delta.ShiftRight(shift);
+                dot = (uint32)delta.x * dir.x;
+                dot += (uint32)delta.y * dir.y;
+                dot += (uint32)delta.z * dir.z;
             }
-            if ((sint32)dot > 0)
+            if (dot > 0)
             {
                 uint32 range = (uint32)1 << (range_shift & 31);
                 if ((sint32)mag < (sint32)range)
@@ -162,17 +159,17 @@ void ObjectForce::ApplyRadial(ModelInstance *list, bool directional)
                     if (!mag)
                     {
                         // Human-approved zero impulse at the force center
-                        n.words[0] = n.words[1] = n.words[2] = 0;
+                        n.x = n.y = n.z = 0;
                     }
-                    uint32 amount = (range - mag) * (uint32)strength;
+                    uint32 amount = (range - mag) * strength;
                     ModelInstance *player = 0;
                     for (uint32 axis = 0; axis < 3; ++axis)
                     {
-                        uint32 product = n.words[axis] * amount;
-                        uint32 velocity = object->motion.velocity.words[axis];
+                        sint32 product = (uint32)n.comp[axis] * amount;
+                        uint32 velocity = object->motion.velocity.comp[axis];
                         if (axis == 2)
                             player = visual_lists.players;
-                        object->motion.velocity.words[axis] = velocity + (uint32)((sint32)product >> (range_shift & 31));
+                        object->motion.velocity.comp[axis] = velocity + (product >> (range_shift & 31));
                     }
                     if (list == player)
                         static_cast<Player *>(object)->active_force = this;
@@ -183,16 +180,16 @@ void ObjectForce::ApplyRadial(ModelInstance *list, bool directional)
     }
 }
 
-void ObjectForce::ApplyDirectionalRadial(ModelInstance *list)
+void ObjectForce::ApplyDirectionalRadial(ModelInstance *const *head)
 {
     FUNCTION_MARKER(0x8003A5CC, "SLUS_003.73");
-    ApplyRadial(list, true);
+    ApplyRadial(head, true);
 }
 
-void ObjectForce::ApplyOmnidirectional(ModelInstance *list)
+void ObjectForce::ApplyOmnidirectional(ModelInstance *const *head)
 {
     FUNCTION_MARKER(0x8003A76C, "SLUS_003.73");
-    ApplyRadial(list, false);
+    ApplyRadial(head, false);
 }
 
 void ObjectForce::Update()
@@ -205,16 +202,16 @@ void ObjectForce::Update()
         if (lists[i])
         {
             if (mode == 1)
-                ApplyDirectionalRadial(*lists[i]);
+                ApplyDirectionalRadial(lists[i]);
             else if (mode == 2)
-                ApplyOmnidirectional(*lists[i]);
+                ApplyOmnidirectional(lists[i]);
             else
-                ApplyDirectional(*lists[i]);
+                ApplyDirectional(lists[i]);
         }
     }
 }
 
-void UpdateObjectForces()
+void ObjectForce::UpdateAll()
 {
     FUNCTION_MARKER(0x8003A9AC, "SLUS_003.73");
     ObjectBorrow borrow;
@@ -225,11 +222,4 @@ void UpdateObjectForces()
             force->Update();
         force = force->next;
     }
-}
-
-uint32 Force::Destroy(uint32 reason)
-{
-    FUNCTION_MARKER(0x8003A9EC, "SLUS_003.73");
-    MarkDestroyed();
-    return reason & 1 ? ReleaseWeaponStorage(this) : 0;
 }

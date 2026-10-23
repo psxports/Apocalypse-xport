@@ -1,99 +1,88 @@
 #include <new>
-#include <string.h>
-#include <stdio.h>
 #include <stdlib.h>
 
+#include "collision_ray.h"
+#include "pickup.h"
+#include "game_settings.h"
 #include "game_heap.h"
 #include "level_session.h"
 #include "game_tuning.h"
 #include "game_tick.h"
-
 #include "effect_object.h"
 #include "visual_object.h"
 #include "game_diagnostics.h"
-
-#include "pickup.h"
+#include "object_initializers.h"
 #include "collision.h"
 #include "game_object_allocation.h"
-#include "game_random.h"
-#include "model_resources.h"
+#include "global.h"
+#include "model_bank.h"
 #include "enemy_list.h"
 #include "record_data.h"
 #include "effect_lifecycle.h"
-#include "pickup_effects.h"
+#include "flamethrower_pickup_effect.h"
+#include "particle_beam_pickup_effect.h"
+#include "rip_laser_pickup_effect.h"
+#include "pulse_laser_pickup_effect.h"
 #include "angle_math.h"
-#include "vector_arithmetic.h"
 #include "player.h"
-#include "weapon_nodes.h"
+#include "weapon_type.h"
 #include "hud_text.h"
 #include "game_panel.h"
 #include "audio_session.h"
 #include "ring_effect.h"
 #include "ring_burst_effect.h"
 
-Pickup::Pickup(uint32 resource, const uint32 *position, const uint32 *velocity, uint32 flags, uint32 lifetime) : VisualObject(), ring(), ring_radius(0), ring_wave(0), spawn_linked(0), has_model(0), visible(0), moving(0), ignore_floor(0), floor_offset(0), spawn_record(0), floor_y(0), bob_phase(0), bob_size(0), bob_amplitude(0), bob_step(0), lifetime(lifetime), child()
+static const char *MissingCollectedPickupKind(uint32 kind)
 {
-    uint32 x, y, z, value, bank, key = 0;
+    // TODO Mutated kind requires an uninitialized original MIPS value
+    GameDiagnostic(("TODO Pickup kind changed during health collection: %u\n", kind));
+    abort();
+}
+
+Pickup::Pickup(uint16 resource, const Vector3 *pos, const Vector3 *velocity, uint32 flags, uint16 lifetime) : VisualObject(), ring(), ring_radius(0), ring_wave(0), spawn_linked(0), has_model(false), visible(false), moving(false), ignore_floor(false), floor_offset(0), spawn_record(0), floor_y(0), bob_phase(0), bob_size(0), bob_amplitude(0), bob_step(0), lifetime(lifetime), child()
+{
+    uint8 bank;
+    uint32 key = 0;
     FUNCTION_MARKER(0x8001FD28, "SLUS_003.73");
-    this->kind = resource;
-    value = (uint8)GetGameTuning().pickup_floor_offset;
-    this->visible = 1;
-    this->floor_offset = value;
-    x = position[0];
-    y = position[1];
-    z = position[2];
-    this->base_pos.words[0] = x;
-    this->base_pos.words[1] = y;
-    this->base_pos.words[2] = z;
-    x = position[0];
-    y = position[1];
-    z = position[2];
-    this->model.pos.words[0] = x;
-    this->model.pos.words[1] = y;
-    this->model.pos.words[2] = z;
+    kind = resource;
+    visible = true;
+    floor_offset = GetGameTuning().pickup_floor_offset;
+    base_pos = *pos;
+    model.pos = *pos;
     if (flags & 8)
-        motion.velocity.words[1] = (uint32)-245760;
+        motion.velocity.y = -245760;
     else
-    {
-        x = velocity[0];
-        y = velocity[1];
-        z = velocity[2];
-        motion.velocity.words[0] = x;
-        motion.velocity.words[1] = y;
-        motion.velocity.words[2] = z;
-    }
+        motion.velocity = *velocity;
     motion.drag[0] = 5;
     motion.drag[1] = 5;
     motion.drag[2] = 5;
-    motion.angular_velocity.words[1] = 100;
-    motion.acceleration.words[1] = 32768;
-    value = RandomRange(20);
-    this->bob_step = value + 90;
-    this->bob_size = 50;
-    this->bob_amplitude = 50;
+    motion.angular_velocity.y = 100;
+    motion.acceleration.y = 32768;
+    bob_step = RandomRange(20) + 90;
+    bob_size = 50;
+    bob_amplitude = 50;
     if (flags & 16)
     {
-        this->moving = 1;
-        this->ignore_floor = 1;
+        moving = true;
+        ignore_floor = true;
     }
     else if (flags & 4)
     {
-        this->moving = 1;
-        value = FindGroundHeight(base_pos.words, 0, 8000);
-        this->floor_y = value;
+        moving = true;
+        floor_y = CollisionRay::FindGroundHeight(base_pos, 0, 8000);
     }
-    this->collision_radius = 300;
+    col_radius = 300;
     EnableShadow();
     shadow.max_height = 300;
     SetModelBank("items");
-    resource = this->kind;
+    resource = kind;
     switch (resource)
     {
         case 1:
         case 2:
         case 3:
         case 7:
-            this->has_model = 0;
+            has_model = false;
             break;
         case 4:
             key = 0x350E968C;
@@ -108,265 +97,43 @@ Pickup::Pickup(uint32 resource, const uint32 *position, const uint32 *velocity, 
             key = 0x4D2C5D7C;
             goto model;
         case 14:
-            resource = 14;
-            goto health;
         case 15:
-            resource = 15;
-            goto health;
         case 16:
-            resource = 16;
-        health:
-            this->has_model = 1;
+            has_model = true;
             bank = items_bank;
-            motion.angular_velocity.words[1] = 100 + (resource - 14) * 50;
-            this->health = GetGameTuning().health_pickup_amount[resource - 14];
+            motion.angular_velocity.y = 100 + (resource - 14) * 50;
+            health = GetGameTuning().health_pickup_amount[resource - 14];
             key = 0x7E74F3D4;
             goto resolve;
         model:
-            this->has_model = 1;
+            has_model = true;
             bank = items_bank;
         resolve:
-            value = FindModelResourceIndex(key, bank);
-            this->model.model_idx = value;
+            model.model_idx = ModelBank::FindResourceIdx(key, bank);
             break;
         case 17:
             SetModelBank("plus_one");
-            this->has_model = 1;
-            this->floor_offset = 150;
+            has_model = true;
+            floor_offset = 150;
             break;
         case 19:
         case 20:
-            this->has_model = 1;
-            this->model.model_idx = 0;
+            has_model = true;
+            model.model_idx = 0;
             break;
         default:
             break;
     }
     AddToList(visual_lists.pickups);
-    if (!this->has_model)
-    {
-        value = this->model.flags;
-        this->model.flags = value | 1;
-    }
+    if (!has_model)
+        model.flags |= 1;
 }
 
-uint32 Pickup::ReleaseResources()
+void Pickup::SetMotionParameters(sint32 gravity, uint8 damping_shift)
 {
-    FUNCTION_MARKER(0x80020168, "SLUS_003.73");
-    uint32 result = RemoveShadow();
-    if (child)
-        result = child->Destroy(3);
-    child = 0;
-    if (ring)
-        result = ring->Destroy(3);
-    ring = 0;
-    return result;
-}
-
-Pickup::~Pickup()
-{
-    if (child)
-        child->Destroy(3);
-    if (ring)
-        ring->Destroy(3);
-}
-
-uint32 Pickup::Destroy(uint32 reason)
-{
-    uint32 result;
-    FUNCTION_MARKER(0x800201F8, "SLUS_003.73");
-    RemoveFromList(visual_lists.pickups);
-    Pickup::ReleaseResources();
-    result = VisualObject::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(this) : result;
-}
-
-uint32 Pickup::Update()
-{
-    FUNCTION_MARKER(0x800209EC, "SLUS_003.73");
-    ObjectBorrow object_borrow;
-    sint32 result;
-    uint16 radius;
-    uint16 wave;
-    uint32 column_cursor;
-    sint32 odd_column;
-    uint32 column;
-    sint32 red;
-    sint32 green;
-    sint32 extent;
-    UpdateLifetime();
-    if (player_distance >= 8001)
-    {
-        return ReleaseResources();
-    }
-    UpdateMotion();
-    if (!this->has_model)
-    {
-        if (!child)
-            CreateChildEffect();
-        if (!child)
-        {
-            GameDiagnostic("Pickup child effect allocation failed\n");
-            abort();
-        }
-        child->SetPosition(model.pos.words);
-    }
-    if (!ring)
-    {
-        GameHeapBlock *allocation = AllocateEffectStorage(104);
-        if (!allocation)
-        {
-            GameDiagnostic("Pickup ring allocation failed\n");
-            abort();
-        }
-        ring = new (allocation) RingEffect(4, this->kind == 15 ? 3 : 2);
-        ring->hide_center = 1;
-        ring->SetCenterColor(0, 0, 0);
-        ring->SetRingColors(0, 0, 0);
-        ring->SetRowColors(1, 0, 0, 0);
-        ring->SetRadii(0);
-        ring->persistent = 1;
-        switch (this->kind)
-        {
-            case 1:
-
-            case 0xE:
-                ring->SetRowColors(0, 64, 64, 64);
-                radius = 60;
-                goto ApplyRingRadius;
-
-            case 2:
-                ring->SetRowColors(0, 160, 70, 0);
-                radius = 60;
-                goto ApplyRingRadius;
-
-            case 3:
-                ring->SetRadii(30);
-                ring->SetRowColors(0, 0, 100, 0);
-                radius = 60;
-                goto ApplyRingRadius;
-
-            case 4:
-                ring->SetRowColors(0, 16, 16, 64);
-                this->ring_radius = 60;
-                wave = 5;
-                goto ApplyRingWave;
-
-            case 5:
-                ring->SetRowColors(0, 128, 32, 0);
-                this->ring_radius = 50;
-                wave = 5;
-                goto ApplyRingWave;
-
-            case 6:
-                ring->SetRowColors(0, 100, 50, 0);
-                this->ring_radius = 30;
-                wave = 5;
-                goto ApplyRingWave;
-
-            case 7:
-                ring->SetRowColors(0, 90, 40, 0);
-                radius = 60;
-                goto ApplyRingRadius;
-
-            case 0xA:
-                ring->SetRowColors(0, 255, 0, 0);
-                radius = 80;
-                goto ApplyRingRadius;
-
-            case 0xF:
-                ring->SetRowColors(2, 0, 0, 0);
-                ring->SetRowColors(1, 128, 0, 0);
-                ring->SetRowColors(0, 64, 64, 64);
-                radius = 60;
-                goto ApplyRingRadius;
-
-            case 0x10:
-                column_cursor = 0;
-                if (ring->point_count)
-                {
-                    odd_column = 0;
-                    do
-                    {
-                        column = column_cursor;
-                        if (odd_column)
-                        {
-                            red = 128;
-
-                            green = 0;
-                        }
-                        else
-                        {
-                            red = 64;
-
-                            green = 64;
-                        }
-                        ++column_cursor;
-                        ring->SetColumnColors(column, red, green, odd_column ? 0 : 64);
-                        odd_column = (column_cursor & 1);
-                    } while (column_cursor < ring->point_count);
-                }
-                ring->SetRingColors(0, 0, 0);
-                ring->SetRowColors(1, 0, 0, 0);
-                radius = 60;
-                goto ApplyRingRadius;
-
-            case 0x11:
-                ring->SetRowColors(0, 64, 64, 64);
-                radius = 100;
-            ApplyRingRadius:
-                this->ring_radius = radius;
-
-                wave = 10;
-            ApplyRingWave:
-                this->ring_wave = wave;
-
-                break;
-
-            default:
-                break;
-        }
-    }
-    if (this->visible)
-        ring->seg_mask = -1;
-    else
-        ring->seg_mask = 0;
-    ring->SetPosition(this->model.pos.words);
-    uint32 phase = (600 * game_clock.tick) & 0x3FF8;
-    uint32 amplitude = this->ring_wave;
-    sint32 sine = rsin(phase >> 2);
-    uint32 product = amplitude * (uint32)sine;
-    uint32 base = this->ring_radius;
-    if ((sint32)product < 0)
-        product += 4095;
-    extent = (sint32)(base + (uint32)((sint32)product >> 12));
-    ring->SetRowExtent(0, extent);
-    ring->SetRowExtent(1, extent);
-    if (this->kind == 15)
-        ring->SetRowExtent(2, extent);
-
-    result = ring->angle + 50;
-    ring->angle = result;
-    return result;
-}
-
-uint32 Pickup::Finish()
-{
-    RecordDataBorrow record_borrow;
-    FUNCTION_MARKER(0x80020264, "SLUS_003.73");
-    uint32 result = IsFinished();
-    if (!result)
-    {
-        if (this->spawn_linked)
-        {
-            SpawnEnemyIndices(GetRecordPayload(this->spawn_record));
-        }
-        result = this->lifecycle_flags | 64;
-        uint32 flags = this->model.flags | 1;
-        this->lifecycle_flags = result;
-        this->model.flags = flags;
-    }
-    return result;
+    FUNCTION_MARKER(0x8002005C, "SLUS_003.73");
+    motion.acceleration.y = gravity;
+    motion.drag[1] = damping_shift;
 }
 
 uint32 Pickup::CreateChildEffect()
@@ -380,7 +147,7 @@ uint32 Pickup::CreateChildEffect()
         case 3:
         case 7:
         {
-            GameHeapBlock *allocation = AllocateEffectStorage(kind == 2 || kind == 3 ? 80 : 76);
+            GameHeapBlock *allocation = EffectObject::AllocateStorage(kind == 2 || kind == 3 ? 80 : 76);
             if (allocation)
             {
                 if (kind == 2)
@@ -408,174 +175,147 @@ uint32 Pickup::CreateChildEffect()
             break;
     }
     if (child)
-        child->persistent = 1;
+        child->persistent = true;
     use_small_effect_pool = true;
     return 1;
+}
+
+uint32 Pickup::ReleaseResources()
+{
+    FUNCTION_MARKER(0x80020168, "SLUS_003.73");
+    uint32 result = RemoveShadow();
+    if (child)
+        result = child->Destroy(3);
+    child = 0;
+    if (ring)
+        result = ring->Destroy(3);
+    ring = 0;
+    return result;
+}
+
+uint32 Pickup::Destroy(uint32 reason)
+{
+    uint32 result;
+    FUNCTION_MARKER(0x800201F8, "SLUS_003.73");
+    RemoveFromList(visual_lists.pickups);
+    Pickup::ReleaseResources();
+    result = VisualObject::Destroy(0);
+    return (reason & 1) ? ReleaseStorage() : result;
+}
+
+uint32 Pickup::Finish()
+{
+    RecordDataBorrow rec_borrow;
+    FUNCTION_MARKER(0x80020264, "SLUS_003.73");
+    uint32 result = IsFinished();
+    if (!result)
+    {
+        if (spawn_linked)
+        {
+            SpawnEnemyIndices(GetRecPayload(spawn_record));
+        }
+        result = lifecycle_flags | 64;
+        uint16 flags = model.flags | 1;
+        lifecycle_flags = result;
+        model.flags = flags;
+    }
+    return result;
 }
 
 uint32 Pickup::UpdateMotion()
 {
     FUNCTION_MARKER(0x800202CC, "SLUS_003.73");
-    uint32 x, y, z, phase, amplitude, product, velocity, gravity, shift;
-    uint32 unrestricted, damped, offset, floor, result;
-    sint32 height, ground;
-    AddAngleVector(this->model.angles.words, motion.angular_velocity.words);
-    NormalizeAngles(this->model.angles.words);
-    if (!this->moving)
+    model.angles.AddAngles(motion.angular_velocity);
+    model.angles.NormalizeAngles();
+    if (!moving)
     {
-        x = this->base_pos.words[0];
-        y = this->base_pos.words[1];
-        z = this->base_pos.words[2];
-        this->model.pos.words[0] = x;
-        this->model.pos.words[1] = y;
-        this->model.pos.words[2] = z;
-        phase = this->bob_phase & 4095;
-        amplitude = this->bob_amplitude;
-        product = amplitude * (uint32)rsin(phase);
-        if ((sint32)product < 0)
-            product += 4095;
-        offset = (uint32)((sint32)product >> 12) << 12;
-        y = this->model.pos.words[1];
-        phase = this->bob_phase;
-        amplitude = this->bob_step;
-        this->model.pos.words[1] = y + offset;
-        this->bob_phase = phase + amplitude;
-        goto UpdateShadowHeight;
+        model.pos = base_pos;
+        sint32 sine = rsin(bob_phase & 4095);
+        // Truncate to whole world units before restoring Q12 coordinates
+        model.pos.y = (uint32)model.pos.y + (bob_amplitude * sine / ONE * ONE);
+        bob_phase += bob_step;
     }
-    if (!this->ignore_floor)
+    else if (!ignore_floor && floor_y < 0 && floor_y >= -4)
     {
-        ground = (sint32)this->floor_y;
-        if (ground < 0 && ground >= -4)
+        if (game_clock.tick & 1)
         {
-            if (game_clock.tick & 1)
+            uint32 floor = CollisionRay::FindGroundHeight(base_pos, 0, 8000);
+            if (floor == 0xFFFFFFFF)
             {
-                floor = FindGroundHeight(base_pos.words, 0, 8000);
-                if (floor == 0xFFFFFFFF)
-                {
-                    floor = this->floor_y - 1;
-                    this->floor_y = floor;
-                    if ((sint32)floor < -4)
-                        this->ignore_floor = 1;
-                }
-                else
-                    this->floor_y = floor;
+                floor_y = (uint32)floor_y - 1;
+                if (floor_y < -4)
+                    ignore_floor = true;
             }
-            goto UpdateShadowHeight;
+            else
+                floor_y = floor;
         }
-    }
-    AddVectors(base_pos.words, motion.velocity.words);
-    velocity = motion.velocity.words[1];
-    gravity = motion.acceleration.words[1];
-    shift = motion.drag[1] & 31;
-    velocity += gravity;
-    damped = velocity - (uint32)((sint32)velocity >> shift);
-    unrestricted = this->ignore_floor;
-    motion.velocity.words[1] = velocity;
-    motion.velocity.words[1] = damped;
-    if (!unrestricted)
-    {
-        offset = this->floor_offset << 12;
-        floor = this->floor_y;
-        y = this->base_pos.words[1];
-        floor -= offset;
-        if ((sint32)floor < (sint32)y && (sint32)damped > 0)
-        {
-            this->base_pos.words[1] = floor;
-            motion.velocity.words[0] = 0;
-            motion.velocity.words[1] = 0;
-            motion.velocity.words[2] = 0;
-            this->moving = 0;
-        }
-    }
-    x = this->base_pos.words[0];
-    y = this->base_pos.words[1];
-    z = this->base_pos.words[2];
-    this->model.pos.words[0] = x;
-    this->model.pos.words[1] = y;
-    this->model.pos.words[2] = z;
-UpdateShadowHeight:
-    x = this->base_pos.words[0];
-    y = this->base_pos.words[1];
-    z = this->base_pos.words[2];
-    surface.pos.words[0] = x;
-    surface.pos.words[1] = y;
-    surface.pos.words[2] = z;
-    floor = this->floor_y;
-    y = this->model.pos.words[1];
-    result = (uint32)((sint32)(floor - y) >> 12);
-    shadow.height = result;
-    result <<= 16;
-    height = (sint32)result >> 16;
-    surface.pos.words[1] = floor;
-    if (height)
-    {
-        product = 60 * (uint32)height;
-        if ((sint32)product < 0)
-            product += 127;
-        result = 140 - (uint32)((sint32)product >> 7);
-        shadow.radius = result;
     }
     else
-        shadow.radius = 0;
-    return result;
+    {
+        base_pos.Add(motion.velocity);
+        uint32 velocity = (uint32)motion.velocity.y + motion.acceleration.y;
+        motion.velocity.y = velocity - ((sint32)velocity >> (motion.drag[1] & 31));
+        if (!ignore_floor)
+        {
+            sint32 floor = (uint32)floor_y - (floor_offset << 12);
+            if (floor < base_pos.y && motion.velocity.y > 0)
+            {
+                base_pos.y = floor;
+                motion.velocity = zero_vector;
+                moving = false;
+            }
+        }
+        model.pos = base_pos;
+    }
+    surface.pos = base_pos;
+    shadow.height = (sint32)((uint32)floor_y - (uint32)model.pos.y) >> 12;
+    surface.pos.y = floor_y;
+    if (shadow.height)
+    {
+        sint32 radius = 140 - 60 * shadow.height / 128;
+        shadow.radius = radius;
+        return radius;
+    }
+    shadow.radius = 0;
+    return 0;
 }
 
 void Pickup::UpdateLifetime()
 {
     FUNCTION_MARKER(0x80020518, "SLUS_003.73");
-    uint32 count = this->lifetime;
-    if (count == 65535)
+    if (lifetime == 65535)
         return;
-    if (count)
-        this->lifetime = count - 1;
-    count = this->lifetime;
-    if (count < 60)
-    {
-        uint32 amplitude = this->bob_size;
-        uint32 remaining = this->lifetime;
-        uint32 product = amplitude * remaining;
-        this->bob_amplitude = (sint32)product / 60;
-    }
-    count = this->lifetime;
-    if (count - 31 < 29)
-        this->visible = (game_clock.tick & 2) ? 1 : 0;
-    if (this->lifetime < 31)
-        this->visible = (game_clock.tick & 1) ? 1 : 0;
-    if (this->has_model)
-    {
-        uint32 blinking = this->visible;
-        uint32 flags = this->model.flags;
-        this->model.flags = blinking ? flags & 65534 : flags | 1;
-    }
-    if (!this->lifetime)
+    if (lifetime)
+        --lifetime;
+    if (lifetime < 60)
+        bob_amplitude = bob_size * lifetime / 60;
+    if (lifetime >= 31 && lifetime < 60)
+        visible = (game_clock.tick & 2) != 0;
+    if (lifetime < 31)
+        visible = (game_clock.tick & 1) != 0;
+    if (has_model)
+        model.flags = visible ? model.flags & 65534 : model.flags | 1;
+    if (!lifetime)
     {
         if (player_distance < 8001)
-            SpawnExplosionRing(this->model.pos.words, 20, 255, 255, 255, 4, 1, 20);
+            RingBurstEffect::SpawnExplosion(&model.pos, 20, 255, 255, 255, 4, 1, 20);
         Finish();
     }
-}
-
-static const char *MissingCollectedPickupKind(uint32 kind)
-{
-    // TODO Mutated kind requires an uninitialized original MIPS value
-    GameDiagnostic("TODO Pickup kind changed during health collection: %u\n", kind);
-    abort();
 }
 
 uint32 Pickup::Collect(Player &player)
 {
     FUNCTION_MARKER(0x800206C4, "SLUS_003.73");
     ObjectBorrow object_borrow;
-    const uint32 sound_id = 26;
     sint32 result;
     bool collected;
     const char *message;
     const HudTextAnimation *text_animation;
-    sint32 collected_kind;
-    sint32 smartbombs_before;
-    result = this->kind;
+    uint16 collected_kind;
+    uint32 smartbombs_before;
+    result = kind;
     collected = false;
-    switch (this->kind)
+    switch (kind)
     {
         case 1:
             result = player.ReplaceWeapon(WPN_RIP_LASER);
@@ -583,7 +323,7 @@ uint32 Pickup::Collect(Player &player)
 
             if (collected)
             {
-                ClearAnimatedHudText();
+                AnimatedHudText::ClearAll();
                 message = HudMessage::rip_laser;
                 text_animation = hud_weapon_animation;
                 goto ShowPickupMessage;
@@ -596,7 +336,7 @@ uint32 Pickup::Collect(Player &player)
 
             if (collected)
             {
-                ClearAnimatedHudText();
+                AnimatedHudText::ClearAll();
                 message = HudMessage::particle_beam;
                 text_animation = hud_weapon_animation;
                 goto ShowPickupMessage;
@@ -609,7 +349,7 @@ uint32 Pickup::Collect(Player &player)
 
             if (collected)
             {
-                ClearAnimatedHudText();
+                AnimatedHudText::ClearAll();
                 message = HudMessage::pulse_laser;
                 text_animation = hud_pulse_laser_animation;
                 goto ShowPickupMessage;
@@ -622,7 +362,7 @@ uint32 Pickup::Collect(Player &player)
 
             if (collected)
             {
-                ClearAnimatedHudText();
+                AnimatedHudText::ClearAll();
                 message = HudMessage::rockets;
                 text_animation = hud_weapon_animation;
                 goto ShowPickupMessage;
@@ -635,7 +375,7 @@ uint32 Pickup::Collect(Player &player)
 
             if (collected)
             {
-                ClearAnimatedHudText();
+                AnimatedHudText::ClearAll();
                 message = HudMessage::homing_missiles;
                 text_animation = hud_weapon_animation;
                 goto ShowPickupMessage;
@@ -648,7 +388,7 @@ uint32 Pickup::Collect(Player &player)
 
             if (collected)
             {
-                ClearAnimatedHudText();
+                AnimatedHudText::ClearAll();
                 message = HudMessage::grenades;
                 text_animation = hud_weapon_animation;
                 goto ShowPickupMessage;
@@ -661,7 +401,7 @@ uint32 Pickup::Collect(Player &player)
 
             if (collected)
             {
-                ClearAnimatedHudText();
+                AnimatedHudText::ClearAll();
                 message = HudMessage::flamethrower;
                 text_animation = hud_flamethrower_animation;
                 goto ShowPickupMessage;
@@ -670,8 +410,8 @@ uint32 Pickup::Collect(Player &player)
 
         case 0xA:
             smartbombs_before = player.smartbombs;
-            result = (sint32)((uint32)smartbombs_before + 1);
-            if (((sint32)smartbombs_before >= 15))
+            result = smartbombs_before + 1;
+            if ((sint32)smartbombs_before >= 15)
             {
                 collected = false;
             }
@@ -683,7 +423,7 @@ uint32 Pickup::Collect(Player &player)
 
             if (collected)
             {
-                ClearAnimatedHudText();
+                AnimatedHudText::ClearAll();
                 message = HudMessage::smart_bomb;
                 goto UsePickupAnimation;
             }
@@ -694,14 +434,14 @@ uint32 Pickup::Collect(Player &player)
         case 0xF:
 
         case 0x10:
-            result = player.RestoreHealth(((sint16)((uint16)this->health)));
+            result = player.RestoreHealth(health);
             collected = result != 0;
 
             if (collected)
             {
-                ClearAnimatedHudText();
-                collected_kind = this->kind;
-                if ((collected_kind == 15))
+                AnimatedHudText::ClearAll();
+                collected_kind = kind;
+                if (collected_kind == 15)
                 {
                     message = HudMessage::health50;
                 }
@@ -719,20 +459,20 @@ uint32 Pickup::Collect(Player &player)
                 text_animation = hud_pickup_animation;
 
             ShowPickupMessage:
-                AddAnimatedHudText(message, text_animation);
+                AnimatedHudText::Add(message, text_animation);
             }
             break;
 
         case 0x11:
-            result = (sint32)(game_progress.lives + 1);
-            game_progress.lives = (uint32)result;
+            result = game_progress.lives + 1;
+            game_progress.lives = result;
             if (result >= 101)
                 game_progress.lives = 100;
             collected = true;
-            ResetPanelDisplayTimer();
+            ResetPanelDispTimer();
 
-            ClearAnimatedHudText();
-            AddAnimatedHudText(HudMessage::extra_life, hud_extra_life_animation);
+            AnimatedHudText::ClearAll();
+            AnimatedHudText::Add(HudMessage::extra_life, hud_extra_life_animation);
             break;
 
         default:
@@ -742,14 +482,180 @@ uint32 Pickup::Collect(Player &player)
     if (collected)
     {
         Finish();
-        return PlaySoundEffect(sound_id, 0x2000, 0);
+        return PlaySoundEffect(26, 0x2000, 0);
     }
     return result;
 }
 
-void Pickup::SetMotionParameters(uint32 gravity, uint32 damping_shift)
+uint32 Pickup::Update()
 {
-    FUNCTION_MARKER(0x8002005C, "SLUS_003.73");
-    motion.acceleration.words[1] = gravity;
-    motion.drag[1] = damping_shift;
+    FUNCTION_MARKER(0x800209EC, "SLUS_003.73");
+    ObjectBorrow object_borrow;
+    uint32 result;
+    uint16 radius;
+    uint16 wave;
+    sint32 extent;
+    UpdateLifetime();
+    if (player_distance >= 8001)
+    {
+        return ReleaseResources();
+    }
+    UpdateMotion();
+    if (!has_model)
+    {
+        if (!child)
+            CreateChildEffect();
+        if (!child)
+        {
+            GameDiagnostic(("Pickup child effect allocation failed\n"));
+            abort();
+        }
+        child->SetPos(&model.pos);
+    }
+    if (!ring)
+    {
+        GameHeapBlock *allocation = EffectObject::AllocateStorage(104);
+        if (!allocation)
+        {
+            GameDiagnostic(("Pickup ring allocation failed\n"));
+            abort();
+        }
+        ring = new (allocation) RingEffect(4, kind == 15 ? 3 : 2);
+        ring->hide_center = true;
+        ring->SetCenterColor(0, 0, 0);
+        ring->SetRingColors(0, 0, 0);
+        ring->SetRowColors(1, 0, 0, 0);
+        ring->SetRadii(0);
+        ring->persistent = true;
+        switch (kind)
+        {
+            case 1:
+
+            case 0xE:
+                ring->SetRowColors(0, 64, 64, 64);
+                radius = 60;
+                goto ApplyRingRadius;
+
+            case 2:
+                ring->SetRowColors(0, 160, 70, 0);
+                radius = 60;
+                goto ApplyRingRadius;
+
+            case 3:
+                ring->SetRadii(30);
+                ring->SetRowColors(0, 0, 100, 0);
+                radius = 60;
+                goto ApplyRingRadius;
+
+            case 4:
+                ring->SetRowColors(0, 16, 16, 64);
+                ring_radius = 60;
+                wave = 5;
+                goto ApplyRingWave;
+
+            case 5:
+                ring->SetRowColors(0, 128, 32, 0);
+                ring_radius = 50;
+                wave = 5;
+                goto ApplyRingWave;
+
+            case 6:
+                ring->SetRowColors(0, 100, 50, 0);
+                ring_radius = 30;
+                wave = 5;
+                goto ApplyRingWave;
+
+            case 7:
+                ring->SetRowColors(0, 90, 40, 0);
+                radius = 60;
+                goto ApplyRingRadius;
+
+            case 0xA:
+                ring->SetRowColors(0, 255, 0, 0);
+                radius = 80;
+                goto ApplyRingRadius;
+
+            case 0xF:
+                ring->SetRowColors(2, 0, 0, 0);
+                ring->SetRowColors(1, 128, 0, 0);
+                ring->SetRowColors(0, 64, 64, 64);
+                radius = 60;
+                goto ApplyRingRadius;
+
+            case 0x10:
+                for (uint32 column = 0; column < ring->point_count; ++column)
+                {
+                    if (column & 1)
+                        ring->SetColumnColors(column, 128, 0, 0);
+                    else
+                        ring->SetColumnColors(column, 64, 64, 64);
+                }
+                ring->SetRingColors(0, 0, 0);
+                ring->SetRowColors(1, 0, 0, 0);
+                radius = 60;
+                goto ApplyRingRadius;
+
+            case 0x11:
+                ring->SetRowColors(0, 64, 64, 64);
+                radius = 100;
+            ApplyRingRadius:
+                ring_radius = radius;
+
+                wave = 10;
+            ApplyRingWave:
+                ring_wave = wave;
+
+                break;
+
+            default:
+                break;
+        }
+    }
+    if (visible)
+        ring->seg_mask = -1;
+    else
+        ring->seg_mask = 0;
+    ring->SetPos(&model.pos);
+    uint32 phase = (600 * game_clock.tick) & 0x3FF8;
+    sint32 sine = rsin(phase >> 2);
+    extent = ring_radius + ring_wave * sine / ONE;
+    ring->SetRowExtent(0, extent);
+    ring->SetRowExtent(1, extent);
+    if (kind == 15)
+        ring->SetRowExtent(2, extent);
+
+    result = ring->angle + 50;
+    ring->angle = result;
+    return result;
+}
+
+Pickup::~Pickup()
+{
+    if (child)
+        child->Destroy(3);
+    if (ring)
+        ring->Destroy(3);
+}
+
+Pickup *Pickup::Spawn(uint16 resource, const Vector3 *pos, uint32 flags, uint16 lifetime, const Vector3 *velocity)
+{
+    uint32 difficulty;
+    GameHeapBlock *object;
+    FUNCTION_MARKER(0x80020EF8, "SLUS_003.73");
+    difficulty = game_settings.difficulty;
+    if (difficulty == 2)
+    {
+        if (resource == 14)
+            return 0;
+        if (resource == 15)
+            resource = 14;
+        else if (resource == 16)
+            resource = 15;
+    }
+    else if (!difficulty && resource == 14)
+        resource = 15;
+    object = AllocateZeroedObject(344);
+    if (!object)
+        return 0;
+    return new (object) Pickup(resource, pos, velocity, flags, lifetime);
 }

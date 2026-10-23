@@ -3,15 +3,13 @@
 
 #include "record_data.h"
 
-struct ModelInstance;
-
 extern "C"
 {
 #include "psx.h"
 }
 
-uint32 SetRecordGroupEnabled(uint32 group, uint32 enabled);
-uint32 ApplyRecordGroupAction(uint32 group, uint32 mode);
-uint32 SetObjectRecordGroupMode(RecordCursor group, uint32 mode);
+uint32 SetRecGrpEnabled(uint32 grp, bool enabled);
+uint32 ApplyRecGrpAction(uint32 grp, uint32 mode);
+uint32 SetObjectRecGrpMode(RecordCursor grp, uint32 mode);
 
 #endif

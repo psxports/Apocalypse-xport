@@ -1,35 +1,30 @@
-#include <stdio.h>
 #include <stdlib.h>
 
-#include "game_image_resource.h"
+#include "psx.h"
 #include "game_diagnostics.h"
 #include "level_session.h"
 #include "scene_lifecycle.h"
 #include "game_settings.h"
-
-#include "game_pad_poll.h"
-
+#include "game_pad_input.h"
 #include "visual_object.h"
+
 extern "C"
 {
 #include "game_gpu_present.h"
 }
 #include "psx_press.h"
-#include "movie_stream.h"
+#include "psx_stream.h"
 #include "movie_lifecycle.h"
-static uint32 WaitForMovieCdStop();
-static uint32 OutputMovieSlice(void);
-static uint32 DecodeNextMovieFrame(void);
-static uint32 InitializeMovieDecoder(void);
 #include "startup_resources.h"
-#include "game_random.h"
-#include "vector_distance.h"
+#include "global.h"
 #include "cd_voice_event.h"
-#include "model_resources.h"
+#include "model_bank.h"
 #include "game_heap.h"
 #include "record_commands.h"
 #include "psx_spu.h"
+#include "psx_gpu.h"
 #include "game_data_io.h"
+#include "texture_resources.h"
 
 struct MovieResource
 {
@@ -39,7 +34,7 @@ struct MovieResource
     uint16 last_frame;
     uint32 decode_bytes;
     uint32 ring_sectors;
-    uint8 rgb24;
+    bool rgb24;
     uint32 initial_sector;
 };
 
@@ -96,21 +91,95 @@ struct MovieBufferStorage
     uint16 *vlc;
     uint8 *workspace_data;
     ScriptWorkspace *workspace;
+    uint32 ring_sectors;
+    uint32 reading;
+    bool ring_bound;
 };
 
 static MovieBufferStorage movie_buffers;
 
-static void CompleteMovieOutput()
+static uint32 RemapTexPolygons(uint16 tpage, const TextureResource &tex);
+static uint32 WaitForCdStop();
+static uint32 InitializeDecoder();
+static void OutputSlice();
+static uint32 DecodeNextFrame();
+static uint32 StartStream();
+
+static void BindRing(uint32 *ring, uint32 sectors)
 {
-    OutputMovieSlice();
+    movie_buffers.ring_sectors = sectors;
+    StSetRing(ring, sectors);
+    movie_buffers.ring_bound = true;
 }
 
-static void ReleaseMovieStorage()
+static uint32 StartRead(uint32 mode)
+{
+    uint8 val = mode;
+    if (!ControlDataCd(14, &val, 0))
+        return 0;
+    stream_set_read_mode(mode);
+    movie_buffers.reading = ControlDataCd(27, 0, 0);
+    return movie_buffers.reading;
+}
+
+static uint32 PauseRead()
+{
+    // Preserve complete queued frames, XA samples and decoder history
+    cd_set_reading_native(0);
+    movie_buffers.reading = 0;
+    return 1;
+}
+
+static uint32 ResumeRead(uint32 mode)
+{
+    uint8 val = mode;
+    if (!ControlDataCd(14, &val, 0))
+        return 0;
+    stream_set_read_mode(mode);
+    cd_set_reading_native(1);
+    movie_buffers.reading = 1;
+    return 1;
+}
+
+static uint32 PumpRead()
+{
+    uint32 consumed = 0;
+    if (!movie_buffers.reading)
+        return 0;
+    // Service the native CD clock while the caller waits for a complete frame
+    psx_native_poll_events();
+    for (uint32 remaining = movie_buffers.ring_sectors; remaining; --remaining)
+    {
+        uint16 status = StNextStatus(0, 0);
+        if (status == StCOMPLETE || status == StLOCK || stream_pump() <= 0)
+            break;
+        ++consumed;
+    }
+    return consumed;
+}
+
+static uint32 ReadFrame(uint32 **frame, uint32 **header)
+{
+    PumpRead();
+    return StGetNext(frame, header);
+}
+
+static void StopRead()
+{
+    movie_buffers.reading = 0;
+    if (movie_buffers.ring_bound)
+        StUnSetRing();
+    movie_buffers.ring_bound = false;
+    movie_buffers.ring_sectors = 0;
+    CdReadyCallback(0);
+}
+
+static void ReleaseStorage()
 {
     if (!movie_buffers.workspace && !movie_buffers.workspace_data && !movie_buffers.vlc)
         return;
     DecDCToutCallback(0);
-    StopMovieRead();
+    StopRead();
     // Cancel device borrowers before releasing their native backing storage
     DecDCTReset(1);
     if (movie_buffers.workspace)
@@ -119,10 +188,10 @@ static void ReleaseMovieStorage()
     {
         free(movie_buffers.ring);
         free(movie_buffers.vlc);
-        for (uint32 index = 0; index < 2; ++index)
-            free(movie_buffers.decoded[index]);
-        for (uint32 index = 0; index < MovieSliceBuffers; ++index)
-            free(movie_buffers.slices[index]);
+        for (uint32 idx = 0; idx < 2; ++idx)
+            free(movie_buffers.decoded[idx]);
+        for (uint32 idx = 0; idx < MovieSliceBuffers; ++idx)
+            free(movie_buffers.slices[idx]);
     }
     MovieBufferStorage initial = {0};
     movie_buffers = initial;
@@ -130,112 +199,34 @@ static void ReleaseMovieStorage()
 
 void ResetMoviePlaybackState()
 {
-    ReleaseMovieStorage();
+    ReleaseStorage();
     MoviePlaybackState initial = {0};
     movie_playback = initial;
     movie_playback.balance_ticks = 4;
-    for (uint32 index = 0; index < MovieRecordCount; ++index)
-        movie_sectors[index] = movie_resources[index].initial_sector;
+    for (uint32 idx = 0; idx < MovieRecordCount; ++idx)
+        movie_sectors[idx] = movie_resources[idx].initial_sector;
 }
 
-uint32 ResetMoviePlayback()
-{
-    FUNCTION_MARKER(0x8002F130, "SLUS_003.73");
-    uint32 pending = movie_playback.refresh_pending;
-    movie_playback.position_count = 0;
-    if (pending)
-        movie_playback.refresh_pending = 0;
-    uint32 active = movie_playback.active;
-    if (!active)
-    {
-        ReleaseMovieStorage();
-        return active;
-    }
-    CdlATV volume = {0};
-    CdMix(&volume);
-    movie_playback.active = 0;
-    ReleaseMovieStorage();
-    CdlLOC location;
-    CdIntToPos((sint32)movie_playback.start_sector, &location);
-    ControlDataCd(22, &location, 0);
-    PSX_RECT rectangle;
-    rectangle.x = movie_playback.origin_x;
-    rectangle.y = movie_playback.origin_y;
-    rectangle.w = movie_playback.width;
-    rectangle.h = movie_playback.height;
-    return ClearImage(&rectangle, 1, 1, 1);
-}
-
-static uint32 StartMovieStream(void)
-{
-    FUNCTION_MARKER(0x8002FA48, "SLUS_003.73");
-    CdlLOC location;
-    uint8 mode = 0x80;
-    CdIntToPos((sint32)movie_playback.start_sector, &location);
-    uint32 result;
-    do
-    {
-        while (!ControlDataCd(2, &location, 0))
-            ;
-        while (!ControlDataCd(14, &mode, 0))
-            ;
-        result = StartMovieRead(480);
-    } while (!result);
-    return result;
-}
-
-static uint32 RemapMovieTexturePolygons(uint32 tpage, const TextureResource &texture)
-{
-    FUNCTION_MARKER(0x8002F50C, "SLUS_003.73");
-    for (uint32 slot = 0; slot < 2; ++slot)
-    {
-        const uint32 bank = GetActiveModelBank(slot);
-        if (bank == 0xFFFFFFFF)
-            continue;
-        ModelGeometrySet &models = GetModelBank(bank).geometry;
-        for (uint32 idx = 0; idx < models.count; ++idx)
-        {
-            ModelGeometry &model = models.models[idx];
-            for (uint32 p = 0; p < model.poly_count; ++p)
-            {
-                ModelPolygon &poly = model.polys[p];
-                if ((poly.flags & 3) != 3 || poly.tpage != texture.tpage || poly.clut != texture.clut)
-                    continue;
-                uint32 v;
-                for (v = 0; v < 4; ++v)
-                    if (poly.uv[v].u < texture.uv[0].u || poly.uv[v].u > texture.uv[1].u || poly.uv[v].v < texture.uv[0].v || poly.uv[v].v > texture.uv[2].v)
-                        break;
-                if (v != 4)
-                    continue;
-                poly.tpage = (uint16)tpage;
-                for (v = 0; v < 4; ++v)
-                    poly.uv[v].u = (poly.uv[v].u + 1) >> 1;
-            }
-        }
-    }
-    return 8;
-}
-
-uint32 PrepareMovieTexture(uint32 resource)
+uint32 PrepareMovieTex(uint32 resource)
 {
     FUNCTION_MARKER(0x8002E600, "SLUS_003.73");
     uint32 active = movie_playback.active;
     if (active)
         return active;
-    const TextureResource &texture = GetTextureResource(resource);
-    uint32 x = (uint16)texture.x;
-    uint32 y = (uint16)texture.y;
+    const TextureResource &tex = TextureResource::Get(resource);
+    uint16 x = tex.x;
+    uint16 y = tex.y;
     uint32 width = movie_playback.width;
-    uint32 height = movie_playback.height;
-    PSX_RECT rectangle;
-    rectangle.w = (sint16)width;
-    rectangle.h = (sint16)height;
+    uint16 height = movie_playback.height;
+    PSX_RECT rect;
+    rect.w = width;
+    rect.h = height;
     movie_playback.origin_x = x;
     movie_playback.origin_y = y;
-    rectangle.x = (sint16)x;
-    rectangle.y = (sint16)y;
-    ClearImageRectangle(rectangle, 1, 1, 1);
-    uint32 wide = movie_playback.rgb24;
+    rect.x = x;
+    rect.y = y;
+    ClearImage(&rect, 1, 1, 1);
+    bool wide = movie_playback.rgb24;
     x = movie_playback.origin_x;
     width = movie_playback.width;
     if (wide)
@@ -243,277 +234,202 @@ uint32 PrepareMovieTexture(uint32 resource)
     y = movie_playback.origin_y;
     movie_playback.end_x = x + width;
     x = movie_playback.origin_x;
-    uint32 tpage = ((y & 0x100) >> 4) | ((x & 0x3FF) >> 6) | 0x100 | ((y & 0x200) << 2);
-    return RemapMovieTexturePolygons(tpage, texture);
+    uint16 tpage = getTPage(2, 0, x, y);
+    return RemapTexPolygons(tpage, tex);
 }
 
-uint32 QueueMoviePosition(const uint32 *position)
+uint32 QueueMoviePos(const Vector3 *pos)
 {
     FUNCTION_MARKER(0x8002E6D8, "SLUS_003.73");
     uint32 result = movie_playback.active;
     if (result)
         return result;
-    uint32 count = movie_playback.position_count;
-    result = (sint32)count < 8;
+    sint32 count = movie_playback.pos_count;
+    result = count < MoviePositionCount;
     if (!result)
         return result;
-    Vector3 *target = movie_playback.positions + count;
-    uint32 x = position[0];
-    uint32 y = position[1];
-    uint32 z = position[2];
-    target->x = x;
-    target->y = y;
-    target->z = z;
-    result = count + 1;
-    movie_playback.position_count = result;
-    return result;
+    movie_playback.positions[count] = *pos;
+    movie_playback.pos_count = count + 1;
+    return movie_playback.pos_count;
 }
 
-uint32 PrepareMoviePlaybackBuffers(void)
+uint32 InitializeMovieResourceTable()
 {
-    FUNCTION_MARKER(0x8002EF68, "SLUS_003.73");
-    uint32 result = movie_sectors[movie_playback.selected];
-    if (!result)
-        return result;
-    result = movie_playback.active;
+    FUNCTION_MARKER(0x8002E738, "SLUS_003.73");
+    CdlFILE file;
+    uint32 val;
+    for (uint32 idx = 0; idx < MovieRecordCount; ++idx)
+    {
+        uint32 sel = movie_lookup_order[idx];
+        if (movie_sectors[sel] != 0)
+        {
+            if (FindDataCdFile(&file, movie_resources[sel].name))
+                val = CdPosToInt(&file.pos);
+            else
+                val = 0;
+            movie_sectors[sel] = val;
+        }
+    }
+    return 0;
+}
+
+uint32 PlayMovie(uint32 movie)
+{
+    DISPENV environment;
+    CdlATV volume;
+    uint8 status[8];
+    uint32 i, result = movie_playback.active;
+    sint32 timeout;
+    sint16 scr_width;
+    sint32 width, height, top, volume_setting;
+    uint32 left;
+    bool mode;
+    FUNCTION_MARKER(0x8002E814, "SLUS_003.73");
     if (result)
         return result;
-    movie_playback.slice_x = movie_playback.origin_x;
-    movie_playback.slice_y = movie_playback.origin_y;
-    movie_playback.slice_width = movie_playback.rgb24 ? 24 : 16;
-    movie_playback.paused = 0;
-    movie_playback.double_buffer = 0;
-    movie_playback.slice_index = 0;
-    movie_playback.decode_index = 0;
-    movie_playback.frame_ready = 0;
-    movie_playback.slice_height = movie_playback.height;
-    ReleaseMovieStorage();
-    uint32 remaining;
-    movie_buffers.workspace = AcquireScriptWorkspace();
-    remaining = GetScriptWorkspaceSize(movie_buffers.workspace);
-    movie_buffers.workspace_data = GetScriptWorkspaceData(movie_buffers.workspace);
-    if (remaining <= 0x11000)
-        goto exhausted;
-    if (!movie_buffers.workspace_data)
-        goto exhausted;
-    movie_buffers.vlc = (uint16 *)movie_buffers.workspace_data;
+    movie &= 255;
+    movie_playback.double_buffer = true;
+    SelectMovieRec(movie);
+    width = movie_playback.width;
+    movie_playback.origin_x = (320 - width) / 2;
+    mode = movie_playback.rgb24;
+    left = movie_playback.origin_x;
+    height = movie_playback.height;
+    i = movie_playback.sel;
+    movie_playback.end_x = left + (mode ? 3 * width / 2 : width);
+    movie_playback.at_end = false;
+    top = (240 - height) / 2;
+    result = movie_sectors[i];
+    movie_playback.origin_y = top;
+    if (!result)
+        return result;
+    left = movie_playback.origin_x;
+    mode = movie_playback.rgb24;
+    movie_playback.slice_y = top;
+    movie_playback.slice_height = height;
+    movie_playback.slice_x = left;
+    scr_width = scene_render.buffers[0].disp.screen.w;
+    movie_playback.slice_width = mode ? 24 : 16;
+    movie_playback.slice_idx = 0;
+    movie_playback.decode_idx = 0;
+    movie_playback.frame_ready = false;
+    ReleaseStorage();
+    movie_buffers.vlc = (uint16 *)malloc(69632);
+    if (!movie_buffers.vlc)
+        goto cleanup;
+    for (i = 0; i < 2; ++i)
     {
-        uint8 *cursor = movie_buffers.workspace_data + 0x11000;
-        uint32 size = movie_playback.decode_bytes;
-        uint32 stride = size & 0xFFFFFFFC;
-        remaining -= 0x11000;
-        for (uint32 index = 0; index < 2; ++index)
-        {
-            if (size >= remaining)
-                goto exhausted;
-            movie_buffers.decoded[index] = (uint32 *)cursor;
-            cursor += stride;
-            remaining -= size;
-        }
-        size = movie_playback.ring_sectors << 11;
-        if (size >= remaining)
-            goto exhausted;
-        movie_buffers.ring = (uint32 *)cursor;
-        cursor += size;
-        uint32 count = (movie_playback.width >> 4) & 255;
-        // TODO Establish that every screen record fits the original six pointer slots
-        if (count > MovieSliceBuffers)
-        {
-            GameDiagnostic("Unsupported screen movie slice count %u\n", count);
-            abort();
-        }
-        movie_playback.slice_count = count;
-        remaining -= size;
-        stride = count ? movie_playback.height << 5 : 0;
-        for (uint32 index = 0; index < count; ++index)
-        {
-            if (stride >= remaining)
-                goto exhausted;
-            movie_buffers.slices[index] = (uint32 *)cursor;
-            cursor += stride;
-            remaining -= stride;
-        }
+        movie_buffers.decoded[i] = (uint32 *)malloc(movie_playback.decode_bytes);
+        if (!movie_buffers.decoded[i])
+            goto cleanup;
+    }
+    movie_buffers.ring = (uint32 *)malloc(movie_playback.ring_sectors << 11);
+    if (!movie_buffers.ring)
+        goto cleanup;
+    movie_playback.slice_count = 2;
+    for (i = 0; i < movie_playback.slice_count; ++i)
+    {
+        movie_buffers.slices[i] = (uint32 *)malloc((movie_playback.rgb24 ? 48 : 32) * movie_playback.height);
+        if (!movie_buffers.slices[i])
+            goto cleanup;
     }
     DecDCTvlcBuild(movie_buffers.vlc);
-    movie_playback.active = 1;
-    movie_playback.at_end = 0;
-    InitializeMovieDecoder();
-    return DecodeNextMovieFrame();
-exhausted:
-    movie_playback.refresh_pending = 1;
-    return 1;
-}
-
-static uint32 InitializeMovieDecoder(void)
-{
-    FUNCTION_MARKER(0x8002F7C8, "SLUS_003.73");
-    DecDCTReset(0);
-    DecDCToutCallback(CompleteMovieOutput);
-    BindMovieRing(movie_buffers.ring, movie_playback.ring_sectors);
-    StSetStream(movie_playback.rgb24, 0, 0xFFFFFFFF, 0, 0);
-    cd_voice.active = 0;
-    cd_voice.available = 1;
-    cd_voice.prepared = 0;
-    StartMovieStream();
-    return FastControlDataCd(12, 0);
-}
-
-static uint32 *NextMovieFrame(void)
-{
-    FUNCTION_MARKER(0x8002F990, "SLUS_003.73");
-    uint32 *frame, *header;
-    if (ReadMovieFrame(&frame, &header))
-        return 0;
-    uint32 last_frame = movie_playback.last_frame;
-    uint32 number = xport_load_le32((const uint8 *)header + 8);
-    movie_playback.frame_number = number;
-    if ((sint32)number >= (sint32)last_frame)
-        movie_playback.at_end = 1;
-    return frame;
-}
-
-static uint32 DecodeNextMovieFrame(void)
-{
-    FUNCTION_MARKER(0x8002F9E4, "SLUS_003.73");
-    uint32 *frame = NextMovieFrame();
-    if (!frame)
-        return 0;
-    uint32 index = movie_playback.decode_index;
-    DecDCTvlc2(frame, movie_buffers.decoded[index], movie_buffers.vlc);
-    StFreeRing(frame);
-    return 1;
-}
-
-static uint32 OutputMovieSlice(void)
-{
-    FUNCTION_MARKER(0x8002F84C, "SLUS_003.73");
-    if (movie_playback.rgb24 && StCdIntrFlag)
-    {
-        PumpMovieRead();
-        StCdIntrFlag = 0;
-    }
-    uint32 index = movie_playback.slice_index;
-    uint32 slices = movie_playback.slice_count;
-    PSX_RECT rectangle;
-    rectangle.x = movie_playback.slice_x;
-    rectangle.y = movie_playback.slice_y;
-    rectangle.w = movie_playback.slice_width;
-    rectangle.h = movie_playback.slice_height;
-    uint32 next_index = index + 1;
-    movie_playback.slice_index = next_index;
-    uint32 *pixels = movie_buffers.slices[index];
-    if ((sint32)next_index >= (sint32)slices)
-        movie_playback.slice_index = 0;
-    uint32 x = movie_playback.slice_x;
-    uint32 width = movie_playback.slice_width;
-    uint32 end_x = movie_playback.end_x;
-    x += width;
-    movie_playback.slice_x = x;
-    if ((sint32)(sint16)x < (sint32)end_x)
-    {
-        uint32 height = (uint32)(sint32)(sint16)movie_playback.slice_height;
-        uint32 product = (uint32)(sint32)(sint16)width * height;
-        next_index = movie_playback.slice_index;
-        uint32 *output = movie_buffers.slices[next_index];
-        uint32 words = (uint32)((sint32)(product + (product >> 31)) >> 1);
-        DecDCTout(output, (sint32)words);
-    }
+    movie_playback.active = true;
+    ClearStartupImageArea();
+    SetDefDispEnv(&environment, 0, 256, 320, 240);
+    VSync(0);
+    PutDispEnv(&environment);
+    if (movie == 3)
+        volume_setting = 192;
     else
     {
-        uint32 origin_x = movie_playback.origin_x;
-        uint32 double_buffer = movie_playback.double_buffer;
-        movie_playback.slice_x = origin_x;
-        if (double_buffer)
-        {
-            sint32 signed_y = (sint16)movie_playback.slice_y;
-            uint32 y = movie_playback.slice_y;
-            movie_playback.slice_y = signed_y < 256 ? y + 256 : y - 256;
-        }
+        sint32 setting = game_settings.music_volume;
+        volume_setting = setting >= 64 ? 63 * (setting - 64) / 64 + 192 : 3 * setting;
     }
-    return LoadImagePSX(&rectangle, pixels);
-}
-
-uint32 UpdateMoviePlayback(void)
-{
-    FUNCTION_MARKER(0x8002F284, "SLUS_003.73");
-    uint32 result = movie_playback.active;
-    if (!result)
-        return result;
-    if (!movie_playback.paused)
+    volume.val0 = volume.val1 = volume_setting;
+    volume.val2 = volume.val3 = 0;
+    CdMix(&volume);
+    InitializeDecoder();
+    GamePadInput::Poll();
+    game_pads[0].buttons[14].pressed = 0;
+    game_pads[0].buttons[3].pressed = 0;
+    if (game_session.movie_any_button_skip)
     {
+        game_pads[0].buttons[15].pressed = 0;
+        for (i = 0; i < 8; ++i)
+            if (i != 3)
+                game_pads[0].buttons[i].pressed = 0;
+    }
+    while (!DecodeNextFrame())
+    {
+    }
+    for (;;)
+    {
+        DecDCTin(movie_buffers.decoded[movie_playback.decode_idx], movie_playback.rgb24);
+        DecDCTout(movie_buffers.slices[movie_playback.slice_idx], movie_playback.slice_width * movie_playback.slice_height / 2);
+        ControlDataCd(1, 0, status);
+        if (status[0] & 16)
+        {
+            WaitForCdStop();
+            break;
+        }
+        timeout = 0x800000;
+        while (!DecodeNextFrame())
+            if (timeout-- == 0)
+                goto finish;
+        if (!timeout)
+            break;
+        timeout = 0x800000;
+        // Native callback progress requires fresh coordinates instead of the original fixed snapshot
+        while (movie_playback.slice_x != movie_playback.origin_x)
+            if (--timeout == 0)
+                goto finish;
+        SetDefDispEnv(&environment, 0, movie_playback.slice_y >= 256 ? movie_playback.slice_y - 256 : movie_playback.slice_y + 256, movie_playback.rgb24 ? 480 : 320, 240);
+        if (movie_playback.rgb24)
+        {
+            environment.isrgb24 = 1;
+            environment.disp.w = 2 * environment.disp.w / 3;
+        }
+        VSync(0);
+        PutDispEnv(&environment);
+        // Native scanout follows the completed movie buffer switch
+        gpu_present();
         if (movie_playback.at_end)
+            break;
+        GamePadInput::Poll();
+        if (game_pads[0].buttons[14].pressed || game_pads[0].buttons[3].pressed)
+            break;
+        if (game_session.movie_any_button_skip)
         {
-            uint32 double_buffer = movie_playback.double_buffer;
-            movie_playback.at_end = 0;
-            if (!double_buffer && !level_environment.area_kind)
-            {
-                uint32 selected = RandomRange(4) == 1 ? 31 : RandomRange(11) + 4;
-                movie_playback.selected = selected;
-                const MovieResource *entry = movie_resources + movie_playback.selected;
-                uint32 last_frame = entry->last_frame;
-                uint32 sector = movie_sectors[movie_playback.selected];
-                movie_playback.last_frame = last_frame;
-                movie_playback.start_sector = sector;
-            }
-            StartMovieStream();
-        }
-        if (movie_playback.frame_ready)
-        {
-            uint32 words;
-            uint32 *output;
-            DecDCTin(movie_buffers.decoded[movie_playback.decode_index], 0);
-            uint32 width = (uint32)(sint32)(sint16)movie_playback.slice_width;
-            uint32 height = (uint32)(sint32)(sint16)movie_playback.slice_height;
-            words = width * height;
-            output = movie_buffers.slices[movie_playback.slice_index];
-            movie_playback.decode_index = 1 - movie_playback.decode_index;
-            DecDCTout(output, (sint32)(words + (words >> 31)) >> 1);
-        }
-        uint32 decoded = DecodeNextMovieFrame();
-        uint32 timer = movie_playback.balance_ticks;
-        movie_playback.frame_ready = decoded;
-        if (timer)
-        {
-            uint32 next = timer - 1;
-            movie_playback.balance_ticks = next;
-            if (!next)
-            {
-                uint32 index = 0, selected = 0;
-                sint32 best = 0xFFFFFF;
-                while ((sint32)index < (sint32)movie_playback.position_count)
-                {
-                    sint32 distance = (sint32)MeasureEuclideanDistance(visual_lists.cameras->pos.words, movie_playback.positions[index].words);
-                    if (distance < best)
-                    {
-                        best = distance;
-                        selected = index;
-                    }
-                    ++index;
-                }
-                UpdateCdVoiceBalance((const uint32 *)(movie_playback.positions + selected));
-                movie_playback.balance_ticks = 4;
-            }
+            if (game_pads[0].buttons[15].pressed)
+                break;
+            for (i = 0; i < 8; ++i)
+                if (i != 3 && game_pads[0].buttons[i].pressed)
+                    break;
+            if (i < 8)
+                break;
         }
     }
-    if (scene_frame.paused || scene_frame.camera_paused)
-    {
-        if (movie_playback.paused)
-            return 1;
-        movie_playback.paused = 1;
-        StSetMask(1, 0, 0xFFFFFFFF);
-        return PauseMovieRead();
-    }
-    result = movie_playback.paused;
-    if (result)
-    {
-        movie_playback.paused = 0;
-        StSetMask(0, 0, 0xFFFFFFFF);
-        return ResumeMovieRead(480);
-    }
-    return result;
+finish:
+    game_pads[0].ClearPresses();
+    movie_playback.active = false;
+    ClearStartupImageArea();
+    environment.isrgb24 = 0;
+    environment.disp.w = 512;
+    environment.screen.w = scr_width;
+    VSync(0);
+    PutDispEnv(&environment);
+    volume.val0 = volume.val1 = volume.val2 = volume.val3 = 0;
+    CdMix(&volume);
+    DecDCToutCallback(0);
+    StopRead();
+    ControlDataCd(9, 0, 0);
+cleanup:
+    ReleaseStorage();
+    return 0;
 }
 
-uint32 SelectMovieRecord(uint32 movie)
+uint32 SelectMovieRec(uint32 movie)
 {
     FUNCTION_MARKER(0x8002EE7C, "SLUS_003.73");
     uint32 result = movie_playback.active;
@@ -538,186 +454,234 @@ uint32 SelectMovieRecord(uint32 movie)
     // TODO Establish the original record index domain for foreign script inputs
     if (movie >= MovieRecordCount)
     {
-        GameDiagnostic("Invalid movie record %u\n", movie);
+        GameDiagnostic(("Invalid movie record %u\n", movie));
         abort();
     }
     const MovieResource *entry = movie_resources + movie;
-    uint32 x = entry->width;
-    uint32 y = entry->height;
-    uint32 end_frame = entry->last_frame;
-    uint32 first_position = entry->decode_bytes;
-    uint32 second_position = entry->ring_sectors;
-    movie_playback.width = x;
-    uint32 start_frame = movie_sectors[movie];
-    movie_playback.selected = movie;
-    movie_playback.height = y;
-    movie_playback.last_frame = end_frame;
-    movie_playback.decode_bytes = first_position;
-    movie_playback.ring_sectors = second_position;
+    movie_playback.width = entry->width;
+    movie_playback.sel = movie;
+    movie_playback.height = entry->height;
+    movie_playback.last_frame = entry->last_frame;
+    movie_playback.decode_bytes = entry->decode_bytes;
+    movie_playback.ring_sectors = entry->ring_sectors;
     result = entry->rgb24;
-    movie_playback.start_sector = start_frame;
+    movie_playback.start_sector = movie_sectors[movie];
     movie_playback.rgb24 = result;
     return result;
 }
 
-uint32 PlayMovie(uint32 movie)
+uint32 PrepareMoviePlaybackBuffers()
 {
-    DISPENV environment;
-    CdlATV volume;
-    uint8 status[8];
-    uint32 i, result = movie_playback.active;
-    sint32 timeout;
-    uint16 screen_width;
-    uint32 width, height, left, top, mode, volume_setting;
-    FUNCTION_MARKER(0x8002E814, "SLUS_003.73");
-    if (result)
-        return result;
-    movie &= 255;
-    movie_playback.double_buffer = 1;
-    SelectMovieRecord(movie);
-    width = movie_playback.width;
-    movie_playback.origin_x = (320 - (sint32)width) / 2;
-    mode = movie_playback.rgb24;
-    left = movie_playback.origin_x;
-    height = movie_playback.height;
-    i = movie_playback.selected;
-    movie_playback.end_x = left + (mode ? 3 * width / 2 : width);
-    movie_playback.at_end = 0;
-    top = (uint32)((240 - (sint32)height) / 2);
-    result = movie_sectors[i];
-    movie_playback.origin_y = top;
+    FUNCTION_MARKER(0x8002EF68, "SLUS_003.73");
+    uint32 result = movie_sectors[movie_playback.sel];
     if (!result)
         return result;
-    left = movie_playback.origin_x;
-    mode = movie_playback.rgb24;
-    movie_playback.slice_y = top;
-    movie_playback.slice_height = height;
-    movie_playback.slice_x = left;
-    screen_width = (uint16)scene_render.buffers[0].disp.screen.w;
-    movie_playback.slice_width = mode ? 24 : 16;
-    movie_playback.slice_index = 0;
-    movie_playback.decode_index = 0;
-    movie_playback.frame_ready = 0;
-    ReleaseMovieStorage();
-    movie_buffers.vlc = (uint16 *)malloc(69632);
-    if (!movie_buffers.vlc)
-        goto cleanup;
-    for (i = 0; i < 2; ++i)
+    result = movie_playback.active;
+    if (result)
+        return result;
+    movie_playback.slice_x = movie_playback.origin_x;
+    movie_playback.slice_y = movie_playback.origin_y;
+    movie_playback.slice_width = movie_playback.rgb24 ? 24 : 16;
+    movie_playback.paused = false;
+    movie_playback.double_buffer = false;
+    movie_playback.slice_idx = 0;
+    movie_playback.decode_idx = 0;
+    movie_playback.frame_ready = false;
+    movie_playback.slice_height = movie_playback.height;
+    ReleaseStorage();
+    uint32 remaining;
+    movie_buffers.workspace = AcquireScriptWorkspace();
+    remaining = GetScriptWorkspaceSize(movie_buffers.workspace);
+    movie_buffers.workspace_data = GetScriptWorkspaceData(movie_buffers.workspace);
+    if (remaining <= 0x11000)
+        goto exhausted;
+    if (!movie_buffers.workspace_data)
+        goto exhausted;
+    movie_buffers.vlc = (uint16 *)movie_buffers.workspace_data;
     {
-        movie_buffers.decoded[i] = (uint32 *)malloc(movie_playback.decode_bytes);
-        if (!movie_buffers.decoded[i])
-            goto cleanup;
-    }
-    movie_buffers.ring = (uint32 *)malloc(movie_playback.ring_sectors << 11);
-    if (!movie_buffers.ring)
-        goto cleanup;
-    movie_playback.slice_count = 2;
-    for (i = 0; i < movie_playback.slice_count; ++i)
-    {
-        movie_buffers.slices[i] = (uint32 *)malloc((movie_playback.rgb24 ? 48 : 32) * movie_playback.height);
-        if (!movie_buffers.slices[i])
-            goto cleanup;
+        uint8 *cursor = movie_buffers.workspace_data + 0x11000;
+        uint32 size = movie_playback.decode_bytes;
+        uint32 stride = size & 0xFFFFFFFC;
+        remaining -= 0x11000;
+        for (uint32 idx = 0; idx < 2; ++idx)
+        {
+            if (size >= remaining)
+                goto exhausted;
+            movie_buffers.decoded[idx] = (uint32 *)cursor;
+            cursor += stride;
+            remaining -= size;
+        }
+        size = movie_playback.ring_sectors << 11;
+        if (size >= remaining)
+            goto exhausted;
+        movie_buffers.ring = (uint32 *)cursor;
+        cursor += size;
+        uint32 count = (movie_playback.width >> 4) & 255;
+        // TODO Establish that every screen record fits the original six pointer slots
+        if (count > MovieSliceBuffers)
+        {
+            GameDiagnostic(("Unsupported screen movie slice count %u\n", count));
+            abort();
+        }
+        movie_playback.slice_count = count;
+        remaining -= size;
+        stride = count ? movie_playback.height << 5 : 0;
+        for (uint32 idx = 0; idx < count; ++idx)
+        {
+            if (stride >= remaining)
+                goto exhausted;
+            movie_buffers.slices[idx] = (uint32 *)cursor;
+            cursor += stride;
+            remaining -= stride;
+        }
     }
     DecDCTvlcBuild(movie_buffers.vlc);
-    movie_playback.active = 1;
-    ClearStartupImageArea();
-    SetDefDispEnv(&environment, 0, 256, 320, 240);
-    VSync(0);
-    PutDispEnv(&environment);
-    if (movie == 3)
-        volume_setting = 192;
-    else
+    movie_playback.active = true;
+    movie_playback.at_end = false;
+    InitializeDecoder();
+    return DecodeNextFrame();
+exhausted:
+    movie_playback.refresh_pending = true;
+    return 1;
+}
+
+uint32 ResetMoviePlayback()
+{
+    FUNCTION_MARKER(0x8002F130, "SLUS_003.73");
+    uint32 pending = movie_playback.refresh_pending;
+    movie_playback.pos_count = 0;
+    if (pending)
+        movie_playback.refresh_pending = false;
+    uint32 active = movie_playback.active;
+    if (!active)
     {
-        sint32 setting = (sint16)game_settings.music_volume;
-        volume_setting = setting >= 64 ? (uint32)(63 * (setting - 64) / 64 + 192) : (uint32)(3 * setting);
+        ReleaseStorage();
+        return active;
     }
-    volume.val0 = volume.val1 = (uint8)volume_setting;
-    volume.val2 = volume.val3 = 0;
+    CdlATV volume = {0};
     CdMix(&volume);
-    ::InitializeMovieDecoder();
-    PollPadPackets();
-    game_pads[0].buttons[14].pressed = 0;
-    game_pads[0].buttons[3].pressed = 0;
-    if (game_session.movie_any_button_skip)
+    movie_playback.active = false;
+    ReleaseStorage();
+    CdlLOC location;
+    CdIntToPos((sint32)movie_playback.start_sector, &location);
+    ControlDataCd(22, &location, 0);
+    PSX_RECT rect;
+    rect.x = movie_playback.origin_x;
+    rect.y = movie_playback.origin_y;
+    rect.w = movie_playback.width;
+    rect.h = movie_playback.height;
+    return ClearImage(&rect, 1, 1, 1);
+}
+
+uint32 UpdateMoviePlayback()
+{
+    FUNCTION_MARKER(0x8002F284, "SLUS_003.73");
+    uint32 result = movie_playback.active;
+    if (!result)
+        return result;
+    if (!movie_playback.paused)
     {
-        game_pads[0].buttons[15].pressed = 0;
-        for (i = 0; i < 8; ++i)
-            if (i != 3)
-                game_pads[0].buttons[i].pressed = 0;
-    }
-    while (!::DecodeNextMovieFrame())
-    {
-    }
-    for (;;)
-    {
-        DecDCTin(movie_buffers.decoded[movie_playback.decode_index], movie_playback.rgb24 != 0);
-        DecDCTout(movie_buffers.slices[movie_playback.slice_index], (sint16)movie_playback.slice_width * (sint16)movie_playback.slice_height / 2);
-        ControlDataCd(1, 0, status);
-        if (status[0] & 16)
-        {
-            WaitForMovieCdStop();
-            break;
-        }
-        timeout = 0x800000;
-        while (!::DecodeNextMovieFrame())
-            if (timeout-- == 0)
-                goto finish;
-        if (!timeout)
-            break;
-        timeout = 0x800000;
-        // Native callback progress requires fresh coordinates instead of the original fixed snapshot
-        while ((sint16)movie_playback.slice_x != movie_playback.origin_x)
-            if (--timeout == 0)
-                goto finish;
-        SetDefDispEnv(&environment, 0, (sint16)movie_playback.slice_y >= 256 ? (sint16)movie_playback.slice_y - 256 : (sint16)movie_playback.slice_y + 256, movie_playback.rgb24 ? 480 : 320, 240);
-        if (movie_playback.rgb24)
-        {
-            environment.isrgb24 = 1;
-            environment.disp.w = 2 * environment.disp.w / 3;
-        }
-        VSync(0);
-        PutDispEnv(&environment);
-        // Native scanout follows the completed movie buffer switch
-        PresentGpuFrame();
         if (movie_playback.at_end)
-            break;
-        PollPadPackets();
-        if (game_pads[0].buttons[14].pressed || game_pads[0].buttons[3].pressed)
-            break;
-        if (game_session.movie_any_button_skip)
         {
-            if (game_pads[0].buttons[15].pressed)
-                break;
-            for (i = 0; i < 8; ++i)
-                if (i != 3 && game_pads[0].buttons[i].pressed)
-                    break;
-            if (i < 8)
-                break;
+            uint32 double_buffer = movie_playback.double_buffer;
+            movie_playback.at_end = false;
+            if (!double_buffer && !level_environment.area_kind)
+            {
+                uint32 sel = RandomRange(4) == 1 ? 31 : RandomRange(11) + 4;
+                movie_playback.sel = sel;
+                const MovieResource *entry = movie_resources + movie_playback.sel;
+                movie_playback.last_frame = entry->last_frame;
+                movie_playback.start_sector = movie_sectors[movie_playback.sel];
+            }
+            StartStream();
+        }
+        if (movie_playback.frame_ready)
+        {
+            sint32 words;
+            uint32 *output;
+            DecDCTin(movie_buffers.decoded[movie_playback.decode_idx], 0);
+            words = movie_playback.slice_width * movie_playback.slice_height / 2;
+            output = movie_buffers.slices[movie_playback.slice_idx];
+            movie_playback.decode_idx = 1 - movie_playback.decode_idx;
+            DecDCTout(output, words);
+        }
+        uint32 decoded = DecodeNextFrame();
+        uint32 timer = movie_playback.balance_ticks;
+        movie_playback.frame_ready = decoded;
+        if (timer)
+        {
+            uint32 next = timer - 1;
+            movie_playback.balance_ticks = next;
+            if (!next)
+            {
+                sint32 idx = 0, sel = 0;
+                sint32 best = 0xFFFFFF;
+                while (idx < movie_playback.pos_count)
+                {
+                    sint32 distance = visual_lists.cameras->pos.EuclideanDistance(movie_playback.positions[idx]);
+                    if (distance < best)
+                    {
+                        best = distance;
+                        sel = idx;
+                    }
+                    ++idx;
+                }
+                UpdateCdVoiceBalance(movie_playback.positions + sel);
+                movie_playback.balance_ticks = 4;
+            }
         }
     }
-finish:
-    game_pads[0].ClearPresses();
-    movie_playback.active = 0;
-    ClearStartupImageArea();
-    environment.isrgb24 = 0;
-    environment.disp.w = 512;
-    environment.screen.w = screen_width;
-    VSync(0);
-    PutDispEnv(&environment);
-    volume.val0 = volume.val1 = volume.val2 = volume.val3 = 0;
-    CdMix(&volume);
-    DecDCToutCallback(0);
-    StopMovieRead();
-    ControlDataCd(9, 0, 0);
-cleanup:
-    result = movie_playback.slice_count;
-    for (i = 0; i < movie_playback.slice_count; ++i)
-        result = i + 1 < movie_playback.slice_count;
-    ReleaseMovieStorage();
+    if (scene_frame.paused || scene_frame.camera_paused)
+    {
+        if (movie_playback.paused)
+            return 1;
+        movie_playback.paused = true;
+        StSetMask(1, 0, 0xFFFFFFFF);
+        return PauseRead();
+    }
+    result = movie_playback.paused;
+    if (result)
+    {
+        movie_playback.paused = false;
+        StSetMask(0, 0, 0xFFFFFFFF);
+        return ResumeRead(480);
+    }
     return result;
 }
 
-static uint32 WaitForMovieCdStop()
+static uint32 RemapTexPolygons(uint16 tpage, const TextureResource &tex)
+{
+    FUNCTION_MARKER(0x8002F50C, "SLUS_003.73");
+    for (uint32 slot = 0; slot < 2; ++slot)
+    {
+        const uint32 bank = ModelBank::GetActive(slot);
+        if (bank == 0xFFFFFFFF)
+            continue;
+        ModelGeometrySet &models = ModelBank::Get(bank).geometry;
+        for (uint32 idx = 0; idx < models.count; ++idx)
+        {
+            ModelGeometry &model = models.models[idx];
+            for (uint32 p = 0; p < model.poly_count; ++p)
+            {
+                ModelPolygon &poly = model.polys[p];
+                if ((poly.flags & 3) != 3 || poly.tpage != tex.tpage || poly.clut != tex.clut)
+                    continue;
+                uint32 v;
+                for (v = 0; v < 4; ++v)
+                    if (poly.uv[v].u < tex.uv[0].u || poly.uv[v].u > tex.uv[1].u || poly.uv[v].v < tex.uv[0].v || poly.uv[v].v > tex.uv[2].v)
+                        break;
+                if (v != 4)
+                    continue;
+                poly.tpage = tpage;
+                for (v = 0; v < 4; ++v)
+                    poly.uv[v].u = (poly.uv[v].u + 1) >> 1;
+            }
+        }
+    }
+    return 8;
+}
+
+static uint32 WaitForCdStop()
 {
     FUNCTION_MARKER(0x8002F758, "SLUS_003.73");
     uint8 status[8];
@@ -731,23 +695,106 @@ static uint32 WaitForMovieCdStop()
     return status[0] & 2;
 }
 
-uint32 InitializeMovieResourceTable()
+static uint32 InitializeDecoder()
 {
-    FUNCTION_MARKER(0x8002E738, "SLUS_003.73");
-    CdlFILE file;
-    uint32 value;
-    for (uint32 index = 0; index < MovieRecordCount; ++index)
+    FUNCTION_MARKER(0x8002F7C8, "SLUS_003.73");
+    DecDCTReset(0);
+    DecDCToutCallback(OutputSlice);
+    BindRing(movie_buffers.ring, movie_playback.ring_sectors);
+    StSetStream(movie_playback.rgb24, 0, 0xFFFFFFFF, 0, 0);
+    cd_voice.active = 0;
+    cd_voice.available = 1;
+    cd_voice.prepared = 0;
+    StartStream();
+    return FastControlDataCd(12, 0);
+}
+
+static void OutputSlice()
+{
+    FUNCTION_MARKER(0x8002F84C, "SLUS_003.73");
+    if (movie_playback.rgb24 && StCdIntrFlag)
     {
-        uint32 selected = movie_lookup_order[index];
-        if (movie_sectors[selected] != 0)
+        PumpRead();
+        StCdIntrFlag = 0;
+    }
+    uint32 idx = movie_playback.slice_idx;
+    uint32 slices = movie_playback.slice_count;
+    PSX_RECT rect;
+    rect.x = movie_playback.slice_x;
+    rect.y = movie_playback.slice_y;
+    rect.w = movie_playback.slice_width;
+    rect.h = movie_playback.slice_height;
+    uint32 next_idx = idx + 1;
+    movie_playback.slice_idx = next_idx;
+    uint32 *pixels = movie_buffers.slices[idx];
+    if (next_idx >= slices)
+        movie_playback.slice_idx = 0;
+    sint16 x = movie_playback.slice_x;
+    sint16 width = movie_playback.slice_width;
+    uint16 end_x = movie_playback.end_x;
+    x += width;
+    movie_playback.slice_x = x;
+    if (x < end_x)
+    {
+        sint32 words = width * movie_playback.slice_height / 2;
+        next_idx = movie_playback.slice_idx;
+        uint32 *output = movie_buffers.slices[next_idx];
+        DecDCTout(output, words);
+    }
+    else
+    {
+        movie_playback.slice_x = movie_playback.origin_x;
+        if (movie_playback.double_buffer)
         {
-            if (FindDataCdFile(&file, movie_resources[selected].name))
-                value = CdPosToInt(&file.pos);
-            else
-                value = 0;
-            selected = movie_lookup_order[index];
-            movie_sectors[selected] = value;
+            sint16 signed_y = movie_playback.slice_y;
+            sint16 y = movie_playback.slice_y;
+            movie_playback.slice_y = signed_y < 256 ? y + 256 : y - 256;
         }
     }
-    return 0;
+    LoadImagePSX(&rect, pixels);
+}
+
+static uint32 *NextFrame()
+{
+    FUNCTION_MARKER(0x8002F990, "SLUS_003.73");
+    uint32 *frame, *header;
+    if (ReadFrame(&frame, &header))
+        return 0;
+    sint32 last_frame = movie_playback.last_frame;
+    const StHEADER *info = (const StHEADER *)header;
+    sint32 number = info->frameCount;
+    movie_playback.frame_number = number;
+    if (number >= last_frame)
+        movie_playback.at_end = true;
+    return frame;
+}
+
+static uint32 DecodeNextFrame()
+{
+    FUNCTION_MARKER(0x8002F9E4, "SLUS_003.73");
+    uint32 *frame = NextFrame();
+    if (!frame)
+        return 0;
+    uint32 idx = movie_playback.decode_idx;
+    DecDCTvlc2(frame, movie_buffers.decoded[idx], movie_buffers.vlc);
+    StFreeRing(frame);
+    return 1;
+}
+
+static uint32 StartStream()
+{
+    FUNCTION_MARKER(0x8002FA48, "SLUS_003.73");
+    CdlLOC location;
+    uint8 mode = 0x80;
+    CdIntToPos((sint32)movie_playback.start_sector, &location);
+    uint32 result;
+    do
+    {
+        while (!ControlDataCd(2, &location, 0))
+            ;
+        while (!ControlDataCd(14, &mode, 0))
+            ;
+        result = StartRead(480);
+    } while (!result);
+    return result;
 }

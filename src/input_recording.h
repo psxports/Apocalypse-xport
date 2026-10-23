@@ -24,9 +24,6 @@ public:
         Replay
     };
 
-    InputRecording();
-    ~InputRecording();
-
     Mode GetMode() const
     {
         return mode;
@@ -37,8 +34,19 @@ public:
         return data != 0;
     }
 
+private:
+    InputRecording &operator=(const InputRecording &);
+    Mode mode;
+    const RecordedInputEvent *data;
+    RecordedInputEvent *owned;
+    uint32 bytes;
+    uint32 cursor;
+    uint32 last_timestamp;
+
+public:
+    InputRecording();
+    ~InputRecording();
     void Stop();
-    void Clear();
     void ReleaseData();
     void ResetCursor();
     void ResetTimestamp();
@@ -53,17 +61,11 @@ public:
 
 private:
     InputRecording(const InputRecording &);
-    InputRecording &operator=(const InputRecording &);
-    void Require(uint32 bytes) const;
-    Mode mode;
-    const RecordedInputEvent *data;
-    RecordedInputEvent *owned;
-    uint32 bytes;
-    uint32 cursor;
-    uint32 last_timestamp;
+    void Require(uint32 span) const;
 };
 
 extern InputRecording input_recording;
-const char *GetDemoRecordingName(uint32 index);
+void ClearInputRecording();
+const char *GetDemoRecordingName(uint32 idx);
 
 #endif

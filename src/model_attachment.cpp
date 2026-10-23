@@ -1,15 +1,29 @@
-#include "model_resources.h"
+#include <stdlib.h>
+
+#include "model_instance.h"
+#include "model_bank.h"
 #include "model_attachment.h"
 #include "model_animation.h"
 #include "model_render_view.h"
 #include "character.h"
+#include "game_diagnostics.h"
 
-static const ModelPose &GetAttachmentPose(Character &character, uint32 idx)
+static const ModelAttachmentPoint &GetAttachmentPoint(const ModelAttachmentTable *table, uint32 idx)
+{
+    if (!table || idx >= table->count)
+    {
+        GameDiagnostic(("Invalid model attachment point\n"));
+        abort();
+    }
+    return table->points[idx];
+}
+
+static const ModelPose &GetAttachmentPose(Character &character, uint16 idx)
 {
     const ModelInstance &model = character.model;
     if (model.flags & 4)
         return *character.GetModelPoses(idx, 1);
-    const ModelAnimation &animation = GetModelAnimation(GetModelBank(model.bank).animations, model.animation);
+    const ModelAnimation &animation = GetModelAnimation(ModelBank::Get(model.bank).animations, model.animation);
     if (animation.interval)
     {
         InterpolateModelAnimation(animation, model.frame, character.playback.loop_mode == 1, idx, 1);
@@ -29,50 +43,44 @@ static void TransformAttachment(const ModelAttachmentPoint &point, const ModelPo
     for (uint32 idx = 0; idx < 5; ++idx)
         xport_gte_write_control(idx, words[idx]);
     for (uint32 axis = 0; axis < 3; ++axis)
-        xport_gte_write_control(5 + axis, (uint32)(sint32)(sint16)bone.translation.words[axis]);
+        xport_gte_write_control(5 + axis, bone.translation.comp[axis]);
     for (uint32 axis = 0; axis < 3; ++axis)
         xport_gte_write_control(13 + axis, world.t[axis]);
     xport_gte_execute(0x480012);
     for (uint32 idx = 0; idx < 5; ++idx)
-        words[idx] = ReadModelRenderMatrixWord(world, idx);
+        words[idx] = PackModelRotationWord(world, idx);
     for (uint32 idx = 0; idx < 5; ++idx)
         xport_gte_write_control(8 + idx, words[idx]);
     xport_gte_execute(0x4BA012);
 }
 
-static uint32 StoreAttachmentPosition(uint32 *output)
+static uint32 StoreAttachmentPos(Vector3 &output)
 {
-    output[0] = xport_gte_read_data(25);
-    output[1] = xport_gte_read_data(26);
-    output[2] = xport_gte_read_data(27);
-    uint32 x = output[0];
-    uint32 z = output[2];
-    output[0] = x << 12;
-    uint32 y = output[1];
-    output[2] = z << 12;
-    output[1] = y << 12;
+    output.x = xport_gte_read_data(25);
+    output.y = xport_gte_read_data(26);
+    output.z = xport_gte_read_data(27);
+    uint32 x = output.x;
+    uint32 z = output.z;
+    output.x = x << 12;
+    uint32 y = output.y;
+    output.z = z << 12;
+    output.y = y << 12;
     return y << 12;
 }
 
-uint32 GetModelAttachment(uint32 *output, Character &character, uint32 requested)
+uint32 GetModelAttachment(Vector3 &output, Character &character, uint32 requested)
 {
     FUNCTION_MARKER(0x8007CC10, "SLUS_003.73");
-    const ModelAttachmentPoint &point = GetModelAttachmentPoint(GetModelBank(character.model.bank).attachments, requested);
+    const ModelAttachmentPoint &point = GetAttachmentPoint(ModelBank::Get(character.model.bank).attachments, requested);
     const ModelPose &bone = GetAttachmentPose(character, point.bone);
     TransformAttachment(point, bone, character.world_transform);
-    return StoreAttachmentPosition(output);
+    return StoreAttachmentPos(output);
 }
 
-uint32 Character::GetAttachment(uint32 *output, uint32 requested)
-{
-    FUNCTION_MARKER(0x8005CEE0, "SLUS_003.73");
-    return GetModelAttachment(output, *this, requested & 255);
-}
-
-uint32 GetModelBonePosition(uint32 *output, Character &character, const ModelAttachmentPoint &point)
+uint32 GetModelBonePos(Vector3 &output, Character &character, const ModelAttachmentPoint &point)
 {
     FUNCTION_MARKER(0x8007CD74, "SLUS_003.73");
     const ModelPose &bone = GetAttachmentPose(character, point.bone);
     TransformAttachment(point, bone, character.world_transform);
-    return StoreAttachmentPosition(output);
+    return StoreAttachmentPos(output);
 }

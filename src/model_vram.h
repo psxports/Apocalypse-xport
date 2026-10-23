@@ -7,10 +7,10 @@ extern "C"
 }
 
 struct VramRecord;
-void InitializeModelVramRectangles();
-void SetModelVramAllocationMode(uint32 mode);
-VramRecord *AllocateModelTextureRectangle(uint32 owner, uint32 width, uint32 height, uint32 *x, uint32 *y, uint32 depth, uint32 flags, uint32 resource_key);
-uint32 ReleaseUsedVramRectangle(uint32 x, uint32 y);
+void InitializeModelVramRects();
+void SetModelVramAllocationMode(bool mode);
+VramRecord *AllocateModelTexRect(sint32 owner, uint32 width, uint32 height, uint32 *x, uint32 *y, uint32 depth, uint32 flags, uint32 resource_key);
+bool ReleaseUsedVramRect(sint16 x, sint16 y);
 void RebuildModelVramAllocations();
 
 #endif

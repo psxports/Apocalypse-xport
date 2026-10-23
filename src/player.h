@@ -1,14 +1,15 @@
 #ifndef PLAYER_H
 #define PLAYER_H
 
+#include "object_reference.h"
 #include "vector3.h"
 #include "character.h"
+#include "one_shot_activator.h"
+#include "resetting_activator.h"
+#include "traversal_region.h"
+#include "weapon_node.h"
 
-void ResetPlayerRuntime();
-uint32 TryPlayPlayerKillQuote(const uint32 *position);
-void SavePlayerTransform();
 class Player;
-uint32 ResolvePlayerCollisionMotion(Player &player);
 
 struct ModelPolygon;
 class WeaponNode;
@@ -25,44 +26,9 @@ struct GamePadInput;
 class Player : public Character
 {
 public:
-    Player();
-    uint32 ReadInput();
-    virtual uint32 Destroy(uint32 reason);
-
     virtual ~Player()
     {
     }
-
-    virtual uint32 Finish();
-    virtual uint32 Update();
-    virtual uint32 UpdateLighting();
-    virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 reason);
-    virtual uint32 ReleaseResources();
-    uint32 RestoreHealth(uint32 amount);
-    uint32 EnterDeathState();
-    void PrepareDeathCamera();
-    uint32 InitializeAnimation();
-    uint32 TryEnterAnimation10State();
-    uint32 TryEnterRecordMovementState();
-    uint32 TryEnterLandingState();
-    uint32 TryEnterJumpState();
-    uint32 TryEnterAirborneState();
-    uint32 TryEnterActionState();
-    uint32 TryActivateOneShotActivator();
-    uint32 TryActivateResettingActivator();
-    uint32 TryEnterMovementState16();
-    uint32 TryEnterMovementState32();
-    uint32 TryEnterMovementState512();
-    uint32 TryEnterMovementState1024();
-    void SetFacingTransition(uint32 target_angle, uint32 heading, uint32 immediate);
-    void StopWeapon();
-    void SetWeaponStop(uint32 duration);
-    uint32 UpdateWeapons(const ShortVector3 &rotation, uint32 enabled);
-    uint32 ReplaceWeapon(uint32 kind);
-    uint32 UpdateGroundContact();
-    uint32 SetContactColor(const ModelPolygon &polygon, const ModelInstance &surface);
-    uint32 *ApplyContactImpulse(const VisualObject &object);
-    uint32 ApplyBeamContactImpulse(const BeamBarrier &barrier);
 
     Vector3 saved_pos;
     ShortVector3 saved_angles;
@@ -110,7 +76,7 @@ public:
     uint8 ground_grace_ticks;
     uint16 idle_ticks;
     uint8 ground_offset;
-    uint16 collision_probe_size;
+    uint16 col_probe_size;
     Vector3 saved_surface_pos;
     uint16 action_heading;
     uint32 move_ramp;
@@ -120,8 +86,69 @@ public:
     uint16 death_ticks;
 
 private:
-    void StopSelectedWeapon(uint32 selected);
-    static uint32 Abs32(sint32 value);
+    uint32 ResolveColMotion();
+
+public:
+    static void SaveTransform();
+    Player();
+    virtual uint32 Destroy(uint32 reason);
+    void StopWeapon();
+    uint32 TryPlayKillQuote();
+
+private:
+    uint32 ReadInput();
+
+public:
+    uint32 RestoreHealth(sint16 amount);
+    virtual uint32 UpdateLighting();
+
+private:
+    uint32 SetContactColor(const ModelPolygon &polygon, const ModelInstance &surface);
+    uint32 UpdateWeapons(const ShortVector3 &rotation, bool enabled);
+
+public:
+    virtual uint32 Finish();
+    virtual uint32 ReleaseResources();
+    virtual uint32 Damage(uint32 damage, const Vector3 *vector, uint32 reason);
+
+private:
+    Vector3 *ApplyContactImpulse(const VisualObject &object);
+
+public:
+    uint32 ApplyBeamContactImpulse(const BeamBarrier &barrier);
+    uint32 ReplaceWeapon(uint16 kind);
+    uint32 EnterDeathState();
+
+private:
+    void PrepareDeathCamera();
+    uint32 InitializeAnimation();
+    uint32 TryEnterMovementState16();
+    uint32 TryEnterMovementState32();
+    uint32 TryEnterMovementState512();
+    uint32 TryEnterMovementState1024();
+    uint32 TryActivateOneShotActivator();
+    uint32 TryActivateResettingActivator();
+    uint32 TryEnterActionState();
+    uint32 TryEnterRecMovementState();
+    uint32 TryEnterJumpState();
+    uint32 TryEnterAirborneState();
+    uint32 TryEnterLandingState();
+    uint32 TryEnterAnimation10State();
+    uint32 UpdateGroundContact();
+
+public:
+    void SetWeaponStop(uint32 duration);
+    virtual uint32 Update();
+
+private:
+    void SetFacingTransition(uint16 target_angle, uint16 heading, bool immediate);
+
+public:
+    static void ResetRuntime();
+
+private:
+    static uint32 SqVelocityComponent(sint32 velocity);
+    void StopSelWeapon(uint32 sel);
 };
 
 #endif

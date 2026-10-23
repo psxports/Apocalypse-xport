@@ -1,141 +1,118 @@
 #include <new>
 #include <string.h>
 #include <stdlib.h>
-#include <stdio.h>
 
+#include "collision_ray.h"
 #include "game_heap.h"
 #include "level_session.h"
 #include "explosion_effects.h"
 #include "game_tuning.h"
 #include "game_tick.h"
-
-#include "record_scripts.h"
-
+#include "resource_script.h"
 #include "world_gravity.h"
-
 #include "object_initializers.h"
-
 #include "effect_object.h"
-
-#include "model_resources.h"
+#include "primitive_particle.h"
+#include "model_bank.h"
 #include "visual_object.h"
 #include "object_damage.h"
 #include "collision.h"
 #include "model_animation.h"
+#include "model_attachment_data.h"
 #include "game_diagnostics.h"
-#include "vector_arithmetic.h"
-#include "projectile_launch.h"
-#include "projectile_guided.h"
+#include "global.h"
+#include "launched_projectile.h"
+#include "guided_projectile.h"
 #include "flamethrower.h"
 #include "effect_lifecycle.h"
 #include "model_attachment.h"
 #include "audio_session.h"
 #include "audio_voice.h"
-#include "projectile_oscillating.h"
-#include "weapon_nodes.h"
+#include "oscillating_projectile.h"
+#include "weapon_type.h"
+#include "weapon_node.h"
 #include "machine_gun.h"
 #include "spiral_ray_weapon.h"
-#include "vector_distance.h"
 #include "angle_math.h"
 #include "player.h"
-#include "game_random.h"
 #include "game_object_allocation.h"
-#include "particle_debris.h"
-#include "particle_settings.h"
+#include "debris.h"
 #include "fading_particle.h"
-
 #include "swat.h"
 #include "ring_burst_effect.h"
 #include "record_data.h"
 #include "turret.h"
-#include "fireball_effects.h"
+#include "fireball.h"
 #include "panel_particle.h"
 #include "oscillating_ring.h"
+#include "enemy.h"
 
 SwatPopulation swat_population = {0, 0};
 
-void ResetSwatPopulation()
+struct BurnAttachments
+{
+    uint8 count;
+    uint8 bones[4];
+};
+
+static const BurnAttachments burn_attachment_sets[6] = {{4, {7, 12, 10, 8}}, {4, {0, 2, 4, 6}}, {4, {7, 15, 9, 12}}, {4, {7, 16, 15, 12}}, {4, {7, 13, 10, 8}}, {3, {0, 5, 10, 0}}};
+
+void Swat::ResetPopulation()
 {
     swat_population.count = 0;
     swat_population.zombies = 0;
 }
 
-struct BurnAttachments
-{
-    uint32 count;
-    uint8 bones[4];
-};
-
-static const BurnAttachments BurnAttachmentSets[6] = {{4, {7, 12, 10, 8}}, {4, {0, 2, 4, 6}}, {4, {7, 15, 9, 12}}, {4, {7, 16, 15, 12}}, {4, {7, 13, 10, 8}}, {3, {0, 5, 10, 0}}};
-
-Swat::Swat(const RecordCursor &record_data, uint32 index) : Enemy(), jump_ticks(0), attack_frame(0), fragment_first(0), fragment_count(0)
+Swat::Swat(const RecordCursor &rec_data, uint16 idx) : Enemy(), jump_ticks(0), attack_frame(0), fragment_first(0), fragment_count(0)
 {
     aim_pos.x = aim_pos.y = aim_pos.z = 0;
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     FUNCTION_MARKER(0x8004E35C, "SLUS_003.73");
     RecordCursor decoded;
 
-    decoded = ReadPosition(record_data);
+    decoded = ReadPos(rec_data);
     script_cursor = ReadAngles(decoded);
-    this->control.script_active = 1;
-    this->record_idx = index;
+    control.script_active = 1;
+    rec_idx = idx;
     Init();
     ExecuteScript(script_cursor);
 }
 
-Swat::Swat(const uint32 *position_vector, const RecordCursor &script) : Enemy(), jump_ticks(0), attack_frame(0), fragment_first(0), fragment_count(0)
+Swat::Swat(const Vector3 *pos_vector, const RecordCursor &script) : Enemy(), jump_ticks(0), attack_frame(0), fragment_first(0), fragment_count(0)
 {
     aim_pos.x = aim_pos.y = aim_pos.z = 0;
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     FUNCTION_MARKER(0x8004E3E4, "SLUS_003.73");
-    uint32 x, y, z;
-    RecordCursor cursor;
-    x = position_vector[0];
-    y = position_vector[1];
-    z = position_vector[2];
-    pos_history.saved.words[0] = x;
-    pos_history.saved.words[1] = y;
-    pos_history.saved.words[2] = z;
-    x = pos_history.saved.words[0];
-    y = pos_history.saved.words[1];
-    z = pos_history.saved.words[2];
-    this->model.pos.words[0] = x;
-    this->model.pos.words[1] = y;
-    this->model.pos.words[2] = z;
+    pos_history.saved = *pos_vector;
+    model.pos = pos_history.saved;
     script_cursor = script;
     Init();
-    cursor = script_cursor;
-    if (cursor)
+    if (script_cursor)
     {
-        this->control.script_active = 1;
+        control.script_active = 1;
         ExecuteScript(script_cursor);
     }
 }
 
-uint32 Swat::Init()
+void Swat::Init()
 {
     FUNCTION_MARKER(0x8004E48C, "SLUS_003.73");
-    sint32 population_count;
-    sint32 result;
-    game_progress.level.enemy_total = game_progress.level.enemy_total + 1;
+    ++game_progress.level.enemy_total;
     motion.drag[0] = 31;
     motion.drag[2] = 31;
     motion.drag[1] = 3;
     AddToList(visual_lists.actors);
-    population_count = swat_population.count;
-    result = 200;
-    this->kind = 200;
+    kind = 200;
     ai.state = 0;
     ai.phase = 0;
-    swat_population.count = (uint32)population_count + 1;
-    this->control.hierarchy_ready = 0;
-    return result;
+    ++swat_population.count;
+    control.hierarchy_ready = 0;
 }
 
 uint32 Swat::Destroy(uint32 reason)
 {
     FUNCTION_MARKER(0x8004E508, "SLUS_003.73");
-    uint32 kind, count;
+    uint16 variant;
     RemoveFromList(visual_lists.actors);
     if (burn_ring)
     {
@@ -148,12 +125,11 @@ uint32 Swat::Destroy(uint32 reason)
         weapon->Destroy(3);
     }
     Enemy::FreeBehaviorTable();
-    count = swat_population.count;
-    kind = (uint32)this->control.variant;
-    swat_population.count = count - 1;
-    if (kind == 128)
-        swat_population.zombies = swat_population.zombies - 1;
-    if ((uint32)this->control.variant == 256)
+    variant = control.variant;
+    --swat_population.count;
+    if (variant == 128)
+        --swat_population.zombies;
+    if (control.variant == 256)
     {
         uint32 sound = ai.script_data;
         if (sound)
@@ -164,119 +140,126 @@ uint32 Swat::Destroy(uint32 reason)
     }
     Enemy::Destroy(0);
     if (reason & 1)
-        return ReleaseObjectStorage(this);
+        return ReleaseStorage();
     return reason & 1;
+}
+
+void Swat::ApplyExplosionDamage()
+{
+    sint32 idx = 0, distance;
+    uint32 radius, damage;
+    FUNCTION_MARKER(0x8004E624, "SLUS_003.73");
+    while (idx < (sint32)explosion_queue.count)
+    {
+        const ExplosionEvent *event = &explosion_queue.entries[idx];
+        distance = model.pos.Distance(event->pos);
+        radius = event->radius;
+        if (distance < (sint32)radius)
+        {
+            damage = event->strength;
+            damage = DivideSignedWord(damage * (radius - distance), radius);
+            Damage(damage, &zero_vector, 0);
+            if (health <= 0)
+                return;
+        }
+        ++idx;
+    }
 }
 
 uint32 Swat::Update()
 {
     ModelBorrow model_borrow;
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     ShortVector3 motion_target;
     FUNCTION_MARKER(0x8004E71C, "SLUS_003.73");
-    sint32 ambient_roll0;
-    sint32 ambient_sound;
-    sint32 ambient_roll1;
     uint16 activation;
     uint8 activation_count;
     uint16 script_delay;
     bool jump_done;
     bool melee_hit;
-    uint16 next_script_delay;
     const ModelAttachmentTable *attachments;
-    uint32 ground_period;
+    uint8 ground_period;
     uint8 ground_tick;
-    sint32 ground_probe_offset;
+    sint16 ground_probe_offset;
     sint32 ground_y;
     uint16 ground_contact_flags;
-    uint32 surface_z;
     uint32 surface_flags;
-    uint32 ground_height;
-    uint32 surface_y;
-    sint16 subject_heading;
-    sint16 dst_heading;
+    sint32 ground_height;
+    sint32 subject_heading;
+    sint32 dst_heading;
     uint32 movement_flags;
     sint32 jump_velocity_x;
     sint32 jump_velocity_z;
-    sint32 jump_duration;
+    uint32 jump_duration;
     sint32 jump_height;
-    sint32 jump_remaining;
-    sint8 next_jump_tick;
-    uint32 dst_y;
-    uint32 dst_z;
+    uint8 jump_remaining;
+    uint8 next_jump_tick;
+    sint8 jump_frame;
     uint32 next_movement_flags;
     sint32 landing_y;
-    sint32 landing_frame;
+    sint8 landing_frame;
     sint32 turn_speed;
-    uint32 move_speed;
-    uint32 move_velocity_y;
-    uint32 move_velocity_z;
+    uint16 move_speed;
     bool reached_dst;
-    sint32 attack_animation;
-    sint32 melee_event;
+    uint8 attack_animation;
+    uint32 melee_event;
     uint16 base_damage;
-    sint32 melee_damage;
+    uint32 melee_damage;
     uint16 attack_variant;
-    sint32 close_fire_event;
-    sint32 fire_event;
-    sint16 player_heading;
-    sint32 fire_frame;
+    uint32 close_fire_event;
+    uint32 fire_event;
+    sint32 player_heading;
+    uint8 fire_frame;
     ModelInstance *contact_player;
-    sint32 contact_damage;
-    sint32 particle_roll;
-    uint32 particles_remaining;
+    uint32 contact_damage;
+    uint8 particles_remaining;
     GameHeapBlock *particle_storage;
     GameHeapBlock *ring_storage;
     uint16 final_variant;
-    sint32 visibility_animation;
-    sint16 visibility_flags;
-    sint32 result;
-    sint32 footstep_event0;
-    sint32 footstep_event1;
+    uint8 visibility_animation;
+    uint16 visibility_flags;
+    uint32 result;
+    uint32 footstep_event0;
+    uint32 footstep_event1;
     Vector3 attack_vector, attachment_pos;
     ModelAttachmentPoint attachment_desc;
-    uint32 flags;
-    uint32 surface_x;
     uint32 aim_delta_x, aim_delta_z;
-    uint32 dst_x;
-    uint32 melee_ground_height, melee_y, player_ground_height, player_y;
+    uint32 melee_ground_height, melee_y, player_ground_height, player_y, melee_delta;
     ModelInstance *player;
     Vector3 move_delta, move_dir;
     motion.acceleration = zero_vector;
     if (weapon)
-        weapon->Update(0, 0);
+        weapon->Update(&model.pos);
     if (control.variant == 128)
     {
-        ambient_roll0 = RandomRange(240);
-        ambient_sound = 98;
-        if (!ambient_roll0 || (ambient_roll1 = RandomRange(240), ambient_sound = 99, !ambient_roll1))
-            PlayPositionedSound(ambient_sound, model.pos.words, 0);
+        if (!RandomRange(240))
+            PlayPositionedSound(98, &model.pos, 0);
+        else if (!RandomRange(240))
+            PlayPositionedSound(99, &model.pos, 0);
     }
     activation = activation_flags;
     control.prev_activation_flags = activation;
     if (activation & 1)
     {
         activation_count = control.activation_count;
-        activation_flags = (activation & 0xFFFE);
+        activation_flags = activation & 0xFFFE;
         control.activation_count = activation_count + 1;
     }
-    if (((activation_flags & 4) != 0))
+    if ((activation_flags & 4) != 0)
         ApplyExplosionDamage();
     if (control.script_active)
     {
         script_delay = control.script_delay;
-        next_script_delay = script_delay - 1;
         if (!script_delay)
             ExecuteScript(script_cursor);
         else
-            control.script_delay = next_script_delay;
+            control.script_delay = script_delay - 1;
     }
     else
     {
         UpdateState();
     }
-    flags = control.flags;
-    control.flags = flags & ~0x400;
+    control.flags &= ~0x400;
     if (!control.hierarchy_ready)
     {
         attachments = 0;
@@ -306,11 +289,11 @@ uint32 Swat::Update()
                 break;
         }
         if (attachments)
-            SetModelBoneTable(model.bank, *attachments);
+            model.SetAttachmentTable(*attachments);
         control.hierarchy_ready = 1;
     }
     if (control.gravity_enabled)
-        AddVectors(motion.acceleration.words, world_gravity.vector.words);
+        motion.acceleration.Add(world_gravity.vector);
 
     IntegrateMotion();
     if (control.flags & 2)
@@ -320,58 +303,53 @@ uint32 Swat::Update()
         control.ground_tick = ground_tick;
         if (ground_tick >= ground_period)
         {
-            ground_probe_offset = (sint16)ground_offset;
+            ground_probe_offset = ground_offset;
             control.ground_tick = 0;
-            ground_y = FindGroundHeight(model.pos.words, ground_probe_offset, 4 * (uint32)ground_probe_offset);
+            ground_y = CollisionRay::FindGroundHeight(model.pos, ground_probe_offset, 4 * ground_probe_offset);
             if (ground_y != -1)
             {
-                ground_height = (uint32)(sint32)(sint16)ground_offset;
+                ground_height = ground_offset * ONE;
                 ground_contact_flags = contact_flags | 2;
-                model.pos.words[1] = (uint32)ground_y - (ground_height << 12);
+                model.pos.y = (uint32)ground_y - ground_height;
                 contact_flags = ground_contact_flags;
             }
         }
     }
     UpdateWorldTransform();
-    surface_x = model.pos.words[0];
-    ground_height = (uint32)(sint32)(sint16)ground_offset << 12;
-    surface_z = model.pos.words[2];
+    ground_height = ground_offset * ONE;
     surface_flags = control.flags;
-    surface.pos.words[0] = surface_x;
-    surface_y = model.pos.words[1];
-    surface.pos.words[2] = surface_z;
-    surface.pos.words[1] = (uint32)surface_y + (uint32)ground_height;
+    surface.pos = model.pos;
+    surface.pos.y = (uint32)surface.pos.y + ground_height;
     if (surface_flags & 0x80)
     {
         ModelInstance *subject = aim_subject.GetObject();
         if (subject)
         {
-            const uint32 *position = static_cast<VisualObject *>(subject->owner)->kind == 50 ? static_cast<VisualObject *>(subject->owner)->surface.pos.words : subject->pos.words;
-            aim_pos.x = position[0];
-            aim_pos.y = position[1];
-            aim_pos.z = position[2];
-            aim_delta_z = (uint32)aim_pos.z - model.pos.words[2];
-            aim_delta_x = (uint32)aim_pos.x - model.pos.words[0];
+            const VisualObject *object = static_cast<VisualObject *>(subject->owner);
+            aim_pos = object->kind == 50 ? object->surface.pos : subject->pos;
+            aim_delta_z = (uint32)aim_pos.z - model.pos.z;
+            aim_delta_x = (uint32)aim_pos.x - model.pos.x;
             subject_heading = ratan2(aim_delta_z, aim_delta_x);
             motion_target.x = 0;
-            motion_target.y = (3072 - (uint32)subject_heading) & 0xFFF;
+            motion_target.y = (3072 - subject_heading) & 0xFFF;
             motion_target.z = 0;
-            UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, motion_target, 32);
+            UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, motion_target, 32);
         }
     }
     if (control.flags & 1)
     {
-        aim_delta_z = destination.words[2] - model.pos.words[2];
-        aim_delta_x = destination.words[0] - model.pos.words[0];
+        aim_delta_z = (uint32)dst.z - model.pos.z;
+        aim_delta_x = (uint32)dst.x - model.pos.x;
         dst_heading = ratan2(aim_delta_z, aim_delta_x);
         motion_target.x = 0;
-        motion_target.y = (3072 - (uint32)dst_heading) & 0xFFF;
+        motion_target.y = (3072 - dst_heading) & 0xFFF;
         motion_target.z = 0;
-        UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, motion_target, 32);
+        UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, motion_target, 32);
         movement_flags = control.flags;
         if (movement_flags & 8)
         {
-            if ((sint8)model.frame >= 3)
+            jump_frame = model.frame;
+            if (jump_frame >= 3)
             {
                 if (jump_ticks)
                     control.gravity_enabled = 1;
@@ -380,16 +358,16 @@ uint32 Swat::Update()
             {
                 playback.speed = 0x10000;
                 control.gravity_enabled = 0;
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
-                motion.velocity.words[0] = 0;
-                motion.acceleration.words[2] = 0;
-                motion.acceleration.words[1] = 0;
-                motion.acceleration.words[0] = 0;
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
+                motion.velocity.x = 0;
+                motion.acceleration.z = 0;
+                motion.acceleration.y = 0;
+                motion.acceleration.x = 0;
             }
-            if ((sint8)model.frame < 3 || (control.flags & 0x20))
+            if (jump_frame < 3 || (control.flags & 0x20))
             {
-                if ((sint8)model.frame >= 22)
+                if (jump_frame >= 22)
                 {
                     if (!jump_ticks)
                     {
@@ -397,7 +375,7 @@ uint32 Swat::Update()
                         if (!playback.complete)
                             goto UpdateAttack;
 
-                        next_movement_flags = (control.flags & 0xFFFFFFD6);
+                        next_movement_flags = control.flags & 0xFFFFFFD6;
                         goto StoreMovementFlags;
                     }
                     playback.speed = 0;
@@ -405,45 +383,40 @@ uint32 Swat::Update()
             }
             else
             {
-                jump_velocity_x = Divide((sint32)(destination.words[0] - model.pos.words[0]), jump_ticks);
-                jump_velocity_z = Divide((sint32)(destination.words[2] - model.pos.words[2]), jump_ticks);
-                jump_height = destination.words[1] - model.pos.words[1];
+                jump_velocity_x = DivideSignedWord((uint32)dst.x - model.pos.x, jump_ticks);
+                jump_velocity_z = DivideSignedWord((uint32)dst.z - model.pos.z, jump_ticks);
+                jump_height = (uint32)dst.y - model.pos.y;
                 jump_duration = jump_ticks;
                 motion.drag[0] = 31;
                 control.flags |= 0x20;
-                motion.velocity.words[0] = jump_velocity_x;
-                motion.velocity.words[2] = jump_velocity_z;
-                motion.velocity.words[1] = (uint32)Divide(jump_height, (uint32)jump_duration) - ((uint32)jump_duration << 14);
+                motion.velocity.x = jump_velocity_x;
+                motion.velocity.z = jump_velocity_z;
+                motion.velocity.y = DivideSignedWord(jump_height, jump_duration) - (jump_duration << 14);
                 motion.drag[1] = 31;
                 motion.drag[2] = 31;
             }
             jump_remaining = jump_ticks;
-            jump_done = (jump_remaining == 0);
+            jump_done = jump_remaining == 0;
             next_jump_tick = jump_remaining - 1;
             if (!jump_done)
             {
                 jump_ticks = next_jump_tick;
-                jump_done = (next_jump_tick == 0);
-                if (!jump_done && (sint32)motion.velocity.words[1] > 0)
+                jump_done = next_jump_tick == 0;
+                if (!jump_done && motion.velocity.y > 0)
                 {
-                    jump_done = (sint32)destination.words[1] < (sint32)model.pos.words[1];
+                    jump_done = dst.y < model.pos.y;
                 }
                 if (jump_done)
                 {
                     jump_ticks = 0;
-                    dst_x = destination.words[0];
-                    dst_y = destination.words[1];
-                    dst_z = destination.words[2];
-                    model.pos.words[0] = dst_x;
-                    model.pos.words[1] = dst_y;
-                    model.pos.words[2] = dst_z;
-                    motion.velocity.words[2] = 0;
-                    motion.velocity.words[1] = 0;
-                    motion.velocity.words[0] = 0;
-                    motion.acceleration.words[2] = 0;
-                    motion.acceleration.words[1] = 0;
+                    model.pos = dst;
+                    motion.velocity.z = 0;
+                    motion.velocity.y = 0;
+                    motion.velocity.x = 0;
+                    motion.acceleration.z = 0;
+                    motion.acceleration.y = 0;
                     playback.speed = 0x10000;
-                    motion.acceleration.words[0] = 0;
+                    motion.acceleration.x = 0;
                     control.gravity_enabled = 0;
                     motion.drag[0] = 31;
                     motion.drag[1] = 3;
@@ -454,48 +427,46 @@ uint32 Swat::Update()
         }
         if (movement_flags & 0x10)
         {
-            landing_y = destination.words[1];
-            if (landing_y < (sint32)model.pos.words[1])
+            landing_y = dst.y;
+            if (landing_y < model.pos.y)
             {
-                model.pos.words[1] = landing_y;
+                model.pos.y = landing_y;
                 control.gravity_enabled = 0;
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
                 landing_frame = (sint8)model.frame;
-                motion.velocity.words[0] = 0;
+                motion.velocity.x = 0;
                 SetAnimationRange(4, landing_frame, -1);
             }
             if (playback.complete)
             {
-                next_movement_flags = (control.flags & 0xFFFFFFEE);
+                next_movement_flags = control.flags & 0xFFFFFFEE;
             StoreMovementFlags:
                 control.flags = next_movement_flags;
             }
         }
         else
         {
-            move_delta.words[0] = (sint32)(destination.words[0] - model.pos.words[0]) >> 12;
-            move_delta.words[1] = (sint32)(destination.words[1] - model.pos.words[1]) >> 12;
-            move_delta.words[2] = (sint32)(destination.words[2] - model.pos.words[2]) >> 12;
-            NormalizeShortVector(move_delta.words, move_dir.words);
-            turn_speed = (sint16)motion.angular_velocity.words[1];
+            move_delta.x = (sint32)((uint32)dst.x - model.pos.x) >> 12;
+            move_delta.y = (sint32)((uint32)dst.y - model.pos.y) >> 12;
+            move_delta.z = (sint32)((uint32)dst.z - model.pos.z) >> 12;
+            NormalizeShortVector(move_delta, move_dir);
+            turn_speed = motion.angular_velocity.y;
             if (turn_speed < 0)
                 turn_speed = -turn_speed;
             if (turn_speed >= 65)
                 turn_speed = 64;
-            move_speed = (uint32)ai.parameters[0] * (64 - (uint32)turn_speed) / 64;
-            move_velocity_y = move_dir.words[1] * move_speed;
-            move_velocity_z = move_dir.words[2] * move_speed;
-            motion.velocity.words[0] = move_dir.words[0] * move_speed;
-            motion.velocity.words[1] = move_velocity_y;
-            motion.velocity.words[2] = move_velocity_z;
+            move_speed = ai.parameters[0] * (64 - turn_speed) / 64;
+            motion.velocity.x = move_dir.x * move_speed;
+            motion.velocity.y = move_dir.y * move_speed;
+            motion.velocity.z = move_dir.z * move_speed;
             if (control.flags & 2)
-                reached_dst = (MeasureHorizontalDistance(model.pos.words, destination.words) < 0x40);
+                reached_dst = model.pos.HorizontalDistance(dst) < 0x40;
             else
-                reached_dst = (MeasureEuclideanDistance(model.pos.words, destination.words) < 0x40);
+                reached_dst = model.pos.EuclideanDistance(dst) < 0x40;
             if (reached_dst)
             {
-                next_movement_flags = (control.flags & 0xFFFFFFFE);
+                next_movement_flags = control.flags & 0xFFFFFFFE;
                 goto StoreMovementFlags;
             }
         }
@@ -510,33 +481,36 @@ UpdateAttack:
         if (UpdateEventLatch(melee_event, 1))
         {
             player = visual_lists.players;
-            if (player && MeasureHorizontalDistance(model.pos.words, player->pos.words) < 256)
+            if (player && model.pos.HorizontalDistance(player->pos) < 256)
             {
-                melee_ground_height = (uint32)(sint32)(sint16)ground_offset << 12;
-                melee_y = model.pos.words[1];
+                melee_ground_height = ground_offset * ONE;
+                melee_y = (uint32)model.pos.y;
                 player = visual_lists.players;
-                player_ground_height = (uint32) static_cast<Player *>(visual_lists.players->owner)->ground_offset << 12;
-                player_y = player->pos.words[1];
-                melee_hit = Abs32((sint32)(player_y + player_ground_height - melee_y - melee_ground_height)) <= 0x7FFFF;
+                player_ground_height = static_cast<Player *>(visual_lists.players->owner)->ground_offset * ONE;
+                player_y = (uint32)player->pos.y;
+                melee_delta = player_y + player_ground_height - melee_y - melee_ground_height;
+                if ((sint32)melee_delta < 0)
+                    melee_delta = -melee_delta;
+                melee_hit = (sint32)melee_delta <= 0x7FFFF;
             }
         }
         if (melee_hit)
         {
-            base_damage = GetBehaviorValue(0, 1);
+            base_damage = GetBehaviorVal(0, 1);
             melee_damage = ScaleDamageForDifficulty(base_damage);
-            SubtractVectors(attack_vector.words, visual_lists.players->pos.words, model.pos.words);
+            attack_vector.Subtract(visual_lists.players->pos, model.pos);
             VisualObject *damage_target = static_cast<VisualObject *>(visual_lists.players->owner);
-            damage_target->Damage((uint32)melee_damage, attack_vector.components, 0);
+            damage_target->Damage(melee_damage, &attack_vector, 0);
         }
         attack_animation = model.animation;
     }
     if (attack_animation == 1)
     {
-        attack_variant = (uint32)control.variant;
+        attack_variant = control.variant;
         if (attack_variant & 0x10)
         {
             close_fire_event = DidAnimationCrossFrame(1, 10);
-            if ((UpdateEventLatch(close_fire_event, 2) && ((sint32)MeasureHorizontalDistance(model.pos.words, visual_lists.players->pos.words) < 4500)))
+            if (UpdateEventLatch(close_fire_event, 2) && ((sint32)model.pos.HorizontalDistance(visual_lists.players->pos) < 4500))
                 goto FireAttack;
         }
         else if (attack_variant & 8)
@@ -549,15 +523,15 @@ UpdateAttack:
         else if (attack_variant & 0x40)
         {
             player = visual_lists.players;
-            aim_delta_z = player->pos.words[2] - model.pos.words[2];
-            aim_delta_x = player->pos.words[0] - model.pos.words[0];
+            aim_delta_z = (uint32)player->pos.z - model.pos.z;
+            aim_delta_x = (uint32)player->pos.x - model.pos.x;
             player_heading = ratan2(aim_delta_z, aim_delta_x);
             motion_target.x = 0;
-            motion_target.y = (3072 - (uint32)player_heading) & 0xFFF;
+            motion_target.y = (3072 - player_heading) & 0xFFF;
             motion_target.z = 0;
-            UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, motion_target, 32);
+            UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, motion_target, 32);
             fire_frame = model.frame;
-            if (((((uint32)(((uint32)(fire_frame) - (uint32)(21)))) < 0x13) && ((fire_frame & 3) == 0)))
+            if (fire_frame >= 21 && fire_frame < 40 && !(fire_frame & 3))
                 goto FireAttack;
         }
     }
@@ -567,84 +541,78 @@ UpdateAttack:
         model_effect.color_mode = 100687952;
         model_effect.scale = 10240;
         model_effect.depth_bias = 10;
-        if ((((((uint32)(MeasureHorizontalDistance(model.pos.words, contact_player->pos.words))) < 0xA0) && (ai.state != 16)) && visual_lists.players))
+        if (model.pos.HorizontalDistance(contact_player->pos) < 0xA0 && ai.state != 16 && visual_lists.players)
         {
             contact_damage = ScaleDamageForDifficulty(1);
             VisualObject *damage_target = static_cast<VisualObject *>(visual_lists.players->owner);
-            damage_target->Damage((uint32)contact_damage, zero_vector.components, 0);
+            damage_target->Damage(contact_damage, &zero_vector, 0);
         }
     }
-    if ((((control.flags & 0x100) != 0) && !RandomRange(4)))
+    if (((control.flags & 0x100) != 0) && !RandomRange(4))
     {
         use_small_effect_pool = false;
-        particle_roll = RandomRange(3);
-        particles_remaining = (uint32)particle_roll + 2;
-        if ((particle_roll != -2))
+        particles_remaining = RandomRange(3) + 2;
+        do
         {
-            do
-            {
-                particle_storage = AllocateEffectStorage(116);
-                if (particle_storage)
-                {
-                    new (particle_storage) PanelParticle(model.pos.words);
-                }
-                --particles_remaining;
-            } while (particles_remaining);
-        }
+            particle_storage = EffectObject::AllocateStorage(116);
+            if (particle_storage)
+                new (particle_storage) PanelParticle(&model.pos);
+            --particles_remaining;
+        } while (particles_remaining);
         use_small_effect_pool = true;
     }
     if (control.flags & 4)
     {
         if (!burn_ring)
         {
-            ring_storage = AllocateEffectStorage(176);
+            ring_storage = EffectObject::AllocateStorage(176);
             if (ring_storage)
             {
-                burn_ring = new (ring_storage) OscillatingRing(model.pos.words, 64, 32, 64, 112, 96, 0, 48, 0x25, 0);
+                burn_ring = new (ring_storage) OscillatingRing(&model.pos, 64, 32, 64, 112, 96, 0, 48, 0x25, 0);
             }
             if (!burn_ring)
             {
-                GameDiagnostic("Swat burn ring allocation failed\n");
+                GameDiagnostic(("Swat burn ring allocation failed\n"));
                 abort();
             }
-            burn_ring->persistent = 1;
-            burn_ring->SetPosition(model.pos.words);
+            burn_ring->persistent = true;
+            burn_ring->SetPos(&model.pos);
             control.flags |= 0x800;
         }
         if (game_clock.tick & 1)
         {
-            const BurnAttachments *attachments = 0;
+            const BurnAttachments *burn_attachments = 0;
             switch (control.variant)
             {
                 case 1:
-                    attachments = BurnAttachmentSets;
+                    burn_attachments = burn_attachment_sets;
                     break;
                 case 4:
-                    attachments = BurnAttachmentSets + 1;
+                    burn_attachments = burn_attachment_sets + 1;
                     break;
                 case 2:
-                    attachments = BurnAttachmentSets + 2;
+                    burn_attachments = burn_attachment_sets + 2;
                     break;
                 case 8:
-                    attachments = BurnAttachmentSets + 3;
+                    burn_attachments = burn_attachment_sets + 3;
                     break;
                 case 16:
-                    attachments = BurnAttachmentSets + 4;
+                    burn_attachments = burn_attachment_sets + 4;
                     break;
                 case 256:
-                    attachments = BurnAttachmentSets + 5;
+                    burn_attachments = burn_attachment_sets + 5;
                     break;
             }
-            uint32 ring_bone = 0;
-            if (attachments)
+            uint8 ring_bone = 0;
+            if (burn_attachments)
             {
-                ring_bone = attachments->bones[0];
-                uint32 bone_idx = RandomRange(attachments->count);
+                ring_bone = burn_attachments->bones[0];
+                uint8 bone_idx = RandomRange(burn_attachments->count);
                 use_small_effect_pool = false;
-                GameHeapBlock *allocation = AllocateEffectStorage(132);
+                GameHeapBlock *allocation = EffectObject::AllocateStorage(132);
                 if (allocation)
                 {
-                    new (allocation) Fireball(*this, attachments->bones[bone_idx]);
+                    new (allocation) Fireball(*this, burn_attachments->bones[bone_idx]);
                 }
                 use_small_effect_pool = true;
             }
@@ -652,98 +620,63 @@ UpdateAttack:
             {
                 attachment_desc.x = attachment_desc.y = attachment_desc.z = 0;
                 attachment_desc.bone = ring_bone;
-                GetModelBonePosition(attachment_pos.words, *this, attachment_desc);
-                burn_ring->SetPosition(attachment_pos.words);
+                GetModelBonePos(attachment_pos, *this, attachment_desc);
+                burn_ring->SetPos(&attachment_pos);
             }
         }
     }
-    final_variant = (uint32)control.variant;
+    final_variant = control.variant;
     if (final_variant == 8)
     {
         visibility_animation = model.animation;
         if (visibility_animation == 8)
         {
-            visibility_flags = (model.flags & 0xFFFE);
+            visibility_flags = model.flags & 0xFFFE;
         }
         else
         {
-            if ((!(playback.complete) || (visibility_animation != 7)))
+            if (!playback.complete || (visibility_animation != 7))
                 goto UpdateFootsteps;
-            visibility_flags = (model.flags | 1);
+            visibility_flags = model.flags | 1;
         }
         model.flags = visibility_flags;
     UpdateFootsteps:
-        final_variant = (uint32)control.variant;
+        final_variant = control.variant;
     }
     result = 2;
-    if (((final_variant == 256) && (model.animation == 2)))
+    if ((final_variant == 256) && (model.animation == 2))
     {
         footstep_event0 = DidAnimationCrossFrame(2, 3);
         if (UpdateEventLatch(footstep_event0, 1))
-            return PlayPositionedSound(121, model.pos.words, 3);
+            return PlayPositionedSound(121, &model.pos, 3);
         footstep_event1 = DidAnimationCrossFrame(2, 17);
         result = UpdateEventLatch(footstep_event1, 2);
         if (result)
-            return PlayPositionedSound(121, model.pos.words, 3);
+            return PlayPositionedSound(121, &model.pos, 3);
     }
     return result;
 }
 
-// Native helper preserves original signed DIV corner results
-static uint32 DivideExplosionDamage(uint32 numerator, uint32 denominator)
-{
-    if (!denominator)
-        return (sint32)numerator < 0 ? 1 : (uint32)-1;
-    if (numerator == 0x80000000 && denominator == (uint32)-1)
-        return numerator;
-    return (uint32)((sint32)numerator / (sint32)denominator);
-}
-
-uint32 Swat::ApplyExplosionDamage()
-{
-    uint32 index = 0, count, result, radius, distance, damage;
-    FUNCTION_MARKER(0x8004E624, "SLUS_003.73");
-    while (1)
-    {
-        count = explosion_queue.count;
-        result = (uint32)((sint32)index < (sint32)count);
-        if (!result)
-            return result;
-        const ExplosionEvent *event = &explosion_queue.entries[index];
-        distance = MeasurePositionDistance(model.pos.words, event->pos.words);
-        radius = event->radius;
-        if ((sint32)distance < (sint32)radius)
-        {
-            damage = event->strength;
-            damage = DivideExplosionDamage(damage * (radius - distance), radius);
-            Damage(damage, zero_vector.components, 0);
-            result = (uint32)(sint32)this->health;
-            if ((sint32)result <= 0)
-                return result;
-        }
-        ++index;
-    }
-}
-
-uint32 Swat::Damage(uint32 damage, const sint32 *input_vector, uint32 reason)
+uint32 Swat::Damage(uint32 damage, const Vector3 *input_vector, uint32 reason)
 {
     ModelBorrow model_borrow;
     FUNCTION_MARKER(0x8004F5C8, "SLUS_003.73");
-    uint32 count, flags, remaining;
+    uint8 count;
+    uint16 lifecycle;
+    uint32 flags;
     ModelInstance *hero;
-    sint32 health;
-    if ((uint32)this->control.variant == 64 && reason == 5)
+    sint16 health;
+    if (control.variant == 64 && reason == 5)
         return 0;
-    count = (uint32)this->control.damage_phase;
-    flags = this->control.flags;
-    this->control.damage_phase = count + 1;
+    count = control.damage_phase;
+    flags = control.flags;
+    control.damage_phase = count + 1;
     health = this->health;
-    this->control.flags = flags | 0x400;
-    remaining = (uint16)this->health - damage;
+    control.flags = flags | 0x400;
     if (health <= 0)
         return 1;
-    this->health = (sint16)(uint16)(remaining);
-    if ((sint32)(remaining << 16) > 0)
+    this->health = health - damage;
+    if (this->health > 0)
     {
         SetColor(3, 255, 255, 255);
         SpawnZombieFragment();
@@ -752,49 +685,48 @@ uint32 Swat::Damage(uint32 damage, const sint32 *input_vector, uint32 reason)
     {
         hero = visual_lists.players;
         if (hero)
-            TryPlayPlayerKillQuote(hero->pos.words);
-        flags = this->lifecycle_flags;
-        motion.angular_acceleration.words[1] = 0;
-        motion.angular_velocity.words[1] = 0;
-        this->lifecycle_flags = flags & 0xFFEF;
+            static_cast<Player *>(hero->owner)->TryPlayKillQuote();
+        lifecycle = lifecycle_flags;
+        motion.angular_acceleration.y = 0;
+        motion.angular_velocity.y = 0;
+        lifecycle_flags = lifecycle & 0xFFEF;
         DetachTurret();
         DeathReaction(input_vector, reason);
     }
     return 1;
 }
 
-uint32 Swat::SpawnZombieFragment()
+void Swat::SpawnZombieFragment()
 {
-    uint32 trig_angle;
-    uint32 angle;
-    uint32 random;
+    uint16 trig_angle, angle;
+    uint8 random;
     Vector3 velocity;
     GameHeapBlock *child;
-    uint32 kind;
+    uint16 kind;
     uint32 height;
     uint32 flags;
     FUNCTION_MARKER(0x8004F6C4, "SLUS_003.73");
-    if ((uint32)this->control.variant != 128)
-        return 128;
+    if (control.variant != 128)
+        return;
     angle = RandomRange(4096);
     random = RandomRange(16);
     trig_angle = angle & 0xFFF;
-    velocity.words[0] = (uint32)rsin(trig_angle) * (random + 24);
+    velocity.x = rsin(trig_angle) * (random + 24);
     random = RandomRange(16);
-    velocity.words[1] = (0 - 32 - random) << 12;
+    velocity.y = (-32 - random) * ONE;
     random = RandomRange(16);
-    velocity.words[2] = (uint32)rcos(trig_angle) * (random + 24);
+    velocity.z = rcos(trig_angle) * (random + 24);
     child = AllocateZeroedObject(320);
     if (child)
     {
         random = RandomRange(fragment_count);
         kind = fragment_first;
-        height = (uint32)(sint32)(sint16)(uint32)this->ground_offset << 12;
-        height += this->model.pos.words[1];
-        new (child) Debris(this->model.pos.words, velocity.words, (kind + random) & 0xFFFF, height, 9, 24, GetRecordModelBankName());
+        height = ground_offset * ONE;
+        height += (uint32)model.pos.y;
+        new (child) Debris(&model.pos, &velocity, kind + random, height, 9, 24, GetRecModelBankName());
     }
     if (!RandomRange(2))
-        return 0x10000;
+        return;
     flags = hidden_models;
     if (!(flags & 0x10000))
         flags |= 0x100C0;
@@ -802,77 +734,74 @@ uint32 Swat::SpawnZombieFragment()
         flags |= 0x1300;
     else
     {
-        uint32 result = flags | 7;
         if (!(flags & 1))
-            hidden_models = result;
-        return result;
+            hidden_models = flags | 7;
+        return;
     }
     hidden_models = flags;
-    return flags;
 }
 
-void Swat::DeathReaction(const sint32 *vector, uint32 reason)
+void Swat::DeathReaction(const Vector3 *vector, uint32 reason)
 {
     FUNCTION_MARKER(0x8004F840, "SLUS_003.73");
-    uint32 x, y, z, nonzero, flags, value, divisor, factor;
-    Vector3 direction;
+    uint32 flags, divisor;
+    uint16 val, factor;
+    bool nonzero;
+    Vector3 dir;
     ShortVector3 angles;
-    x = vector[0];
-    y = vector[1];
-    z = vector[2];
-    nonzero = x | y | z;
-    if ((uint32)this->control.variant == 128)
+    nonzero = ((uint32)vector->x | vector->y | vector->z) != 0;
+    if (control.variant == 128)
     {
         flags = hidden_models;
         SetDeathState(16);
-        this->control.script_active = 0;
+        control.script_active = 0;
         hidden_models = flags | 0x113FF;
         return;
     }
-    if ((this->control.flags & 0x200) || this->model.animation == 4)
+    if ((control.flags & 0x200) || model.animation == 4)
     {
         FragmentAndFinish(0);
         return;
     }
-    motion.angular_velocity.words[2] = 0;
-    motion.angular_velocity.words[1] = 0;
-    motion.angular_velocity.words[0] = 0;
-    motion.angular_acceleration.words[2] = 0;
-    motion.angular_acceleration.words[1] = 0;
-    motion.angular_acceleration.words[0] = 0;
+    motion.angular_velocity.z = 0;
+    motion.angular_velocity.y = 0;
+    motion.angular_velocity.x = 0;
+    motion.angular_acceleration.z = 0;
+    motion.angular_acceleration.y = 0;
+    motion.angular_acceleration.x = 0;
     if (reason == 5)
     {
         if (!RandomRange(5))
             FragmentAndFinish(5);
         else
         {
-            flags = this->control.flags;
-            this->control.script_active = 0;
+            flags = control.flags;
+            control.script_active = 0;
             SetDeathState(11);
-            this->control.flags = flags | 4;
+            control.flags = flags | 4;
         }
         return;
     }
-    if ((sint32)reason < 6 && reason == 2)
+    if (reason == 2)
     {
         FragmentAndFinish(0);
         return;
     }
     if (reason == 9 || reason == 10)
     {
-        if (((uint32)this->control.variant & 31) && !RandomRange(reason == 9 ? 3 : 4))
+        if ((control.variant & 31) && !RandomRange(reason == 9 ? 3 : 4))
         {
-            EnterDeathState14();
+            EnterAttachmentParticleDeath();
             return;
         }
-        value = RandomRange(reason == 9 ? 3 : 2);
-        if (reason == 9 && !value)
+        val = RandomRange(reason == 9 ? 3 : 2);
+        if (reason == 9 && !val)
         {
-            this->control.script_active = 0;
+            control.script_active = 0;
             SetDeathState(8);
         }
-        else if (reason == 10 && value)
-            EnterDeathState13();
+        else if (reason == 10 && val)
+            EnterMovingParticleDeath();
         else
             FragmentAndFinish(0);
         return;
@@ -882,83 +811,81 @@ void Swat::DeathReaction(const sint32 *vector, uint32 reason)
         FragmentAndFinish(0);
         return;
     }
-    if (((uint32)this->control.variant & 31) && !RandomRange(5))
+    if ((control.variant & 31) && !RandomRange(5))
     {
-        EnterDeathState14();
+        EnterAttachmentParticleDeath();
         return;
     }
-    value = (uint32)this->control.variant;
-    this->control.script_active = 0;
-    if (value != 4)
+    val = control.variant;
+    control.script_active = 0;
+    if (val != 4)
     {
         SetDeathState(8);
         return;
     }
     if (nonzero)
     {
-        x = vector[0];
-        z = vector[2];
-        direction.components[0] = (sint32)x;
-        direction.components[1] = 0;
-        direction.components[2] = (sint32)z;
-        divisor = MeasureVectorLength(direction.words) + 1;
-        if ((sint32)divisor < 128)
+        dir.x = vector->x;
+        dir.y = 0;
+        dir.z = vector->z;
+        divisor = dir.Len() + 1;
+        if (divisor < 128)
         {
-            factor = (uint32)Divide(128, divisor);
-            direction.components[0] = (sint32)((uint32)direction.components[0] * factor);
-            direction.components[2] = (sint32)((uint32)direction.components[2] * factor);
+            factor = DivideSignedWord(128, divisor);
+            dir.x = (uint32)dir.x * factor;
+            dir.z = (uint32)dir.z * factor;
         }
-        CalculateDirectionAngles(angles.words, direction.words, zero_vector.words);
-        this->model.angles.words[1] = (uint16)angles.components[1];
+        angles.SetDir(dir, zero_vector);
+        model.angles.y = angles.y;
     }
     SetDeathState(10);
 }
 
 void Swat::FragmentAndFinish(uint32 mode)
 {
-    uint32 trig_angle;
     FUNCTION_MARKER(0x8004FB00, "SLUS_003.73");
-    uint32 angle = RandomRange(1024);
-    uint32 index;
-    for (index = 0; index < 6; ++index)
+    uint16 angle = RandomRange(1024);
+    uint32 idx;
+    for (idx = 0; idx < 6; ++idx)
     {
         Vector3 velocity;
         GameHeapBlock *child;
         if (player_distance >= 2048 || !visual_lists.cameras || RandomRange(4))
         {
-            uint32 random = RandomRange(16);
-            uint32 trig_angle = angle & 4095;
-            velocity.words[0] = (uint32)rsin(trig_angle) * (random + 24);
-            velocity.words[1] = (0 - 32 - RandomRange(16)) << 12;
+            uint8 random = RandomRange(16);
+            uint16 trig_angle = angle & 4095;
+            velocity.x = rsin(trig_angle) * (random + 24);
             random = RandomRange(16);
-            velocity.words[2] = (uint32)rcos(trig_angle) * (random + 24);
+            velocity.y = (-32 - random) * ONE;
+            random = RandomRange(16);
+            velocity.z = rcos(trig_angle) * (random + 24);
         }
         else
         {
             ModelInstance *target = visual_lists.cameras;
-            Vector3 position;
+            Vector3 pos;
             uint32 divisor;
             sint32 numerator;
-            position = target->pos;
-            position.words[1] += 0x80000;
-            divisor = MeasurePositionDistance(this->model.pos.words, position.words) >> 7;
+            pos = target->pos;
+            pos.y = (uint32)pos.y + (0x80000);
+            divisor = model.pos.Distance(pos) >> 7;
             // MIPS DIV defines LO even for zero
-            numerator = (sint32)(position.words[0] - this->model.pos.words[0]);
-            velocity.words[0] = (uint32)Divide(numerator, divisor);
-            numerator = (sint32)(position.words[2] - this->model.pos.words[2]);
-            velocity.words[2] = (uint32)Divide(numerator, divisor);
-            numerator = (sint32)(position.words[1] - this->model.pos.words[1]);
-            velocity.words[1] = ((uint32)Divide(numerator, divisor)) - (divisor << 13);
+            numerator = (sint32)((uint32)pos.x - model.pos.x);
+            velocity.x = DivideSignedWord(numerator, divisor);
+            numerator = (sint32)((uint32)pos.z - model.pos.z);
+            velocity.z = DivideSignedWord(numerator, divisor);
+            numerator = (sint32)((uint32)pos.y - model.pos.y);
+            velocity.y = DivideSignedWord(numerator, divisor) - (divisor << 13);
         }
-        uint32 fragment_type = mode == 5 ? 5 : ((uint32)this->control.variant & 0x180) ? 9 : 3;
+        uint16 fragment_type = mode == 5 ? 5 : (control.variant & 0x180) ? 9 : 3;
         child = AllocateZeroedObject(320);
         if (child)
         {
-            uint32 variation = RandomRange(fragment_count);
-            uint32 kind = (fragment_first + variation) & 65535;
-            uint32 height = (uint32)(sint32)(sint16)(uint32)this->ground_offset << 12;
-            height += this->model.pos.words[1];
-            new (child) Debris(this->model.pos.words, velocity.words, kind, height, fragment_type, 24, GetRecordModelBankName());
+            uint8 variation = RandomRange(fragment_count);
+            uint16 kind = fragment_first + variation;
+            uint32 height = ground_offset * ONE;
+            height += (uint32)model.pos.y;
+            new (child) Debris(&model.pos, &velocity, kind, height, fragment_type, 24, GetRecModelBankName());
             if (mode == 5)
                 SetColor(0, 0, 0, 0);
         }
@@ -967,13 +894,13 @@ void Swat::FragmentAndFinish(uint32 mode)
     Finish();
 }
 
-uint32 Swat::EnterDeathState13()
+void Swat::EnterMovingParticleDeath()
 {
     FUNCTION_MARKER(0x8004FE20, "SLUS_003.73");
-    uint32 kind = (uint32)this->control.variant;
-    uint32 mask, result;
+    uint16 kind = control.variant;
+    uint32 mask;
     ai.state = 13;
-    this->control.script_active = 0;
+    control.script_active = 0;
     ai.phase = 0;
     switch (kind)
     {
@@ -990,24 +917,19 @@ uint32 Swat::EnterDeathState13()
             mask = 0x1FF80;
             break;
         default:
-            return kind < 3 ? 1 : 8;
+            return;
     }
-    result = hidden_models | mask;
-    hidden_models = result;
-    return result;
+    hidden_models |= mask;
 }
 
-void Swat::EnterDeathState14()
+void Swat::EnterAttachmentParticleDeath()
 {
     FUNCTION_MARKER(0x8004FEC4, "SLUS_003.73");
-    uint32 kind = (uint32)this->control.variant;
-    uint32 index = kind - 1;
-    uint32 mask, result;
-    this->control.script_active = 0;
+    uint16 kind = control.variant;
+    uint32 mask;
+    control.script_active = 0;
     ai.state = 14;
     ai.phase = 0;
-    if (index >= 16)
-        return;
     switch (kind)
     {
         case 1:
@@ -1028,9 +950,7 @@ void Swat::EnterDeathState14()
         default:
             return;
     }
-    result = hidden_models | mask;
-    hidden_models = result;
-    return;
+    hidden_models |= mask;
 }
 
 void Swat::UpdateState()
@@ -1041,8 +961,9 @@ void Swat::UpdateState()
 
     Vector3 pos_output, effect_pos0, effect_pos1, sight_pos;
     ShortVector3 desired_angles, effect_angles;
-    sint32 result;
-    uint32 fall_phase;
+    uint16 next_state, next_phase;
+    bool pos_chosen;
+    uint16 fall_phase;
     ModelInstance *facing_player;
     bool player_missing;
     bool sight_blocked;
@@ -1052,235 +973,211 @@ void Swat::UpdateState()
     bool airborne_elapsed;
     bool below_floor;
     sint32 fall_ground_y;
-    sint32 fall_ground_offset;
-    sint32 fall_variant;
-    sint16 fall_lifecycle_flags;
-    sint32 landing_frame;
+    sint16 fall_ground_offset;
+    uint16 fall_variant;
+    uint16 fall_lifecycle_flags;
+    sint8 landing_frame;
     sint32 fall_target_y;
     sint32 fall_height;
-    sint32 landed_lifecycle_flags;
-    sint32 idle_flags;
-    sint32 idle_animation_complete;
-    sint16 behavior;
-    sint32 idle_variant;
-    sint32 idle_sound_roll;
-    sint32 idle_sound;
-    sint32 fallback_state;
-    sint32 approach_phase;
-    sint32 minimum_radius;
-    sint32 search_distance;
-    sint32 approach_flags;
-    sint32 attack_phase;
-    sint32 sight_x;
+    uint16 landed_lifecycle_flags;
+    uint32 idle_flags;
+    bool idle_animation_complete;
+    uint8 behavior;
+    uint16 idle_variant;
+    uint8 idle_sound_roll;
+    uint8 idle_sound;
+    uint16 fallback_state;
+    uint16 approach_phase;
+    uint32 minimum_radius;
+    sint16 search_distance;
+    uint32 approach_flags;
+    uint16 attack_phase;
+    uint32 sight_x;
     ModelInstance *sight_player;
-    sint32 phase_before_advance;
-    sint32 attack_ticks;
-    sint32 move_phase;
-    sint32 move_flags;
-    sint16 player_heading;
-    sint32 death_flags;
-    sint32 death_variant;
-    sint32 fade_ticks;
+    uint16 phase_before_advance;
+    sint16 attack_ticks;
+    uint16 move_phase;
+    uint32 move_flags;
+    sint32 player_heading;
+    uint32 death_flags;
+    uint16 death_variant;
+    sint16 fade_ticks;
     sint16 next_fade_tick;
-    sint16 fade_model_flags;
-    uint32 retreat_phase;
-    sint32 retreat_flags;
-    sint32 retreat_y;
-    sint32 retreat_z;
+    uint16 fade_model_flags;
+    uint16 retreat_phase;
+    uint32 retreat_flags;
     sint32 retreat_distance;
-    sint32 retreat_duration_numerator;
-    sint32 clipped_retreat_y;
-    sint32 clipped_retreat_z;
-    sint32 retreat_velocity_y;
-    sint32 retreat_velocity_z;
-    sint32 free_retreat_velocity_y;
-    sint32 free_retreat_velocity_z;
     sint32 retreat_ground_y;
-    sint32 burst_idx;
+    uint8 burst_idx;
     GameHeapBlock *burst_storage;
-    sint32 retreat_ticks;
+    sint16 retreat_ticks;
     sint32 death_ground_y;
-    uint32 burn_phase;
-    sint16 burn_phase_before_advance;
-    sint32 burn_variant;
-    sint32 burn_repeat_range;
-    sint32 burn_repeat_roll;
-    uint32 moving_death_phase;
-    sint32 death_move_chosen;
-    sint32 moving_burst_idx;
-    sint32 moving_burst_speed;
+    uint16 burn_phase;
+    uint16 burn_phase_before_advance;
+    uint16 burn_variant;
+    uint8 burn_repeat_range;
+    uint8 burn_repeat_roll;
+    uint16 moving_death_phase;
+    bool death_move_chosen;
+    uint8 moving_burst_idx;
+    uint8 moving_burst_speed;
     GameHeapBlock *moving_burst_storage;
-    sint32 moving_death_flags;
-    uint32 attached_death_phase;
-    sint16 attached_lifecycle_flags;
-    sint16 attached_phase_before_advance;
-    sint32 attached_burst_idx;
-    sint32 attached_burst_speed;
+    uint32 moving_death_flags;
+    uint16 attached_death_phase;
+    uint16 attached_lifecycle_flags;
+    uint16 attached_phase_before_advance;
+    uint8 attached_burst_idx;
+    uint8 attached_burst_speed;
     GameHeapBlock *attached_burst_storage;
-    sint32 attached_repeat_roll;
-    sint32 final_burst_idx;
-    sint32 final_burst_speed;
+    uint8 attached_repeat_roll;
+    uint8 final_burst_idx;
+    uint8 final_burst_speed;
     GameHeapBlock *final_burst_storage;
-    sint32 airborne_speed_roll;
-    sint16 airborne_yaw_roll;
+    uint8 airborne_speed_roll;
+    uint8 airborne_yaw_roll;
     sint16 airborne_pitch_speed;
-    sint16 airborne_lifetime_roll;
+    uint8 airborne_lifetime_roll;
     sint32 airborne_y;
-    sint16 airborne_phase_before_advance;
-    sint32 airborne_ticks;
+    uint16 airborne_phase_before_advance;
+    sint16 airborne_ticks;
     sint16 next_airborne_tick;
-    sint32 airborne_floor;
+    sint16 airborne_floor;
     sint32 airborne_floor_y;
-    sint32 airborne_velocity_y;
-    uint32 emergence_phase;
-    sint16 emergence_lifecycle_flags;
-    sint32 rise_phase;
-    sint32 rise_y;
-    sint32 rise_ticks;
-    sint16 rise_model_flags;
-    sint32 scripted_rise_phase;
-    sint32 rise_phase_before_advance;
-    sint16 hidden_model_flags;
-    sint32 maximum_radius;
-    uint32 position_x;
-    sint32 position_z;
+    uint32 airborne_velocity_y;
+    uint16 emergence_phase;
+    uint16 emergence_lifecycle_flags;
+    uint16 rise_phase;
+    uint32 rise_y;
+    sint16 rise_ticks;
+    uint16 rise_model_flags;
+    uint16 scripted_rise_phase;
+    uint16 rise_phase_before_advance;
+    uint16 hidden_model_flags;
+    uint32 maximum_radius;
     Vector3 retreat_vector;
     uint32 clipped_retreat_divisor;
     uint32 free_retreat_divisor;
-    result = -2146828288;
     switch (ai.state)
     {
         case 0:
             fall_phase = ai.phase;
-            result = (fall_phase < 2);
-            if ((fall_phase == 1))
+            if (fall_phase == 1)
             {
-                if (((control.flags & 2) != 0))
+                if ((control.flags & 2) != 0)
                 {
-                    result = (contact_flags & 2);
-                    if (!result)
+                    if (!(contact_flags & 2))
                         return;
-                    landing_frame = ((sint8)(model.frame));
+                    landing_frame = (sint8)model.frame;
                     control.gravity_enabled = 0;
                 }
                 else
                 {
-                    fall_target_y = (sint32)((uint32)(sint16)ai.work[0] << 14);
-                    fall_height = (sint32)((uint32)(sint16)(uint32)ground_offset << 12);
-                    result = (fall_target_y < (sint32)(model.pos.words[1] + (uint32)fall_height));
-                    if ((fall_target_y >= (sint32)(model.pos.words[1] + (uint32)fall_height)))
+                    fall_target_y = (sint16)ai.work[0] * 16384;
+                    fall_height = ground_offset * ONE;
+                    if (fall_target_y >= (sint32)((uint32)model.pos.y + fall_height))
                         return;
-                    model.pos.words[1] = ((uint32)fall_target_y - (uint32)fall_height);
+                    model.pos.y = (uint32)fall_target_y - fall_height;
                     control.gravity_enabled = 0;
-                    motion.velocity.words[2] = 0;
-                    motion.velocity.words[1] = 0;
-                    landing_frame = ((sint8)(model.frame));
-                    motion.velocity.words[0] = 0;
+                    motion.velocity.z = 0;
+                    motion.velocity.y = 0;
+                    landing_frame = (sint8)model.frame;
+                    motion.velocity.x = 0;
                 }
                 SetAnimationRange(4, landing_frame, -1);
-                fall_variant = (uint32)control.variant;
+                fall_variant = control.variant;
                 ai.phase = 2;
-                result = 8;
                 goto EnableLandingShadow;
             }
-            if ((ai.phase < 2))
+            if (ai.phase < 2)
             {
                 if (ai.phase)
                     return;
                 facing_player = visual_lists.players;
-                player_missing = (visual_lists.players == 0);
-                control.flags = (control.flags & (~1));
+                player_missing = visual_lists.players == 0;
+                control.flags &= ~1;
                 if (!player_missing)
-                    model.angles.words[1] = (3072 - ratan2((sint32)(facing_player->pos.words[2] - model.pos.words[2]), (sint32)(facing_player->pos.words[0] - model.pos.words[0])));
-                fall_ground_y = FindGroundHeight(model.pos.words, 0, 4096);
-                if ((fall_ground_y == -1))
+                    model.angles.y = (3072 - ratan2((sint32)((uint32)facing_player->pos.z - model.pos.z), (sint32)((uint32)facing_player->pos.x - model.pos.x)));
+                fall_ground_y = CollisionRay::FindGroundHeight(model.pos, 0, 4096);
+                if (fall_ground_y == -1)
                 {
-                    (void)Finish();
+                    Finish();
                     return;
                 }
-                fall_ground_offset = ((sint16)((uint32)ground_offset));
-                if (((sint32)((uint32)fall_ground_y - model.pos.words[1]) >> 12) >= 2 * fall_ground_offset)
+                fall_ground_offset = ground_offset;
+                if (((sint32)((uint32)fall_ground_y - (uint32)model.pos.y) >> 12) >= 2 * fall_ground_offset)
                 {
-                    ai.work[0] = (fall_ground_y >> 14);
+                    ai.work[0] = fall_ground_y >> 14;
                     ai.phase = 1;
                     SetAnimationRange(4, 21, 22);
                     fall_lifecycle_flags = lifecycle_flags;
                     control.gravity_enabled = 1;
                     lifecycle_flags = fall_lifecycle_flags & 0xFFEF;
-                    {
-                        (void)RemoveShadow();
-                        return;
-                    }
+                    RemoveShadow();
+                    return;
                 }
-                model.pos.words[1] = ((uint32)fall_ground_y - ((uint32)fall_ground_offset << 12));
+                model.pos.y = (uint32)fall_ground_y - fall_ground_offset * ONE;
                 ai.state = 1;
                 control.gravity_enabled = 0;
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
-                fall_variant = (uint32)control.variant;
-                result = 8;
-                motion.velocity.words[0] = 0;
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
+                fall_variant = control.variant;
+                motion.velocity.x = 0;
             EnableLandingShadow:
-                if ((fall_variant != 8))
+                if (fall_variant != 8)
                 {
-                    (void)EnableShadow();
+                    EnableShadow();
                     return;
                 }
 
                 return;
             }
-            result = 2;
-            if ((fall_phase == 2))
+            if (fall_phase == 2)
             {
-                result = playback.complete;
                 if (playback.complete)
                 {
                     landed_lifecycle_flags = lifecycle_flags;
                     ai.SetStatePhase(1);
-                    result = (landed_lifecycle_flags | 0x10);
-                    lifecycle_flags = result;
+                    lifecycle_flags = landed_lifecycle_flags | 0x10;
                 }
             }
             return;
 
         case 1:
-            result = ai.phase;
-            if (!(ai.phase))
+            if (!ai.phase)
             {
                 idle_flags = control.flags;
                 control.gravity_enabled = 0;
-                control.flags = (idle_flags & 0xFFFFFFFE);
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
-                motion.velocity.words[0] = 0;
-                motion.angular_velocity.words[2] = 0;
-                motion.angular_velocity.words[1] = 0;
-                motion.angular_velocity.words[0] = 0;
-                motion.angular_acceleration.words[2] = 0;
-                motion.angular_acceleration.words[1] = 0;
+                control.flags = idle_flags & 0xFFFFFFFE;
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
+                motion.velocity.x = 0;
+                motion.angular_velocity.z = 0;
+                motion.angular_velocity.y = 0;
+                motion.angular_velocity.x = 0;
+                motion.angular_acceleration.z = 0;
+                motion.angular_acceleration.y = 0;
                 idle_animation_complete = playback.complete;
-                motion.angular_acceleration.words[0] = 0;
+                motion.angular_acceleration.x = 0;
                 if (idle_animation_complete)
                     SetAnimationRange(0, 0, -1);
                 behavior = ChooseBehavior();
-                idle_variant = (uint32)control.variant;
-                ai.state = (behavior + 2);
-                result = 4;
+                idle_variant = control.variant;
+                ai.state = behavior + 2;
                 ai.phase = 0;
-                if ((idle_variant == 4))
+                if (idle_variant == 4)
                 {
                     idle_sound_roll = RandomRange(16);
                     idle_sound = 43;
                     if (!idle_sound_roll)
                     {
-                        (void)PlaySoundEffect(idle_sound, 0x2000, 0);
+                        PlaySoundEffect(idle_sound, 0x2000, 0);
                         return;
                     }
-                    result = RandomRange(16);
+                    idle_sound_roll = RandomRange(16);
                     idle_sound = 44;
-                    if (!result)
+                    if (!idle_sound_roll)
                     {
-                        (void)PlaySoundEffect(idle_sound, 0x2000, 0);
+                        PlaySoundEffect(idle_sound, 0x2000, 0);
                         return;
                     }
                 }
@@ -1289,29 +1186,27 @@ void Swat::UpdateState()
 
         case 2:
             fallback_state = ai.phase;
-            result = 1;
-            if (!(ai.phase))
+            if (!ai.phase)
             {
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
-                motion.velocity.words[0] = 0;
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
+                motion.velocity.x = 0;
                 SetAnimationRange(3, 0, -1);
-                result = (ai.phase + 1);
+                next_phase = ai.phase + 1;
                 goto StorePhase;
             }
-            if ((fallback_state == 1))
+            if (fallback_state == 1)
             {
                 if (visual_lists.players)
                 {
-                    CalculateDirectionAngles(desired_angles.words, model.pos.words, visual_lists.players->pos.words);
-                    desired_angles.components[0] = 0;
-                    UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired_angles, 32);
+                    desired_angles.SetDir(model.pos, visual_lists.players->pos);
+                    desired_angles.comp[0] = 0;
+                    UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired_angles, 32);
                 }
-                result = playback.complete;
                 if (playback.complete)
                 {
-                    motion.angular_acceleration.words[1] = 0;
-                    motion.angular_velocity.words[1] = 0;
+                    motion.angular_acceleration.y = 0;
+                    motion.angular_velocity.y = 0;
                     goto ResetFallbackState;
                 }
             }
@@ -1319,37 +1214,32 @@ void Swat::UpdateState()
 
         case 3:
             approach_phase = ai.phase;
-            result = 1;
-            if (!(ai.phase))
+            if (!ai.phase)
             {
                 minimum_radius = 128;
                 maximum_radius = 192;
                 search_distance = 1024;
                 goto ChooseApproachPosition;
             }
-            if ((approach_phase != 1))
+            if (approach_phase != 1)
                 return;
             approach_flags = control.flags;
-            if (((approach_flags & 0x400) != 0))
+            if ((approach_flags & 0x400) != 0)
             {
-                result = (approach_flags & 0xFFFFFFFE);
-                control.flags = (approach_flags & 0xFFFFFFFE);
+                control.flags = approach_flags & 0xFFFFFFFE;
             FinishApproach:
-                ai.SetStatePhase(((uint16)(approach_phase)));
+                ai.SetStatePhase(approach_phase);
 
                 return;
             }
-            result = (approach_flags & 1);
-            if (((approach_flags & 1) == 0))
+            if ((approach_flags & 1) == 0)
                 goto FinishApproach;
-            result = visual_lists.players != 0;
             if (visual_lists.players)
             {
-                result = -2;
-                if ((player_distance < behavior_ranges[0].minimum_distance))
+                if (player_distance < behavior_ranges[0].minimum_distance)
                 {
-                    control.flags = (approach_flags & 0xFFFFFFFE);
-                    result = 2;
+                    control.flags = approach_flags & 0xFFFFFFFE;
+                    next_state = 2;
                     goto StoreState;
                 }
             }
@@ -1357,19 +1247,18 @@ void Swat::UpdateState()
 
         case 4:
             attack_phase = ai.phase;
-            result = 1;
-            if (!(ai.phase))
+            if (!ai.phase)
             {
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
-                sight_x = model.pos.words[0];
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
+                sight_x = model.pos.x;
                 sight_player = visual_lists.players;
-                motion.velocity.words[0] = 0;
-                sight_pos.words[0] = sight_x;
-                sight_pos.words[1] = model.pos.words[1] - ((uint32)(sint16)(uint32)sight_offset << 12);
-                sight_pos.words[2] = model.pos.words[2];
-                sight_blocked = IsSegmentVisible(sight_pos.words, sight_player->pos.words) == 0;
-                result = 1;
+                motion.velocity.x = 0;
+                sight_pos.x = sight_x;
+                sight_pos.y = (uint32)model.pos.y - sight_offset * ONE;
+                sight_pos.z = model.pos.z;
+                sight_blocked = CollisionRay::IsSegVisible(sight_pos, sight_player->pos) == 0;
+                next_state = 1;
                 if (sight_blocked)
                     goto StoreState;
                 BeginAttack();
@@ -1377,31 +1266,28 @@ void Swat::UpdateState()
                 ai.work[0] = 0;
                 goto AdvancePhase;
             }
-            if ((attack_phase == 1))
+            if (attack_phase == 1)
             {
-                attack_ticks = ((sint16)(ai.work[0]));
-                attack_wait = (attack_ticks < ((uint16)(GetBehaviorValue(1, 3))));
-                result = (attack_ticks + 1);
+                attack_ticks = (sint16)ai.work[0];
+                attack_wait = attack_ticks < GetBehaviorVal(1, 3);
                 if (attack_wait)
-                    ai.work[0] = result;
+                    ai.work[0] = attack_ticks + 1;
                 else
-                    ai.SetStatePhase(((uint16)(attack_phase)));
+                    ai.SetStatePhase(attack_phase);
                 if (visual_lists.players)
                 {
-                    CalculateDirectionAngles(desired_angles.words, model.pos.words, visual_lists.players->pos.words);
-                    desired_angles.components[0] = 0;
+                    desired_angles.SetDir(model.pos, visual_lists.players->pos);
+                    desired_angles.comp[0] = 0;
 
-                    {
-                        (void)UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired_angles, 32);
-                        return;
-                    }
+                    UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired_angles, 32);
+                    return;
                 }
             }
             return;
 
         case 5:
             move_phase = ai.phase;
-            if (!(ai.phase))
+            if (!ai.phase)
             {
                 minimum_radius = 1024;
                 maximum_radius = 2048;
@@ -1409,17 +1295,15 @@ void Swat::UpdateState()
             ChooseApproachPosition:
                 fallback_state = 1;
 
-                result = ChoosePosition(destination.words, visual_lists.players->pos.words, minimum_radius, maximum_radius, (uint32)control.height_limit, search_distance, 1, 1);
+                pos_chosen = ChoosePos(&dst, &visual_lists.players->pos, minimum_radius, maximum_radius, control.height_limit, search_distance, 1, 1);
                 goto ApplyChosenPosition;
             }
-            result = 1;
-            if ((move_phase == 1))
+            if (move_phase == 1)
             {
                 move_flags = control.flags;
-                if (((move_flags & 0x400) == 0))
+                if ((move_flags & 0x400) == 0)
                     goto WaitForMovement;
-                result = (move_flags & 0xFFFFFFFE);
-                control.flags = (move_flags & 0xFFFFFFFE);
+                control.flags = move_flags & 0xFFFFFFFE;
                 goto FinishMovement;
             }
             return;
@@ -1427,28 +1311,25 @@ void Swat::UpdateState()
         case 6:
             if (ai.phase)
             {
-                result = 128;
-                if ((ai.phase == 1))
+                if (ai.phase == 1)
                 {
-                    if ((((uint32)control.variant == 128) && visual_lists.players))
+                    if ((control.variant == 128) && visual_lists.players)
                     {
-                        player_heading = ratan2((sint32)(visual_lists.players->pos.words[2] - model.pos.words[2]), (sint32)(visual_lists.players->pos.words[0] - model.pos.words[0]));
-                        desired_angles.components[0] = 0;
-                        desired_angles.components[1] = (3072 - player_heading) & 0xFFF;
-                        desired_angles.components[2] = 0;
-                        UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired_angles, 32);
+                        player_heading = ratan2((sint32)((uint32)visual_lists.players->pos.z - model.pos.z), (sint32)((uint32)visual_lists.players->pos.x - model.pos.x));
+                        desired_angles.comp[0] = 0;
+                        desired_angles.comp[1] = (3072 - player_heading) & 0xFFF;
+                        desired_angles.comp[2] = 0;
+                        UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired_angles, 32);
                     }
-                    result = 1;
-                    if (((control.flags & 0x400) != 0))
+                    next_state = 1;
+                    if ((control.flags & 0x400) != 0)
                         goto StoreState;
-                    result = 1;
+                    next_state = 1;
                     if (playback.complete)
                         goto StoreState;
-                    result = behavior_ranges[2].start_weight;
-                    if (result)
+                    if (behavior_ranges[2].start_weight)
                     {
-                        result = 1;
-                        if ((player_distance < behavior_ranges[2].maximum_distance))
+                        if (player_distance < behavior_ranges[2].maximum_distance)
                         {
                             ai.state = 1;
                             goto ResetPhase;
@@ -1460,42 +1341,38 @@ void Swat::UpdateState()
             {
                 if (model.animation)
                     SetAnimationRange(0, 0, -1);
-                result = 1;
                 ai.phase = 1;
             }
             return;
 
         case 7:
             move_phase = ai.phase;
-            result = 1;
             if (ai.phase)
             {
-                if ((move_phase != 1))
+                if (move_phase != 1)
                     return;
                 move_flags = control.flags;
-                if (((move_flags & 0x400) != 0))
+                if ((move_flags & 0x400) != 0)
                 {
-                    result = (move_flags & 0xFFFFFFFE);
-                    control.flags = (move_flags & 0xFFFFFFFE);
+                    control.flags = move_flags & 0xFFFFFFFE;
                 }
                 else
                 {
                 WaitForMovement:
-                    result = (move_flags & 1);
 
-                    if (((move_flags & 1) != 0))
+                    if ((move_flags & 1) != 0)
                         return;
                 }
             FinishMovement:
-                ai.SetStatePhase(((uint16)(move_phase)));
+                ai.SetStatePhase(move_phase);
             }
             else
             {
                 fallback_state = 1;
-                result = ChoosePosition(destination.words, model.pos.words, 1024, 2048, (uint32)control.height_limit, 4096, 1, 1);
+                pos_chosen = ChoosePos(&dst, &model.pos, 1024, 2048, control.height_limit, 4096, 1, 1);
             ApplyChosenPosition:
 
-                if (result)
+                if (pos_chosen)
                     goto StartMovement;
             ResetFallbackState:
                 ai.state = fallback_state;
@@ -1505,29 +1382,25 @@ void Swat::UpdateState()
             return;
 
         case 8:
-            result = 1;
             if (ai.phase)
             {
-                if ((ai.phase == 1))
+                if (ai.phase == 1)
                 {
-                    result = playback.complete;
                     if (playback.complete)
                     {
-                        fade_ticks = ((sint16)(ai.work[0]));
-                        fade_elapsed = (fade_ticks == 0);
-                        next_fade_tick = (fade_ticks - 1);
+                        fade_ticks = (sint16)ai.work[0];
+                        fade_elapsed = fade_ticks == 0;
+                        next_fade_tick = fade_ticks - 1;
                         if (fade_elapsed)
                             Finish();
                         else
                             ai.work[0] = next_fade_tick;
-                        result = ((sint16)(ai.work[1]));
-                        if (!(ai.work[1]))
+                        if (!ai.work[1])
                         {
                             SetColor(-32, 0, 0, 0);
                             fade_model_flags = model.flags;
                             model.render_mode = 128;
-                            model.flags = (fade_model_flags | 0x800);
-                            result = 1;
+                            model.flags = fade_model_flags | 0x800;
                             ai.work[1] = 1;
                         }
                     }
@@ -1535,29 +1408,28 @@ void Swat::UpdateState()
             }
             else
             {
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
-                motion.velocity.words[0] = 0;
-                motion.angular_velocity.words[2] = 0;
-                motion.angular_velocity.words[1] = 0;
-                motion.angular_velocity.words[0] = 0;
-                motion.angular_acceleration.words[2] = 0;
-                motion.angular_acceleration.words[1] = 0;
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
+                motion.velocity.x = 0;
+                motion.angular_velocity.z = 0;
+                motion.angular_velocity.y = 0;
+                motion.angular_velocity.x = 0;
+                motion.angular_acceleration.z = 0;
+                motion.angular_acceleration.y = 0;
                 death_flags = control.flags;
-                motion.angular_acceleration.words[0] = 0;
-                collision_radius = 0;
-                control.flags = (death_flags & 0xFFFFFFFE);
-                ActivateLinkedRecords();
+                motion.angular_acceleration.x = 0;
+                col_radius = 0;
+                control.flags = death_flags & 0xFFFFFFFE;
+                ActivateLinkedRecs();
                 SetAnimationRange(5, 0, -1);
                 RemoveShadow();
-                death_variant = (uint32)control.variant;
+                death_variant = control.variant;
                 ai.phase = 1;
                 ai.work[0] = 32;
-                result = 256;
                 ai.work[1] = 0;
-                if ((death_variant == 256))
+                if (death_variant == 256)
                 {
-                    (void)PlayPositionedSound(120, model.pos.words, 3);
+                    PlayPositionedSound(120, &model.pos, 3);
                     return;
                 }
             }
@@ -1565,182 +1437,144 @@ void Swat::UpdateState()
 
         case 0xA:
             retreat_phase = ai.phase;
-            result = (retreat_phase < 2);
-            if ((retreat_phase == 1))
+            if (retreat_phase == 1)
             {
                 if (ai.work[0])
                 {
-                    SetParticleAngles(model.angles.components);
-                    ::SetParticleSize(2);
+                    PrimitiveParticle::SetAngles(&model.angles);
+                    PrimitiveParticle::SetSize(2);
                     burst_idx = 0;
-                    SetParticleColor((uint8)GetGameTuning().death_particle_color[0], (uint8)GetGameTuning().death_particle_color[1], (uint8)GetGameTuning().death_particle_color[2]);
-                    SetParticleColorStep(((((uint16)(GetGameTuning().death_particle_color[0])) >> 5) & 255), ((((uint16)(GetGameTuning().death_particle_color[1])) >> 5) & 255), ((((uint16)(GetGameTuning().death_particle_color[2])) >> 5) & 255));
+                    PrimitiveParticle::SetColor(GetGameTuning().death_particle_color[0], GetGameTuning().death_particle_color[1], GetGameTuning().death_particle_color[2]);
+                    PrimitiveParticle::SetColorStep(GetGameTuning().death_particle_color[0] >> 5, GetGameTuning().death_particle_color[1] >> 5, GetGameTuning().death_particle_color[2] >> 5);
                     use_small_effect_pool = false;
                     do
                     {
-                        burst_storage = AllocateEffectStorage(88);
+                        burst_storage = EffectObject::AllocateStorage(88);
                         if (burst_storage)
                         {
-                            new (burst_storage) FadingParticle(model.pos.words, 16, 0x2000, 16);
+                            new (burst_storage) FadingParticle(&model.pos, 16, 0x2000, 16);
                         }
                         ++burst_idx;
-                    } while ((burst_idx < 16));
-                    retreat_ticks = ((sint16)(ai.work[0]));
+                    } while (burst_idx < 16);
+                    retreat_ticks = (sint16)ai.work[0];
                     use_small_effect_pool = true;
-                    result = (retreat_ticks - 1);
-                    ai.work[0] = result;
+                    ai.work[0] = retreat_ticks - 1;
                     return;
                 }
             StopAndAdvancePhase:
-                motion.velocity.words[2] = 0;
+                motion.velocity.z = 0;
 
-                motion.velocity.words[1] = 0;
+                motion.velocity.y = 0;
                 phase_before_advance = ai.phase;
-                motion.velocity.words[0] = 0;
+                motion.velocity.x = 0;
             AdvancePhase:
-                result = (phase_before_advance + 1);
+                next_phase = phase_before_advance + 1;
 
                 goto StorePhase;
             }
-            if ((ai.phase < 2))
+            if (ai.phase < 2)
             {
                 if (ai.phase)
                     return;
-                model.angles.words[0] = 0;
-                motion.angular_velocity.words[2] = 0;
-                motion.angular_velocity.words[1] = 0;
-                motion.angular_velocity.words[0] = 0;
-                motion.angular_acceleration.words[2] = 0;
-                motion.angular_acceleration.words[1] = 0;
+                model.angles.x = 0;
+                motion.angular_velocity.z = 0;
+                motion.angular_velocity.y = 0;
+                motion.angular_velocity.x = 0;
+                motion.angular_acceleration.z = 0;
+                motion.angular_acceleration.y = 0;
                 retreat_flags = control.flags;
-                motion.angular_acceleration.words[0] = 0;
-                collision_radius = 0;
-                control.flags = (retreat_flags & 0xFFFFFFFE);
+                motion.angular_acceleration.x = 0;
+                col_radius = 0;
+                control.flags = retreat_flags & 0xFFFFFFFE;
                 RemoveShadow();
-                BuildDirectionVector(destination.words, 1024, model.angles.words);
-                SubtractVectors(pos_output.words, model.pos.words, destination.words);
-                position_x = pos_output.words[0];
-                position_z = pos_output.words[2];
-                retreat_y = (sint32)pos_output.words[1];
-                retreat_z = position_z;
-                destination.words[0] = position_x;
-                destination.words[1] = retreat_y;
-                destination.words[2] = retreat_z;
-                raycast.endpoints[0].words[0] = model.pos.words[0];
-                raycast.endpoints[0].words[1] = model.pos.words[1];
-                raycast.endpoints[0].words[2] = model.pos.words[2];
-                raycast.endpoints[1].words[0] = destination.words[0];
-                raycast.endpoints[1].words[1] = destination.words[1];
-                raycast.endpoints[1].words[2] = destination.words[2];
-                InitializeCollisionRay(raycast);
-                raycast.triggers = 0;
-                QueryCollisionRay(raycast, 1);
+                dst.SetDir(1024, model.angles);
+                pos_output.Subtract(model.pos, dst);
+                dst = pos_output;
+                raycast.endpoints[0] = model.pos;
+                raycast.endpoints[1] = dst;
+                raycast.Initialize();
+                raycast.triggers = false;
+                raycast.Query(1);
                 if (raycast.hit.GetObject())
                 {
-                    retreat_distance = ((sint32)((uint32)raycast.distance - 256));
-                    if ((((sint32)((uint32)raycast.distance - 256)) >= 64))
+                    retreat_distance = raycast.distance - 256;
+                    if (retreat_distance >= 64)
                     {
-                        retreat_duration_numerator = ((sint32)((uint32)raycast.distance - 256));
-                        if ((retreat_distance < 0))
-                            retreat_duration_numerator = ((sint32)((uint32)raycast.distance - 193));
-                        ai.work[0] = (retreat_duration_numerator >> 6);
-                        BuildDirectionVector(destination.words, retreat_distance, model.angles.words);
-                        SubtractVectors(pos_output.words, model.pos.words, destination.words);
-                        position_x = pos_output.words[0];
-                        position_z = pos_output.words[2];
-                        clipped_retreat_y = (sint32)pos_output.words[1];
-                        clipped_retreat_z = position_z;
-                        destination.words[0] = position_x;
-                        destination.words[1] = clipped_retreat_y;
-                        destination.words[2] = clipped_retreat_z;
-                        SubtractVectors(retreat_vector.words, destination.words, model.pos.words);
-                        clipped_retreat_divisor = ((sint16)(ai.work[0]));
-                        DivideVector(pos_output.words, retreat_vector.words, clipped_retreat_divisor);
-                        position_x = pos_output.words[0];
-                        position_z = pos_output.words[2];
-                        retreat_velocity_y = (sint32)pos_output.words[1];
-                        retreat_velocity_z = position_z;
-                        motion.velocity.words[0] = position_x;
-                        motion.velocity.words[1] = retreat_velocity_y;
-                        motion.velocity.words[2] = retreat_velocity_z;
+                        ai.work[0] = retreat_distance >> 6;
+                        dst.SetDir(retreat_distance, model.angles);
+                        pos_output.Subtract(model.pos, dst);
+                        dst = pos_output;
+                        retreat_vector.Subtract(dst, model.pos);
+                        clipped_retreat_divisor = (sint16)ai.work[0];
+                        pos_output.Divide(retreat_vector, clipped_retreat_divisor);
+                        motion.velocity = pos_output;
                         goto StartRetreatDeath;
                     }
-                    motion.velocity.words[2] = 0;
-                    motion.velocity.words[1] = 0;
-                    motion.velocity.words[0] = 0;
+                    motion.velocity.z = 0;
+                    motion.velocity.y = 0;
+                    motion.velocity.x = 0;
                     ai.work[0] = 1;
                 }
                 else
                 {
                     ai.work[0] = 16;
-                    SubtractVectors(pos_output.words, destination.words, model.pos.words);
-                    position_x = pos_output.words[0];
-                    position_z = pos_output.words[2];
+                    pos_output.Subtract(dst, model.pos);
                     free_retreat_divisor = 16;
-                    DivideVector(retreat_vector.words, pos_output.words, free_retreat_divisor);
-                    free_retreat_velocity_y = retreat_vector.words[1];
-                    free_retreat_velocity_z = retreat_vector.words[2];
-                    motion.velocity.words[0] = retreat_vector.words[0];
-                    motion.velocity.words[1] = free_retreat_velocity_y;
-                    motion.velocity.words[2] = free_retreat_velocity_z;
-                    retreat_ground_y = FindGroundHeight(destination.words, ((sint16)((uint32)ground_offset)), (4 * ((sint16)((uint32)ground_offset))));
-                    if ((retreat_ground_y != -1))
+                    retreat_vector.Divide(pos_output, free_retreat_divisor);
+                    motion.velocity = retreat_vector;
+                    retreat_ground_y = CollisionRay::FindGroundHeight(dst, ground_offset, 4 * ground_offset);
+                    if (retreat_ground_y != -1)
                     {
                     StartRetreatDeath:
-                        SpawnExplosionRing(model.pos.words, 128, 128, 64, 0, 5, 0, 100);
+                        RingBurstEffect::SpawnExplosion(&model.pos, 128, 128, 64, 0, 5, 0, 100);
 
                         SetAnimationRange(5, 0, -1);
                         PlaySoundEffect(45, 0x2000, 0);
-                        collision_radius = 0;
-                        ActivateLinkedRecords();
-                        result = (ai.phase + 1);
+                        col_radius = 0;
+                        ActivateLinkedRecs();
+                        next_phase = ai.phase + 1;
                         goto StorePhase;
                     }
                     control.gravity_enabled = 1;
                 }
                 goto StartRetreatDeath;
             }
-            result = 2;
-            if ((retreat_phase == 2))
+            if (retreat_phase == 2)
             {
-                if ((uint32)control.gravity_enabled)
+                if (control.gravity_enabled)
                 {
                 FinishAfterAnimation:
-                    result = playback.complete;
 
                     if (playback.complete)
                     {
-                        (void)Finish();
+                        Finish();
                         return;
                     }
                     return;
                 }
-                result = playback.complete;
-                if (!(playback.complete))
+                if (!playback.complete)
                     return;
-                death_ground_y = FindGroundHeight(model.pos.words, 0, 256);
-                if ((death_ground_y == -1))
+                death_ground_y = CollisionRay::FindGroundHeight(model.pos, 0, 256);
+                if (death_ground_y == -1)
                 {
-                    (void)FragmentAndFinish(0);
+                    FragmentAndFinish(0);
                     return;
                 }
-                result = (ai.phase + 1);
+                next_phase = ai.phase + 1;
             StorePhase:
-                ai.phase = result;
+                ai.phase = next_phase;
             }
             return;
 
         case 0xB:
             burn_phase = ai.phase;
-            result = (burn_phase < 2);
-            if ((burn_phase == 1))
+            if (burn_phase == 1)
                 goto UpdateBurnAnimation;
-            if ((ai.phase >= 2))
+            if (ai.phase >= 2)
             {
-                result = 256;
-                if ((burn_phase != 2))
+                if (burn_phase != 2)
                     return;
-                if (((uint32)control.variant == 256))
+                if (control.variant == 256)
                 {
                     ::StopSoundVoices(ai.script_data);
                     ai.script_data = 0;
@@ -1751,116 +1585,109 @@ void Swat::UpdateState()
                 return;
             SetColor(0, 255, 0, 0);
             RemoveShadow();
-            ActivateLinkedRecords();
+            ActivateLinkedRecs();
             model_effect.color_mode = 37765184;
             model_effect.scale = 10240;
-            collision_radius = 0;
+            col_radius = 0;
             model_effect.depth_bias = 10;
             SetAnimationRange(6, 0, -1);
-            if (((uint32)control.variant == 256))
-                ai.script_data = PlayPositionedSound(18, model.pos.words, 3);
+            if (control.variant == 256)
+                ai.script_data = PlayPositionedSound(18, &model.pos, 3);
             else
-                PlayPositionedSound(25, model.pos.words, 3);
-            control.flags = (control.flags & (~1));
-            motion.velocity.words[2] = 0;
-            motion.velocity.words[1] = 0;
+                PlayPositionedSound(25, &model.pos, 3);
+            control.flags &= ~1;
+            motion.velocity.z = 0;
+            motion.velocity.y = 0;
             burn_phase_before_advance = ai.phase;
-            motion.velocity.words[0] = 0;
-            ai.phase = (burn_phase_before_advance + 1);
+            motion.velocity.x = 0;
+            ai.phase = burn_phase_before_advance + 1;
         UpdateBurnAnimation:
-            result = 256;
 
-            if (!(playback.complete))
+            if (!playback.complete)
                 return;
-            burn_variant = (uint32)control.variant;
-            if ((burn_variant != 256))
+            burn_variant = control.variant;
+            if (burn_variant != 256)
             {
                 if (!RandomRange(4))
-                    PlayPositionedSound(25, model.pos.words, 3);
-                burn_variant = (uint32)control.variant;
+                    PlayPositionedSound(25, &model.pos, 3);
+                burn_variant = control.variant;
             }
             burn_repeat_range = 4;
-            if ((burn_variant == 256))
+            if (burn_variant == 256)
                 burn_repeat_range = 2;
             burn_repeat_roll = RandomRange(burn_repeat_range);
-            if ((!burn_repeat_roll || IsGameHeapUnderPressure()))
+            if (!burn_repeat_roll || IsGameHeapUnderPressure())
             {
                 SetAnimationRange(9, 0, -1);
-                result = (ai.phase + 1);
+                next_phase = ai.phase + 1;
                 goto StorePhase;
             }
-            {
-                (void)SetAnimationRange(6, 0, -1);
-                return;
-            }
+            SetAnimationRange(6, 0, -1);
+            return;
 
         case 0xD:
             moving_death_phase = ai.phase;
-            result = (moving_death_phase < 2);
-            if ((moving_death_phase == 1))
+            if (moving_death_phase == 1)
             {
-                effect_angles.components[0] = -1024;
-                effect_angles.components[1] = 0;
-                effect_angles.components[2] = 0;
-                SetParticleAngles(effect_angles.components);
-                effect_angles.components[0] = 512;
-                effect_angles.components[1] = 4096;
-                effect_angles.components[2] = 0;
-                SetParticleSpread(effect_angles.components);
-                ::SetParticleSize(2);
+                effect_angles.comp[0] = -1024;
+                effect_angles.comp[1] = 0;
+                effect_angles.comp[2] = 0;
+                PrimitiveParticle::SetAngles(&effect_angles);
+                effect_angles.comp[0] = 512;
+                effect_angles.comp[1] = 4096;
+                effect_angles.comp[2] = 0;
+                PrimitiveParticle::SetSpread(&effect_angles);
+                PrimitiveParticle::SetSize(2);
                 moving_burst_idx = 0;
-                SetParticleColor((uint8)GetGameTuning().death_particle_color[0], (uint8)GetGameTuning().death_particle_color[1], (uint8)GetGameTuning().death_particle_color[2]);
+                PrimitiveParticle::SetColor(GetGameTuning().death_particle_color[0], GetGameTuning().death_particle_color[1], GetGameTuning().death_particle_color[2]);
                 moving_burst_speed = 24;
-                SetParticleColorStep(((((uint16)(GetGameTuning().death_particle_color[0])) >> 5) & 255), ((((uint16)(GetGameTuning().death_particle_color[1])) >> 5) & 255), ((((uint16)(GetGameTuning().death_particle_color[2])) >> 5) & 255));
+                PrimitiveParticle::SetColorStep(GetGameTuning().death_particle_color[0] >> 5, GetGameTuning().death_particle_color[1] >> 5, GetGameTuning().death_particle_color[2] >> 5);
                 use_small_effect_pool = false;
                 do
                 {
-                    moving_burst_storage = AllocateEffectStorage(88);
+                    moving_burst_storage = EffectObject::AllocateStorage(88);
                     if (moving_burst_storage)
                     {
-                        new (moving_burst_storage) FadingParticle(model.pos.words, moving_burst_speed, 0x2000, 16);
+                        new (moving_burst_storage) FadingParticle(&model.pos, moving_burst_speed, 0x2000, 16);
                     }
                     ++moving_burst_idx;
                     moving_burst_speed += 4;
-                } while ((moving_burst_idx < 4));
+                } while (moving_burst_idx < 4);
                 moving_death_flags = control.flags;
                 use_small_effect_pool = true;
-                result = (moving_death_flags & 1);
-                if (result)
+                if (moving_death_flags & 1)
                     return;
-                repeat_move = (RandomRange(2) == 0);
-                result = 8;
+                repeat_move = RandomRange(2) == 0;
+                next_state = 8;
                 if (!repeat_move)
                 {
-                    result = (ai.phase - 1);
-                    ai.phase = result;
+                    ai.phase = ai.phase - 1;
                     return;
                 }
             }
             else
             {
-                if ((ai.phase >= 2))
+                if (ai.phase >= 2)
                 {
-                    result = 2;
-                    if ((moving_death_phase == 2))
+                    if (moving_death_phase == 2)
                         goto FinishAfterAnimation;
                     return;
                 }
                 if (ai.phase)
                     return;
-                death_move_chosen = ChoosePosition(destination.words, model.pos.words, 256, 512, (uint32)control.height_limit, 4096, 1, 1);
+                death_move_chosen = ChoosePos(&dst, &model.pos, 256, 512, control.height_limit, 4096, 1, 1);
                 if (death_move_chosen)
                 {
                 StartMovement:
-                    result = SetMoveTarget(destination.words);
+                    SetMoveTarget(&dst);
 
                     ai.phase = 1;
                     return;
                 }
-                result = 8;
+                next_state = 8;
             }
         StoreState:
-            ai.state = result;
+            ai.state = next_state;
 
         ResetPhase:
             ai.phase = 0;
@@ -1869,40 +1696,38 @@ void Swat::UpdateState()
 
         case 0xE:
             attached_death_phase = ai.phase;
-            result = (attached_death_phase < 2);
-            if ((attached_death_phase == 1))
+            if (attached_death_phase == 1)
                 goto EmitAttachedDeathBurst;
-            if ((ai.phase >= 2))
+            if (ai.phase >= 2)
             {
-                result = 2;
-                if ((attached_death_phase != 2))
+                if (attached_death_phase != 2)
                     return;
-                effect_angles.components[0] = 512;
-                effect_angles.components[1] = 4096;
-                effect_angles.components[2] = 0;
-                SetParticleSpread(effect_angles.components);
-                ::SetParticleSize(2);
+                effect_angles.comp[0] = 512;
+                effect_angles.comp[1] = 4096;
+                effect_angles.comp[2] = 0;
+                PrimitiveParticle::SetSpread(&effect_angles);
+                PrimitiveParticle::SetSize(2);
                 final_burst_idx = 0;
-                SetParticleColor((uint8)GetGameTuning().death_particle_color[0], (uint8)GetGameTuning().death_particle_color[1], (uint8)GetGameTuning().death_particle_color[2]);
+                PrimitiveParticle::SetColor(GetGameTuning().death_particle_color[0], GetGameTuning().death_particle_color[1], GetGameTuning().death_particle_color[2]);
                 final_burst_speed = 32;
-                SetParticleColorStep(((((uint16)(GetGameTuning().death_particle_color[0])) >> 5) & 255), ((((uint16)(GetGameTuning().death_particle_color[1])) >> 5) & 255), ((((uint16)(GetGameTuning().death_particle_color[2])) >> 5) & 255));
-                GetModelAttachment(effect_pos0.words, *this, 1);
-                effect_angles.components[0] = -1024;
-                effect_angles.components[1] = 0;
-                effect_angles.components[2] = 0;
-                SetParticleAngles(effect_angles.components);
+                PrimitiveParticle::SetColorStep(GetGameTuning().death_particle_color[0] >> 5, GetGameTuning().death_particle_color[1] >> 5, GetGameTuning().death_particle_color[2] >> 5);
+                GetModelAttachment(effect_pos0, *this, 1);
+                effect_angles.comp[0] = -1024;
+                effect_angles.comp[1] = 0;
+                effect_angles.comp[2] = 0;
+                PrimitiveParticle::SetAngles(&effect_angles);
                 use_small_effect_pool = false;
-                effect_pos0.words[1] += 0x20000;
+                effect_pos0.y = (uint32)effect_pos0.y + (0x20000);
                 do
                 {
-                    final_burst_storage = AllocateEffectStorage(88);
+                    final_burst_storage = EffectObject::AllocateStorage(88);
                     if (final_burst_storage)
                     {
-                        new (final_burst_storage) FadingParticle(effect_pos0.words, final_burst_speed, 0x2000, 16);
+                        new (final_burst_storage) FadingParticle(&effect_pos0, final_burst_speed, 0x2000, 16);
                     }
                     ++final_burst_idx;
                     final_burst_speed += 4;
-                } while ((final_burst_idx < 4));
+                } while (final_burst_idx < 4);
                 use_small_effect_pool = true;
                 goto FinishAfterAnimation;
             }
@@ -1910,148 +1735,137 @@ void Swat::UpdateState()
                 return;
             RemoveShadow();
             attached_lifecycle_flags = lifecycle_flags;
-            collision_radius = 0;
+            col_radius = 0;
             lifecycle_flags = attached_lifecycle_flags & 0xFFEF;
-            ActivateLinkedRecords();
+            ActivateLinkedRecs();
             SetAnimationRange(6, 0, -1);
-            control.flags = ((control.flags & 0xFFFFEFFE) | 0x1000);
-            motion.velocity.words[2] = 0;
-            motion.velocity.words[1] = 0;
+            control.flags = (control.flags & 0xFFFFEFFE) | 0x1000;
+            motion.velocity.z = 0;
+            motion.velocity.y = 0;
             attached_phase_before_advance = ai.phase;
-            motion.velocity.words[0] = 0;
-            ai.phase = (attached_phase_before_advance + 1);
+            motion.velocity.x = 0;
+            ai.phase = attached_phase_before_advance + 1;
         EmitAttachedDeathBurst:
-            effect_angles.components[0] = -1024;
-            effect_angles.components[1] = 0;
-            effect_angles.components[2] = 0;
-            SetParticleAngles(effect_angles.components);
-            effect_angles.components[0] = 512;
-            effect_angles.components[1] = 4096;
-            effect_angles.components[2] = 0;
-            SetParticleSpread(effect_angles.components);
-            ::SetParticleSize(2);
+            effect_angles.comp[0] = -1024;
+            effect_angles.comp[1] = 0;
+            effect_angles.comp[2] = 0;
+            PrimitiveParticle::SetAngles(&effect_angles);
+            effect_angles.comp[0] = 512;
+            effect_angles.comp[1] = 4096;
+            effect_angles.comp[2] = 0;
+            PrimitiveParticle::SetSpread(&effect_angles);
+            PrimitiveParticle::SetSize(2);
             attached_burst_idx = 0;
-            SetParticleColor((uint8)GetGameTuning().death_particle_color[0], (uint8)GetGameTuning().death_particle_color[1], (uint8)GetGameTuning().death_particle_color[2]);
+            PrimitiveParticle::SetColor(GetGameTuning().death_particle_color[0], GetGameTuning().death_particle_color[1], GetGameTuning().death_particle_color[2]);
             attached_burst_speed = 32;
-            SetParticleColorStep(((((uint16)(GetGameTuning().death_particle_color[0])) >> 5) & 255), ((((uint16)(GetGameTuning().death_particle_color[1])) >> 5) & 255), ((((uint16)(GetGameTuning().death_particle_color[2])) >> 5) & 255));
-            GetModelAttachment(effect_pos1.words, *this, 1);
+            PrimitiveParticle::SetColorStep(GetGameTuning().death_particle_color[0] >> 5, GetGameTuning().death_particle_color[1] >> 5, GetGameTuning().death_particle_color[2] >> 5);
+            GetModelAttachment(effect_pos1, *this, 1);
             use_small_effect_pool = false;
-            effect_pos1.words[1] += 0x20000;
+            effect_pos1.y = (uint32)effect_pos1.y + (0x20000);
             do
             {
-                attached_burst_storage = AllocateEffectStorage(88);
+                attached_burst_storage = EffectObject::AllocateStorage(88);
                 if (attached_burst_storage)
                 {
-                    new (attached_burst_storage) FadingParticle(effect_pos1.words, attached_burst_speed, 0x2000, 16);
+                    new (attached_burst_storage) FadingParticle(&effect_pos1, attached_burst_speed, 0x2000, 16);
                 }
                 ++attached_burst_idx;
                 attached_burst_speed += 4;
-            } while ((attached_burst_idx < 4));
+            } while (attached_burst_idx < 4);
             use_small_effect_pool = true;
-            result = playback.complete;
-            if (!(playback.complete))
+            if (!playback.complete)
                 return;
             attached_repeat_roll = RandomRange(2);
             if (attached_repeat_roll)
             {
-                (void)SetAnimationRange(6, 0, -1);
+                SetAnimationRange(6, 0, -1);
                 return;
             }
             SetAnimationRange(9, 0, -1);
-            result = (ai.phase + 1);
+            next_phase = ai.phase + 1;
             goto StorePhase;
 
         case 0x10:
-            result = 1;
-            if (!(ai.phase))
+            if (!ai.phase)
             {
                 airborne_speed_roll = RandomRange(64);
-                motion.velocity.words[0] = 0;
-                motion.velocity.words[1] = (0 - ((uint32)airborne_speed_roll + 96)) << 12;
-                motion.velocity.words[2] = 0;
-                airborne_pitch_speed = (RandomRange(256) - 128);
+                motion.velocity.x = 0;
+                motion.velocity.y = -(airborne_speed_roll + 96) * ONE;
+                motion.velocity.z = 0;
+                airborne_pitch_speed = RandomRange(256) - 128;
                 airborne_yaw_roll = RandomRange(256);
-                motion.angular_velocity.words[0] = airborne_pitch_speed;
-                motion.angular_velocity.words[1] = (airborne_yaw_roll - 128);
-                motion.angular_velocity.words[2] = 0;
+                motion.angular_velocity.x = airborne_pitch_speed;
+                motion.angular_velocity.y = airborne_yaw_roll - 128;
+                motion.angular_velocity.z = 0;
                 motion.angular_drag[0] = 16;
                 motion.angular_drag[1] = 16;
                 motion.angular_drag[2] = 16;
                 control.gravity_enabled = 1;
-                control.flags = (control.flags & (~1));
+                control.flags &= ~1;
                 airborne_lifetime_roll = RandomRange(32);
-                airborne_y = model.pos.words[1];
-                ai.work[0] = (airborne_lifetime_roll + 16);
-                result = ((uint32)ground_offset + ((sint32)airborne_y >> 12));
-                airborne_phase_before_advance = (ai.phase + 1);
-                ai.work[1] = result;
+                airborne_y = model.pos.y;
+                ai.work[0] = airborne_lifetime_roll + 16;
+                ai.work[1] = (uint16)ground_offset + (airborne_y >> 12);
+                airborne_phase_before_advance = ai.phase + 1;
                 ai.phase = airborne_phase_before_advance;
                 return;
             }
-            if ((ai.phase != 1))
+            if (ai.phase != 1)
                 return;
-            airborne_ticks = ((sint16)(ai.work[0]));
-            airborne_elapsed = (airborne_ticks == 0);
-            next_airborne_tick = (airborne_ticks - 1);
+            airborne_ticks = (sint16)ai.work[0];
+            airborne_elapsed = airborne_ticks == 0;
+            next_airborne_tick = airborne_ticks - 1;
             if (airborne_elapsed)
             {
-                (void)FragmentAndFinish(0);
+                FragmentAndFinish(0);
                 return;
             }
             ai.work[0] = next_airborne_tick;
-            airborne_floor = ((sint16)(ai.work[1]));
-            result = (airborne_floor < (((sint32)(model.pos.words[1])) >> 12));
-            below_floor = (airborne_floor >= (((sint32)(model.pos.words[1])) >> 12));
-            airborne_floor_y = (sint32)((uint32)airborne_floor << 12);
+            airborne_floor = (sint16)ai.work[1];
+            below_floor = airborne_floor >= (model.pos.y >> 12);
+            airborne_floor_y = airborne_floor * ONE;
             if (!below_floor)
             {
-                airborne_velocity_y = motion.velocity.words[1];
-                model.pos.words[1] = airborne_floor_y;
-                result = (sint32)(0 - (uint32)airborne_velocity_y);
-                motion.velocity.words[1] = result;
+                airborne_velocity_y = motion.velocity.y;
+                model.pos.y = airborne_floor_y;
+                motion.velocity.y = -airborne_velocity_y;
             }
             return;
 
         case 0x20:
             emergence_phase = ai.phase;
-            result = (emergence_phase < 2);
-            if ((emergence_phase == 1))
+            if (emergence_phase == 1)
             {
-                if (((control.flags & 1) == 0))
+                if ((control.flags & 1) == 0)
                     goto StopAndAdvancePhase;
-                result = visual_lists.players != 0;
                 if (visual_lists.players)
                 {
-                    result = 2;
-                    if ((player_distance < behavior_ranges[0].minimum_distance))
+                    if (player_distance < behavior_ranges[0].minimum_distance)
                         ai.phase = 2;
                 }
             }
-            else if ((ai.phase >= 2))
+            else if (ai.phase >= 2)
             {
-                result = 2;
-                if ((emergence_phase == 2))
+                if (emergence_phase == 2)
                 {
-                    control.flags = (control.flags & (~1));
+                    control.flags &= ~1;
                     SetAnimationRange(8, 0, -1);
                     emergence_lifecycle_flags = lifecycle_flags;
-                    collision_radius = 128;
-                    result = 8;
+                    col_radius = 128;
                     control.script_delay = 8;
                     ai.SetStatePhase(1);
                     lifecycle_flags = emergence_lifecycle_flags | 0x10;
                 }
             }
-            else if (!(ai.phase))
+            else if (!ai.phase)
             {
-                if (ChoosePosition(destination.words, visual_lists.players->pos.words, 128, 192, (uint32)control.height_limit, 1024, 1, 1))
+                if (ChoosePos(&dst, &visual_lists.players->pos, 128, 192, control.height_limit, 1024, 1, 1))
                 {
-                    result = SetMoveTarget(destination.words);
+                    SetMoveTarget(&dst);
                     ai.phase = 1;
                 }
                 else
                 {
-                    result = 2;
                     ai.phase = 2;
                 }
             }
@@ -2059,40 +1873,36 @@ void Swat::UpdateState()
 
         case 0x30:
             rise_phase = ai.phase;
-            result = 1;
-            if (!(ai.phase))
+            if (!ai.phase)
             {
-                lifecycle_flags = (lifecycle_flags & (~0x10));
-                rise_y = model.pos.words[1];
+                lifecycle_flags &= ~0x10;
+                rise_y = model.pos.y;
                 goto StartRise;
             }
-            if ((rise_phase != 1))
+            if (rise_phase != 1)
                 return;
-            rise_ticks = ((sint16)(ai.work[1]));
-            if ((rise_ticks != 60))
+            rise_ticks = (sint16)ai.work[1];
+            if (rise_ticks != 60)
                 goto StepRise;
             lifecycle_flags |= 0x10;
             SetAnimationRange(0, 0, -1);
             rise_model_flags = model.flags;
-            ai.SetStatePhase(((uint16)(rise_phase)));
-            result = (rise_model_flags & 0xFFF7);
-            model.flags = result;
+            ai.SetStatePhase(rise_phase);
+            model.flags = rise_model_flags & 0xFFF7;
             return;
 
         case 0x31:
             scripted_rise_phase = ai.phase;
-            result = 1;
             if (ai.phase)
             {
-                if ((scripted_rise_phase == 1))
+                if (scripted_rise_phase == 1)
                 {
-                    rise_ticks = ((sint16)(ai.work[1]));
-                    if ((rise_ticks == 60))
+                    rise_ticks = (sint16)ai.work[1];
+                    if (rise_ticks == 60)
                     {
-                        model.flags = (model.flags & (~8));
+                        model.flags &= ~8;
                         SetAnimationRange(0, 0, -1);
-                        result = 1;
-                        ai.SetStatePhase(((uint16)(scripted_rise_phase)));
+                        ai.SetStatePhase(scripted_rise_phase);
                         control.script_active = 1;
                     }
                     else
@@ -2100,27 +1910,26 @@ void Swat::UpdateState()
                     StepRise:
                         ai.work[1] = rise_ticks + 1;
 
-                        result = (model.pos.words[1] - 34952);
-                        model.pos.words[1] = result;
+                        model.pos.y = (uint32)model.pos.y - (34952);
                     }
                 }
             }
             else
             {
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
-                rise_y = model.pos.words[1];
-                motion.velocity.words[0] = 0;
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
+                rise_y = model.pos.y;
+                motion.velocity.x = 0;
             StartRise:
-                model.pos.words[1] = ((uint32)rise_y + 0x200000);
+                model.pos.y = rise_y + 0x200000;
 
                 StartAnimation(0, 1);
                 rise_phase_before_advance = ai.phase;
                 hidden_model_flags = model.flags;
                 ai.work[1] = 0;
-                result = (rise_phase_before_advance + 1);
-                ai.phase = result;
-                model.flags = (hidden_model_flags | 8);
+                next_phase = rise_phase_before_advance + 1;
+                ai.phase = next_phase;
+                model.flags = hidden_model_flags | 8;
             }
             return;
 
@@ -2129,32 +1938,29 @@ void Swat::UpdateState()
     }
 }
 
-void Swat::SetBehaviorRange(uint32 index, uint32 minimum_distance, uint32 maximum_distance, uint32 start_weight, uint32 end_weight)
+void Swat::SetBehaviorRange(uint32 idx, uint32 minimum_distance, uint32 maximum_distance, sint32 start_weight, sint32 end_weight)
 {
     FUNCTION_MARKER(0x8005171C, "SLUS_003.73");
-    BehaviorRange *range = behavior_ranges + index;
+    BehaviorRange *range = behavior_ranges + idx;
     range->minimum_distance = minimum_distance;
     range->maximum_distance = maximum_distance;
     range->start_weight = start_weight;
     range->end_weight = end_weight;
 }
 
-uint32 Swat::SetMode(uint32 mode)
+void Swat::SetMode(uint16 mode)
 {
     FUNCTION_MARKER(0x80051740, "SLUS_003.73");
-    sint16 scaled_model_flags;
+    uint16 scaled_model_flags;
     GameHeapBlock *weapon_storage;
     uint16 weapon_damage;
-    sint16 prisoner_model_flags;
-    sint8 fragment_total;
-    sint32 zombie_count;
+    uint16 prisoner_model_flags;
+    uint8 fragment_total;
     sint32 ground_y;
-    sint32 ground_height;
-    sint32 result;
+    sint16 ground_height;
     uint32 own_y;
     uint8 bank_slot;
     sint16 shadow_height;
-    mode = (uint16)mode;
     switch (mode)
     {
         case 0:
@@ -2167,21 +1973,21 @@ uint32 Swat::SetMode(uint32 mode)
             AllocateBehaviorTable(2, 5);
             ai.parameters[0] = 32;
             ai.parameters[1] = 32;
-            SetBehaviorValue(0, 1, 20);
-            SetBehaviorValue(1, 1, 10);
-            SetBehaviorValue(1, 2, 64);
-            SetBehaviorValue(1, 3, 16);
-            SetBehaviorValue(1, 4, 45);
+            SetBehaviorVal(0, 1, 20);
+            SetBehaviorVal(1, 1, 10);
+            SetBehaviorVal(1, 2, 64);
+            SetBehaviorVal(1, 3, 16);
+            SetBehaviorVal(1, 4, 45);
             goto SetSwatBehaviorRanges;
 
         case 1:
             SetModelBank("swat");
             control.variant = 1;
             scaled_model_flags = model.flags;
-            model.scale.words[2] = 6144;
-            model.scale.words[1] = 6144;
-            model.scale.words[0] = 6144;
-            model.flags = (scaled_model_flags | 0x200);
+            model.scale.z = 6144;
+            model.scale.y = 6144;
+            model.scale.x = 6144;
+            model.flags = scaled_model_flags | 0x200;
             SetColor(0, 208, 96, 96);
             health = 60;
             ground_offset = 200;
@@ -2190,16 +1996,16 @@ uint32 Swat::SetMode(uint32 mode)
             AllocateBehaviorTable(2, 5);
             ai.parameters[0] = 32;
             ai.parameters[1] = 32;
-            SetBehaviorValue(0, 1, 20);
-            SetBehaviorValue(1, 1, 10);
-            SetBehaviorValue(1, 2, 64);
-            SetBehaviorValue(1, 3, 32);
-            SetBehaviorValue(1, 4, 90);
+            SetBehaviorVal(0, 1, 20);
+            SetBehaviorVal(1, 1, 10);
+            SetBehaviorVal(1, 2, 64);
+            SetBehaviorVal(1, 3, 32);
+            SetBehaviorVal(1, 4, 90);
             SetBehaviorRange(2, 0, 4096, 256, 128);
             SetBehaviorRange(4, 4064, 0x4000, 128, 128);
             EnableShadow();
-            bank_slot = (uint8)GetRecordModelBankSlot();
-            shadow_height = (uint32)ground_offset;
+            bank_slot = GetRecModelBankSlot();
+            shadow_height = ground_offset;
             shadow.max_height = 1024;
             shadow.radius = 96;
             goto SetSwatFragments;
@@ -2214,11 +2020,11 @@ uint32 Swat::SetMode(uint32 mode)
             AllocateBehaviorTable(2, 5);
             ai.parameters[0] = 32;
             ai.parameters[1] = 32;
-            SetBehaviorValue(0, 1, 20);
-            SetBehaviorValue(1, 1, 10);
-            SetBehaviorValue(1, 2, 64);
-            SetBehaviorValue(1, 3, 16);
-            SetBehaviorValue(1, 4, 45);
+            SetBehaviorVal(0, 1, 20);
+            SetBehaviorVal(1, 1, 10);
+            SetBehaviorVal(1, 2, 64);
+            SetBehaviorVal(1, 3, 16);
+            SetBehaviorVal(1, 4, 45);
             weapon_storage = AllocateZeroedHeapBlock(124);
             if (weapon_storage)
             {
@@ -2228,10 +2034,10 @@ uint32 Swat::SetMode(uint32 mode)
                 weapon = 0;
             if (!weapon)
             {
-                GameDiagnostic("Swat weapon allocation failed\n");
+                GameDiagnostic(("Swat weapon allocation failed\n"));
                 abort();
             }
-            weapon_damage = GetBehaviorValue(1, 1);
+            weapon_damage = GetBehaviorVal(1, 1);
             weapon->damage = weapon_damage;
         SetSwatBehaviorRanges:
             SetBehaviorRange(0, 128, 192, 256, 0);
@@ -2242,14 +2048,14 @@ uint32 Swat::SetMode(uint32 mode)
             SetBehaviorRange(4, 2048, 12288, 128, 256);
             SetBehaviorRange(5, 1024, 12288, 64, 256);
             EnableShadow();
-            bank_slot = (uint8)GetRecordModelBankSlot();
-            shadow_height = (uint32)ground_offset;
+            bank_slot = GetRecModelBankSlot();
+            shadow_height = ground_offset;
             shadow.max_height = 1024;
             shadow.radius = 64;
         SetSwatFragments:
             shadow.height = shadow_height;
 
-            fragment_first = ::FindModelResourceIndex(-617804721, bank_slot);
+            fragment_first = ModelBank::FindResourceIdx(-617804721, bank_slot);
             fragment_count = 10;
             goto PlaceOnGround;
 
@@ -2258,17 +2064,17 @@ uint32 Swat::SetMode(uint32 mode)
             control.variant = 2;
             health = 1;
             ground_offset = 112;
-            model.scale.words[0] = 7000;
-            model.scale.words[1] = 5000;
-            model.scale.words[2] = 0x2000;
+            model.scale.x = 7000;
+            model.scale.y = 5000;
+            model.scale.z = 0x2000;
             prisoner_model_flags = model.flags;
             sight_offset = 32;
             attack_frame = 15;
-            model.flags = (prisoner_model_flags | 0x200);
+            model.flags = prisoner_model_flags | 0x200;
             AllocateBehaviorTable(2, 5);
             ai.parameters[0] = 16;
             ai.parameters[1] = 32;
-            SetBehaviorValue(0, 1, 5);
+            SetBehaviorVal(0, 1, 5);
             SetBehaviorRange(0, 128, 192, 256, 0);
             SetBehaviorRange(1, 0, 1024, 128, 64);
             goto SetHumanoidRangesAndFragments;
@@ -2287,12 +2093,12 @@ uint32 Swat::SetMode(uint32 mode)
             attack_frame = 15;
             AllocateBehaviorTable(2, 5);
             EnableShadow();
-            bank_slot = (uint8)GetRecordModelBankSlot();
-            shadow_height = (uint32)ground_offset;
+            bank_slot = GetRecModelBankSlot();
+            shadow_height = ground_offset;
             shadow.max_height = 1024;
             shadow.radius = 96;
             shadow.height = shadow_height;
-            fragment_first = ::FindModelResourceIndex(-317030919, bank_slot);
+            fragment_first = ModelBank::FindResourceIdx(-317030919, bank_slot);
             fragment_count = 10;
             switch (mode)
             {
@@ -2300,11 +2106,11 @@ uint32 Swat::SetMode(uint32 mode)
                     health = 30;
                     ai.parameters[0] = 32;
                     ai.parameters[1] = 32;
-                    SetBehaviorValue(0, 1, 10);
-                    SetBehaviorValue(1, 1, 5);
-                    SetBehaviorValue(1, 2, 48);
-                    SetBehaviorValue(1, 3, 16);
-                    SetBehaviorValue(1, 4, 45);
+                    SetBehaviorVal(0, 1, 10);
+                    SetBehaviorVal(1, 1, 5);
+                    SetBehaviorVal(1, 2, 48);
+                    SetBehaviorVal(1, 3, 16);
+                    SetBehaviorVal(1, 4, 45);
                     SetBehaviorRange(0, 128, 192, 256, 0);
                     SetBehaviorRange(1, 0, 1024, 128, 64);
                     SetBehaviorRange(2, 512, 4096, 256, 64);
@@ -2317,11 +2123,11 @@ uint32 Swat::SetMode(uint32 mode)
                     health = 30;
                     ai.parameters[0] = 32;
                     ai.parameters[1] = 32;
-                    SetBehaviorValue(0, 1, 10);
-                    SetBehaviorValue(1, 1, 5);
-                    SetBehaviorValue(1, 2, 48);
-                    SetBehaviorValue(1, 3, 16);
-                    SetBehaviorValue(1, 4, 45);
+                    SetBehaviorVal(0, 1, 10);
+                    SetBehaviorVal(1, 1, 5);
+                    SetBehaviorVal(1, 2, 48);
+                    SetBehaviorVal(1, 3, 16);
+                    SetBehaviorVal(1, 4, 45);
                     SetBehaviorRange(0, 128, 256, 256, 0);
                     SetBehaviorRange(2, 232, 4096, 256, 0);
                     SetBehaviorRange(4, 2048, 12288, 128, 256);
@@ -2331,43 +2137,42 @@ uint32 Swat::SetMode(uint32 mode)
                     health = 30;
                     ai.parameters[0] = 32;
                     ai.parameters[1] = 32;
-                    SetBehaviorValue(0, 1, 10);
-                    SetBehaviorValue(1, 1, 5);
-                    SetBehaviorValue(1, 2, 48);
-                    SetBehaviorValue(1, 3, 16);
-                    SetBehaviorValue(1, 4, 45);
+                    SetBehaviorVal(0, 1, 10);
+                    SetBehaviorVal(1, 1, 5);
+                    SetBehaviorVal(1, 2, 48);
+                    SetBehaviorVal(1, 3, 16);
+                    SetBehaviorVal(1, 4, 45);
                     SetBehaviorRange(0, 128, 192, 256, 0);
                     SetBehaviorRange(1, 0, 4096, 0, 128);
                     SetBehaviorRange(4, 3072, 12288, 32, 256);
                     break;
 
                 default:
-                    if ((mode != 35))
+                    if (mode != 35)
                         goto PlaceOnGround;
                     health = 30;
-                    SetBehaviorValue(1, 1, 5);
-                    SetBehaviorValue(1, 2, 48);
-                    SetBehaviorValue(1, 3, 32);
-                    SetBehaviorValue(1, 4, 45);
+                    SetBehaviorVal(1, 1, 5);
+                    SetBehaviorVal(1, 2, 48);
+                    SetBehaviorVal(1, 3, 32);
+                    SetBehaviorVal(1, 4, 45);
                     SetBehaviorRange(2, 0, 4096, 256, 0);
                     SetBehaviorRange(4, 4096, 0x4000, 256, 256);
                     break;
             }
 
         PlaceOnGround:
-            ground_y = FindGroundHeight(model.pos.words, 64, 512);
+            ground_y = CollisionRay::FindGroundHeight(model.pos, 64, 512);
 
-            if ((ground_y == -1))
-                return RemoveShadow();
-            own_y = model.pos.words[1];
-            ground_height = (sint16)(uint32)ground_offset;
-            result = (sint32)((uint32)ground_height << 12);
-            if (((sint32)((uint32)ground_y - own_y) >> 12) < (sint32)((uint32)ground_height << 1))
+            if (ground_y == -1)
             {
-                result = (sint32)((uint32)ground_y - (uint32)result);
-                model.pos.words[1] = result;
+                RemoveShadow();
+                return;
             }
-            return result;
+            own_y = model.pos.y;
+            ground_height = ground_offset;
+            if (((sint32)((uint32)ground_y - own_y) >> 12) < ground_height * 2)
+                model.pos.y = (uint32)ground_y - ground_height * ONE;
+            return;
 
         case 48:
 
@@ -2383,9 +2188,9 @@ uint32 Swat::SetMode(uint32 mode)
             AllocateBehaviorTable(2, 5);
             ai.parameters[0] = 16;
             ai.parameters[1] = 32;
-            SetBehaviorValue(0, 1, 5);
-            SetBehaviorValue(1, 1, 10);
-            SetBehaviorValue(1, 3, 32);
+            SetBehaviorVal(0, 1, 5);
+            SetBehaviorVal(1, 1, 10);
+            SetBehaviorVal(1, 3, 32);
             switch (mode)
             {
                 case 48:
@@ -2411,7 +2216,7 @@ uint32 Swat::SetMode(uint32 mode)
                     break;
             }
 
-            fragment_first = ::FindModelResourceIndex(808338210, (uint8)GetRecordModelBankSlot());
+            fragment_first = ModelBank::FindResourceIdx(808338210, GetRecModelBankSlot());
             fragment_total = 15;
             goto SetFragmentCount;
 
@@ -2425,9 +2230,9 @@ uint32 Swat::SetMode(uint32 mode)
             AllocateBehaviorTable(2, 5);
             ai.parameters[0] = 29;
             ai.parameters[1] = 32;
-            SetBehaviorValue(0, 1, 5);
-            SetBehaviorValue(1, 1, 17);
-            SetBehaviorValue(1, 3, 32);
+            SetBehaviorVal(0, 1, 5);
+            SetBehaviorVal(1, 1, 17);
+            SetBehaviorVal(1, 3, 32);
             SetBehaviorRange(0, 128, 192, 256, 0);
             SetBehaviorRange(1, 0, 1024, 128, 64);
             SetBehaviorRange(2, 512, 4096, 256, 0);
@@ -2437,12 +2242,12 @@ uint32 Swat::SetMode(uint32 mode)
 
             SetBehaviorRange(5, 1024, 12288, 64, 256);
             EnableShadow();
-            bank_slot = (uint8)GetRecordModelBankSlot();
-            shadow_height = (uint32)ground_offset;
+            bank_slot = GetRecModelBankSlot();
+            shadow_height = ground_offset;
             shadow.max_height = 1024;
             shadow.radius = 64;
             shadow.height = shadow_height;
-            fragment_first = ::FindModelResourceIndex(1020334405, bank_slot);
+            fragment_first = ModelBank::FindResourceIdx(1020334405, bank_slot);
             fragment_count = 16;
             goto PlaceOnGround;
 
@@ -2456,11 +2261,11 @@ uint32 Swat::SetMode(uint32 mode)
             AllocateBehaviorTable(2, 5);
             ai.parameters[0] = 48;
             ai.parameters[1] = 32;
-            SetBehaviorValue(0, 1, 20);
-            SetBehaviorValue(1, 1, 10);
-            SetBehaviorValue(1, 2, 64);
-            SetBehaviorValue(1, 3, 64);
-            SetBehaviorValue(1, 4, 45);
+            SetBehaviorVal(0, 1, 20);
+            SetBehaviorVal(1, 1, 10);
+            SetBehaviorVal(1, 2, 64);
+            SetBehaviorVal(1, 3, 64);
+            SetBehaviorVal(1, 4, 45);
             SetBehaviorRange(0, 128, 192, 256, 0);
             SetBehaviorRange(1, 0, 512, 128, 16);
             SetBehaviorRange(2, 512, 4096, 256, 0);
@@ -2468,37 +2273,36 @@ uint32 Swat::SetMode(uint32 mode)
             SetBehaviorRange(4, 3072, 12288, 128, 256);
             SetBehaviorRange(5, 2048, 12288, 64, 256);
             EnableShadow();
-            bank_slot = (uint8)GetRecordModelBankSlot();
-            shadow_height = (uint32)ground_offset;
+            bank_slot = GetRecModelBankSlot();
+            shadow_height = ground_offset;
             shadow.max_height = 1024;
             shadow.radius = 64;
             shadow.height = shadow_height;
-            fragment_first = ::FindModelResourceIndex(-87017481, bank_slot);
+            fragment_first = ModelBank::FindResourceIdx(-87017481, bank_slot);
             fragment_total = 14;
             goto SetFragmentCount;
 
         case 112:
             SetModelBank("zombie");
-            zombie_count = swat_population.zombies;
             control.variant = 128;
             health = 40;
             ground_offset = 116;
             sight_offset = 40;
-            swat_population.zombies = (uint32)zombie_count + 1;
+            ++swat_population.zombies;
             AllocateBehaviorTable(2, 5);
             ai.parameters[0] = 24;
             ai.parameters[1] = 32;
-            SetBehaviorValue(0, 1, 5);
+            SetBehaviorVal(0, 1, 5);
             SetBehaviorRange(1, 64, 4096, 128, 64);
             SetBehaviorRange(4, 0, 64, 256, 8);
             SetBehaviorRange(5, 256, 12288, 64, 256);
             EnableShadow();
-            bank_slot = (uint8)GetRecordModelBankSlot();
-            shadow_height = (uint32)ground_offset;
+            bank_slot = GetRecModelBankSlot();
+            shadow_height = ground_offset;
             shadow.max_height = 1024;
             shadow.radius = 64;
             shadow.height = shadow_height;
-            fragment_first = ::FindModelResourceIndex(1020334405, bank_slot);
+            fragment_first = ModelBank::FindResourceIdx(1020334405, bank_slot);
             fragment_total = 16;
             goto SetFragmentCount;
 
@@ -2514,13 +2318,13 @@ uint32 Swat::SetMode(uint32 mode)
             health = 30;
             ai.parameters[0] = 32;
             ai.parameters[1] = 32;
-            SetBehaviorValue(0, 1, 10);
-            SetBehaviorValue(1, 1, 10);
-            SetBehaviorValue(1, 2, 96);
-            SetBehaviorValue(1, 3, 16);
-            SetBehaviorValue(1, 4, 45);
+            SetBehaviorVal(0, 1, 10);
+            SetBehaviorVal(1, 1, 10);
+            SetBehaviorVal(1, 2, 96);
+            SetBehaviorVal(1, 3, 16);
+            SetBehaviorVal(1, 4, 45);
             SetBehaviorRange(0, 128, 192, 256, 0);
-            if ((mode == 128))
+            if (mode == 128)
             {
                 SetBehaviorRange(1, 0, 1024, 128, 64);
                 SetBehaviorRange(2, 512, 4096, 256, 64);
@@ -2534,12 +2338,12 @@ uint32 Swat::SetMode(uint32 mode)
                 SetBehaviorRange(4, 2048, 0x2000, 64, 128);
             }
             EnableShadow();
-            bank_slot = (uint8)GetRecordModelBankSlot();
-            shadow_height = (uint32)ground_offset;
+            bank_slot = GetRecModelBankSlot();
+            shadow_height = ground_offset;
             shadow.max_height = 1024;
             shadow.radius = 64;
             shadow.height = shadow_height;
-            fragment_first = ::FindModelResourceIndex(873792324, bank_slot);
+            fragment_first = ModelBank::FindResourceIdx(873792324, bank_slot);
             fragment_total = 12;
         SetFragmentCount:
             fragment_count = fragment_total;
@@ -2552,13 +2356,11 @@ uint32 Swat::SetMode(uint32 mode)
     }
 }
 
-uint32 Swat::ExecuteCommand(uint32 command)
+uint32 Swat::ExecuteCommand(uint16 command)
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     FUNCTION_MARKER(0x800529AC, "SLUS_003.73");
-    uint32 shift = 12;
-    Vector3 position;
-    command = (uint16)command;
+    Vector3 pos;
     switch (command)
     {
         case 16902:
@@ -2569,56 +2371,54 @@ uint32 Swat::ExecuteCommand(uint32 command)
         case 16930:
         case 16933:
         {
-            RecordCursor cursor(AlignScriptCursor(script_cursor));
+            RecordCursor cursor(script_cursor.Aligned(4));
             for (uint32 i = 0; i < 3; ++i)
-                position.words[i] = (cursor + i * 4).Read32();
-            ShiftVectorLeft(position.words, shift);
+                pos.comp[i] = (cursor + i * 4).Read32();
+            pos.ShiftLeft(12);
             if (command == 16930 || command == 16933)
-                AddVectors(position.words, this->model.pos.words);
+                pos.Add(model.pos);
             script_cursor = cursor + 12;
             if (command == 16928 || command == 16930)
-                SetMoveTarget(position.words);
+                SetMoveTarget(&pos);
             else
-                SetJumpTarget(position.words);
+                SetJumpTarget(&pos);
             return 1;
         }
         case 16929:
         case 16932:
         case 16936:
         {
-            uint32 value = ResolveCommandValue(ReadCommandWord());
-            ReadRecordPosition(position.words, value);
-            sint32 height = QueryGround(position.words, 0, 2048);
+            uint16 val = ResolveCommandVal(ReadCommandWord());
+            ReadRecPos(&pos, val);
+            sint32 height = CollisionRay::FindGroundHeight(pos, 0, 2048);
             if (height != -1)
-                position.words[1] = (uint32)height - ((uint32)(sint16)(uint32)this->ground_offset << 12);
+                pos.y = (uint32)height - ground_offset * ONE;
             if (command == 16929)
-                SetMoveTarget(position.words);
+                SetMoveTarget(&pos);
             else if (command == 16932)
-                SetJumpTarget(position.words);
+                SetJumpTarget(&pos);
             else
-                SetSpecialTarget(position.words);
+                SetSpecialTarget(&pos);
             return 1;
         }
         case 16938:
         case 16939:
+        {
             SetAnimationRange(command == 16938 ? 7 : 8, 0, 0xFFFFFFFF);
-            this->collision_radius = command == 16938 ? 32 : 128;
-            {
-                uint32 flags = this->control.flags;
-                uint32 state = this->lifecycle_flags;
-                this->control.flags = flags & ~1;
-                this->lifecycle_flags = command == 16938 ? state & ~0x10 : state | 0x10;
-            }
-            motion.velocity.words[2] = 0;
-            motion.velocity.words[1] = 0;
-            motion.velocity.words[0] = 0;
-            this->control.script_delay = command == 16938 ? 12 : 14;
+            col_radius = command == 16938 ? 32 : 128;
+            uint32 flags = control.flags;
+            uint16 lifecycle = lifecycle_flags;
+            control.flags = flags & ~1;
+            lifecycle_flags = command == 16938 ? lifecycle & ~0x10 : lifecycle | 0x10;
+            motion.velocity = zero_vector;
+            control.script_delay = command == 16938 ? 12 : 14;
             return 0;
+        }
         case 16937:
         {
-            uint32 value = ResolveCommandValue(ReadCommandWord());
+            uint16 val = ResolveCommandVal(ReadCommandWord());
             for (ModelInstance *node = visual_lists.solids; node; node = node->next)
-                if (static_cast<VisualObject *>(node->owner)->record_idx == value)
+                if (static_cast<VisualObject *>(node->owner)->rec_idx == val)
                 {
                     AttachTurret(node);
                     break;
@@ -2631,37 +2431,36 @@ uint32 Swat::ExecuteCommand(uint32 command)
             return 1;
         case 17415:
         {
-            uint32 value = ReadCommandWord();
-            if (value)
-                SetTargetRecord(ResolveCommandValue(value));
+            uint16 val = ReadCommandWord();
+            if (val)
+                SetTargetRec(ResolveCommandVal(val));
             else
                 ClearTarget();
             return 1;
         }
         case 18176:
             if (ReadCommandWord())
-                this->control.flags = this->control.flags | 0x100;
+                control.flags |= 0x100;
             else
-                this->control.flags = this->control.flags & ~0x100;
+                control.flags &= ~0x100;
             return 1;
         case 18177:
-            this->control.flags = this->control.flags | 0x200;
+            control.flags |= 0x200;
             return 1;
         default:
             return Enemy::ExecuteCommand(command);
     }
 }
 
-uint32 Swat::DetachTurret()
+void Swat::DetachTurret()
 {
     FUNCTION_MARKER(0x80052EA8, "SLUS_003.73");
     ModelInstance *linked = mounted_object.GetObject();
     if (linked && static_cast<VisualObject *>(linked->owner)->kind == 206)
-        return static_cast<Turret *>(linked->owner)->DetachAndDestroy();
-    return 206;
+        static_cast<Turret *>(linked->owner)->DetachAndDestroy();
 }
 
-uint32 Swat::AttachTurret(ModelInstance *linked)
+void Swat::AttachTurret(ModelInstance *linked)
 {
     FUNCTION_MARKER(0x80052EE8, "SLUS_003.73");
     mounted_object.SetObject(linked);
@@ -2670,213 +2469,201 @@ uint32 Swat::AttachTurret(ModelInstance *linked)
         static_cast<Turret *>(linked->owner)->AttachOperator(this);
         ai.state = 12;
         ai.phase = 0;
-        return 12;
     }
-    return 206;
 }
 
-uint32 Swat::BeginAttack()
+void Swat::BeginAttack()
 {
     FUNCTION_MARKER(0x80052F34, "SLUS_003.73");
-    uint32 kind = (uint32)this->control.variant;
-    switch (kind)
+    uint16 variant = control.variant;
+    switch (variant)
     {
         case 1:
         case 4:
         case 256:
-            return FireProjectile();
+            FireProjectile();
+            break;
         case 8:
         case 16:
         case 64:
-            return SetAnimationRange(1, 0, 0xFFFFFFFF);
-        default:
-            return kind < 9 ? 4 : kind < 65 ? 16 : 256;
+            SetAnimationRange(1, 0, 0xFFFFFFFF);
+            break;
     }
 }
 
-uint32 Swat::Fire()
+void Swat::Fire()
 {
     ObjectBorrow object_borrow;
-    uint32 mode;
-    Vector3 muzzle, velocity, predicted, aim, tmp;
+    uint16 variant;
+    Vector3 muzzle, velocity, predicted, aim;
     GameHeapBlock *child;
-    uint32 random;
+    uint8 random;
     uint32 speed;
     uint32 damage;
-    uint32 index;
-    uint32 scale;
+    uint16 base_damage;
+    uint8 joint_idx;
+    uint32 lead_ticks;
     uint32 distance;
     ModelInstance *player;
     LaunchedProjectile *launched = 0;
     GuidedProjectile *guided = 0;
     FUNCTION_MARKER(0x80052FCC, "SLUS_003.73");
-    mode = (uint32)this->control.variant;
-    if (mode == 16)
+    variant = control.variant;
+    if (variant == 16)
     {
-        GetModelAttachment(muzzle.words, *this, 0);
+        GetModelAttachment(muzzle, *this, 0);
         child = AllocateZeroedObject(400);
         if (child)
         {
             random = RandomRange(8);
-            speed = player_distance;
-            speed = DivideUnsigned(speed, random + 24);
-            index = GetBehaviorValue(1, 1) & 65535;
-            damage = ScaleDamageForDifficulty(index);
+            speed = player_distance / (random + 24);
+            base_damage = GetBehaviorVal(1, 1);
+            damage = ScaleDamageForDifficulty(base_damage);
             player = visual_lists.players;
-            launched = new (child) LaunchedProjectile(muzzle.words, player->pos.words, speed, damage, 512, &visual_lists.players, 0, 1);
+            launched = new (child) LaunchedProjectile(muzzle, player->pos, speed, damage, 512, &visual_lists.players, 0, 1);
         }
         if (!launched)
         {
-            GameDiagnostic("Swat launched projectile allocation failed\n");
+            GameDiagnostic(("Swat launched projectile allocation failed\n"));
             abort();
         }
-        return launched->SetGlowColor(128, 128, 0);
+        launched->SetGlowColor(128, 128, 0);
+        return;
     }
-    if (mode == 64)
+    if (variant == 64)
     {
-        index = (this->model.frame & 4) ? 1 : 0;
-        GetModelAttachment(muzzle.words, *this, index);
+        joint_idx = (model.frame & 4) ? 1 : 0;
+        GetModelAttachment(muzzle, *this, joint_idx);
         child = AllocateZeroedObject(428);
         if (child)
         {
-            index = GetBehaviorValue(1, 1) & 65535;
-            damage = ScaleDamageForDifficulty(index);
-            guided = new (child) GuidedProjectile(muzzle.words, damage, &visual_lists.players, 0);
+            base_damage = GetBehaviorVal(1, 1);
+            damage = ScaleDamageForDifficulty(base_damage);
+            guided = new (child) GuidedProjectile(muzzle, damage, &visual_lists.players, 0);
         }
         if (!guided)
         {
-            GameDiagnostic("Swat guided projectile allocation failed\n");
+            GameDiagnostic(("Swat guided projectile allocation failed\n"));
             abort();
         }
-        guided->SetAngles(model.angles.words);
+        guided->SetAngles(model.angles);
         player = visual_lists.players;
-        guided->Launch(0, static_cast<VisualObject *>(player->owner)->surface.pos.words);
-        return guided->SetSize(2048);
+        guided->Launch(0, &static_cast<VisualObject *>(player->owner)->surface.pos);
+        guided->SetSize(2048);
+        return;
     }
-    if (mode != 8)
-        return 8;
+    if (variant != 8)
+        return;
     random = RandomRange(16);
     player = visual_lists.players;
-    scale = random + 24;
+    lead_ticks = random + 24;
     if (!player)
-        return scale;
-    GetModelAttachment(muzzle.words, *this, 0);
+        return;
+    GetModelAttachment(muzzle, *this, 0);
     random = RandomRange(3);
     if (random)
     {
         player = visual_lists.players;
         const VisualObject &hero = *static_cast<VisualObject *>(player->owner);
-        velocity.words[0] = hero.motion.velocity.words[0];
-        velocity.words[1] = hero.motion.velocity.words[1];
-        velocity.words[2] = hero.motion.velocity.words[2];
-        DampVector(velocity.words, hero.motion.drag);
-        MultiplyVector(predicted.words, velocity.words, scale);
+        velocity = hero.motion.velocity;
+        velocity.Damp(hero.motion.drag);
+        predicted.Multiply(velocity, lead_ticks);
         player = visual_lists.players;
-        AddVectors(tmp.words, player->pos.words, predicted.words);
+        aim.Add(player->pos, predicted);
         player = visual_lists.players;
-        aim = tmp;
-        aim.words[1] = player->pos.words[1];
-        distance = MeasureEuclideanDistance(muzzle.words, aim.words);
+        aim.y = player->pos.y;
+        distance = muzzle.EuclideanDistance(aim);
         random = RandomRange(12);
-        speed = DivideUnsigned(distance, random + 16);
+        speed = distance / (random + 16);
     }
     else
     {
         player = visual_lists.players;
         aim = player->pos;
         random = RandomRange(8);
-        speed = player_distance;
-        speed = DivideUnsigned(speed, random + 24);
+        speed = player_distance / (random + 24);
     }
     child = AllocateZeroedObject(400);
     if (child)
     {
-        index = GetBehaviorValue(1, 1) & 65535;
-        damage = ScaleDamageForDifficulty(index);
-        launched = new (child) LaunchedProjectile(muzzle.words, aim.words, speed, damage, 512, &visual_lists.players, 0, 1);
+        base_damage = GetBehaviorVal(1, 1);
+        damage = ScaleDamageForDifficulty(base_damage);
+        launched = new (child) LaunchedProjectile(muzzle, aim, speed, damage, 512, &visual_lists.players, 0, 1);
     }
     if (!launched)
     {
-        GameDiagnostic("Swat launched projectile allocation failed\n");
+        GameDiagnostic(("Swat launched projectile allocation failed\n"));
         abort();
     }
     launched->SetGlowColor(32, 128, 32);
-    return PlayPositionedSound(68, this->model.pos.words, 0);
+    PlayPositionedSound(68, &model.pos, 0);
 }
 
-uint32 Swat::FireProjectile()
+void Swat::FireProjectile()
 {
     FUNCTION_MARKER(0x80053358, "SLUS_003.73");
     ModelInstance *player;
-    uint32 target_x;
-    uint32 own_x;
-    uint32 target_z;
-    uint32 own_z;
-    uint32 mode;
+    sint32 dx, dz;
+    uint16 variant;
     GameHeapBlock *projectile;
-    uint32 damage, parameter, speed;
-    Vector3 position, aim;
+    uint32 damage;
+    uint16 parameter, speed;
+    Vector3 pos, aim;
     ShortVector3 angles;
-    if (this->control.flags & 64)
+    if (control.flags & 64)
     {
-        target_z = aim_pos.z;
-        own_z = this->model.pos.words[2];
-        target_x = aim_pos.x;
-        own_x = this->model.pos.words[0];
-        this->model.angles.words[1] = 3072 - ratan2(target_z - own_z, target_x - own_x);
+        dz = (uint32)aim_pos.z - model.pos.z;
+        dx = (uint32)aim_pos.x - model.pos.x;
+        model.angles.y = 3072 - ratan2(dz, dx);
         SetAnimationRange(1, 0, 0xFFFFFFFF);
-        GetModelAttachment(position.words, *this, 0);
-        CalculateDirectionAngles(angles.words, position.words, aim_pos.words);
+        GetModelAttachment(pos, *this, 0);
+        angles.SetDir(pos, aim_pos);
     }
     else
     {
         player = visual_lists.players;
         if (!player)
-            return 0;
-        target_z = player->pos.words[2];
-        own_z = this->model.pos.words[2];
-        target_x = player->pos.words[0];
-        own_x = this->model.pos.words[0];
-        this->model.angles.words[1] = 3072 - ratan2(target_z - own_z, target_x - own_x);
+            return;
+        dz = (uint32)player->pos.z - model.pos.z;
+        dx = (uint32)player->pos.x - model.pos.x;
+        model.angles.y = 3072 - ratan2(dz, dx);
         SetAnimationRange(1, 0, 0xFFFFFFFF);
-        GetModelAttachment(position.words, *this, 0);
+        GetModelAttachment(pos, *this, 0);
         player = visual_lists.players;
-        static_cast<Character *>(player->owner)->GetAttachment(aim.words, 9);
-        aim.components[1] = (sint32)((uint32)aim.components[1] + 0x10000);
-        CalculateDirectionAngles(angles.words, position.words, aim.words);
+        static_cast<Character *>(player->owner)->GetAttachment(aim, 9);
+        aim.y = (uint32)aim.y + (0x10000);
+        angles.SetDir(pos, aim);
     }
-    mode = (uint32)this->control.variant;
-    if (mode == 4 || mode == 256)
+    variant = control.variant;
+    if (variant == 4 || variant == 256)
     {
-        projectile = AllocateEffectStorage(108);
+        projectile = EffectObject::AllocateStorage(108);
         if (projectile)
         {
-            parameter = GetBehaviorValue(1, 1) & 65535;
+            parameter = GetBehaviorVal(1, 1);
             damage = ScaleDamageForDifficulty(parameter);
-            parameter = GetBehaviorValue(1, 4) & 65535;
-            speed = GetBehaviorValue(1, 2) & 65535;
-            if (mode == 4)
+            parameter = GetBehaviorVal(1, 4);
+            speed = GetBehaviorVal(1, 2);
+            if (variant == 4)
             {
-                new (projectile) OscillatingProjectile(position.words, angles.components, damage, parameter, speed, 16, 240, 240, 240, 32, 128, 64);
+                new (projectile) OscillatingProjectile(&pos, &angles, damage, parameter, speed, 16, 240, 240, 240, 32, 128, 64);
             }
             else
             {
-                new (projectile) OscillatingProjectile(position.words, angles.components, damage, parameter, speed, 16, 240, 240, 240, 128, 32, 32);
+                new (projectile) OscillatingProjectile(&pos, &angles, damage, parameter, speed, 16, 240, 240, 240, 128, 32, 32);
             }
         }
-        if (mode == 256)
+        if (variant == 256)
         {
-            GetModelAttachment(position.words, *this, 1);
-            projectile = AllocateEffectStorage(108);
+            GetModelAttachment(pos, *this, 1);
+            projectile = EffectObject::AllocateStorage(108);
             if (projectile)
             {
-                parameter = GetBehaviorValue(1, 1) & 65535;
+                parameter = GetBehaviorVal(1, 1);
                 damage = ScaleDamageForDifficulty(parameter);
-                parameter = GetBehaviorValue(1, 4) & 65535;
-                speed = GetBehaviorValue(1, 2) & 65535;
-                {
-                    new (projectile) OscillatingProjectile(position.words, angles.components, damage, parameter, speed, 16, 240, 240, 240, 128, 32, 32);
-                }
+                parameter = GetBehaviorVal(1, 4);
+                speed = GetBehaviorVal(1, 2);
+                new (projectile) OscillatingProjectile(&pos, &angles, damage, parameter, speed, 16, 240, 240, 240, 128, 32, 32);
             }
         }
     }
@@ -2884,102 +2671,80 @@ uint32 Swat::FireProjectile()
     {
         WeaponNode *fire_weapon = weapon.Get();
         if (fire_weapon)
-            fire_weapon->Fire(position.words, angles.components);
+            fire_weapon->Fire(pos, angles);
         else
         {
-            projectile = AllocateEffectStorage(108);
+            projectile = EffectObject::AllocateStorage(108);
             if (projectile)
             {
-                parameter = GetBehaviorValue(1, 1) & 65535;
+                parameter = GetBehaviorVal(1, 1);
                 damage = ScaleDamageForDifficulty(parameter);
-                parameter = GetBehaviorValue(1, 4) & 65535;
-                speed = GetBehaviorValue(1, 2) & 65535;
-                {
-                    new (projectile) OscillatingProjectile(position.words, angles.components, damage, parameter, speed, 16, 240, 240, 240, 64, 32, 128);
-                }
+                parameter = GetBehaviorVal(1, 4);
+                speed = GetBehaviorVal(1, 2);
+                new (projectile) OscillatingProjectile(&pos, &angles, damage, parameter, speed, 16, 240, 240, 240, 64, 32, 128);
             }
         }
     }
-    return PlayPositionedSound(20, this->model.pos.words, 2);
+    PlayPositionedSound(20, &model.pos, 2);
 }
 
-// Native input bridge for the original vector loads
-uint32 Swat::SetMoveTarget(const uint32 *position)
+void Swat::SetMoveTarget(const Vector3 *pos)
 {
     FUNCTION_MARKER(0x80053784, "SLUS_003.73");
-    uint32 result;
-    Vector3 values;
-    if (this->model.animation != 2)
+    if (model.animation != 2)
         StartAnimation(2, 1);
-    if ((uint32)this->control.variant == 128 && (hidden_models & 9) && this->model.animation != 1)
+    if (control.variant == 128 && (hidden_models & 9) && model.animation != 1)
         StartAnimation(1, 1);
-    memcpy(values.words, position, sizeof(values.words));
-    this->destination = values;
-    result = (this->control.flags | 1) & 0xFFFFFFC7;
-    this->control.flags = result;
-    return result;
+    dst = *pos;
+    control.flags = (control.flags | 1) & 0xFFFFFFC7;
 }
 
-uint32 Swat::SetJumpTarget(const uint32 *position)
+void Swat::SetJumpTarget(const Vector3 *pos)
 {
     FUNCTION_MARKER(0x80053834, "SLUS_003.73");
-    uint32 result, state;
-    Vector3 values;
+    uint32 flags;
     SetAnimationRange(4, 0, 0xFFFFFFFF);
-    memcpy(values.words, position, sizeof(values.words));
-    this->destination = values;
-    result = this->control.flags | 9;
-    state = (uint8)ai.parameters[1];
-    jump_ticks = state;
-    this->control.flags = result;
-    return result;
+    dst = *pos;
+    flags = control.flags | 9;
+    jump_ticks = ai.parameters[1];
+    control.flags = flags;
 }
 
-uint32 Swat::SetSpecialTarget(const uint32 *position)
+void Swat::SetSpecialTarget(const Vector3 *pos)
 {
     FUNCTION_MARKER(0x8005389C, "SLUS_003.73");
-    uint32 result;
-    Vector3 values;
+    uint32 flags;
     SetAnimationRange(4, 0, 0xFFFFFFFF);
-    memcpy(values.words, position, sizeof(values.words));
-    this->destination = values;
-    result = this->control.flags;
-    this->control.gravity_enabled = 1;
-    result |= 0x11;
-    this->control.flags = result;
-    return result;
+    dst = *pos;
+    flags = control.flags;
+    control.gravity_enabled = 1;
+    control.flags = flags | 0x11;
 }
 
-uint32 Swat::SetTargetRecord(uint32 index)
+void Swat::SetTargetRec(uint16 idx)
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     FUNCTION_MARKER(0x80053950, "SLUS_003.73");
-    uint32 result;
-    ReadRecordPosition(aim_pos.words, (uint16)index);
-    result = (this->control.flags | 0x40);
-    this->control.flags = result;
-    return result;
+    ReadRecPos(&aim_pos, idx);
+    control.flags |= 0x40;
 }
 
-uint32 Swat::ClearTarget()
+void Swat::ClearTarget()
 {
     FUNCTION_MARKER(0x8005398C, "SLUS_003.73");
-    uint32 result;
-    result = (this->control.flags & 0xFFFFFF3F);
-    this->control.flags = result;
-    return result;
+    control.flags &= 0xFFFFFF3F;
 }
 
-uint32 Swat::ChooseBehavior()
+uint8 Swat::ChooseBehavior()
 {
-    uint32 cumulative[6];
-    uint32 distance, total = 0, index, minimum, maximum;
-    uint32 start_weight, end_weight, weight, product, denominator, random;
+    sint32 cumulative[6];
+    uint32 distance, idx, minimum, maximum;
+    sint32 total = 0, start_weight, end_weight, weight, offset, span, random;
     FUNCTION_MARKER(0x800539A8, "SLUS_003.73");
-    distance = MeasureEuclideanDistance(model.pos.words, visual_lists.players->pos.words);
-    for (index = 0; index < 6; ++index)
+    distance = model.pos.EuclideanDistance(visual_lists.players->pos);
+    for (idx = 0; idx < 6; ++idx)
     {
-        const BehaviorRange *range = behavior_ranges + index;
+        const BehaviorRange *range = behavior_ranges + idx;
         minimum = range->minimum_distance;
         weight = 0;
         if (minimum < distance)
@@ -2991,52 +2756,28 @@ uint32 Swat::ChooseBehavior()
             {
                 end_weight = range->end_weight;
                 start_weight = range->start_weight;
-                product = (end_weight - start_weight) * (distance - minimum);
-                denominator = maximum - minimum;
-                weight = (uint32)Divide((sint32)product, denominator) + start_weight;
+                offset = distance - minimum;
+                span = maximum - minimum;
+                weight = (end_weight - start_weight) * offset / span + start_weight;
             }
         }
         total += weight;
-        cumulative[index] = total;
+        cumulative[idx] = total;
     }
     random = RandomRange(total);
-    for (index = 0; index < 6; ++index)
-        if ((sint32)random < (sint32)cumulative[index])
-            return index;
+    for (idx = 0; idx < 6; ++idx)
+        if (random < cumulative[idx])
+            return idx;
     return 4;
 }
 
-void Swat::SetDeathState(uint32 state)
+void Swat::SetDeathState(uint16 state)
 {
     ai.state = state;
     ai.phase = 0;
 }
 
-sint32 Swat::Divide(sint32 numerator, uint32 divisor)
+uint16 Swat::ResolveCommandVal(uint16 val)
 {
-    if (!divisor)
-        return numerator < 0 ? 1 : -1;
-    if ((uint32)numerator == 0x80000000 && divisor == 0xFFFFFFFF)
-        return numerator;
-    return numerator / (sint32)divisor;
-}
-
-uint32 Swat::DivideUnsigned(uint32 numerator, uint32 denominator)
-{
-    return denominator ? numerator / denominator : 0xFFFFFFFF;
-}
-
-sint32 Swat::Abs32(sint32 value)
-{
-    return value < 0 ? (sint32)(0 - (uint32)value) : value;
-}
-
-uint32 Swat::ResolveCommandValue(uint32 value)
-{
-    return (value & 0x2000) ? ResolveParameter(value) : value;
-}
-
-sint32 Swat::QueryGround(const uint32 position[3], uint32 below, uint32 above)
-{
-    return (sint32)FindGroundHeight((const uint32 *)position, below, above);
+    return (val & 0x2000) ? ResolveParameter(val) : val;
 }

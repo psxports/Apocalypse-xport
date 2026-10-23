@@ -15,10 +15,10 @@ void StartMusicSequencer();
 
 sint32 OpenAudioSequence(const uint8 *data, uint32 size, sint16 bank);
 
-uint32 RequestSequenceReplay(uint32 sequence, uint32 track);
+uint32 RequestSequenceReplay(sint16 sequence, sint16 track);
 uint32 StopAndResetSequence(sint16 sequence);
-uint32 PlaySequence(uint32 sequence, uint32 mode, uint32 loops);
-uint32 SetSequenceVolumes(uint32 sequence, uint32 left, uint32 right);
+uint32 PlaySequence(sint16 sequence, uint8 mode, sint16 loops);
+uint32 SetSequenceVolumes(sint16 sequence, sint16 left, sint16 right);
 void InitializeSequenceCallbacks();
 uint32 InitializeSequenceTracks(sint16 sequences, sint16 tracks);
 

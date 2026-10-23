@@ -1,42 +1,31 @@
 #ifndef GLOW_EFFECT_H
 #define GLOW_EFFECT_H
 
+#include "vector3.h"
 #include "ring_effect.h"
 
-// TODO Recover the original class names from resource evidence
+// Procedural ring glow with independent radius and color fade
 class GlowEffect : public RingEffect
 {
 public:
-    GlowEffect(const uint32 *position, uint32 red, uint32 green, uint32 blue, uint32 growth, uint32 fade, uint32 size, uint32 segments);
-
     virtual ~GlowEffect()
     {
     }
 
-    virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
+private:
+    uint8 rgb[3];
 
 protected:
-    uint8 rgb[3];
-    uint32 fade;
-    uint32 radius;
-    uint32 growth;
-};
-
-class ExpandingGlow : public GlowEffect
-{
-public:
-    ExpandingGlow(const uint32 *position, uint32 red, uint32 green, uint32 blue, uint32 size, uint32 duration);
-
-    virtual ~ExpandingGlow()
-    {
-    }
-
-    virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
+    sint32 fade;
 
 private:
-    uint32 extent_step;
+    uint32 radius;
+    uint32 growth;
+
+public:
+    GlowEffect(const Vector3 *pos, uint8 r, uint8 g, uint8 b, uint32 growth, sint32 fade, uint32 size, uint32 segs);
+    virtual uint32 Destroy(uint32 reason);
+    virtual void Update();
 };
 
 #endif

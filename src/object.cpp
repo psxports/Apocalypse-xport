@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 
 #include "game_diagnostics.h"
@@ -33,7 +32,7 @@ static void *AllocateObjectMemory(GameHeapBlock *reservation, size_t size)
     ObjectAllocationHeader *header = (ObjectAllocationHeader *)malloc(sizeof(*header) + size);
     if (!header)
     {
-        GameDiagnostic("Native object allocation failed\n");
+        GameDiagnostic(("Native object allocation failed\n"));
         abort();
     }
     header->reservation = reservation;
@@ -55,9 +54,9 @@ static void RetireObject(ObjectRetirement *retirement)
         retirement->destroy(retirement->owner);
 }
 
-static void DeleteNativeObject(void *owner)
+static void DeleteNativeObject(Object *owner)
 {
-    delete static_cast<Object *>(owner);
+    delete owner;
 }
 
 void *Object::operator new(size_t size)
@@ -110,52 +109,6 @@ void Object::MarkDestroyed()
         references->Reset();
 }
 
-ObjectReferenceBase::ObjectReferenceBase() : object(0), prev(0), next(0)
-{
-}
-
-ObjectReferenceBase::ObjectReferenceBase(const ObjectReferenceBase &other) : object(0), prev(0), next(0)
-{
-    Bind(other.object);
-}
-
-ObjectReferenceBase::~ObjectReferenceBase()
-{
-    Reset();
-}
-
-ObjectReferenceBase &ObjectReferenceBase::operator=(const ObjectReferenceBase &other)
-{
-    if (this != &other)
-        Bind(other.object);
-    return *this;
-}
-
-void ObjectReferenceBase::Reset()
-{
-    if (prev)
-        prev->next = next;
-    else if (object)
-        object->references = next;
-    if (next)
-        next->prev = prev;
-    object = 0;
-    prev = 0;
-    next = 0;
-}
-
-void ObjectReferenceBase::Bind(Object *target)
-{
-    Reset();
-    if (!target || !target->IsAlive())
-        return;
-    object = target;
-    next = target->references;
-    if (next)
-        next->prev = this;
-    target->references = this;
-}
-
 void BeginObjectBorrow()
 {
     ++object_borrows;
@@ -192,10 +145,4 @@ GameHeapBlock *AllocateZeroedObject(uint32 size)
 {
     FUNCTION_MARKER(0x800625AC, "SLUS_003.73");
     return AllocateHeapBlock(size, 0, 1);
-}
-
-uint32 ReleaseObjectStorage(Object *object)
-{
-    FUNCTION_MARKER(0x80062608, "SLUS_003.73");
-    return object->ReleaseStorage();
 }

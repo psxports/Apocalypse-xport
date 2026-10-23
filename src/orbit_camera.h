@@ -13,21 +13,23 @@ extern "C"
 class OrbitCamera : public Object
 {
 public:
-    OrbitCamera(const uint32 *position, uint32 radius, uint32 height);
-
     virtual ~OrbitCamera()
     {
     }
-
-    virtual uint32 Destroy(uint32 reason);
-    uint32 Advance();
-    uint32 Update();
 
 private:
     Vector3 center;
     uint32 radius;
     uint32 height;
     uint32 phase;
+
+public:
+    OrbitCamera(const Vector3 *pos, uint32 radius, uint32 height);
+    virtual uint32 Destroy(uint32 reason);
+    uint32 Advance();
+
+private:
+    uint32 Update();
 };
 
 #endif

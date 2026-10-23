@@ -5,50 +5,52 @@
 #include "game_diagnostics.h"
 #include "smoke_emitter.h"
 #include "effect_lifecycle.h"
-#include "game_random.h"
-#include "effect_sprite.h"
+#include "global.h"
+#include "moving_sprite.h"
+#include "effect_object.h"
+#include "effect_controller.h"
 
-SmokeEmitter::SmokeEmitter(const uint32 *position, uint32 duration, uint32 count, uint32 red, uint32 green, uint32 blue, uint32 speed_min, uint32 speed_range, uint32 size_min, uint32 size_range) : EffectController(), age(0), duration(duration), count(count), speed_min(speed_min), speed_range(speed_range), size_min(size_min), size_range(size_range)
+SmokeEmitter::SmokeEmitter(const Vector3 *pos, uint16 duration, sint32 count, uint8 r, uint8 g, uint8 b, uint32 speed_min, uint32 speed_range, uint32 size_min, uint32 size_range) : EffectController(), age(0), duration(duration), count(count), speed_min(speed_min), speed_range(speed_range), size_min(size_min), size_range(size_range)
 {
     FUNCTION_MARKER(0x800325B0, "SLUS_003.73");
-    SetPosition(position);
-    rgb[0] = red;
-    rgb[1] = green;
-    rgb[2] = blue;
+    SetPos(pos);
+    rgb[0] = r;
+    rgb[1] = g;
+    rgb[2] = b;
 }
 
 uint32 SmokeEmitter::Destroy(uint32 reason)
 {
     FUNCTION_MARKER(0x80032694, "SLUS_003.73");
     uint32 result = EffectController::Destroy(0);
-    return reason & 1 ? ReleaseEffectStorage(this) : result;
+    return reason & 1 ? ReleaseStorage() : result;
 }
 
 void SmokeEmitter::Update()
 {
     FUNCTION_MARKER(0x800326E8, "SLUS_003.73");
     Vector3 velocity = {0};
-    for (uint32 idx = 0; (sint32)idx < (sint32)count; ++idx)
+    for (sint32 idx = 0; idx < count; ++idx)
     {
         uint32 random = RandomRange(speed_range);
-        velocity.words[1] = (0 - (speed_min + random)) << 12;
-        GameHeapBlock *allocation = AllocateEffectStorage(112);
-        MovingSprite *sprite = 0;
+        velocity.y = -((speed_min + random) << 12);
+        GameHeapBlock *allocation = EffectObject::AllocateStorage(112);
+        MovingSprite *spr = 0;
         if (allocation)
         {
             uint32 size = size_min + RandomRange(size_range);
-            sprite = new (allocation) MovingSprite(pos.words, velocity.words, "Smoke", size, 0, 10);
+            spr = new (allocation) MovingSprite(&pos, &velocity, "Smoke", size, 0, 10);
         }
-        if (!sprite)
+        if (!spr)
         {
-            GameDiagnostic("SmokeEmitter sprite allocation failed\n");
+            GameDiagnostic(("SmokeEmitter sprite allocation failed\n"));
             abort();
         }
-        sprite->depth_bias = 100;
-        sprite->angle = RandomRange(4096);
-        sprite->SetColors(rgb[0], rgb[1], rgb[2]);
+        spr->depth_bias = 100;
+        spr->angle = RandomRange(4096);
+        spr->SetColors(rgb[0], rgb[1], rgb[2]);
     }
     ++age;
-    if ((sint32)(sint16)age == (sint32)duration && age != 65535)
+    if (age == duration && age != -1)
         Finish();
 }

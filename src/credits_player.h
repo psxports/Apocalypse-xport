@@ -7,20 +7,27 @@
 class CreditsPlayer : public Player
 {
 public:
-    CreditsPlayer();
-
     virtual ~CreditsPlayer()
     {
     }
 
-    virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
-
 private:
     // Credits poses reuse Player::movement_state at original offset460
+
+private:
+    uint8 pose_ticks;
+
+public:
+    CreditsPlayer();
+
+private:
     void SetPose(uint32 pose);
     void ChoosePose();
-    uint32 pose_ticks;
+
+public:
+    virtual uint32 Update();
+    static uint32 Run();
+    virtual uint32 Destroy(uint32 reason);
 };
 
 #endif

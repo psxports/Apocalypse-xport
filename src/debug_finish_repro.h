@@ -7,7 +7,7 @@ struct PlayerSaveRecord;
 
 #if defined(_DEBUG)
 void ResetDebugFinishRepro();
-void DebugLoadFinishPlayerSave(PlayerSaveRecord &record);
+void DebugLoadFinishPlayerSave(PlayerSaveRecord &rec);
 void DebugRestoreFinishMenu();
 #endif
 

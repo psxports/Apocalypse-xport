@@ -1,13 +1,11 @@
-
 #include "effect_lifecycle.h"
-
 #include "effect_object.h"
-#include "model_resources.h"
+#include "model_bank.h"
 #include "game_diagnostics.h"
 #include "region_actions.h"
 #include "visual_object.h"
 
-static uint32 ApplyRegionToObjects(const uint32 *lower, const uint32 *upper, ModelInstance *instance, uint32 trigger)
+static uint32 ApplyRegionToObjects(const Vector3 *lower, const Vector3 *upper, ModelInstance *instance, uint32 trigger)
 {
     ModelBorrow model_borrow;
     uint32 count = 0;
@@ -18,10 +16,10 @@ static uint32 ApplyRegionToObjects(const uint32 *lower, const uint32 *upper, Mod
         VisualObject &object = *static_cast<VisualObject *>(instance->owner);
         if (object.IsAlive() && !object.IsFinished())
         {
-            uint32 x = instance->pos.words[0];
-            uint32 y = instance->pos.words[1];
-            uint32 z = instance->pos.words[2];
-            if ((sint32)x >= (sint32)lower[0] && (sint32)upper[0] >= (sint32)x && (sint32)z >= (sint32)lower[2] && (sint32)upper[2] >= (sint32)z && (sint32)y >= (sint32)lower[1] && (sint32)upper[1] >= (sint32)y)
+            sint32 x = instance->pos.x;
+            sint32 y = instance->pos.y;
+            sint32 z = instance->pos.z;
+            if (x >= lower->x && upper->x >= x && z >= lower->z && upper->z >= z && y >= lower->y && upper->y >= y)
             {
                 if (trigger)
                     object.Finish();
@@ -35,11 +33,12 @@ static uint32 ApplyRegionToObjects(const uint32 *lower, const uint32 *upper, Mod
     return count;
 }
 
-static uint32 RemoveRegionEffects(const uint32 *lower, const uint32 *upper)
+static uint32 RemoveRegionEffects(const Vector3 *lower, const Vector3 *upper)
 {
     ModelBorrow model_borrow;
     EffectObject *object, *next;
-    uint32 kind, axis, value, count = 0;
+    uint8 kind;
+    uint32 axis, count = 0;
     FUNCTION_MARKER(0x8001F7A0, "SLUS_003.73");
     object = effect_lists.controllers;
     while (object)
@@ -50,10 +49,10 @@ static uint32 RemoveRegionEffects(const uint32 *lower, const uint32 *upper)
         {
             for (axis = 0; axis < 3; ++axis)
             {
-                value = object->pos.words[axis];
-                if ((sint32)value < (sint32)lower[axis])
+                sint32 val = object->pos.comp[axis];
+                if (val < lower->comp[axis])
                     break;
-                if ((sint32)upper[axis] < (sint32)value)
+                if (upper->comp[axis] < val)
                     break;
             }
             if (axis == 3)
@@ -67,7 +66,7 @@ static uint32 RemoveRegionEffects(const uint32 *lower, const uint32 *upper)
     return count;
 }
 
-uint32 ClearRegion(const uint32 *lower, const uint32 *upper)
+uint32 ClearRegion(const Vector3 *lower, const Vector3 *upper)
 {
     uint32 count;
     FUNCTION_MARKER(0x80067C20, "SLUS_003.73");
@@ -78,34 +77,22 @@ uint32 ClearRegion(const uint32 *lower, const uint32 *upper)
     return count + RemoveRegionEffects(lower, upper);
 }
 
-void SetRegionObjectsEnabled(const uint32 *lower, const uint32 *upper, uint32 enabled)
+void SetRegionObjectsEnabled(const Vector3 *lower, const Vector3 *upper, uint32 enabled)
 {
     ModelInstance *object;
-    Vector3 position;
-    uint32 order[3] = {0, 2, 1}, index, axis, result;
     FUNCTION_MARKER(0x80067CCC, "SLUS_003.73");
-    object = GetModelSceneObjects();
+    object = ModelBank::GetSceneObjects();
     while (object)
     {
-        result = GetModelBank(object->bank).loaded;
-        if (result)
+        if (ModelBank::Get(object->bank).loaded)
         {
-            position = object->pos;
-            for (index = 0; index < 3; ++index)
+            Vector3 pos = object->pos;
+            if (pos.x >= lower->x && upper->x >= pos.x && pos.z >= lower->z && upper->z >= pos.z && pos.y >= lower->y && upper->y >= pos.y)
             {
-                axis = order[index];
-                result = (sint32)position.words[axis] < (sint32)lower[axis];
-                if (result)
-                    break;
-                result = (sint32)upper[axis] < (sint32)position.words[axis];
-                if (result)
-                    break;
-            }
-            if (index == 3)
-            {
-                result = object->flags;
-                result = enabled ? result & 65534 : result | 1;
-                object->flags = result;
+                if (enabled)
+                    object->flags &= 65534;
+                else
+                    object->flags |= 1;
             }
         }
         object = object->next;

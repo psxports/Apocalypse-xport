@@ -1,6 +1,7 @@
 #ifndef MODEL_INSTANCE_H
 #define MODEL_INSTANCE_H
 
+#include "model_reference.h"
 #include "vector3.h"
 
 extern "C"
@@ -35,33 +36,19 @@ private:
 };
 
 class ScaledObject;
+struct CollisionRay;
 struct ModelInstance;
 struct ModelPolygon;
-
-class ModelReference
-{
-public:
-    ModelReference();
-    ModelReference(const ModelReference &other);
-    ~ModelReference();
-    ModelReference &operator=(const ModelReference &other);
-    void Bind(ModelInstance *object, ModelPolygon *poly);
-    void Reset();
-    void SetObject(ModelInstance *object);
-    void SetPolygon(ModelPolygon *poly);
-    ModelInstance *GetObject() const;
-    ModelPolygon *GetPolygon() const;
-
-private:
-    ModelInstance *object;
-    ModelPolygon *poly;
-    ModelReference *prev;
-    ModelReference *next;
-};
+struct ObjectFlash;
+struct ModelAttachmentTable;
 
 // Common model values follow original offsets; list identity has a separate lifetime
 struct ModelInstance
 {
+private:
+    friend void DamageLevelObject(ModelInstance *object, ModelPolygon *polygon, sint32 damage);
+
+public:
     uint16 flags;
     uint16 generation;
     Vector3 pos;
@@ -83,96 +70,55 @@ struct ModelInstance
     {
         for (uint32 axis = 0; axis < 3; ++axis)
         {
-            pos.words[axis] = 0;
-            angles.words[axis] = 0;
-            scale.words[axis] = ONE;
+            pos.comp[axis] = 0;
+            angles.comp[axis] = 0;
+            scale.comp[axis] = ONE;
         }
     }
 
-    ~ModelInstance();
-    void InvalidateReferences();
-
     void SetAnglesXY(uint32 packed)
     {
-        angles.words[0] = packed;
-        angles.words[1] = packed >> 16;
+        angles.x = packed;
+        angles.y = packed >> 16;
     }
 
 private:
     friend class ModelReference;
     ModelReference *references;
-    ModelInstance(const ModelInstance &);
     ModelInstance &operator=(const ModelInstance &);
+
+private:
+    ModelInstance(const ModelInstance &);
+
+public:
+    static uint32 InitializeFlashes();
+
+private:
+    static void ReleaseFlash(ObjectFlash *flash);
+
+public:
+    static void UpdateFlashes();
+
+private:
+    static ObjectFlash *AcquireFlash(ModelInstance *object);
+    uint32 FlashColor(uint8 r, uint8 g, uint8 b, uint32 duration);
+    uint32 FadeToBlack(uint32 duration);
+    uint32 DestroyLevelObject();
+    uint32 FragmentPolygon(ModelPolygon *polygon, uint32 subdiv, bool effect, bool test, bool mark, bool render);
+
+public:
+    uint32 Fragment(bool test, bool mark);
+    uint32 IntersectCol(CollisionRay &rec);
+    void SetAttachmentTable(const ModelAttachmentTable &table) const;
+    static void RenderVisibleList(ModelInstance *owner);
+    static void RenderList(ModelInstance *object);
+    static void CullList(ModelInstance *object);
+    void ScaleRotationMatrix(MATRIX &matrix) const;
+    static void ReleaseFlash(uint8 idx);
+    ~ModelInstance();
+    void InvalidateReferences();
+    static void ResetDestruction();
+    static void ForgetFlashes(const ModelInstance *objects, uint32 count);
 };
-
-inline ModelReference::ModelReference() : object(0), poly(0), prev(0), next(0)
-{
-}
-
-inline ModelReference::ModelReference(const ModelReference &other) : object(0), poly(0), prev(0), next(0)
-{
-    Bind(other.object, other.poly);
-}
-
-inline ModelReference::~ModelReference()
-{
-    Reset();
-}
-
-inline ModelReference &ModelReference::operator=(const ModelReference &other)
-{
-    if (this != &other)
-        Bind(other.object, other.poly);
-    return *this;
-}
-
-inline void ModelReference::Reset()
-{
-    if (prev)
-        prev->next = next;
-    else if (object)
-        object->references = next;
-    if (next)
-        next->prev = prev;
-    object = 0;
-    poly = 0;
-    prev = 0;
-    next = 0;
-}
-
-inline void ModelReference::Bind(ModelInstance *target, ModelPolygon *polygon)
-{
-    Reset();
-    if (!target || !target->active)
-        return;
-    object = target;
-    poly = polygon;
-    next = target->references;
-    if (next)
-        next->prev = this;
-    target->references = this;
-}
-
-inline void ModelReference::SetObject(ModelInstance *target)
-{
-    Bind(target, target == object ? poly : 0);
-}
-
-inline void ModelReference::SetPolygon(ModelPolygon *polygon)
-{
-    poly = object ? polygon : 0;
-}
-
-inline void ModelInstance::InvalidateReferences()
-{
-    active = false;
-    while (references)
-        references->Reset();
-}
-
-inline ModelInstance::~ModelInstance()
-{
-    InvalidateReferences();
-}
 
 #endif

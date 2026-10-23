@@ -40,6 +40,4 @@ extern const ModelAttachmentTable PlayerAttachments;
 extern const ModelAttachmentTable CrocAttachments;
 extern const ModelAttachmentTable MiniTankAttachments;
 
-const ModelAttachmentPoint &GetModelAttachmentPoint(const ModelAttachmentTable *table, uint32 index);
-
 #endif

@@ -20,20 +20,16 @@ struct CardSaveImage
 struct CardSaveState
 {
     sint32 status;
-    uint32 loaded;
-    sint32 last_event;
-    uint32 phase;
 };
 
 extern CardSaveImage card_save_image;
 extern CardSaveState card_save_state;
 void ResetCardSaveState();
-void InitializeCardStorage();
 
-uint32 QueryCardSaveFile(void);
-uint32 WriteCardSaveFile(void);
-uint32 GetFreeCardBlocks(uint32 port, uint32 slot);
-uint32 FormatCard(uint32 port, uint32 slot);
-uint32 UpdateCardStatus(uint32 port, uint32 slot);
+bool WriteCardSaveFile();
+bool QueryCardSaveFile();
+sint32 GetFreeCardBlocks(uint32 port, uint32 slot);
+sint32 UpdateCardStatus(uint32 port, uint32 slot);
+sint32 FormatCard(uint32 port, uint32 slot);
 
 #endif

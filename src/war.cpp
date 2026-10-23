@@ -1,56 +1,51 @@
 #include <new>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "collision_ray.h"
 #include "effect_lifecycle.h"
 #include "game_tuning.h"
 #include "explosion_effects.h"
 #include "game_settings.h"
-
 #include "record_data.h"
-
 #include "collision.h"
-
 #include "world_gravity.h"
-
 #include "object_initializers.h"
-
 #include "camera.h"
 #include "player.h"
-
-#include "weapon_nodes.h"
+#include "weapon_type.h"
+#include "particle_beam.h"
 #include "visual_object.h"
 #include "enemy_list.h"
 #include "record_factory.h"
 #include "cheat_input.h"
-#include "vector_arithmetic.h"
-#include "vector_distance.h"
+#include "global.h"
 #include "angle_math.h"
 #include "object_damage.h"
 #include "model_animation.h"
+#include "model_attachment_data.h"
 #include "model_attachment.h"
-#include "game_random.h"
 #include "game_diagnostics.h"
 #include "object_force.h"
 #include "level_session.h"
 #include "fire_cycle.h"
-
 #include "war.h"
-#include "war_effects.h"
+#include "war_impact.h"
 #include "ring_burst_effect.h"
 #include "game_object_allocation.h"
 #include "game_panel.h"
-#include "projectile_tracking.h"
+#include "tracking_projectile.h"
 #include "game_heap.h"
 #include "audio_session.h"
 #include "cd_voice_event.h"
+#include "enemy.h"
+#include "effect_object.h"
 
 // Script tables retain their original shared module lifetime
 struct WarSpawnPoints
 {
-    uint16 destinations[2][4];
-    uint16 stage_records[6];
+    uint16 dsts[2][4];
+    uint16 stage_recs[6];
     uint16 path[8];
 };
 
@@ -75,17 +70,17 @@ struct WarActivationWords
             free(words);
     }
 
-    void SetWord(uint32 index, uint16 value)
+    void SetWord(uint32 idx, uint16 val)
     {
-        if (index >= capacity)
+        if (idx >= capacity)
         {
             uint32 new_capacity = capacity;
-            while (index >= new_capacity)
+            while (idx >= new_capacity)
                 new_capacity *= 2;
             uint16 *new_words = (uint16 *)calloc(new_capacity, sizeof(*new_words));
             if (!new_words)
             {
-                GameDiagnostic("Cannot allocate War activation words\n");
+                GameDiagnostic(("Cannot allocate War activation words\n"));
                 abort();
             }
             memcpy(new_words, words, capacity * sizeof(*words));
@@ -94,37 +89,36 @@ struct WarActivationWords
             words = new_words;
             capacity = new_capacity;
         }
-        words[index] = value;
+        words[idx] = val;
     }
 };
 
 static WarActivationWords activation_words;
 
-War::War(const RecordCursor &record_data, uint32 index) : Enemy(), jump_timer(0), last_voice(0), group_cursor(0), threshold_index(0)
+War::War(const RecordCursor &rec_data, uint16 idx) : Enemy(), jump_timer(0), last_voice(0), grp_cursor(0), threshold_idx(0)
 {
-    RecordDataBorrow record_borrow;
-    uint32 roll;
+    RecordDataBorrow rec_borrow;
+    uint16 roll;
     RecordCursor cursor;
     FUNCTION_MARKER(0x8003D41C, "SLUS_003.73");
-    aim_pos.words[0] = aim_pos.words[1] = aim_pos.words[2] = 0;
+    aim_pos.x = aim_pos.y = aim_pos.z = 0;
 
-    cursor = ReadPosition(record_data);
-    this->model.angles.words[0] = cursor.Read16();
-    this->model.angles.words[1] = (cursor + 2).Read16();
+    cursor = ReadPos(rec_data);
+    model.angles.x = cursor.Read16();
+    model.angles.y = (cursor + 2).Read16();
     roll = (cursor + 4).Read16();
     script_cursor = cursor + 6;
-    this->control.script_active = 1;
-    this->record_idx = index;
-    this->collision_radius = 0;
-    this->model.angles.words[2] = roll;
+    control.script_active = 1;
+    rec_idx = idx;
+    col_radius = 0;
+    model.angles.z = roll;
     Configure();
-    cursor = script_cursor;
-    ExecuteScript(RecordCursor(cursor));
+    ExecuteScript(script_cursor);
 }
 
-uint32 War::Configure()
+void War::Configure()
 {
-    uint32 flags;
+    uint16 flags;
     FUNCTION_MARKER(0x8003D4B8, "SLUS_003.73");
     SetModelBank("war");
     motion.drag[0] = 31;
@@ -133,32 +127,31 @@ uint32 War::Configure()
     AddToList(visual_lists.actors);
     StartAnimation(0, 1);
     AllocateBehaviorTable(3, 8);
-    SetBehaviorValue(0, 0, 0);
-    SetBehaviorValue(0, 1, 10);
-    SetBehaviorValue(1, 0, 0);
-    SetBehaviorValue(2, 0, 0);
-    SetBehaviorValue(2, 1, 20);
-    SetBehaviorValue(2, 2, 30);
-    SetBehaviorValue(2, 3, 512);
-    SetBehaviorValue(2, 4, 8);
-    SetBehaviorValue(2, 5, 600);
-    SetBehaviorValue(2, 6, 256);
-    SetBehaviorValue(2, 7, 128);
-    flags = this->lifecycle_flags;
+    SetBehaviorVal(0, 0, 0);
+    SetBehaviorVal(0, 1, 10);
+    SetBehaviorVal(1, 0, 0);
+    SetBehaviorVal(2, 0, 0);
+    SetBehaviorVal(2, 1, 20);
+    SetBehaviorVal(2, 2, 30);
+    SetBehaviorVal(2, 3, 512);
+    SetBehaviorVal(2, 4, 8);
+    SetBehaviorVal(2, 5, 600);
+    SetBehaviorVal(2, 6, 256);
+    SetBehaviorVal(2, 7, 128);
+    flags = lifecycle_flags;
     ai.work[4] = 450;
     ai.parameters[0] = 12;
     ai.parameters[1] = 32;
     contact_strength = 128;
-    this->kind = 221;
-    this->ground_offset = 216;
-    this->health = (sint16)(uint16)(800);
+    kind = 221;
+    ground_offset = 216;
+    health = 800;
     beam = 0;
     ai.state = 0;
     ai.phase = 0;
-    this->control.hierarchy_ready = 0;
+    control.hierarchy_ready = 0;
     camera_subject.SetObject(&model);
-    this->lifecycle_flags = flags & 65533;
-    return 1;
+    lifecycle_flags = flags & 65533;
 }
 
 War::~War()
@@ -167,14 +160,14 @@ War::~War()
         beam->Destroy(3);
     if (attack_beam)
         attack_beam->Destroy(3);
-    for (uint32 index = 0; index < 5; ++index)
-        if (death_beams[index])
-            death_beams[index]->Destroy(3);
+    for (uint32 idx = 0; idx < 5; ++idx)
+        if (death_beams[idx])
+            death_beams[idx]->Destroy(3);
 }
 
 uint32 War::Destroy(uint32 reason)
 {
-    uint32 index;
+    uint32 idx;
     FUNCTION_MARKER(0x8003D66C, "SLUS_003.73");
     RemoveFromList(visual_lists.actors);
     if (beam)
@@ -184,89 +177,80 @@ uint32 War::Destroy(uint32 reason)
         attack_beam->Destroy(3);
     attack_beam = 0;
     Enemy::FreeBehaviorTable();
-    ClearTrackedObjectHealth();
+    VisualObject::ClearTrackedHealth();
     camera_subject.Reset();
-    for (index = 0; index < 5; ++index)
+    for (idx = 0; idx < 5; ++idx)
     {
-        if (death_beams[index])
-            death_beams[index]->Destroy(3);
-        death_beams[index] = 0;
+        if (death_beams[idx])
+            death_beams[idx]->Destroy(3);
+        death_beams[idx] = 0;
     }
     Enemy::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(this) : 0;
-}
-
-static uint32 DivideWarMovement(uint32 numerator, uint32 denominator)
-{
-    if (!denominator)
-        return (sint32)numerator < 0 ? 1 : (uint32)-1;
-    return (uint32)((sint32)numerator / (sint32)denominator);
+    return (reason & 1) ? ReleaseStorage() : 0;
 }
 
 uint32 War::Update()
 {
     ModelBorrow model_borrow;
-    RecordDataBorrow record_borrow;
-    uint32 x, y, z, flags, value, second, third, scale, speed, distance, timer, result;
-    Vector3 position, muzzle;
+    RecordDataBorrow rec_borrow;
+    uint32 flags, distance, speed, result;
+    uint16 base_speed, turn_scale;
+    uint8 animation;
+    sint16 pitch;
+    sint32 turn_speed, frame_phase, curve_phase, s;
+    Vector3 pos, muzzle;
     ShortVector3 desired, bone_angles, weapon_angles;
-    sint32 signed_value, absolute, high;
     FUNCTION_MARKER(0x8003D790, "SLUS_003.73");
-    x = (uint32)zero_vector[0];
-    y = (uint32)zero_vector[1];
-    z = (uint32)zero_vector[2];
-    motion.acceleration.words[0] = x;
-    motion.acceleration.words[1] = y;
-    motion.acceleration.words[2] = z;
-    if (!(uint32)this->control.hierarchy_ready)
+    motion.acceleration = zero_vector;
+    if (!control.hierarchy_ready)
     {
-        SetModelBoneTable(this->model.bank, WarAttachments);
+        model.SetAttachmentTable(WarAttachments);
         InitializeModelAnimation(WarHierarchy);
-        value = this->model.flags;
-        this->control.hierarchy_ready = 1;
-        this->model.flags = value | 4;
+        uint16 model_flags = model.flags;
+        control.hierarchy_ready = 1;
+        model.flags = model_flags | 4;
     }
-    flags = this->activation_flags;
-    this->control.prev_activation_flags = flags;
-    if (flags & 1)
+    uint16 activation = activation_flags;
+    control.prev_activation_flags = activation;
+    if (activation & 1)
     {
-        value = (uint32)this->control.activation_count;
-        this->activation_flags = flags & 0xFFFE;
-        this->control.activation_count = value + 1;
+        uint8 count = control.activation_count;
+        activation_flags = activation & 0xFFFE;
+        control.activation_count = count + 1;
     }
-    flags = this->activation_flags;
-    if (flags & 4)
+    activation = activation_flags;
+    if (activation & 4)
     {
-        this->activation_flags = flags & 0xFFFB;
-        distance = MeasureHorizontalDistance(model.pos.words, explosion_queue.entries[0].pos.words);
+        activation_flags = activation & 0xFFFB;
+        distance = model.pos.HorizontalDistance(explosion_queue.entries[0].pos);
         if (ai.state == 5 && (sint32)distance < 4096)
         {
-            value = (4096 - distance) * 320;
-            if ((sint32)value < 0)
-                value += 4095;
-            second = game_settings.difficulty;
-            third = (uint32)((sint32)value >> 12);
-            if (!second)
-                third += (uint32)((sint32)value >> 13);
-            Damage(third, zero_vector.components, 0);
-            if (this->health > 0)
+            uint32 blast_product = (4096 - distance) * 320;
+            if ((sint32)blast_product < 0)
+                blast_product += 4095;
+            uint32 difficulty = game_settings.difficulty;
+            uint32 damage_amount = (sint32)blast_product >> 12;
+            if (!difficulty)
+                damage_amount += (sint32)blast_product >> 13;
+            Damage(damage_amount, &zero_vector, 0);
+            if (health > 0)
             {
                 ai.state = 64;
                 ai.phase = 0;
             }
         }
     }
-    if (player_distance < 256 && !(this->model.flags & 1))
+    if (player_distance < 256 && !(model.flags & 1))
     {
         ModelInstance *contact_player = visual_lists.players;
         if (contact_player)
             static_cast<VisualObject *>(visual_lists.players->owner)->ApplyContactImpulse(*this);
     }
-    if ((uint32)this->control.script_active)
+    if (control.script_active)
     {
-        timer = (uint32)this->control.script_delay;
+        uint16 timer = control.script_delay;
         if (timer)
-            this->control.script_delay = timer - 1;
+            control.script_delay = timer - 1;
         else
             ExecuteScript(script_cursor);
     }
@@ -275,229 +259,198 @@ uint32 War::Update()
         /* TODO Resolve the War AI undefined destination branch */
         UpdateState();
     }
-    if ((uint32)this->control.gravity_enabled)
-        AddVectors(motion.acceleration.words, world_gravity.vector.words);
+    if (control.gravity_enabled)
+        motion.acceleration.Add(world_gravity.vector);
     IntegrateMotion();
-    x = this->model.pos.words[0];
-    z = this->model.pos.words[2];
-    flags = this->control.flags;
-    surface.pos.words[0] = x;
-    surface.pos.words[2] = z;
+    flags = control.flags;
+    surface.pos.x = model.pos.x;
+    surface.pos.z = model.pos.z;
     if (flags & 16)
     {
         ModelInstance *target_model = tracked_target.GetObject();
         if (target_model)
         {
-            aim_pos.words[0] = target_model->pos.words[0];
-            aim_pos.words[1] = target_model->pos.words[1];
-            aim_pos.words[2] = target_model->pos.words[2];
+            aim_pos = target_model->pos;
         }
         else
             control.flags &= ~16;
-        CalculateDirectionAngles(desired.words, model.pos.words, aim_pos.words);
-        desired.words[0] = 0;
-        UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, 32);
+        desired.SetDir(model.pos, aim_pos);
+        desired.x = 0;
+        UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, 32);
         goto MovementAnimation;
     }
     if (flags & 32)
     {
-        CalculateDirectionAngles(desired.words, model.pos.words, aim_pos.words);
-        desired.words[0] = 0;
-        UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, 32);
+        desired.SetDir(model.pos, aim_pos);
+        desired.x = 0;
+        UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, 32);
         goto MovementAnimation;
     }
     if (!(flags & 1))
         goto Footsteps;
     if (flags & 4)
     {
-        if ((sint8)this->model.frame < 3)
+        if ((sint8)model.frame < 3)
         {
-            this->playback.speed = 65536;
-            this->control.gravity_enabled = 0;
-            motion.velocity.words[2] = 0;
-            motion.velocity.words[1] = 0;
-            motion.velocity.words[0] = 0;
-            motion.acceleration.words[2] = 0;
-            motion.acceleration.words[1] = 0;
-            motion.acceleration.words[0] = 0;
+            playback.speed = 65536;
+            control.gravity_enabled = 0;
+            motion.velocity.z = 0;
+            motion.velocity.y = 0;
+            motion.velocity.x = 0;
+            motion.acceleration.z = 0;
+            motion.acceleration.y = 0;
+            motion.acceleration.x = 0;
         }
-        else if ((uint32)jump_timer)
-            this->control.gravity_enabled = 1;
-        if ((sint8)this->model.frame >= 3 && !(this->control.flags & 8))
+        else if (jump_timer)
+            control.gravity_enabled = 1;
+        if ((sint8)model.frame >= 3 && !(control.flags & 8))
         {
-            x = this->destination.words[0];
-            value = this->model.pos.words[0];
-            x -= value;
-            timer = (uint32)jump_timer;
-            x = DivideWarMovement(x, timer);
-            z = this->destination.words[2];
-            value = this->model.pos.words[2];
-            z -= value;
-            timer = (uint32)jump_timer;
-            z = DivideWarMovement(z, timer);
-            y = this->destination.words[1];
-            value = this->model.pos.words[1];
-            y -= value;
-            timer = (uint32)jump_timer;
-            y = DivideWarMovement(y, timer);
-            flags = this->control.flags;
-            this->control.flags = flags | 8;
-            motion.velocity.words[0] = x;
-            motion.velocity.words[2] = z;
-            motion.velocity.words[1] = y - (timer << 14);
+            sint32 jump_vel_x = DivideSignedWord((uint32)dst.x - model.pos.x, jump_timer);
+            sint32 jump_vel_z = DivideSignedWord((uint32)dst.z - model.pos.z, jump_timer);
+            uint32 duration = jump_timer;
+            sint32 jump_vel_y = DivideSignedWord((uint32)dst.y - model.pos.y, duration);
+            flags = control.flags;
+            control.flags = flags | 8;
+            motion.velocity.x = jump_vel_x;
+            motion.velocity.z = jump_vel_z;
+            motion.velocity.y = jump_vel_y - (duration << 14);
         }
-        else if ((sint8)this->model.frame >= 22 && (uint32)jump_timer)
-            this->playback.speed = 0;
-        timer = (uint32)jump_timer;
+        else if ((sint8)model.frame >= 22 && jump_timer)
+            playback.speed = 0;
+        uint16 timer = jump_timer;
         if (timer)
         {
             jump_timer = timer - 1;
-            if (!((timer - 1) & 0xFFFF))
+            if (!jump_timer)
             {
-                x = this->destination.words[0];
-                y = this->destination.words[1];
-                z = this->destination.words[2];
-                this->model.pos.words[0] = x;
-                this->model.pos.words[1] = y;
-                this->model.pos.words[2] = z;
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
-                motion.velocity.words[0] = 0;
-                motion.acceleration.words[2] = 0;
-                motion.acceleration.words[1] = 0;
-                motion.acceleration.words[0] = 0;
-                this->playback.speed = 65536;
-                this->control.gravity_enabled = 0;
+                model.pos = dst;
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
+                motion.velocity.x = 0;
+                motion.acceleration.z = 0;
+                motion.acceleration.y = 0;
+                motion.acceleration.x = 0;
+                playback.speed = 65536;
+                control.gravity_enabled = 0;
             }
         }
-        if (this->playback.complete)
-            this->control.flags = this->control.flags & 0xFFFFFFF2;
+        if (playback.complete)
+            control.flags = control.flags & 0xFFFFFFF2;
         goto MovementAnimation;
     }
-    CalculateDirectionAngles(desired.words, this->model.pos.words, this->destination.words);
-    value = desired.words[0];
-    desired.words[0] = 0;
-    scale = ai.parameters[1];
-    UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, scale);
-    desired.words[0] = (uint16)value;
-    signed_value = (sint16)motion.angular_velocity.words[1];
-    absolute = signed_value < 0 ? -signed_value : signed_value;
-    if (absolute >= 65)
-        absolute = 64;
-    scale = ai.parameters[0];
-    value = scale * (64 - (uint32)absolute);
-    if ((sint32)value < 0)
-        value += 63;
-    speed = (uint32)((sint32)value >> 6);
-    value = this->model.animation;
-    if (value < 2)
+    desired.SetDir(model.pos, dst);
+    pitch = desired.x;
+    desired.x = 0;
+    turn_scale = ai.parameters[1];
+    UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, turn_scale);
+    desired.x = pitch;
+    turn_speed = motion.angular_velocity.y;
+    if (turn_speed < 0)
+        turn_speed = -turn_speed;
+    if (turn_speed > 64)
+        turn_speed = 64;
+    base_speed = ai.parameters[0];
+    speed = base_speed * (64 - turn_speed) / 64;
+    animation = model.animation;
+    if (animation < 2)
     {
-        second = (uint32)(sint32)(sint8)this->model.frame << 12;
-        if (!value)
-        {
-            high = (sint32)(((sint64)(sint32)second * (sint32)0x82082083) >> 32);
-            third = (uint32)((sint32)((uint32)high + second) >> 5);
-        }
-        else
-        {
-            high = (sint32)(((sint64)(sint32)second * 0x38E38E39) >> 32);
-            third = (uint32)(high >> 3);
-        }
-        third -= (uint32)((sint32)second >> 31);
-        signed_value = rsin(third & 4095);
-        absolute = signed_value < 0 ? -signed_value : signed_value;
-        speed = (scale >> 2) + (uint32)((sint32)(speed * (uint32)absolute) >> 12);
+        frame_phase = (sint8)model.frame * ONE;
+        curve_phase = frame_phase / (animation ? 36 : 63);
+        s = rsin(curve_phase & 4095);
+        if (s < 0)
+            s = -s;
+        speed = (base_speed >> 2) + speed * s / ONE;
     }
-    BuildDirectionVector(motion.velocity.words, speed, desired.words);
-    position.words[0] = this->model.pos.words[0];
-    position.words[1] = this->destination.words[1];
-    position.words[2] = this->model.pos.words[2];
-    distance = MeasureEuclideanDistance(position.words, this->destination.words);
-    scale = ai.parameters[0];
-    if (distance < scale * 2)
-        this->control.flags = this->control.flags & ~1;
+    motion.velocity.SetDir(speed, desired);
+    pos.x = model.pos.x;
+    pos.y = dst.y;
+    pos.z = model.pos.z;
+    distance = pos.EuclideanDistance(dst);
+    base_speed = ai.parameters[0];
+    if (distance < base_speed * 2)
+        control.flags = control.flags & ~1;
 MovementAnimation:
-    if ((this->control.flags & 1) && this->model.animation >= 2)
+    if ((control.flags & 1) && model.animation >= 2)
         StartAnimation(0, 1);
 Footsteps:
-    if (this->model.animation == 1)
+    if (model.animation == 1)
     {
-        value = DidAnimationCrossFrame(1, 7);
-        if (UpdateEventLatch(value, 1))
+        uint32 event = DidAnimationCrossFrame(1, 7);
+        if (UpdateEventLatch(event, 1))
         {
             PlaySoundEffect(128, 8192, 0);
             static_cast<Camera *>(visual_lists.cameras->owner)->ApplyExplosionShake(2);
         }
-        value = DidAnimationCrossFrame(1, 25);
-        if (UpdateEventLatch(value, 2))
+        event = DidAnimationCrossFrame(1, 25);
+        if (UpdateEventLatch(event, 2))
         {
             PlaySoundEffect(129, 8192, 0);
             static_cast<Camera *>(visual_lists.cameras->owner)->ApplyExplosionShake(2);
         }
     }
-    bone_angles.words[0] = 0;
-    bone_angles.words[1] = 0;
-    bone_angles.words[2] = 0;
-    flags = this->control.flags;
+    bone_angles.x = 0;
+    bone_angles.y = 0;
+    bone_angles.z = 0;
+    flags = control.flags;
     if (flags & 16)
     {
         if (visual_lists.players)
         {
-            GetModelAttachment(position.words, *this, 2);
-            CalculateDirectionAngles(bone_angles.words, position.words, static_cast<VisualObject *>(visual_lists.players->owner)->surface.pos.words);
-            bone_angles.words[1] = (uint16)((bone_angles.words[1] - this->model.angles.words[1]) & 4095);
+            GetModelAttachment(pos, *this, 2);
+            bone_angles.SetDir(pos, static_cast<VisualObject *>(visual_lists.players->owner)->surface.pos);
+            bone_angles.y = ((uint16)bone_angles.y - (uint16)model.angles.y) & 4095;
         }
     }
     else if (flags & 32)
     {
-        GetModelAttachment(position.words, *this, 2);
-        CalculateDirectionAngles(bone_angles.words, position.words, aim_pos.words);
-        bone_angles.words[1] = (uint16)((bone_angles.words[1] - this->model.angles.words[1]) & 4095);
+        GetModelAttachment(pos, *this, 2);
+        bone_angles.SetDir(pos, aim_pos);
+        bone_angles.y = ((uint16)bone_angles.y - (uint16)model.angles.y) & 4095;
     }
-    UpdateAngleAcceleration(aim.angles, aim.velocity, aim.acceleration, bone_angles, 8);
-    AddAngleVector(aim.angles.words, aim.velocity.words);
-    NormalizeAngles(aim.angles.words);
-    AddAngleVector(aim.velocity.words, aim.acceleration.words);
-    DampAngles(aim.velocity.words, motion.angular_drag);
-    SnapSmallAngles(aim.velocity.words);
-    GetModelJointAngles(3).rotation.words[0] = aim.angles.words[0];
-    GetModelJointAngles(3).rotation.words[1] = aim.angles.words[1];
+    UpdateAngularAcceleration(aim.angles, aim.velocity, aim.acceleration, bone_angles, 8);
+    aim.angles.AddAngles(aim.velocity);
+    aim.angles.NormalizeAngles();
+    aim.velocity.AddAngles(aim.acceleration);
+    aim.velocity.DampAngles(motion.angular_drag);
+    aim.velocity.SnapAngles();
+    GetModelJointAngles(3).rotation.x = aim.angles.x;
+    GetModelJointAngles(3).rotation.y = aim.angles.y;
     UpdateModelAnimationData();
     UpdateWorldTransform();
-    BuildModelPose(*this);
-    if (this->model.animation == 4 && ai.state == 16)
+    BuildModelPose();
+    if (model.animation == 4 && ai.state == 16)
     {
-        GetModelAttachment(position.words, *this, 0);
-        GetModelAttachment(muzzle.words, *this, 1);
-        CalculateDirectionAngles(weapon_angles.words, position.words, muzzle.words);
+        GetModelAttachment(pos, *this, 0);
+        GetModelAttachment(muzzle, *this, 1);
+        weapon_angles.SetDir(pos, muzzle);
         if (!attack_beam)
         {
             GameHeapBlock *allocation = AllocateZeroedHeapBlock(104);
             ParticleBeam *created = 0;
             if (allocation)
             {
-                value = (uint32)(sint32)(sint16)model.scale.words[0] * 75;
-                created = new (allocation) ParticleBeam(&visual_lists.players, (uint32)((sint32)value >> 9), 1, 128, 127);
+                sint32 beam_range = model.scale.x * 75;
+                created = new (allocation) ParticleBeam(&visual_lists.players, beam_range >> 9, 1, 128, 127);
             }
             attack_beam = created;
             if (attack_beam)
             {
                 attack_beam->SetColors(0, 64, 128, 185, 185, 185, 0, 64, 128, 255, 255, 255);
-                signed_value = (sint16)GetGameTuning().player.maximum_health;
-                value = ScaleDamageForDifficulty((uint32)(sint32)(sint16)(signed_value / 5));
-                attack_beam->damage = value;
-                attack_beam->Fire(position.words, weapon_angles.components);
+                sint16 max_health = GetGameTuning().player.maximum_health;
+                uint32 beam_damage = ScaleDamageForDifficulty(max_health / 5);
+                attack_beam->damage = beam_damage;
+                attack_beam->Fire(pos, weapon_angles);
             }
         }
         else
-            attack_beam->Fire(position.words, weapon_angles.components);
+            attack_beam->Fire(pos, weapon_angles);
     }
     else if (attack_beam)
     {
         attack_beam->Destroy(3);
         attack_beam = 0;
     }
-    result = GetBehaviorValue(1, 0) & 0xFFFF;
+    result = GetBehaviorVal(1, 0);
     if (result)
     {
         if (!beam)
@@ -514,9 +467,9 @@ Footsteps:
             beam->damage = 1;
             beam->SetColors(0, 0, 64, 185, 185, 185, 0, 0, 64, 255, 255, 255);
         }
-        GetModelAttachment(position.words, *this, 3);
-        bone_angles.words[1] = (model.angles.words[1] + aim.angles.words[1]) & 4095;
-        return beam->Fire(position.words, bone_angles.components);
+        GetModelAttachment(pos, *this, 3);
+        bone_angles.y = ((uint16)model.angles.y + (uint16)aim.angles.y) & 4095;
+        return beam->Fire(pos, bone_angles);
     }
     if (beam)
     {
@@ -526,98 +479,97 @@ Footsteps:
     return result;
 }
 
-uint32 War::Damage(uint32 damage, const sint32 *, uint32 kind)
+uint32 War::Damage(uint32 damage, const Vector3 *, uint32 kind)
 {
-    uint32 count, stored_health;
-    sint32 health, reduced;
+    uint8 count;
+    sint16 health;
+    sint32 reduced;
     FUNCTION_MARKER(0x8003E354, "SLUS_003.73");
     if (ai.state < 2)
         return 0;
     health = this->health;
     if (health <= 0)
         return 1;
-    count = (uint32)this->control.damage_phase;
-    this->control.damage_phase = count + 1;
+    count = control.damage_phase;
+    control.damage_phase = count + 1;
     reduced = (sint32)damage >> 1;
     if (kind == 30)
         reduced >>= 1;
     else if (kind == 5 || kind == 10)
         reduced >>= 2;
     health = this->health;
-    stored_health = (uint16)this->health;
     if (reduced < health)
     {
-        this->health = (sint16)(uint16)(stored_health - (uint32)reduced);
+        this->health = health - reduced;
         SetColor(3, 255, 255, 255);
     }
     else
     {
-        this->health = (sint16)(uint16)(0);
+        this->health = 0;
         ai.state = 9;
         ai.phase = 0;
     }
     return 1;
 }
 
-uint32 War::Resize(uint32 increment)
+void War::Resize(sint32 inc)
 {
-    uint32 flags, scale, height, displacement, y;
     FUNCTION_MARKER(0x8003E418, "SLUS_003.73");
-    flags = this->model.flags;
-    scale = (uint32)(sint32)(sint16)this->model.scale.words[0] + increment;
-    this->model.flags = flags | 512;
-    height = (uint32)((sint32)(scale * 216) >> 12);
-    this->model.scale.words[2] = scale;
-    this->model.scale.words[1] = scale;
-    this->model.scale.words[0] = scale;
-    displacement = (uint32)(sint32)(sint16)(uint32)this->ground_offset;
-    this->ground_offset = height;
-    displacement = ((uint32)(sint32)(sint16)height - displacement) << 12;
-    y = this->model.pos.words[1];
-    this->model.pos.words[1] = y - displacement;
-    return displacement;
+    uint16 flags = model.flags;
+    uint32 scale = model.scale.x;
+    scale += inc;
+    model.flags = flags | 0x200;
+    uint32 product = scale * 216;
+    model.scale.z = scale;
+    model.scale.y = scale;
+    model.scale.x = scale;
+    sint16 old_height = ground_offset;
+    ground_offset = (sint32)product >> 12;
+    sint32 displacement = (ground_offset - old_height) * ONE;
+    model.pos.y = (uint32)model.pos.y - displacement;
 }
 
 // State-machine helpers are native extractions of original inline blocks
 void War::AdvancePhase()
 {
-    uint32 phase = ai.phase;
+    uint16 phase = ai.phase;
     ai.phase = phase + 1;
 }
 
 void War::AdvanceState()
 {
-    uint32 state = ai.state;
+    uint16 state = ai.state;
     ai.phase = 0;
     ai.state = state + 1;
 }
 
 void War::RestoreState()
 {
-    uint32 state = ai.parameters[2];
-    uint32 phase = ai.parameters[3];
+    uint16 state = ai.parameters[2];
+    uint16 phase = ai.parameters[3];
     ai.state = state;
     ai.phase = phase;
 }
 
 void War::ClearVelocity()
 {
-    motion.velocity.words[2] = 0;
-    motion.velocity.words[1] = 0;
-    motion.velocity.words[0] = 0;
+    motion.velocity.z = 0;
+    motion.velocity.y = 0;
+    motion.velocity.x = 0;
 }
 
 void War::SelectPoint(const uint16 *table, uint32 minimum, uint32 attempts, Vector3 &point)
 {
-    RecordDataBorrow record_borrow;
-    uint32 index, attempt = 0, distance;
+    RecordDataBorrow rec_borrow;
+    uint32 idx, attempt = 0, distance;
+    uint16 rec_idx;
     do
     {
         ++attempt;
-        index = RandomRange(4);
-        index = table[index];
-        ReadRecordPosition(point.words, index);
-        distance = MeasurePositionDistance(model.pos.words, point.words);
+        idx = RandomRange(4);
+        rec_idx = table[idx];
+        ReadRecPos(&point, rec_idx);
+        distance = point.Distance(model.pos);
         if (distance >= minimum)
             break;
         if (attempts)
@@ -629,57 +581,59 @@ void War::SelectPoint(const uint16 *table, uint32 minimum, uint32 attempts, Vect
                 break;
         }
     } while (1);
-    SetDestination(point.words);
+    SetDst(&point);
     AdvancePhase();
 }
 
-void War::ActivateGroup(uint32 maximum)
+void War::ActivateGrp(uint32 maximum)
 {
     ModelBorrow model_borrow;
-    uint32 cursor, count, index, entry;
+    uint8 cursor;
+    uint16 count, entry;
+    uint32 idx;
     ModelInstance *list;
-    cursor = group_cursor;
-    group_cursor = cursor + 1;
+    cursor = grp_cursor;
+    grp_cursor = cursor + 1;
     count = activation_words.words[cursor];
     if (count >= maximum)
         return;
-    for (index = 0; index < count; ++index)
+    for (idx = 0; idx < count; ++idx)
     {
-        cursor = group_cursor;
+        cursor = grp_cursor;
         list = visual_lists.solids;
-        group_cursor = cursor + 1;
+        grp_cursor = cursor + 1;
         entry = activation_words.words[cursor];
-        ::ActivateObjectsByIndex(list, entry);
+        VisualObject::ActivateByIdx(list, entry);
     }
 }
 
-static void SetWarCamera(Camera &camera, uint32 distance, uint32 pitch, uint32 yaw, uint32 x, uint32 y, uint32 time, uint32 field, uint32 set_field)
+void War::SetCamera(Camera &camera, uint16 distance, sint16 height, sint16 lateral_offset, sint16 height_offset, sint16 forward_offset, uint16 frames, uint16 yaw, bool set_yaw)
 {
-    SetCameraOrbitDistanceTransition(distance, time);
-    SetCameraOrbitHeightTransition(pitch, time);
-    SetCameraTargetLateralOffsetTransition(yaw, time);
-    SetCameraTargetHeightOffsetTransition(x, time);
-    SetCameraTargetForwardOffsetTransition(y, time);
-    if (set_field)
-        camera.SetYawTransition(field, time);
+    camera.SetOrbitDistanceTransition(distance, frames);
+    camera.SetOrbitHeightTransition(height, frames);
+    camera.SetTargetLateralOffsetTransition(lateral_offset, frames);
+    camera.SetTargetHeightOffsetTransition(height_offset, frames);
+    camera.SetTargetForwardOffsetTransition(forward_offset, frames);
+    if (set_yaw)
+        camera.SetYawTransition(yaw, frames);
 }
 
 void War::FireDeathWeapons()
 {
     Vector3 origin, endpoint;
     ShortVector3 angles;
-    for (uint32 index = 0; index < 5; ++index)
+    for (uint32 idx = 0; idx < 5; ++idx)
     {
-        if (!death_beams[index])
+        if (!death_beams[idx])
             continue;
-        GetModelAttachment(origin.words, *this, 5 + index * 2);
-        GetModelAttachment(endpoint.words, *this, 6 + index * 2);
-        CalculateDirectionAngles(angles.words, origin.words, endpoint.words);
-        death_beams[index]->Fire(origin.words, angles.components);
+        GetModelAttachment(origin, *this, 5 + idx * 2);
+        GetModelAttachment(endpoint, *this, 6 + idx * 2);
+        angles.SetDir(origin, endpoint);
+        death_beams[idx]->Fire(origin, angles);
     }
 }
 
-void War::CreateDeathWeapon(uint32 index)
+void War::CreateDeathWeapon(uint32 idx)
 {
     GameHeapBlock *allocation = AllocateZeroedHeapBlock(104);
     ParticleBeam *created = 0;
@@ -687,32 +641,35 @@ void War::CreateDeathWeapon(uint32 index)
     {
         created = new (allocation) ParticleBeam(&visual_lists.actors, 4096, 1, 0, 9);
     }
-    death_beams[index] = created;
-    if (!death_beams[index])
+    death_beams[idx] = created;
+    if (!death_beams[idx])
     {
-        GameDiagnostic("War death beam allocation failed\n");
+        GameDiagnostic(("War death beam allocation failed\n"));
         abort();
     }
-    death_beams[index]->SetColors(64, 64, 64, 185, 185, 185, 64, 64, 64, 255, 255, 255);
+    death_beams[idx]->SetColors(64, 64, 64, 185, 185, 185, 64, 64, 64, 255, 255, 255);
 }
 
 void War::UpdateState()
 {
     ModelBorrow model_borrow;
-    RecordDataBorrow record_borrow;
-    uint32 state;
-    uint32 phase;
+    RecordDataBorrow rec_borrow;
+    uint16 state;
+    uint16 phase;
     uint32 flags;
-    uint32 value;
-    uint32 second;
-    uint32 index;
-    uint32 count;
-    uint32 cursor;
+    uint16 model_flags, lifecycle, rec_idx, move_speed, work, health_threshold;
+    uint32 floor, random, pos_y;
+    sint32 coord_z, threshold_z;
+    uint8 voice_idx;
+    uint32 idx;
+    uint16 count, next_timer;
+    uint8 cursor;
     GameHeapBlock *target;
     Camera *camera;
     ModelInstance *player;
     Vector3 point;
-    sint32 height, timer, distance;
+    sint16 height, timer;
+    sint32 distance;
     FUNCTION_MARKER(0x8003E478, "SLUS_003.73");
     state = ai.state;
     if (state > 64)
@@ -723,21 +680,21 @@ void War::UpdateState()
             phase = ai.phase;
             if (phase)
                 return;
-            flags = this->model.flags;
-            this->model.flags = flags | 1;
-            value = FindGroundHeight(model.pos.words, 0, 4096);
-            if (value == (uint32)-1)
+            model_flags = this->model.flags;
+            this->model.flags = model_flags | 1;
+            floor = CollisionRay::FindGroundHeight(model.pos, 0, 4096);
+            if (floor == (uint32)-1)
                 return;
-            second = this->model.pos.words[1];
-            height = (sint16)(uint32)this->ground_offset;
-            if (((sint32)(value - second) >> 12) < height * 2)
+            pos_y = (uint32)this->model.pos.y;
+            height = ground_offset;
+            if (((sint32)(floor - pos_y) >> 12) < height * 2)
             {
-                second = value - ((uint32)height << 12);
-                surface.pos.words[1] = second;
-                this->model.pos.words[1] = second;
-                shadow.height = (uint32)((sint32)(value - second) >> 12);
+                pos_y = floor - ((uint32)height << 12);
+                surface.pos.y = pos_y;
+                this->model.pos.y = pos_y;
+                shadow.height = (sint32)(floor - pos_y) >> 12;
                 ai.state = 1;
-                this->control.gravity_enabled = 0;
+                control.gravity_enabled = 0;
                 ClearVelocity();
                 ai.work[1] = 0;
             }
@@ -745,16 +702,16 @@ void War::UpdateState()
         case 1:
             phase = ai.phase;
             if (!phase)
-                SelectPoint(spawn_points.destinations[0], 257, 0, point);
+                SelectPoint(spawn_points.dsts[0], 257, 0, point);
             else if (phase == 1)
             {
-                if ((uint32)this->control.activation_count)
+                if (control.activation_count)
                 {
-                    this->control.activation_count = 0;
+                    control.activation_count = 0;
                     ai.state = 2;
                     ai.phase = 0;
                 }
-                else if (!(this->control.flags & 1))
+                else if (!(control.flags & 1))
                     ai.phase = 0;
             }
             return;
@@ -762,23 +719,23 @@ void War::UpdateState()
             phase = ai.phase;
             if (!phase)
             {
-                this->collision_radius = 128;
-                flags = this->model.flags;
+                col_radius = 128;
+                model_flags = this->model.flags;
                 ai.parameters[0] = 20;
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-                this->model.flags = flags & 0xFFFE;
+                this->model.flags = model_flags & 0xFFFE;
                 camera->mode = 18;
-                this->health = (sint16)(uint16)(1800);
-                ::TrackObjectHealth(*this, 64, 32, 2048);
+                health = 1800;
+                TrackHealth(64, 32, 2048);
                 AdvancePhase();
             }
             else if (phase == 1)
-                SelectPoint(spawn_points.destinations[1], 201, 17, point);
-            else if (phase == 2 && !(this->control.flags & 1))
+                SelectPoint(spawn_points.dsts[1], 201, 17, point);
+            else if (phase == 2 && !(control.flags & 1))
             {
                 player = visual_lists.actors;
-                value = spawn_points.stage_records[5];
-                ::ActivateObjectsByIndex(player, value);
+                rec_idx = spawn_points.stage_recs[5];
+                VisualObject::ActivateByIdx(player, rec_idx);
                 state = ai.state;
                 ai.parameters[0] = 14;
                 ai.phase = 0;
@@ -794,21 +751,21 @@ void War::UpdateState()
                 phase = 1;
             }
             if (phase == 1)
-                SelectPoint(spawn_points.destinations[1], 201, 17, point);
+                SelectPoint(spawn_points.dsts[1], 201, 17, point);
             else if (phase == 2)
             {
                 timer = (sint16)ai.work[1];
                 if (!timer)
                 {
                     ai.work[1] = 90;
-                    height = this->health;
+                    height = health;
                     SpawnProjectileWave(height < 1656 ? 2 : 1);
                 }
                 else
-                    ai.work[1] = (uint32)timer - 1;
-                if (this->health < 1512)
+                    ai.work[1] = timer - 1;
+                if (health < 1512)
                     AdvanceState();
-                else if (!(this->control.flags & 1))
+                else if (!(control.flags & 1))
                 {
                     phase = ai.phase;
                     ai.phase = phase - 1;
@@ -829,13 +786,13 @@ void War::UpdateState()
             switch (phase)
             {
                 case 0:
-                    value = spawn_points.stage_records[0];
-                    ReadRecordPosition(point.words, value);
-                    SetDestination(point.words);
+                    rec_idx = spawn_points.stage_recs[0];
+                    ReadRecPos(&point, rec_idx);
+                    SetDst(&point);
                     AdvancePhase();
                     return;
                 case 1:
-                    if (!(this->control.flags & 1))
+                    if (!(control.flags & 1))
                     {
                         state = ai.state;
                         ai.parameters[3] = 2;
@@ -852,65 +809,64 @@ void War::UpdateState()
                     camera->follow.target.SetObject(player);
                     camera->aim.flags = 1;
                     camera->aim.target.SetObject(player);
-                    SetWarCamera(*camera, 2276, (uint32)-520, 0, (uint32)-1590, (uint32)-3280, 30, 2048, 1);
-                    SetAnimationRange(2, 0, (uint32)-1);
+                    War::SetCamera(*camera, 2276, -520, 0, -1590, -3280, 30, 2048, true);
+                    SetAnimationRange(2, 0, -1);
                     AdvancePhase();
                     return;
                 case 3:
-                    if (this->playback.complete)
+                    if (playback.complete)
                     {
-                        SetAnimationRange(3, 0, (uint32)-1);
+                        SetAnimationRange(3, 0, -1);
                         AdvancePhase();
                     }
                     return;
                 case 4:
-                    if (this->playback.complete)
+                    if (playback.complete)
                         AdvancePhase();
                     else
                         Resize(178);
                     return;
                 case 5:
-                    SetAnimationRange(7, 0, (uint32)-1);
+                    SetAnimationRange(7, 0, -1);
                     AdvancePhase();
                     return;
                 case 6:
                     if ((sint8)this->model.frame >= 25)
                     {
-                        PlayPositionedSound(131, model.pos.words, 0);
-                        for (index = 0; index < 2; ++index)
+                        PlayPositionedSound(131, &model.pos, 0);
+                        for (idx = 0; idx < 2; ++idx)
                         {
-                            value = spawn_points.stage_records[1 + index];
+                            rec_idx = spawn_points.stage_recs[1 + idx];
                             player = visual_lists.solids;
-                            ::ActivateObjectsByIndex(player, value);
+                            VisualObject::ActivateByIdx(player, rec_idx);
                         }
                         AdvancePhase();
                     }
                     return;
                 case 7:
-                    if (this->playback.complete)
+                    if (playback.complete)
                     {
-                        value = (uint32)(sint32)(sint8)this->model.frame;
-                        SetAnimationRange(7, value, 0);
+                        SetAnimationRange(7, (sint8)model.frame, 0);
                         AdvancePhase();
                     }
                     return;
                 case 8:
-                    if (this->playback.complete)
+                    if (playback.complete)
                     {
-                        if (GetCheatOptions().war_record_spawn)
+                        if (GetCheatOptions().war_rec_spawn)
                         {
-                            value = spawn_points.stage_records[4];
-                            ::SpawnRecord(value);
+                            rec_idx = spawn_points.stage_recs[4];
+                            ::SpawnRec(rec_idx);
                             model_effect.color_mode = 0x06403030;
                             model_effect.scale = 8192;
                             model_effect.depth_bias = 10;
                         }
-                        SetAnimationRange(4, 0, (uint32)-1);
+                        SetAnimationRange(4, 0, -1);
                         AdvancePhase();
                     }
                     return;
                 case 9:
-                    if (this->playback.complete)
+                    if (playback.complete)
                     {
                         phase = ai.phase;
                         ai.work[1] = 0;
@@ -920,7 +876,7 @@ void War::UpdateState()
                 case 10:
                     timer = (sint16)ai.work[1];
                     if (timer < 60)
-                        ai.work[1] = (uint32)timer + 1;
+                        ai.work[1] = timer + 1;
                     else
                     {
                         ai.work[1] = 0;
@@ -932,52 +888,55 @@ void War::UpdateState()
             }
         case 5:
             player = visual_lists.players;
-            value = this->model.pos.words[2];
-            second = player->pos.words[2];
-            if ((sint32)value < (sint32)second)
+            coord_z = player->pos.z;
+            if (model.pos.z < coord_z)
             {
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
                 ai.state = 48;
-                flags = this->control.flags;
-                motion.velocity.words[0] = 0;
+                flags = control.flags;
+                motion.velocity.x = 0;
                 ai.phase = 0;
-                this->control.flags = flags & ~1;
+                control.flags = flags & ~1;
                 return;
             }
-            if ((sint32)second < (sint32)0xF13AC000)
+            if (coord_z < -247808000)
             {
-                flags = this->control.flags;
+                flags = control.flags;
                 if (!(flags & 64))
                 {
-                    this->control.flags = flags | 64;
-                    motion.velocity.words[2] = 0;
-                    motion.velocity.words[1] = 0;
-                    flags = this->control.flags;
+                    control.flags = flags | 64;
+                    motion.velocity.z = 0;
+                    motion.velocity.y = 0;
+                    flags = control.flags;
                     state = ai.state;
-                    motion.velocity.words[0] = 0;
+                    motion.velocity.x = 0;
                     ai.phase = 0;
-                    this->control.flags = flags & ~1;
+                    control.flags = flags & ~1;
                     ai.state = state + 1;
                     return;
                 }
             }
-            index = threshold_index;
-            value = progression_thresholds[index];
-            second = this->model.pos.words[2];
-            if ((sint32)second < (sint32)(value << 12))
+            idx = threshold_idx;
+            if (idx >= sizeof(progression_thresholds) / sizeof(progression_thresholds[0]))
             {
-                cursor = group_cursor;
-                threshold_index = index + 1;
-                group_cursor = cursor + 1;
+                GameDiagnostic(("War progression threshold index out of range: %u\n", idx));
+                abort();
+            }
+            threshold_z = (uint32)progression_thresholds[idx] << 12;
+            if (model.pos.z < threshold_z)
+            {
+                cursor = grp_cursor;
+                threshold_idx = idx + 1;
+                grp_cursor = cursor + 1;
                 count = activation_words.words[cursor];
-                for (index = 0; index < count; ++index)
+                for (idx = 0; idx < count; ++idx)
                 {
-                    cursor = group_cursor;
+                    cursor = grp_cursor;
                     player = visual_lists.solids;
-                    group_cursor = cursor + 1;
-                    value = activation_words.words[cursor];
-                    ::ActivateObjectsByIndex(player, value);
+                    grp_cursor = cursor + 1;
+                    rec_idx = activation_words.words[cursor];
+                    VisualObject::ActivateByIdx(player, rec_idx);
                 }
             }
             if (this->model.animation != 1)
@@ -985,44 +944,40 @@ void War::UpdateState()
             phase = ai.phase;
             if (phase == 1)
             {
-                SetDestination(this->destination.words);
+                SetDst(&dst);
                 phase = ai.phase;
                 ai.phase = phase - 1;
             }
             else if (!phase)
             {
                 player = visual_lists.players;
-                value = this->model.pos.words[2];
-                second = player->pos.words[2];
-                distance = (sint32)(value - second);
+                distance = (uint32)model.pos.z - player->pos.z;
                 if (distance <= 10649599)
                 {
-                    value = this->control.flags & 64;
-                    second = ai.parameters[0];
-                    if (second > (value ? 40 : 60))
-                        ai.parameters[0] = second - 2;
+                    move_speed = ai.parameters[0];
+                    if (move_speed > ((control.flags & 64) ? 40 : 60))
+                        ai.parameters[0] = move_speed - 2;
                 }
                 else if (distance > 11468800)
                 {
-                    value = this->control.flags & 64;
-                    second = ai.parameters[0];
-                    if (second < (value ? 80 : 128))
-                        ai.parameters[0] = second + 1;
+                    move_speed = ai.parameters[0];
+                    if (move_speed < ((control.flags & 64) ? 80 : 128))
+                        ai.parameters[0] = move_speed + 1;
                 }
-                if (!(this->control.flags & 1))
+                if (!(control.flags & 1))
                 {
-                    index = ai.work[1];
+                    idx = ai.work[1];
                     timer = (sint16)ai.work[1];
-                    if (index >= 8)
+                    if (idx >= 8)
                     {
                         /* TODO Original local XYZ is uninitialized; native recovery awaits human contract */
-                        GameDiagnostic("TODO War AI state5 exhausted path vector\n");
+                        GameDiagnostic(("TODO War AI state5 exhausted path vector\n"));
                         abort();
                     }
-                    value = spawn_points.path[index];
-                    ReadRecordPosition(point.words, value);
-                    SetDestination(point.words);
-                    ai.work[1] = (uint32)timer + 1;
+                    rec_idx = spawn_points.path[idx];
+                    ReadRecPos(&point, rec_idx);
+                    SetDst(&point);
+                    ai.work[1] = timer + 1;
                 }
             }
             return;
@@ -1032,7 +987,7 @@ void War::UpdateState()
             {
                 player = visual_lists.players;
                 static_cast<Player *>(player->owner)->disable_timer = 240;
-                SetAnimationRange(7, 0, (uint32)-1);
+                SetAnimationRange(7, 0, -1);
                 AdvancePhase();
             }
             else if (phase == 1)
@@ -1040,31 +995,30 @@ void War::UpdateState()
                 if ((sint8)this->model.frame >= 24)
                 {
                     player = visual_lists.actors;
-                    value = spawn_points.stage_records[3];
-                    ::ActivateObjectsByIndex(player, value);
+                    rec_idx = spawn_points.stage_recs[3];
+                    VisualObject::ActivateByIdx(player, rec_idx);
                     phase = ai.phase;
                     ai.work[0] = 0;
                     ai.phase = phase + 1;
                 }
             }
-            else if (phase == 2 && this->playback.complete)
+            else if (phase == 2 && playback.complete)
             {
-                value = ai.work[0];
+                work = ai.work[0];
                 timer = (sint16)ai.work[0];
-                if (value < 150)
-                    ai.work[0] = (uint32)timer + 1;
+                if (work < 150)
+                    ai.work[0] = timer + 1;
                 else
                 {
-                    value = (uint32)(sint32)(sint8)this->model.frame;
-                    SetAnimationRange(7, value, 0);
+                    SetAnimationRange(7, (sint8)model.frame, 0);
                     AdvancePhase();
                 }
             }
-            else if (phase == 3 && this->playback.complete)
+            else if (phase == 3 && playback.complete)
             {
-                flags = this->model.flags;
-                this->model.flags = flags | 8;
-                SetDestination(this->destination.words);
+                model_flags = this->model.flags;
+                this->model.flags = model_flags | 8;
+                SetDst(&dst);
                 state = ai.state;
                 ai.phase = 0;
                 ai.state = state - 1;
@@ -1074,23 +1028,23 @@ void War::UpdateState()
             phase = ai.phase;
             if (!phase)
             {
-                if (this->control.flags & 64)
-                    ActivateGroup(4);
+                if (control.flags & 64)
+                    ActivateGrp(4);
                 static_cast<Player *>(visual_lists.players->owner)->SetWeaponStop(900);
-                PlayCdVoiceEvent(18, 4, model.pos.words, 0);
-                this->playback.speed = 32768;
-                ::ClearTrackedObjectHealth();
-                flags = this->control.flags;
-                this->control.flags = flags & ~1;
+                PlayCdVoiceEvent(18, 4, &model.pos);
+                playback.speed = 32768;
+                VisualObject::ClearTrackedHealth();
+                flags = control.flags;
+                control.flags = flags & ~1;
                 ClearVelocity();
                 ClearFacing();
-                SetAnimationRange(8, 0, (uint32)-1);
+                SetAnimationRange(8, 0, -1);
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 camera->aim.flags = 1;
                 camera->aim.target.SetObject(&model);
                 camera->follow.flags = 1;
                 camera->follow.target.SetObject(&model);
-                SetWarCamera(*camera, 2276, (uint32)-1872, 64, (uint32)-30, (uint32)-714, 30, 2048, 1);
+                War::SetCamera(*camera, 2276, -1872, 64, -30, -714, 30, 2048, true);
                 phase = ai.phase;
                 ai.work[0] = 0;
                 ai.phase = phase + 1;
@@ -1100,22 +1054,22 @@ void War::UpdateState()
                 if (!RandomRange(3))
                 {
                     point = this->model.pos;
-                    point.words[1] += 1638400;
-                    point.words[2] -= 1048576;
-                    value = RandomRange(512);
-                    point.words[0] += (value - 256) << 12;
-                    value = RandomRange(512);
-                    point.words[1] += (value - 256) << 12;
-                    value = RandomRange(512);
-                    point.words[2] += (value - 256) << 12;
-                    SpawnFireCycle(point.words, 60, 1, 2);
-                    value = RandomRange(2);
-                    PlayPositionedSound(value + 1, model.pos.words, 2);
+                    point.y = (uint32)point.y + (1638400);
+                    point.z = (uint32)point.z - (1048576);
+                    random = RandomRange(512);
+                    point.x = (uint32)point.x + ((random - 256) << 12);
+                    random = RandomRange(512);
+                    point.y = (uint32)point.y + ((random - 256) << 12);
+                    random = RandomRange(512);
+                    point.z = (uint32)point.z + ((random - 256) << 12);
+                    FireCycle::Spawn(&point, 60, 1, 2);
+                    random = RandomRange(2);
+                    PlayPositionedSound(random + 1, &model.pos, 2);
                 }
                 if ((sint8)this->model.frame >= 12)
                     this->model.frame = 13;
                 timer = (sint16)ai.work[0];
-                ai.work[0] = (uint32)timer + 1;
+                ai.work[0] = timer + 1;
                 if (timer == 42)
                     CreateDeathWeapon(0);
                 else if (timer == 58)
@@ -1129,7 +1083,7 @@ void War::UpdateState()
                 else if (timer == 90)
                 {
                     camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-                    SetWarCamera(*camera, 2252, (uint32)-552, 60, 522, 268, 40, 0, 0);
+                    War::SetCamera(*camera, 2252, -552, 60, 522, 268, 40, 0, false);
                 }
                 else if (timer >= 141)
                     AdvancePhase();
@@ -1140,30 +1094,30 @@ void War::UpdateState()
                 FireDeathWeapons();
                 if ((sint8)this->model.frame >= 28)
                 {
-                    for (index = 0; index < 5; ++index)
+                    for (idx = 0; idx < 5; ++idx)
                     {
-                        if (death_beams[index])
+                        if (death_beams[idx])
                         {
-                            death_beams[index]->Destroy(3);
-                            death_beams[index] = 0;
+                            death_beams[idx]->Destroy(3);
+                            death_beams[idx] = 0;
                         }
                     }
                 }
                 if ((sint8)this->model.frame >= 33)
                 {
                     static_cast<Camera *>(visual_lists.cameras->owner)->ApplyExplosionShake(0);
-                    PlayPositionedSound(130, model.pos.words, 0);
+                    PlayPositionedSound(130, &model.pos, 0);
                     phase = ai.phase;
                     ai.work[0] = 0;
                     ai.phase = phase + 1;
                 }
             }
-            else if (phase == 3 && this->playback.complete)
+            else if (phase == 3 && playback.complete)
             {
-                value = ai.work[0];
+                work = ai.work[0];
                 timer = (sint16)ai.work[0];
-                if (value < 17)
-                    ai.work[0] = (uint32)timer + 1;
+                if (work < 17)
+                    ai.work[0] = timer + 1;
                 else
                     CompleteLevel(0);
             }
@@ -1172,40 +1126,40 @@ void War::UpdateState()
             phase = ai.phase;
             if (!phase)
             {
-                flags = this->control.flags;
+                flags = control.flags;
                 ModelInstance *target_model = visual_lists.players;
-                this->control.flags = flags & ~1;
+                control.flags = flags & ~1;
                 ClearVelocity();
                 TrackTarget(target_model);
-                SetAnimationRange(4, 0, (uint32)-1);
+                SetAnimationRange(4, 0, -1);
                 AdvancePhase();
             }
-            else if (phase == 1 && this->playback.complete)
+            else if (phase == 1 && playback.complete)
             {
                 if (player_distance < 512)
                 {
-                    height = this->health;
-                    value = ai.parameters[4];
-                    if ((sint32)value < height)
+                    height = health;
+                    health_threshold = ai.parameters[4];
+                    if (health_threshold < height)
                     {
-                        SetAnimationRange(4, 0, (uint32)-1);
+                        SetAnimationRange(4, 0, -1);
                         return;
                     }
                 }
-                SetAnimationRange(6, 0, (uint32)-1);
+                SetAnimationRange(6, 0, -1);
                 ClearFacing();
                 AdvancePhase();
             }
-            else if (phase == 2 && this->playback.complete)
+            else if (phase == 2 && playback.complete)
                 RestoreState();
             return;
         case 32:
             phase = ai.phase;
             if (!phase)
             {
-                flags = this->control.flags;
+                flags = control.flags;
                 ModelInstance *target_model = visual_lists.players;
-                this->control.flags = flags & ~1;
+                control.flags = flags & ~1;
                 ClearVelocity();
                 TrackTarget(target_model);
                 AdvancePhase();
@@ -1213,7 +1167,7 @@ void War::UpdateState()
             else if (phase == 1)
             {
                 StartAnimation(0, 1);
-                SetBehaviorValue(1, 0, 1);
+                SetBehaviorVal(1, 0, 1);
                 phase = ai.phase;
                 ai.work[0] = 180;
                 ai.phase = phase + 1;
@@ -1225,7 +1179,7 @@ void War::UpdateState()
                     timer = (sint16)ai.work[0];
                     if (timer)
                     {
-                        ai.work[0] = (uint32)timer - 1;
+                        ai.work[0] = timer - 1;
                         return;
                     }
                 }
@@ -1233,7 +1187,7 @@ void War::UpdateState()
             }
             else if (phase == 3)
             {
-                SetBehaviorValue(1, 0, 0);
+                SetBehaviorVal(1, 0, 0);
                 ClearFacing();
                 RestoreState();
             }
@@ -1244,31 +1198,31 @@ void War::UpdateState()
             {
                 player = visual_lists.players;
                 static_cast<Player *>(player->owner)->disable_timer = 900;
-                SetAnimationRange(7, 0, (uint32)-1);
-                if (this->control.flags & 64)
-                    ActivateGroup(4);
+                SetAnimationRange(7, 0, -1);
+                if (control.flags & 64)
+                    ActivateGrp(4);
                 camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                 camera->aim.flags = 1;
                 camera->aim.target.SetObject(&model);
                 camera->follow.flags = 1;
                 camera->follow.target.SetObject(&model);
-                SetWarCamera(*camera, 832, (uint32)-568, 208, (uint32)-624, (uint32)-1104, 16, 1736, 1);
+                War::SetCamera(*camera, 832, -568, 208, -624, -1104, 16, 1736, true);
                 AdvancePhase();
             }
             else if (phase == 1 && (sint8)this->model.frame >= 25)
             {
-                PlayPositionedSound(131, model.pos.words, 0);
-                GetModelAttachment(point.words, *this, 5);
-                target = AllocateEffectStorage(84);
+                PlayPositionedSound(131, &model.pos, 0);
+                GetModelAttachment(point, *this, 5);
+                target = EffectObject::AllocateStorage(84);
                 if (target)
                 {
-                    new (target) WarImpact(point.words);
+                    new (target) WarImpact(&point);
                 }
                 player = visual_lists.players;
                 height = static_cast<Player *>(player->owner)->health;
                 static_cast<Player *>(player->owner)->disable_timer = 0;
                 static_cast<Player *>(player->owner)->death_camera_enabled = 0;
-                static_cast<Player *>(player->owner)->Damage((uint32)height << 2, zero_vector.components, 0);
+                static_cast<Player *>(player->owner)->Damage((uint32)height << 2, &zero_vector, 0);
                 player = visual_lists.players;
                 static_cast<Player *>(player->owner)->disable_timer = 900;
                 AdvancePhase();
@@ -1278,47 +1232,46 @@ void War::UpdateState()
             phase = ai.phase;
             if (!phase)
             {
-                flags = this->control.flags;
-                motion.velocity.words[2] = 0;
-                this->control.flags = flags & ~1;
-                SetAnimationRange(9, 0, (uint32)-1);
+                flags = control.flags;
+                motion.velocity.z = 0;
+                control.flags = flags & ~1;
+                SetAnimationRange(9, 0, -1);
                 ai.phase = 3;
             }
-            else if (phase == 2 && this->playback.complete)
+            else if (phase == 2 && playback.complete)
             {
-                value = this->lifecycle_flags;
-                this->lifecycle_flags = value | 16;
+                lifecycle = lifecycle_flags;
+                lifecycle_flags = lifecycle | 16;
                 StartAnimation(1, 1);
                 ai.state = 5;
                 ai.phase = 1;
             }
             else if (phase == 3 && (sint8)this->model.frame >= 20)
             {
-                value = this->lifecycle_flags;
-                this->lifecycle_flags = value & 0xFFEF;
+                lifecycle = lifecycle_flags;
+                lifecycle_flags = lifecycle & 0xFFEF;
                 ClearVelocity();
                 PlaySoundEffect(130, 8192, 0);
                 phase = ai.phase;
                 ai.work[4] = 0;
                 ai.phase = phase + 1;
             }
-            else if (phase == 4 && this->playback.complete)
+            else if (phase == 4 && playback.complete)
             {
                 timer = (sint16)ai.work[4];
-                value = (uint32)timer + 1;
-                if ((value & 0xFFFF) < 9)
-                    ai.work[4] = value;
+                next_timer = timer + 1;
+                if (next_timer < 9)
+                    ai.work[4] = next_timer;
                 else
                 {
                     do
                     {
-                        index = RandomRange(6);
-                        value = last_voice;
-                    } while ((index & 255) == value);
-                    value = voice_choices[index & 255];
-                    PlayCdVoiceEvent(18, value, model.pos.words, 0);
-                    last_voice = index;
-                    SetAnimationRange(10, 0, (uint32)-1);
+                        voice_idx = RandomRange(6);
+                    } while (voice_idx == last_voice);
+                    uint8 voice = voice_choices[voice_idx];
+                    PlayCdVoiceEvent(18, voice, &model.pos);
+                    last_voice = voice_idx;
+                    SetAnimationRange(10, 0, -1);
                     ai.phase = 2;
                 }
             }
@@ -1328,187 +1281,172 @@ void War::UpdateState()
     }
 }
 
-uint32 War::ReadParameters(uint32 command)
+void War::SetParameters(uint16 command)
 {
-    RecordDataBorrow record_borrow;
-    uint32 value, index, group, count, word_index;
+    RecordDataBorrow rec_borrow;
+    uint16 val, count;
+    uint32 idx, grp, word_idx;
     RecordCursor cursor;
     FUNCTION_MARKER(0x8003FCEC, "SLUS_003.73");
-    command &= 0xFFFF;
     if (command != 0x2130)
-        return Enemy::ReadParameters(command);
+    {
+        Enemy::ReadParameters(command);
+        return;
+    }
     cursor = script_cursor;
     script_cursor = cursor + 2;
-    for (index = 0; index < 4; ++index)
+    for (idx = 0; idx < 4; ++idx)
     {
         cursor = script_cursor;
-        value = cursor.Read16();
-        spawn_points.destinations[0][index] = value;
+        val = cursor.Read16();
+        spawn_points.dsts[0][idx] = val;
         script_cursor = cursor + 2;
     }
-    for (index = 0; index < 4; ++index)
+    for (idx = 0; idx < 4; ++idx)
     {
         cursor = script_cursor;
-        value = cursor.Read16();
+        val = cursor.Read16();
         cursor += 2;
-        spawn_points.destinations[1][index] = value;
+        spawn_points.dsts[1][idx] = val;
         script_cursor = cursor;
     }
-    value = cursor.Read16();
+    val = cursor.Read16();
     script_cursor = cursor + 10;
-    spawn_points.stage_records[0] = value;
-    for (index = 0; index < 2; ++index)
+    spawn_points.stage_recs[0] = val;
+    for (idx = 0; idx < 2; ++idx)
     {
         cursor = script_cursor;
-        value = cursor.Read16();
-        spawn_points.stage_records[1 + index] = value;
+        val = cursor.Read16();
+        spawn_points.stage_recs[1 + idx] = val;
         script_cursor = cursor + 2;
     }
-    for (index = 0; index < 8; ++index)
+    for (idx = 0; idx < 8; ++idx)
     {
         cursor = script_cursor;
-        value = cursor.Read16();
-        spawn_points.path[index] = value;
+        val = cursor.Read16();
+        spawn_points.path[idx] = val;
         script_cursor = cursor + 2;
     }
-    word_index = 0;
-    for (group = 0; group < 9; ++group)
+    word_idx = 0;
+    for (grp = 0; grp < 9; ++grp)
     {
         cursor = script_cursor;
         script_cursor = cursor + 2;
         count = (cursor + 2).Read16();
         script_cursor = cursor + 4;
-        activation_words.SetWord(word_index++, count);
+        activation_words.SetWord(word_idx++, count);
         if (count)
         {
-            for (index = 0; index < count; ++index)
+            for (idx = 0; idx < count; ++idx)
             {
                 cursor = script_cursor;
-                value = cursor.Read16();
-                activation_words.SetWord(word_index, value);
-                ++word_index;
+                val = cursor.Read16();
+                activation_words.SetWord(word_idx, val);
+                ++word_idx;
                 script_cursor = cursor + 2;
             }
         }
     }
     cursor = script_cursor;
-    value = cursor.Read16();
+    val = cursor.Read16();
     script_cursor = cursor + 2;
-    spawn_points.stage_records[3] = value;
-    for (group = 0; group < 24; ++group)
+    spawn_points.stage_recs[3] = val;
+    for (grp = 0; grp < 24; ++grp)
     {
-        activation_words.SetWord(word_index++, 1);
+        activation_words.SetWord(word_idx++, 1);
         cursor = script_cursor;
-        value = cursor.Read16();
-        activation_words.SetWord(word_index, value);
-        ++word_index;
+        val = cursor.Read16();
+        activation_words.SetWord(word_idx, val);
+        ++word_idx;
         script_cursor = cursor + 2;
     }
     cursor = script_cursor;
-    value = cursor.Read16();
+    val = cursor.Read16();
     cursor += 2;
     script_cursor = cursor;
-    spawn_points.stage_records[4] = value;
-    value = cursor.Read16();
+    spawn_points.stage_recs[4] = val;
+    val = cursor.Read16();
     cursor += 2;
     script_cursor = cursor;
-    spawn_points.stage_records[5] = value;
-    return 0;
+    spawn_points.stage_recs[5] = val;
 }
 
-uint32 War::ExecuteCommand(uint32 command)
+uint32 War::ExecuteCommand(uint16 command)
 {
     FUNCTION_MARKER(0x8003FF2C, "SLUS_003.73");
-    return Enemy::ExecuteCommand(command & 0xFFFF);
+    return Enemy::ExecuteCommand(command);
 }
 
-uint32 War::SetDestination(const uint32 *position)
+void War::SetDst(const Vector3 *pos)
 {
-    uint32 x, y, z, flags;
     FUNCTION_MARKER(0x8003FF4C, "SLUS_003.73");
-    x = position[0];
-    y = position[1];
-    z = position[2];
-    this->destination.words[0] = x;
-    this->destination.words[1] = y;
-    this->destination.words[2] = z;
-    uint32 floor;
-    floor = FindGroundHeight(position, 1024, 4096);
+    dst = *pos;
+    uint32 floor = CollisionRay::FindGroundHeight(*pos, 1024, 4096);
     if (floor != (uint32)-1)
-        y = floor - ((uint32)(sint32)(sint16)(uint32)this->ground_offset << 12);
+        dst.y = floor - ((uint32)ground_offset << 12);
     else
-        y = this->model.pos.words[1];
-    this->destination.words[1] = y;
-    flags = (this->control.flags | 1) & 0xFFFFFFF3;
-    this->control.flags = flags;
-    return flags;
+        dst.y = model.pos.y;
+    control.flags = (control.flags | 1) & 0xFFFFFFF3;
 }
 
-uint32 War::TrackTarget(ModelInstance *target)
+void War::TrackTarget(ModelInstance *target)
 {
-    uint32 result, flags;
     FUNCTION_MARKER(0x8003FFD8, "SLUS_003.73");
-    result = static_cast<VisualObject *>(target->owner)->IsFinished();
-    if (!result)
+    if (!static_cast<VisualObject *>(target->owner)->IsFinished())
     {
-        flags = this->control.flags;
+        uint32 flags = control.flags;
         tracked_target.SetObject(target);
-        result = (flags & 0xFFFFFFDF) | 16;
-        this->control.flags = result;
+        control.flags = (flags & 0xFFFFFFDF) | 16;
     }
-    return result;
 }
 
-uint16 *War::ClearFacing()
+void War::ClearFacing()
 {
     uint32 flags;
     FUNCTION_MARKER(0x80040058, "SLUS_003.73");
-    flags = this->control.flags;
-    this->control.flags = flags & 0xFFFFFFCF;
-    motion.angular_velocity.words[2] = 0;
-    motion.angular_velocity.words[1] = 0;
-    motion.angular_velocity.words[0] = 0;
-    motion.angular_acceleration.words[2] = 0;
-    motion.angular_acceleration.words[1] = 0;
-    motion.angular_acceleration.words[0] = 0;
-    return motion.angular_acceleration.words;
+    flags = control.flags;
+    control.flags = flags & 0xFFFFFFCF;
+    motion.angular_velocity.z = 0;
+    motion.angular_velocity.y = 0;
+    motion.angular_velocity.x = 0;
+    motion.angular_acceleration.z = 0;
+    motion.angular_acceleration.y = 0;
+    motion.angular_acceleration.x = 0;
 }
 
-uint32 War::SpawnProjectileWave(uint32 count)
+void War::SpawnProjectileWave(sint32 count)
 {
     ModelInstance *player;
     GameHeapBlock *allocation;
     uint32 damage;
-    uint32 index;
+    sint32 idx;
     uint32 turn = 1024;
     Vector3 origin, target, offset;
-    ShortVector3 angles, direction;
+    ShortVector3 angles, dir;
     FUNCTION_MARKER(0x80040094, "SLUS_003.73");
     player = visual_lists.players;
     if (!player)
-        return 0;
-    GetModelAttachment(origin.words, *this, 4);
-    SpawnExplosionRing(origin.words, 64, 64, 64, 160, 5, 0, 100);
-    for (index = 0; (sint32)index < (sint32)count; ++index)
+        return;
+    GetModelAttachment(origin, *this, 4);
+    RingBurstEffect::SpawnExplosion(&origin, 64, 64, 64, 160, 5, 0, 100);
+    for (idx = 0; idx < count; ++idx)
     {
         player = visual_lists.players;
-        angles.components[0] = -1024;
-        angles.components[1] = 0;
-        angles.components[2] = 0;
-        target.words[0] = static_cast<VisualObject *>(visual_lists.players->owner)->surface.pos.words[0];
-        target.words[1] = static_cast<VisualObject *>(visual_lists.players->owner)->surface.pos.words[1];
-        target.words[2] = static_cast<VisualObject *>(visual_lists.players->owner)->surface.pos.words[2];
-        target.words[1] += 262144;
+        angles.x = -1024;
+        angles.y = 0;
+        angles.z = 0;
+        target = static_cast<VisualObject *>(player->owner)->surface.pos;
+        target.y = (uint32)target.y + (262144);
         if (count == 2)
         {
             player = visual_lists.players;
-            CalculateDirectionAngles(direction.words, model.pos.words, player->pos.words);
-            direction.components[0] = 0;
-            direction.components[1] = (sint16)(((uint32)(uint16)direction.components[1] + turn) & 4095);
-            BuildDirectionVector(offset.words, 180, direction.words);
-            target.words[0] += offset.words[0];
-            target.words[2] += offset.words[2];
-            angles.components[1] = index ? 512 : -512;
+            dir.SetDir(model.pos, player->pos);
+            dir.x = 0;
+            dir.y = ((uint16)dir.y + turn) & 4095;
+            offset.SetDir(180, dir);
+            target.x = (uint32)target.x + offset.x;
+            target.z = (uint32)target.z + offset.z;
+            angles.y = idx ? 512 : -512;
         }
         /* Original computed target is not passed to the projectile constructor */
         (void)target;
@@ -1516,17 +1454,10 @@ uint32 War::SpawnProjectileWave(uint32 count)
         if (allocation)
         {
             damage = ScaleDamageForDifficulty(10);
-            TrackingProjectile *projectile = new (allocation) TrackingProjectile(origin.words, angles.components, 1024, damage, &visual_lists.players);
+            TrackingProjectile *projectile = new (allocation) TrackingProjectile(origin, angles, 1024, damage, &visual_lists.players);
             projectile->SetTrailColor(8, 0, 64, 128);
             projectile->SetSpeed(80);
         }
         turn += 2048;
     }
-    return (uint32)-1024;
-}
-
-// Native callback adapter discards the original parameter reader result
-void War::SetParameters(uint32 command)
-{
-    ReadParameters(command);
 }

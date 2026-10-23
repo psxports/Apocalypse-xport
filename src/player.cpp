@@ -1,68 +1,59 @@
 #include <new>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "collision_ray.h"
 #include "level_session.h"
 #include "game_lighting.h"
 #include "game_tuning.h"
 #include "game_settings.h"
-
 #include "game_tick.h"
-
 #include "object_initializers.h"
-
 #include "audio_voice.h"
 #include "enemy_list.h"
 #include "cheat_input.h"
 #include "visual_object.h"
 #include "object_damage.h"
-#include "model_resources.h"
+#include "model_bank.h"
 #include "game_diagnostics.h"
-
 #include "player.h"
 #include "object_force.h"
 #include "ring_attack.h"
 #include "beam_barrier.h"
-#include "game_random.h"
+#include "global.h"
 #include "cd_voice_event.h"
-#include "vector_arithmetic.h"
-#include "level_interactions.h"
+#include "one_shot_activator.h"
+#include "resetting_activator.h"
 #include "expanding_ring.h"
 #include "effect_lifecycle.h"
 #include "pickup.h"
-
-#include "game_pad_poll.h"
-
+#include "game_pad_input.h"
 #include "screen_flash.h"
 #include "model_animation.h"
+#include "model_attachment_data.h"
 #include "model_matrix.h"
 #include "machine_gun.h"
 #include "game_heap.h"
 #include "game_object_allocation.h"
 #include "audio_session.h"
-
 #include "camera.h"
 #include "traversal_rail.h"
-
-// TODO Recover the gameplay name of state 4096
-
-// TODO Recover the gameplay names of record movement states 400 and 401
-
-// TODO Recover the original names of the directional movement states
-
-// TODO Recover original gameplay names for action states 256 and 2048
-
-#include "weapon_targeting.h"
-
+#include "flexible_traversal_rail.h"
+#include "weapon_type.h"
+#include "weapon_node.h"
+#include "homing_missiles.h"
+#include "pulse_laser.h"
+#include "particle_beam.h"
+#include "rip_laser.h"
+#include "grenades.h"
+#include "rockets.h"
 #include "flamethrower.h"
-#include "weapon_nodes.h"
 #include "spiral_ray_weapon.h"
 #include "angle_math.h"
 #include "model_attachment.h"
-
 #include "collision.h"
-#include "vector_distance.h"
+#include "effect_object.h"
+#include "scripted_level_object.h"
 
 struct PlayerRuntime
 {
@@ -70,13 +61,13 @@ struct PlayerRuntime
     uint32 rail_entered;
     uint32 jump_released;
     uint32 kills_since_quote;
-    uint32 quote_kind;
-    uint32 quote_variant;
+    uint8 quote_kind;
+    uint8 quote_variant;
     uint32 last_footstep_sound;
     uint32 motion_update_seen;
     Vector3 trace_direction;
     uint32 death_wait;
-    uint32 quote_history[5];
+    uint8 quote_history[5];
 };
 
 static PlayerRuntime runtime;
@@ -85,12 +76,12 @@ static const uint8 hurt_frames[4][2] = {{0, 22}, {23, 36}, {37, 52}, {53, 65}};
 struct DirectionAnimation
 {
     uint8 animation[8];
-    sint8 direction[8];
+    sint8 dir[8];
     uint16 body_heading[8];
     sint16 facing[8];
 };
 
-static const DirectionAnimation direction_animations[10] = {
+static const DirectionAnimation dir_animations[10] = {
     {{1, 1, 3, 8, 8, 8, 4, 1}, {1, 1, 1, 1, 1, 1, 1, 1}, {0, 0, 1024, 2048, 2048, 2048, 64512, 0}, {0, 512, 0, -512, 0, 512, 0, -512}},         {{1, 1, 1, 3, 8, 8, 8, 4}, {1, 1, 1, 1, 1, 1, 1, 1}, {512, 512, 512, 1536, 64000, 64000, 64000, 65024}, {-512, 0, 512, 0, -512, 0, 512, 0}},
     {{4, 1, 1, 1, 3, 8, 8, 8}, {1, 1, 1, 1, 1, 1, 1, 1}, {0, 1024, 1024, 1024, 2048, 64512, 64512, 64512}, {0, -512, 0, 512, 0, -512, 0, 512}}, {{8, 3, 1, 1, 1, 4, 8, 8}, {1, -1, 1, 1, 1, -1, 1, 1}, {65024, 512, 1536, 1536, 1536, 64000, 65024, 65024}, {512, 0, -512, 0, 512, 0, -512, 0}},
     {{8, 8, 4, 1, 1, 1, 3, 8}, {1, 1, 1, 1, 1, 1, 1, 1}, {0, 0, 1024, 2048, 2048, 2048, 64512, 0}, {0, 512, 0, -512, 0, 512, 0, -512}},         {{8, 8, 8, 3, 1, 1, 1, 4}, {1, 1, 1, -1, 1, 1, 1, -1}, {512, 512, 512, 1536, 64000, 64000, 64000, 65024}, {-512, 0, 512, 0, -512, 0, 512, 0}},
@@ -98,52 +89,415 @@ static const DirectionAnimation direction_animations[10] = {
     {{0, 0, 0, 0, 0, 0, 0, 0}, {1, 1, 1, 1, 1, 1, 1, 1}, {0, 0, 1024, 2048, 2048, 2048, 64512, 0}, {0, 512, 0, -512, 0, 512, 0, -512}},         {{5, 5, 5, 5, 5, 5, 5, 5}, {1, 1, 1, 1, 1, 1, 1, 1}, {0, 0, 1024, 2048, 2048, 2048, 64512, 0}, {0, 512, 0, -512, 0, 512, 0, -512}},
 };
 
-void ResetPlayerRuntime()
+void Player::ResetRuntime()
 {
     runtime = PlayerRuntime();
 }
 
-uint32 Player::Abs32(sint32 value)
+void Player::StopSelWeapon(uint32 sel)
 {
-    return value < 0 ? 0 - (uint32)value : (uint32)value;
-}
-
-static uint32 DividePlayerInput(uint32 numerator, uint32 denominator)
-{
-    sint32 value = (sint32)numerator;
-    if (!denominator)
-        return value < 0 ? 1 : 0xFFFFFFFF;
-    return (uint32)(value / (sint32)denominator);
-}
-
-void Player::StopSelectedWeapon(uint32 selected)
-{
-    WeaponNode *weapon = weapons[selected];
+    WeaponNode *weapon = weapons[sel];
     if (weapon)
-        weapon->Update(model.pos.words, zero_angles.components);
+        weapon->Update(&model.pos);
 }
 
-void SavePlayerTransform()
+uint32 Player::ResolveColMotion()
+{
+    FUNCTION_MARKER(0x8003ACB8, "SLUS_003.73");
+    CollisionRay col;
+    Vector3 lateral_offset, probe_origin, probe_step, probe_end;
+    Vector3 ground_probe_velocity, ground_probe_scaled, ground_probe_offset;
+    Vector3 initial_velocity, probe_velocity;
+    Vector3 ledge_step_offset, ledge_scaled_velocity, ledge_velocity;
+
+    uint8 probe_mask;
+    sint32 area_kind;
+    bool moving_outward;
+    sint32 fall_velocity;
+    uint32 velocity_sq[3];
+    sint32 attempt;
+    sint32 horizontal_speed;
+    sint32 sweep_radius;
+    sint32 move_speed_limit;
+    sint32 probe_size;
+    sint32 lateral_x;
+    sint32 lateral_z;
+    sint32 probe_origin_z;
+    sint32 probe_origin_y;
+    sint32 step_velocity_z;
+    bool edge_probe_enabled;
+    sint32 high_probe_y;
+    sint32 velocity_x;
+    sint32 normal_dot;
+    sint32 normal_step;
+    sint32 damped_velocity_z;
+    bool allow_horizontal_motion;
+    bool probe_ceiling;
+    ModelInstance *ground_object;
+    sint32 ceiling_probe_z;
+    uint16 ceiling_contact_flags;
+    sint32 ground_probe_z;
+    sint32 ground_offset;
+    uint32 ground_y;
+    uint16 ground_contact_flags;
+    sint32 slope_motion_x;
+    sint32 slope_offset_x;
+    sint32 slope_motion_z;
+    sint32 slope_offset_z;
+    uint32 cur_z;
+    sint32 ledge_probe_z0;
+    sint32 ledge_probe_y0;
+    sint32 ledge_probe_z1;
+    sint32 ledge_probe_y1;
+    sint32 ledge_step;
+    sint32 ledge_ray_x;
+    uint32 unsupported_y;
+    uint32 ledge_probe_radius;
+    uint32 speed;
+    uint32 ground_probe_radius;
+    uint32 probe_speed;
+    sint32 vertical_velocity;
+    const uint32 probe_shift = 3;
+    const uint32 half_shift = 1;
+    probe_mask = 15;
+    area_kind = level_environment.area_kind;
+    this->contact_flags = 0;
+    if (area_kind == 12 || area_kind == 6)
+        probe_mask = 1;
+    else if (area_kind == 3)
+        probe_mask = 11;
+    initial_velocity = motion.velocity;
+    motion.velocity.Add(motion.acceleration);
+    motion.velocity.Damp(motion.drag);
+    motion.velocity.SnapSmall();
+    fall_velocity = -1;
+    vertical_velocity = motion.velocity.y;
+    if (vertical_velocity >= 0)
+    {
+        fall_velocity = vertical_velocity;
+        motion.velocity.y = 0;
+    }
+    probe_velocity = motion.velocity;
+    velocity_sq[0] = Player::SqVelocityComponent(motion.velocity.comp[0]);
+    velocity_sq[1] = Player::SqVelocityComponent(motion.velocity.comp[1]);
+    velocity_sq[2] = Player::SqVelocityComponent(motion.velocity.comp[2]);
+    attempt = 0;
+    probe_speed = LookupDistanceRoot(velocity_sq[0] + velocity_sq[1] + velocity_sq[2]);
+    do
+    {
+        velocity_sq[0] = Player::SqVelocityComponent(motion.velocity.comp[0]);
+        velocity_sq[1] = Player::SqVelocityComponent(motion.velocity.comp[1]);
+        velocity_sq[2] = Player::SqVelocityComponent(motion.velocity.comp[2]);
+        speed = LookupDistanceRoot(velocity_sq[0] + velocity_sq[1] + velocity_sq[2]);
+        if (!speed)
+            break;
+        horizontal_speed = LookupDistanceRoot(velocity_sq[0] + velocity_sq[2]);
+        if (!horizontal_speed)
+            break;
+        sint16 configured_move_speed = GetGameTuning().player.move_speed;
+        move_speed_limit = configured_move_speed * 4;
+        sweep_radius = col_probe_size;
+        if (move_speed_limit < horizontal_speed)
+            sweep_radius = (uint32)sweep_radius + DivideSignedWord(sweep_radius * ((uint32)horizontal_speed - move_speed_limit), move_speed_limit);
+        probe_size = col_probe_size;
+        lateral_x = DivideSignedWord(probe_size * ((uint32)motion.velocity.z << 2), speed);
+        lateral_z = DivideSignedWord((-probe_size) * ((uint32)motion.velocity.x << 2), speed);
+        lateral_offset.y = 0;
+        lateral_offset.x = lateral_x;
+        lateral_offset.z = lateral_z;
+        probe_origin.x = model.pos.x;
+        probe_origin_y = (uint32)model.pos.y + 0x10000;
+        probe_origin_z = model.pos.z;
+        probe_origin.y = probe_origin_y;
+        probe_origin.z = probe_origin_z;
+        probe_step.x = DivideSignedWord((uint32)sweep_radius * ((uint32)motion.velocity.x << 3), horizontal_speed);
+        probe_step.y = DivideSignedWord(col_probe_size * ((uint32)motion.velocity.y << 3), speed);
+        step_velocity_z = 8 * (uint32)motion.velocity.z;
+        col.endpoints[0].x = (uint32)probe_origin.x + lateral_x;
+        col.endpoints[0].y = probe_origin_y;
+        col.endpoints[0].z = probe_origin_z + lateral_z;
+        col.endpoints[1].x = ((uint32)probe_origin.x + lateral_x) + (uint32)probe_step.x;
+        col.endpoints[1].y = probe_origin_y + (uint32)probe_step.y;
+        probe_step.z = DivideSignedWord((uint32)sweep_radius * step_velocity_z, horizontal_speed);
+        col.endpoints[1].z = (probe_origin_z + lateral_z) + (uint32)probe_step.z;
+        col.Initialize();
+        col.Query(1);
+        ++attempt;
+        if (col.hit.GetObject())
+            goto ResolveWallContact;
+        col.endpoints[0].x = (uint32)probe_origin.x - lateral_offset.x;
+        col.endpoints[1].x = ((uint32)probe_origin.x - lateral_offset.x) + (uint32)probe_step.x;
+        col.endpoints[0].y = probe_origin.y;
+        col.endpoints[0].z = (uint32)probe_origin.z - lateral_offset.z;
+        col.endpoints[1].z = ((uint32)probe_origin.z - lateral_offset.z) + (uint32)probe_step.z;
+        col.endpoints[1].y = (uint32)probe_origin.y + probe_step.y;
+        col.Initialize();
+        col.Query(1);
+        if (col.hit.GetObject())
+            goto ResolveWallContact;
+        edge_probe_enabled = probe_mask & 4;
+        if (!(probe_mask & 2))
+            goto CheckEdgeProbes;
+        probe_origin.x = model.pos.x;
+        probe_origin.z = model.pos.z;
+        high_probe_y = (model.animation == 12) ? ((uint32)model.pos.y - 0x10000) : ((uint32)model.pos.y - 0x40000);
+        probe_origin.y = high_probe_y;
+
+        ledge_velocity.ShiftLeft(motion.velocity, probe_shift);
+        ledge_probe_radius = col_probe_size - 16;
+        ledge_scaled_velocity.Scale(ledge_probe_radius, ledge_velocity);
+        ledge_step_offset.Divide(ledge_scaled_velocity, speed);
+        probe_end.Add(probe_origin, ledge_step_offset);
+        col.endpoints[0] = probe_origin;
+        col.endpoints[1] = probe_end;
+        col.Initialize();
+        col.Query(1);
+        edge_probe_enabled = probe_mask & 4;
+        if (col.hit.GetObject())
+        {
+        ResolveWallContact:
+            uint16 contact_flags = this->contact_flags;
+            velocity_x = motion.velocity.x;
+            this->contact_flags = contact_flags | 1;
+            normal_dot = (uint32)(velocity_x >> 6) * col.n.vx + (uint32)(motion.velocity.z >> 6) * col.n.vz;
+            moving_outward = normal_dot > 0;
+            normal_step = normal_dot >> 12;
+            if (!moving_outward)
+            {
+                sint32 correction_x = (uint32)normal_step * col.n.vx;
+                motion.velocity.x = (uint32)velocity_x - (correction_x >> 6);
+                sint32 correction_z = (uint32)normal_step * col.n.vz;
+                motion.velocity.z = (uint32)motion.velocity.z - (correction_z >> 6);
+                sint32 slide_velocity_x = motion.velocity.x;
+                damped_velocity_z = motion.velocity.z >> 2;
+                motion.velocity.x = slide_velocity_x >> 2;
+                motion.velocity.z = damped_velocity_z;
+            }
+        }
+        else
+        {
+        CheckEdgeProbes:
+            if (edge_probe_enabled)
+            {
+                probe_origin.x = model.pos.x;
+                probe_origin.y = (uint32)model.pos.y + 0x10000;
+                probe_origin.z = model.pos.z;
+                probe_end.Add(probe_origin, lateral_offset);
+                col.endpoints[0] = probe_origin;
+                col.endpoints[1] = probe_end;
+                col.Initialize();
+                col.Query(1);
+                if (!col.hit.GetObject())
+                {
+                    probe_origin.x = model.pos.x;
+                    probe_origin.y = (uint32)model.pos.y + 0x10000;
+                    probe_origin.z = model.pos.z;
+                    probe_end.Subtract(probe_origin, lateral_offset);
+                    col.endpoints[0] = probe_origin;
+                    col.endpoints[1] = probe_end;
+                    col.Initialize();
+                    col.Query(1);
+                    allow_horizontal_motion = attempt < 3;
+                    if (!col.hit.GetObject())
+                        goto ApplyResolvedMotion;
+                }
+                motion.velocity.x = (uint32)motion.velocity.x + (16 * col.n.vx);
+                motion.velocity.z = (uint32)motion.velocity.z + (16 * col.n.vz);
+                col.hit.SetObject(0);
+            }
+        }
+    } while (col.hit.GetObject() && attempt < 3);
+    allow_horizontal_motion = attempt < 3;
+ApplyResolvedMotion:
+    if (allow_horizontal_motion)
+        model.pos.Add(motion.velocity);
+    else
+        model.pos.y = (uint32)model.pos.y + motion.velocity.y;
+
+    probe_ceiling = false;
+    if (motion.velocity.y < 0 || ((ground_object = ground.GetObject()) && static_cast<VisualObject *>(ground_object->owner)->motion.velocity.y < 0))
+        probe_ceiling = true;
+    if (probe_ceiling)
+    {
+        col.endpoints[0].x = model.pos.x;
+        col.endpoints[0].y = model.pos.y;
+        ceiling_probe_z = model.pos.z;
+        col.endpoints[1].x = col.endpoints[0].x;
+        col.endpoints[1].y = (uint32)col.endpoints[0].y - 753664;
+        col.endpoints[0].z = ceiling_probe_z;
+        col.endpoints[1].z = ceiling_probe_z;
+        col.Initialize();
+        col.Query(1);
+        if (col.hit.GetObject())
+        {
+            if ((sint32)((uint32)model.pos.y - 491520) < col.hit_pos.y)
+            {
+                ceiling_contact_flags = this->contact_flags;
+                model.pos.y = (uint32)col.hit_pos.y + 491520;
+                motion.velocity.y = 0;
+                this->contact_flags = ceiling_contact_flags | 0x100;
+            }
+        }
+    }
+    if (fall_velocity >= 0)
+    {
+        col.endpoints[0].x = model.pos.x;
+        col.endpoints[0].y = (uint32)model.pos.y - (((uint32)GetGameTuning().player.ground_probe_offset - 64) << 12);
+        ground_probe_z = model.pos.z;
+        col.endpoints[1].x = col.endpoints[0].x;
+        col.endpoints[1].y = ((uint32)col.endpoints[0].y + fall_velocity) + ((uint32)GetGameTuning().player.ground_probe_len << 12);
+        col.endpoints[0].z = ground_probe_z;
+        col.endpoints[1].z = ground_probe_z;
+        col.Initialize();
+        col.Query(1);
+        if (col.hit.GetObject())
+        {
+            SetContactColor(*col.hit.GetPolygon(), *col.hit.GetObject());
+            if (col.n.vy >= -3072)
+            {
+                slope_motion_x = fall_velocity - (fall_velocity >> (motion.drag[0] & 31));
+                model.pos.y = (uint32)col.hit_pos.y - (this->ground_offset << 12);
+                slope_offset_x = (uint32)(slope_motion_x >> 12) * col.n.vx;
+                slope_motion_z = fall_velocity - (fall_velocity >> (motion.drag[2] & 31));
+                model.pos.x = (uint32)model.pos.x + slope_offset_x;
+                slope_offset_z = (uint32)(slope_motion_z >> 12) * col.n.vz;
+                cur_z = model.pos.z;
+                motion.velocity.y = fall_velocity;
+                model.pos.y = (uint32)model.pos.y + (fall_velocity - (fall_velocity >> (motion.drag[1] & 31)));
+                model.pos.z = cur_z + slope_offset_z;
+            }
+            else
+            {
+                ground_offset = this->ground_offset;
+                ground_y = col.hit_pos.y;
+                ground_contact_flags = this->contact_flags;
+                motion.velocity.y = 0;
+                model.pos.y = ground_y - (ground_offset << 12);
+                this->contact_flags = ground_contact_flags | 2;
+            }
+            surface.n.vx = col.n.vx;
+            surface.n.vy = col.n.vy;
+            surface.n.vz = col.n.vz;
+            surface.pos = col.hit_pos;
+            if (col.hit.GetObject()->flags & 0x100)
+            {
+                static_cast<ScriptedLevelObject *>(col.hit.GetObject()->owner)->ActivateContact();
+                static_cast<ScriptedLevelObject *>(col.hit.GetObject()->owner)->ApplyPlayerDamage();
+                ground.SetObject(col.hit.GetObject());
+            }
+            else
+            {
+                ground.Reset();
+            }
+        }
+        else
+        {
+            if (!probe_speed)
+                goto ContinueFalling;
+
+            ground_probe_velocity.ShiftLeft(probe_velocity, probe_shift);
+            ground_probe_radius = col_probe_size + 8;
+            ground_probe_scaled.Scale(ground_probe_radius, ground_probe_velocity);
+            ground_probe_offset.Divide(ground_probe_scaled, probe_speed);
+            col.endpoints[0].x = (uint32)model.pos.x + ground_probe_offset.x;
+            col.endpoints[0].y = (uint32)model.pos.y - ((uint32)GetGameTuning().player.ground_probe_offset << 12);
+            ledge_probe_z0 = model.pos.z;
+            col.endpoints[1].x = col.endpoints[0].x;
+            col.endpoints[0].z = ledge_probe_z0 + (uint32)ground_probe_offset.z;
+            ledge_probe_y0 = model.pos.y;
+            col.endpoints[1].z = ledge_probe_z0 + (uint32)ground_probe_offset.z;
+            col.endpoints[1].y = ledge_probe_y0 + fall_velocity;
+            col.Initialize();
+            col.Query(1);
+            if (!col.hit.GetObject())
+            {
+                ground_probe_offset.ShiftRight(half_shift);
+                col.endpoints[0].x = (uint32)model.pos.x + ground_probe_offset.x;
+                col.endpoints[0].y = (uint32)model.pos.y - ((uint32)GetGameTuning().player.ground_probe_offset << 12);
+                ledge_probe_z1 = model.pos.z;
+                col.endpoints[1].x = col.endpoints[0].x;
+                col.endpoints[0].z = ledge_probe_z1 + (uint32)ground_probe_offset.z;
+                ledge_probe_y1 = model.pos.y;
+                col.endpoints[1].z = ledge_probe_z1 + (uint32)ground_probe_offset.z;
+                col.endpoints[1].y = ledge_probe_y1 + fall_velocity;
+                col.Initialize();
+                col.Query(1);
+                if (!col.hit.GetObject())
+                    goto ContinueFalling;
+            }
+            if (col.hit.GetPolygon()->surface & 4)
+            {
+                if (col.hit.GetObject()->flags & 0x100)
+                    ground.SetObject(col.hit.GetObject());
+                else
+                    ground.Reset();
+                ledge_step = 1;
+                this->contact_flags = this->contact_flags | 0x40;
+                ledge_pos[1] = (uint32)col.hit_pos.y;
+                while (1)
+                {
+                    col.endpoints[0].x = model.pos.x;
+                    col.endpoints[0].y = (uint32)ledge_pos[1] + (ledge_step << 16);
+                    col.endpoints[0].z = model.pos.z;
+                    ledge_ray_x = model.pos.x;
+                    col.endpoints[1].y = col.endpoints[0].y;
+                    col.endpoints[1].x = ledge_ray_x + (uint32)ground_probe_offset.x;
+                    col.endpoints[1].z = (uint32)model.pos.z + ground_probe_offset.z;
+                    col.Initialize();
+                    col.Query(1);
+                    ++ledge_step;
+                    if (col.hit.GetObject())
+                        break;
+                    if (ledge_step >= 7)
+                    {
+                        goto FinalizeMotion;
+                    }
+                }
+
+                this->contact_flags = this->contact_flags | 0x80;
+                ledge_pos[0] = (uint32)col.hit_pos.x;
+                ledge_pos[2] = (uint32)col.hit_pos.z;
+                ledge_normal[0] = col.n.vx;
+                ledge_normal[1] = col.n.vy;
+                ledge_normal[2] = col.n.vz;
+            }
+            else
+            {
+            ContinueFalling:
+                unsupported_y = model.pos.y;
+
+                motion.velocity.y = fall_velocity;
+                model.pos.y = unsupported_y + fall_velocity;
+            }
+        }
+    }
+FinalizeMotion:
+    motion.delta_velocity.Subtract(motion.velocity, initial_velocity);
+    model.angles.AddAngles(motion.angular_velocity);
+    model.angles.NormalizeAngles();
+    motion.angular_velocity.AddAngles(motion.angular_acceleration);
+    motion.angular_velocity.DampAngles(motion.angular_drag);
+    return motion.angular_velocity.SnapAngles();
+}
+
+void Player::SaveTransform()
 {
     FUNCTION_MARKER(0x8005C580, "SLUS_003.73");
     Player &player = *static_cast<Player *>(visual_lists.players->owner);
-    for (uint32 axis = 0; axis < 3; ++axis)
-    {
-        player.saved_pos.words[axis] = player.model.pos.words[axis];
-        player.saved_angles.words[axis] = player.model.angles.words[axis];
-    }
+    player.saved_pos = player.model.pos;
+    player.saved_angles = player.model.angles;
 }
 
-Player::Player() : Character(), facing_target(0), facing_step(0), facing_ticks(0), pad(0), death_camera_enabled(0), disable_timer(0), weapon_stop_ticks(0), movement_state(0), update_disabled(0), hit_reaction_ticks(0), damage_glow_ticks(0), analog_aim(0), aim_press_ticks(0), move_heading(0), aim_heading(0), fall_start_y(0), fall_damage_threshold(0), fatal_fall_distance(0), rail_voice(0), on_rail(0), smartbombs(0), fire_ticks(0), jump_velocity(0), jump_hold_ticks(0), jump_latch(0), airborne_ticks(0), weapons_enabled(0), slowdown_ticks(0), slowdown_duration(0), ground_grace_ticks(0), idle_ticks(0), ground_offset(0), collision_probe_size(0), action_heading(0), move_ramp(0), sel_weapon(0), prev_weapon(0), death_ticks(0)
+Player::Player() : Character(), facing_target(0), facing_step(0), facing_ticks(0), pad(0), death_camera_enabled(0), disable_timer(0), weapon_stop_ticks(0), movement_state(0), update_disabled(0), hit_reaction_ticks(0), damage_glow_ticks(0), analog_aim(0), aim_press_ticks(0), move_heading(0), aim_heading(0), fall_start_y(0), fall_damage_threshold(0), fatal_fall_distance(0), rail_voice(0), on_rail(0), smartbombs(0), fire_ticks(0), jump_velocity(0), jump_hold_ticks(0), jump_latch(0), airborne_ticks(0), weapons_enabled(0), slowdown_ticks(0), slowdown_duration(0), ground_grace_ticks(0), idle_ticks(0), ground_offset(0), col_probe_size(0), action_heading(0), move_ramp(0), sel_weapon(0), prev_weapon(0), death_ticks(0)
 {
     FUNCTION_MARKER(0x8005C5C0, "SLUS_003.73");
     for (uint32 axis = 0; axis < 3; ++axis)
     {
-        muzzle_pos.words[axis] = 0;
-        saved_surface_pos.words[axis] = 0;
-        rail_pos.words[axis] = 0;
-        saved_pos.words[axis] = 0;
-        saved_angles.words[axis] = 0;
+        muzzle_pos.comp[axis] = 0;
+        saved_surface_pos.comp[axis] = 0;
+        rail_pos.comp[axis] = 0;
+        saved_pos.comp[axis] = 0;
+        saved_angles.comp[axis] = 0;
         ledge_pos[axis] = 0;
         ledge_normal[axis] = 0;
     }
@@ -152,47 +506,35 @@ Player::Player() : Character(), facing_target(0), facing_step(0), facing_ticks(0
     WeaponNode *new_weapon = 0;
     for (uint32 slot = 0; slot < 8; ++slot)
         weapons[slot] = 0;
-    uint32 count;
-    sint16 flags;
-    sint16 maximum_health;
-    sint16 object_flags;
-    sint8 damping_shift;
-    uint16 probe_size;
     GameHeapBlock *weapon;
-    sint32 weapon_damage;
-    sint32 difficulty;
+    uint32 weapon_damage;
+    bool difficulty;
     runtime.kills_since_quote = 0;
     runtime.rail_entered = 0;
     runtime.jump_released = 0;
     AddToList(visual_lists.players);
-    count = runtime.count;
-    flags = ((sint16)(this->lifecycle_flags));
-    this->collision_radius = 100;
-    runtime.count = (count + 1);
-    this->lifecycle_flags = (flags & 0xFFFD);
-    maximum_health = GetGameTuning().player.maximum_health;
-    object_flags = ((sint16)(this->model.flags));
-    this->pad = &game_pads[0];
-    this->model.flags = (object_flags | 0x80);
-    this->health = (sint16)(uint16)(maximum_health);
+    col_radius = 100;
+    ++runtime.count;
+    lifecycle_flags &= 0xFFFD;
+    pad = &game_pads[0];
+    model.flags |= 0x80;
+    health = GetGameTuning().player.maximum_health;
     SetModelBank("bruce");
-    this->kind = 50;
-    damping_shift = GetGameTuning().player.vertical_drag;
+    kind = 50;
     motion.drag[0] = 1;
     motion.drag[2] = 1;
-    motion.drag[1] = damping_shift;
+    motion.drag[1] = GetGameTuning().player.vertical_drag;
     motion.angular_drag[0] = 5;
     motion.angular_drag[1] = 1;
     motion.angular_drag[2] = 5;
     ground_offset = GetGameTuning().player.ground_offset;
-    probe_size = GetGameTuning().player.collision_probe_size;
-    this->collision_radius = 100;
-    this->death_camera_enabled = 1;
+    col_radius = 100;
+    death_camera_enabled = 1;
     projection.enabled = true;
-    this->collision_probe_size = probe_size;
-    projection.dir.m[0][0] = 0;
-    projection.dir.m[0][1] = -4096;
-    projection.dir.m[0][2] = 0;
+    col_probe_size = GetGameTuning().player.col_probe_size;
+    projection.dir.x = 0;
+    projection.dir.y = -ONE;
+    projection.dir.z = 0;
     projection.color = 0x808080;
     InitializeAnimation();
     if (visual_lists.cameras)
@@ -203,15 +545,15 @@ Player::Player() : Character(), facing_target(0), facing_step(0), facing_ticks(0
         new_weapon = new (weapon) MachineGun(&visual_lists.actors);
     }
     weapon_damage = 5;
-    difficulty = (game_settings.difficulty != 0);
-    this->weapons[0] = new_weapon;
+    difficulty = game_settings.difficulty != 0;
+    weapons[0] = new_weapon;
     if (!difficulty)
         weapon_damage = 7;
     new_weapon->damage = weapon_damage;
-    this->sel_weapon = 0;
-    this->prev_weapon = 1;
-    this->smartbombs = 3;
-    SetModelBoneTable(this->model.bank, PlayerAttachments);
+    sel_weapon = 0;
+    prev_weapon = 1;
+    smartbombs = 3;
+    model.SetAttachmentTable(PlayerAttachments);
     InitializeModelAnimation(PlayerHierarchy);
 }
 
@@ -220,37 +562,36 @@ uint32 Player::Destroy(uint32 reason)
     FUNCTION_MARKER(0x8005C7C0, "SLUS_003.73");
     projection.enabled = false;
     RemoveFromList(visual_lists.players);
-    runtime.count = runtime.count - 1;
+    --runtime.count;
     Player::ReleaseResources();
     Character::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(this) : 0;
+    return (reason & 1) ? ReleaseStorage() : 0;
 }
 
 void Player::StopWeapon()
 {
-    uint32 selected;
     FUNCTION_MARKER(0x8005C868, "SLUS_003.73");
-    selected = this->sel_weapon;
-    StopSelectedWeapon(selected);
+    StopSelWeapon(sel_weapon);
 }
 
-uint32 TryPlayPlayerKillQuote(const uint32 *position)
+uint32 Player::TryPlayKillQuote()
 {
     FUNCTION_MARKER(0x8005C8C4, "SLUS_003.73");
-    uint32 count, total, random, now, previous_time, level, variant_count;
-    uint32 kind, variant, selected, history[5];
+    uint32 count, total, random, now, prev_time, level, variant_count;
+    uint8 kind, variant, sel;
     count = runtime.kills_since_quote;
     total = game_progress.level.enemy_kills;
     runtime.kills_since_quote = count + 1;
     game_progress.level.enemy_kills = total + 1;
     random = RandomRange(2);
     count = runtime.kills_since_quote;
-    if (!((sint32)(random + 3) < (sint32)count))
+    sint32 threshold = random + 3;
+    sint32 kills = count;
+    if (threshold >= kills)
         return 0;
-    (void)game_clock.vblank_frame;
     now = game_clock.vblank_frame;
-    previous_time = cd_voice.last_frame;
-    if (now - previous_time < 900)
+    prev_time = cd_voice.last_frame;
+    if (now - prev_time < 900)
         return 1;
     runtime.kills_since_quote = 0;
     for (;;)
@@ -311,234 +652,195 @@ uint32 TryPlayPlayerKillQuote(const uint32 *position)
         runtime.quote_variant = variant;
         kind = runtime.quote_kind;
         variant = runtime.quote_variant;
-        history[0] = runtime.quote_history[0];
-        selected = (kind << 3) + variant;
-        if (history[0] == selected)
+        sel = (kind << 3) + variant;
+        bool repeated = false;
+        for (uint32 idx = 0; idx < 5; ++idx)
+        {
+            if (runtime.quote_history[idx] == sel)
+            {
+                repeated = true;
+                break;
+            }
+        }
+        if (repeated)
             continue;
-        history[1] = runtime.quote_history[1];
-        if (history[1] == selected)
-            continue;
-        history[2] = runtime.quote_history[2];
-        if (history[2] == selected)
-            continue;
-        history[3] = runtime.quote_history[3];
-        if (history[3] == selected)
-            continue;
-        history[4] = runtime.quote_history[4];
-        if (history[4] == selected)
-            continue;
-        runtime.quote_history[0] = history[1];
-        runtime.quote_history[1] = history[2];
-        runtime.quote_history[2] = history[3];
-        runtime.quote_history[3] = history[4];
-        runtime.quote_history[4] = selected;
+        for (uint32 idx = 0; idx < 4; ++idx)
+            runtime.quote_history[idx] = runtime.quote_history[idx + 1];
+        runtime.quote_history[4] = sel;
         kind = runtime.quote_kind;
         variant = runtime.quote_variant;
-        return PlayCdVoiceEvent(kind, variant, position, 0);
+        return PlayCdVoiceEvent(kind, variant, &model.pos);
     }
 }
 
 uint32 Player::ReadInput()
 {
-    GamePadInput *pad;
     FUNCTION_MARKER(0x8005CB1C, "SLUS_003.73");
-    uint32 disabled, pad_type, x, y, value, factor, divisor, quotient, result;
-    disabled = this->disable_timer;
-    this->move_input[0] = 0;
-    this->move_input[1] = 0;
-    this->aim_input[0] = 0;
-    this->aim_input[1] = 0;
-    this->analog_aim = 1;
+    uint32 disabled = disable_timer;
+    move_input[0] = 0;
+    move_input[1] = 0;
+    aim_input[0] = 0;
+    aim_input[1] = 0;
+    analog_aim = 1;
     if (disabled)
     {
-        this->aim_press_ticks = 0;
+        aim_press_ticks = 0;
         return 1;
     }
-    pad = this->pad;
-    pad_type = pad->type;
+
+    GamePadInput *input = pad;
+    uint8 pad_type = input->type;
     if (pad_type == 115 || pad_type == 83)
     {
-        value = pad->axis[0];
-        pad = this->pad;
-        this->move_input[0] = value;
-        value = pad->axis[1];
-        this->move_input[1] = value;
-        value = pad->axis[2];
-        this->aim_input[0] = value;
-        value = pad->axis[3];
-        this->aim_input[1] = value;
+        move_input[0] = input->axis[0];
+        input = pad;
+        move_input[1] = input->axis[1];
+        aim_input[0] = input->axis[2];
+        aim_input[1] = input->axis[3];
     }
-    x = this->move_input[0];
-    y = this->move_input[1];
-    if (!(x | y))
+    if (!(move_input[0] | move_input[1]))
     {
-        pad = this->pad;
-        value = pad->buttons[10].down;
-        x = 128;
-        if (!value)
+        input = pad;
+        if (input->buttons[10].down)
         {
-            value = pad->buttons[11].down;
-            x = 127;
+            move_input[0] = 128;
+            input = pad;
         }
-        if (value)
+        else if (input->buttons[11].down)
         {
-            this->move_input[0] = x;
-            pad = this->pad;
+            move_input[0] = 127;
+            input = pad;
         }
-        value = pad->buttons[9].down;
-        y = 127;
-        if (!value)
-        {
-            value = pad->buttons[8].down;
-            y = 128;
-        }
-        if (value)
-            this->move_input[1] = y;
+        if (input->buttons[9].down)
+            move_input[1] = 127;
+        else if (input->buttons[8].down)
+            move_input[1] = 128;
     }
-    factor = this->slowdown_ticks;
+
+    uint16 factor = slowdown_ticks;
     if (factor)
     {
-        x = (uint32)(sint32)(sint8)this->move_input[0];
-        divisor = this->slowdown_duration;
-        quotient = DividePlayerInput(factor * x, divisor);
-        this->move_input[0] = x - quotient;
-        y = (uint32)(sint32)(sint8)this->move_input[1];
-        factor = this->slowdown_ticks;
-        divisor = this->slowdown_duration;
-        quotient = DividePlayerInput(factor * y, divisor);
-        this->move_input[1] = y - quotient;
+        sint32 axis = (sint8)move_input[0];
+        uint16 divisor = slowdown_duration;
+        sint32 quotient = DivideSignedWord(factor * axis, divisor);
+        move_input[0] = axis - quotient;
+        axis = (sint8)move_input[1];
+        factor = slowdown_ticks;
+        divisor = slowdown_duration;
+        quotient = DivideSignedWord(factor * axis, divisor);
+        move_input[1] = axis - quotient;
     }
-    x = this->aim_input[0];
-    y = this->aim_input[1];
-    if (x | y)
-        this->aim_press_ticks = 0;
+
+    if (aim_input[0] | aim_input[1])
+        aim_press_ticks = 0;
     else
     {
-        pad = this->pad;
-        this->analog_aim = 0;
-        value = pad->buttons[0].down;
-        x = 128;
-        if (!value)
+        input = pad;
+        analog_aim = 0;
+        if (input->buttons[0].down)
+            aim_input[0] = 128;
+        else if (input->buttons[3].down)
+            aim_input[0] = 127;
+        input = pad;
+        if (input->buttons[2].down)
         {
-            value = pad->buttons[3].down;
-            x = 127;
+            aim_input[1] = 127;
+            input = pad;
         }
-        if (value)
-            this->aim_input[0] = x;
-        pad = this->pad;
-        value = pad->buttons[2].down;
-        y = 127;
-        if (!value)
+        else if (input->buttons[1].down)
         {
-            value = pad->buttons[1].down;
-            y = 128;
+            aim_input[1] = 128;
+            input = pad;
         }
-        if (value)
+        if (input->buttons[0].down || input->buttons[3].down || input->buttons[2].down || input->buttons[1].down)
         {
-            this->aim_input[1] = y;
-            pad = this->pad;
-        }
-        if (pad->buttons[0].down || pad->buttons[3].down || pad->buttons[2].down || pad->buttons[1].down)
-        {
-            value = this->aim_press_ticks + 1;
-            this->aim_press_ticks = value;
-            if ((value & 255) >= 2)
-                this->aim_press_ticks = 2;
+            ++aim_press_ticks;
+            if (aim_press_ticks >= 2)
+                aim_press_ticks = 2;
         }
         else
-            this->aim_press_ticks = 0;
+            aim_press_ticks = 0;
     }
-    x = this->move_input[0];
-    y = this->move_input[1];
+
+    sint32 x = (sint8)move_input[0];
+    sint32 y = (sint8)move_input[1];
     if (x | y)
-    {
-        result = ratan2(-(sint32)(sint8)x, (sint8)y);
-        this->move_heading = (1024 - result) & 4095;
-    }
-    x = this->aim_input[0];
-    y = this->aim_input[1];
-    result = x | y;
+        move_heading = (1024 - ratan2(-x, y)) & 4095;
+    x = (sint8)aim_input[0];
+    y = (sint8)aim_input[1];
+    uint32 result = aim_input[0] | aim_input[1];
     if (result)
     {
-        result = ratan2(-(sint32)(sint8)x, (sint8)y);
-        this->aim_heading = (1024 - result) & 4095;
+        result = ratan2(-x, y);
+        aim_heading = (1024 - result) & 4095;
     }
     return result;
 }
 
-uint32 Player::RestoreHealth(uint32 amount)
+uint32 Player::RestoreHealth(sint16 amount)
 {
-    uint32 health, maximum, sound;
-    sint32 signed_maximum;
     FUNCTION_MARKER(0x8005CE70, "SLUS_003.73");
-    health = (uint16)this->health + amount;
-    this->health = (sint16)(uint16)(health);
-    signed_maximum = (sint16)GetGameTuning().player.maximum_health;
-    maximum = GetGameTuning().player.maximum_health;
-    if (signed_maximum < (sint16)health)
-        this->health = (sint16)(uint16)(maximum);
-    sound = RandomRange(2);
-    PlayCdVoiceEvent(1, sound, this->model.pos.words, 1);
+    health += amount;
+    sint16 maximum = GetGameTuning().player.maximum_health;
+    if (maximum < health)
+        health = maximum;
+    uint32 sound = RandomRange(2);
+    PlayCdVoiceEvent(1, sound, &model.pos);
     return 1;
 }
 
 uint32 Player::UpdateLighting()
 {
     FUNCTION_MARKER(0x8005CF0C, "SLUS_003.73");
-    ShortVector3 direction = {{{0, -ONE, 0}}};
-    sint16 light_color[3] = {ONE, ONE, ONE};
-    sint16 surface_color[3];
+    ShortVector3 dir = {{{0, -ONE, 0}}};
+    LightColor light_color = {ONE, ONE, ONE};
+    LightColor surface_color;
     uint32 color = model.color;
-    sint32 red = color & 255;
-    sint32 green = (color >> 8) & 255;
-    sint32 blue = (color >> 16) & 255;
-    uint32 intensity = color >> 24;
+    sint32 r = color & 255;
+    sint32 g = (color >> 8) & 255;
+    sint32 b = (color >> 16) & 255;
+    uint8 intensity = color >> 24;
     if (intensity >= 1 && intensity <= 127)
     {
-        red = (red * (0x80000 / intensity)) >> 12;
-        green = (green * (0x80000 / intensity)) >> 12;
-        blue = (blue * (0x80000 / intensity)) >> 12;
+        sint32 scale = 0x80000 / intensity;
+        r = (r * scale) >> 12;
+        g = (g * scale) >> 12;
+        b = (b * scale) >> 12;
     }
-    surface_color[0] = red * 16;
-    surface_color[1] = green * 16;
-    surface_color[2] = blue * 16;
+    surface_color.r = r * 16;
+    surface_color.g = g * 16;
+    surface_color.b = b * 16;
     WeaponNode *weapon = weapons[sel_weapon];
-    uint8 light_red, light_green, light_blue;
-    if (weapon && weapon->ReadLight(&light_red, &light_green, &light_blue))
+    uint8 light_r, light_g, light_b;
+    if (weapon && weapon->ReadLight(&light_r, &light_g, &light_b))
     {
         Vector3 difference, shifted, normal;
-        uint32 shift = 12;
-        SubtractVectors(difference.words, muzzle_pos.words, model.pos.words);
-        ShiftVectorRight(shifted.words, difference.words, shift);
-        NormalizeFixedVector(normal.words, shifted.words);
-        direction.components[0] = (sint16)normal.words[0];
-        direction.components[1] = 0;
-        direction.components[2] = (sint16)normal.words[2];
-        light_color[0] = light_red * 16;
-        light_color[1] = light_green * 16;
-        light_color[2] = light_blue * 16;
+        difference.Subtract(muzzle_pos, model.pos);
+        shifted.ShiftRight(difference, 12);
+        normal.Normalize(shifted);
+        dir.x = normal.x;
+        dir.y = 0;
+        dir.z = normal.z;
+        light_color.r = light_r * 16;
+        light_color.g = light_g * 16;
+        light_color.b = light_b * 16;
     }
     else
     {
-        uint32 fallback_intensity = model.color >> 24;
+        uint8 fallback_intensity = model.color >> 24;
         sint16 fallback_color = fallback_intensity < 64 ? 1024 : fallback_intensity * 16;
-        light_color[0] = fallback_color;
-        light_color[1] = fallback_color;
-        light_color[2] = fallback_color;
+        light_color.r = fallback_color;
+        light_color.g = fallback_color;
+        light_color.b = fallback_color;
     }
     Camera *camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-    uint32 heading = camera ? camera->angles.words[1] & 4095 : 0;
-    sint16 sine = rsin(heading);
-    sint16 cosine = rcos(heading);
-    for (uint32 axis = 0; axis < 3; ++axis)
-    {
-        game_lighting.directions.m[0][axis] = direction.components[axis];
-        game_lighting.directions.m[1][axis] = axis == 1 ? ONE : 0;
-        game_lighting.directions.m[2][axis] = axis == 0 ? sine : axis == 2 ? cosine : 0;
-        game_lighting.colors.m[axis][0] = light_color[axis];
-        game_lighting.colors.m[axis][1] = surface_color[axis];
-        game_lighting.colors.m[axis][2] = surface_color[axis];
-    }
+    uint16 heading = camera ? (uint16)camera->angles.y & 4095 : 0;
+    sint16 s = rsin(heading);
+    sint16 c = rcos(heading);
+    ShortVector3 up = {{{0, ONE, 0}}};
+    ShortVector3 camera_dir = {{{s, 0, c}}};
+    SetLightingDirs(dir, up, camera_dir);
+    SetLightingColors(light_color, surface_color, surface_color);
     game_lighting.background_color.r = 64;
     game_lighting.background_color.g = 64;
     game_lighting.background_color.b = 64;
@@ -547,65 +849,58 @@ uint32 Player::UpdateLighting()
 
 uint32 Player::SetContactColor(const ModelPolygon &polygon, const ModelInstance &surface)
 {
-    uint32 flags, count, index, vertex, selected = 0, maximum = 0, color, component, result;
-    bool found = false;
     FUNCTION_MARKER(0x8005D20C, "SLUS_003.73");
-    flags = polygon.flags;
+    uint16 flags = polygon.flags;
+    uint8 maximum = 0;
+    uint32 color;
     if (flags & 2048)
     {
-        const ModelPalette *table = &GetModelBank(surface.bank).colors;
-        count = (flags & 16) ? 3 : 4;
-        for (index = 0; index < count; ++index)
+        const ModelPalette *pal = &ModelBank::Get(surface.bank).colors;
+        uint32 count = (flags & 16) ? 3 : 4;
+        // Human-approved repair selects the first vertex when all colors are black
+        uint8 sel = polygon.color;
+        for (uint32 idx = 0; idx < count; ++idx)
         {
-            vertex = ((polygon.color >> (index * 8)) & 255);
-            color = ReadModelPaletteColor(table, vertex) & 0xFFFFFF;
-            if ((maximum & 255) < (color & 255))
+            uint8 vertex = polygon.color >> (idx * 8);
+            color = ReadModelPalColor(pal, vertex) & 0xFFFFFF;
+            uint8 component = color;
+            if (maximum < component)
             {
-                maximum = color;
-                selected = vertex;
-                found = true;
+                maximum = component;
+                sel = vertex;
             }
             component = color >> 8;
-            if ((maximum & 255) < (component & 255))
+            if (maximum < component)
             {
                 maximum = component;
-                selected = vertex;
-                found = true;
+                sel = vertex;
             }
             component = color >> 16;
-            if ((maximum & 255) < component)
+            if (maximum < component)
             {
                 maximum = component;
-                selected = vertex;
-                found = true;
+                sel = vertex;
             }
         }
-        if (!found)
-        {
-            // Human-approved repair of the original undefined all-black index
-            selected = (polygon.color & 255);
-        }
-        color = ReadModelPaletteColor(table, selected);
-        result = color + (maximum << 24);
+        color = ReadModelPalColor(pal, sel);
     }
     else
     {
         color = polygon.color & 0xFFFFFF;
-        if (color & 255)
-            maximum = color;
-        component = color >> 8;
-        if ((maximum & 255) < (component & 255))
+        maximum = color;
+        uint8 component = color >> 8;
+        if (maximum < component)
             maximum = component;
         component = color >> 16;
-        if ((maximum & 255) < component)
+        if (maximum < component)
             maximum = component;
-        result = color + (maximum << 24);
     }
-    this->model.color = result;
+    uint32 result = color + ((uint32)maximum << 24);
+    model.color = result;
     return result;
 }
 
-uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
+uint32 Player::UpdateWeapons(const ShortVector3 &rotation, bool enabled)
 {
     FUNCTION_MARKER(0x8005D360, "SLUS_003.73");
     // TODO Original cheat allocation failure writes through a null weapon
@@ -616,27 +911,23 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
     GameHeapBlock *weapon_storage;
     uint32 weapon_damage;
     GamePadInput *input;
-    uint32 smartbombs_before;
     bool not_easy;
-    bool smartbombs_empty;
-    uint32 smartbombs_after;
-    sint32 prev_slot;
+    uint32 prev_slot;
     uint32 start_slot;
     uint32 next_slot;
-    sint32 wrapped_slot;
-    uint8 prev_fire_ticks;
-    uint32 cone, button1, button2;
+    uint32 wrapped_slot;
+    uint32 cone;
     uint32 weapon_type;
     bool firing_blocked;
     uint32 fire_result;
-    sint32 fire_slot;
+    uint32 fire_slot;
     WeaponNode *active_weapon;
-    uint32 actuator_val;
-    uint32 actuator;
-    uint32 actuator_enabled;
+    uint16 actuator_ticks;
+    uint8 actuator;
+    uint8 actuator_val;
     WeaponNode *fired_weapon;
-    sint32 slot;
-    sint32 depleted_slot;
+    uint32 slot;
+    uint32 depleted_slot;
     WeaponNode *idle_weapon;
     WeaponNode *other_weapon;
     Vector3 weapon_pos;
@@ -644,36 +935,30 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
     if (!HasModelJointAngles())
         return 0;
     weapon_activity = false;
-    if (this->pad->buttons[18].down && this->movement_state != 0x40000 && !active_ring_attack && !this->disable_timer && this->smartbombs)
+    if (pad->buttons[18].down && movement_state != 0x40000 && !active_ring_attack && !disable_timer && smartbombs)
     {
-        ring_storage = AllocateEffectStorage(172);
+        ring_storage = EffectObject::AllocateStorage(172);
         if (ring_storage)
         {
             new (ring_storage) RingAttack(100, 10, 8192);
         }
         if (game_settings.vibration == VibrationFull)
-            SetGamePadActuator(0, 12, 1, 120);
-        if (!GetCheatOptions().weapon_cheat)
-        {
-            smartbombs_before = this->smartbombs;
-            smartbombs_empty = smartbombs_before == 0;
-            smartbombs_after = smartbombs_before - 1;
-            if (!smartbombs_empty)
-                this->smartbombs = smartbombs_after;
-        }
-        PlayCdVoiceEvent(0, 2, this->model.pos.words, 1);
+            GamePadInput::SetActuator(0, 12, 1, 120);
+        if (!GetCheatOptions().weapon_cheat && smartbombs)
+            --smartbombs;
+        PlayCdVoiceEvent(0, 2, &model.pos);
     }
-    input = this->pad;
+    input = pad;
     if (input->buttons[19].pressed)
     {
-        input->buttons[19].pressed = 0;
+        input->buttons[19].pressed = false;
         if (GetCheatOptions().weapon_cheat)
         {
             PlaySoundEffect(26, 8192, 0);
-            switch (this->weapons[this->sel_weapon]->type)
+            switch (weapons[sel_weapon]->type)
             {
                 case WPN_FLAMETHROWER:
-                    if (!this->weapons[2])
+                    if (!weapons[2])
                     {
                         weapon_storage = AllocateZeroedHeapBlock(68);
                         if (weapon_storage)
@@ -682,17 +967,17 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
                         }
                         weapon_damage = 10;
                         not_easy = game_settings.difficulty != 0;
-                        this->weapons[2] = new_weapon;
+                        weapons[2] = new_weapon;
                         if (!not_easy)
                             weapon_damage = 15;
                         new_weapon->damage = weapon_damage;
                     }
-                    this->prev_weapon = 1;
-                    this->sel_weapon = 2;
+                    prev_weapon = 1;
+                    sel_weapon = 2;
                     break;
 
                 case WPN_PULSE_LASER:
-                    if (!this->weapons[3])
+                    if (!weapons[3])
                     {
                         weapon_storage = AllocateZeroedHeapBlock(104);
                         if (weapon_storage)
@@ -701,17 +986,17 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
                         }
                         weapon_damage = 10;
                         not_easy = game_settings.difficulty != 0;
-                        this->weapons[3] = new_weapon;
+                        weapons[3] = new_weapon;
                         if (!not_easy)
                             weapon_damage = 15;
                         new_weapon->damage = weapon_damage;
                     }
-                    this->prev_weapon = 2;
-                    this->sel_weapon = 3;
+                    prev_weapon = 2;
+                    sel_weapon = 3;
                     break;
 
                 case WPN_PARTICLE_BEAM:
-                    if (!this->weapons[4])
+                    if (!weapons[4])
                     {
                         weapon_storage = AllocateZeroedHeapBlock(100);
                         if (weapon_storage)
@@ -720,17 +1005,17 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
                         }
                         weapon_damage = 2;
                         not_easy = game_settings.difficulty != 0;
-                        this->weapons[4] = new_weapon;
+                        weapons[4] = new_weapon;
                         if (!not_easy)
                             weapon_damage = 3;
                         new_weapon->damage = weapon_damage;
                     }
-                    this->prev_weapon = 3;
-                    this->sel_weapon = 4;
+                    prev_weapon = 3;
+                    sel_weapon = 4;
                     break;
 
                 case WPN_RIP_LASER:
-                    if (!this->weapons[5])
+                    if (!weapons[5])
                     {
                         weapon_storage = AllocateZeroedHeapBlock(68);
                         if (weapon_storage)
@@ -739,17 +1024,17 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
                         }
                         weapon_damage = 120;
                         not_easy = game_settings.difficulty != 0;
-                        this->weapons[5] = new_weapon;
+                        weapons[5] = new_weapon;
                         if (!not_easy)
                             weapon_damage = 180;
                         new_weapon->damage = weapon_damage;
                     }
-                    this->prev_weapon = 4;
-                    this->sel_weapon = 5;
+                    prev_weapon = 4;
+                    sel_weapon = 5;
                     break;
 
                 case WPN_GRENADES:
-                    if (!this->weapons[6])
+                    if (!weapons[6])
                     {
                         weapon_storage = AllocateZeroedHeapBlock(68);
                         if (weapon_storage)
@@ -758,17 +1043,17 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
                         }
                         weapon_damage = 15;
                         not_easy = game_settings.difficulty != 0;
-                        this->weapons[6] = new_weapon;
+                        weapons[6] = new_weapon;
                         if (!not_easy)
                             weapon_damage = 22;
                         new_weapon->damage = weapon_damage;
                     }
-                    this->prev_weapon = 5;
-                    this->sel_weapon = 6;
+                    prev_weapon = 5;
+                    sel_weapon = 6;
                     break;
 
                 case WPN_HOMING_MISSILES:
-                    if (!this->weapons[7])
+                    if (!weapons[7])
                     {
                         weapon_storage = AllocateZeroedHeapBlock(68);
                         if (weapon_storage)
@@ -777,22 +1062,22 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
                         }
                         weapon_damage = 40;
                         not_easy = game_settings.difficulty != 0;
-                        this->weapons[7] = new_weapon;
+                        weapons[7] = new_weapon;
                         if (!not_easy)
                             weapon_damage = 60;
                         new_weapon->damage = weapon_damage;
                     }
-                    this->prev_weapon = 6;
-                    this->sel_weapon = 7;
+                    prev_weapon = 6;
+                    sel_weapon = 7;
                     break;
 
                 case WPN_ROCKETS:
-                    this->prev_weapon = 7;
-                    this->sel_weapon = 0;
+                    prev_weapon = 7;
+                    sel_weapon = 0;
                     break;
 
                 case WPN_MACHINE_GUN:
-                    if (!this->weapons[1])
+                    if (!weapons[1])
                     {
                         weapon_storage = AllocateZeroedHeapBlock(72);
                         if (weapon_storage)
@@ -801,13 +1086,13 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
                         }
                         weapon_damage = 10;
                         not_easy = game_settings.difficulty != 0;
-                        this->weapons[1] = new_weapon;
+                        weapons[1] = new_weapon;
                         if (!not_easy)
                             weapon_damage = 15;
                         new_weapon->damage = weapon_damage;
                     }
-                    this->prev_weapon = 0;
-                    this->sel_weapon = 1;
+                    prev_weapon = 0;
+                    sel_weapon = 1;
                     break;
 
                 default:
@@ -816,11 +1101,11 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
         }
         else
         {
-            start_slot = this->sel_weapon;
+            start_slot = sel_weapon;
             next_slot = start_slot + 1;
             if ((sint32)(start_slot + 1) < 8)
             {
-                while (!this->weapons[next_slot])
+                while (!weapons[next_slot])
                 {
                     ++next_slot;
                     if ((sint32)next_slot >= 8)
@@ -828,87 +1113,77 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
                 }
 
                 PlaySoundEffect(26, 8192, 0);
-                prev_slot = this->sel_weapon;
-                this->sel_weapon = next_slot;
-                this->prev_weapon = prev_slot;
+                prev_slot = sel_weapon;
+                sel_weapon = next_slot;
+                prev_weapon = prev_slot;
             }
         WrapWeaponSelection:
-            if (start_slot == this->sel_weapon && start_slot)
+            if (start_slot == sel_weapon && start_slot)
             {
                 PlaySoundEffect(26, 8192, 0);
-                wrapped_slot = this->sel_weapon;
-                this->sel_weapon = 0;
-                this->prev_weapon = wrapped_slot;
+                wrapped_slot = sel_weapon;
+                sel_weapon = 0;
+                prev_weapon = wrapped_slot;
             }
         }
     }
-    GetModelAttachment(weapon_pos.words, *this, 0);
-    firing_blocked = (this->movement_state & 0xF3800) || !(this->aim_input[0] | this->aim_input[1]) || !enabled;
+    GetModelAttachment(weapon_pos, *this, 0);
+    firing_blocked = (movement_state & 0xF3800) || !(aim_input[0] | aim_input[1]) || !enabled;
     if (firing_blocked)
     {
-        idle_weapon = this->weapons[this->sel_weapon];
+        idle_weapon = weapons[sel_weapon];
         if (idle_weapon)
-            idle_weapon->Update(weapon_pos.words, rotation.components);
-        this->fire_ticks = 0;
-        AddVectors(weapon_pos.words, motion.velocity.words);
+            idle_weapon->Update(&weapon_pos);
+        fire_ticks = 0;
+        weapon_pos.Add(motion.velocity);
         goto BeginOtherWeapons;
     }
-    prev_fire_ticks = this->fire_ticks;
-    this->idle_ticks = 0;
-    this->fire_ticks = prev_fire_ticks + 1;
+    idle_ticks = 0;
+    ++fire_ticks;
     aim_angles = rotation;
-    if (!this->weapons[this->sel_weapon])
+    if (!weapons[sel_weapon])
         goto MarkWeaponActivity;
     muzzle_pos = weapon_pos;
-    weapon_type = this->weapons[this->sel_weapon]->type;
+    weapon_type = weapons[sel_weapon]->type;
     if (weapon_type == WPN_GRENADES || weapon_type == WPN_PULSE_LASER || weapon_type == WPN_ROCKETS || weapon_type == WPN_MACHINE_GUN)
     {
         cone = 768;
-        button1 = game_pads[0].buttons[0].down;
-        if (!button1)
-            button1 = game_pads[0].buttons[3].down;
-        if (button1)
-        {
-            button2 = game_pads[0].buttons[1].down;
-            if (!button2)
-                button2 = game_pads[0].buttons[2].down;
-            if (button2)
-                cone = 1536;
-        }
-        SelectAimTarget(aim_angles, weapon_pos, rotation, 4096, cone, 3072, 0, 0, visual_lists.actors);
+        if ((game_pads[0].buttons[0].down || game_pads[0].buttons[3].down) && (game_pads[0].buttons[1].down || game_pads[0].buttons[2].down))
+            cone = 1536;
+        WeaponNode::SelectAimTarget(aim_angles, weapon_pos, rotation, 4096, cone, 3072, 0, 0, visual_lists.actors);
     }
     fire_result = 0;
 
-    if (this->fire_ticks < 2)
+    if (fire_ticks < 2)
     {
-        active_weapon = this->weapons[this->sel_weapon];
-        active_weapon->Update(weapon_pos.words, aim_angles.components);
+        active_weapon = weapons[sel_weapon];
+        active_weapon->Update(&weapon_pos);
     }
     else
     {
-        fire_slot = this->sel_weapon;
-        this->fire_ticks = 1;
-        active_weapon = this->weapons[fire_slot];
-        fire_result = active_weapon->Fire(weapon_pos.words, aim_angles.components);
+        fire_slot = sel_weapon;
+        fire_ticks = 1;
+        active_weapon = weapons[fire_slot];
+        fire_result = active_weapon->Fire(weapon_pos, aim_angles);
     }
     if (game_settings.vibration)
     {
         switch (weapon_type)
         {
             case WPN_FLAMETHROWER:
-                if (game_settings.vibration == VibrationFull && !this->hit_reaction_ticks)
+                if (game_settings.vibration == VibrationFull && !hit_reaction_ticks)
                 {
-                    actuator_val = 4;
+                    actuator_ticks = 4;
                     actuator = 1;
-                    actuator_enabled = 60;
+                    actuator_val = 60;
                     goto ApplyWeaponVibration;
                 }
                 break;
 
             case WPN_PULSE_LASER:
-                if (fire_result && game_settings.vibration == VibrationFull && !this->hit_reaction_ticks)
+                if (fire_result && game_settings.vibration == VibrationFull && !hit_reaction_ticks)
                 {
-                    actuator_val = 2;
+                    actuator_ticks = 2;
                     goto SetImpulseActuator;
                 }
                 break;
@@ -916,9 +1191,9 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
             case WPN_PARTICLE_BEAM:
 
             case WPN_RIP_LASER:
-                if (game_settings.vibration == VibrationFull && !this->hit_reaction_ticks)
+                if (game_settings.vibration == VibrationFull && !hit_reaction_ticks)
                 {
-                    actuator_val = 2;
+                    actuator_ticks = 2;
                     goto SetImpulseActuator;
                 }
                 break;
@@ -928,25 +1203,25 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
             case WPN_HOMING_MISSILES:
 
             case WPN_ROCKETS:
-                if (fire_result && game_settings.vibration == VibrationFull && !this->hit_reaction_ticks)
+                if (fire_result && game_settings.vibration == VibrationFull && !hit_reaction_ticks)
                 {
-                    actuator_val = 4;
+                    actuator_ticks = 4;
                 SetImpulseActuator:
                     actuator = 0;
 
-                    actuator_enabled = 1;
+                    actuator_val = 1;
                     goto ApplyWeaponVibration;
                 }
                 break;
 
             case WPN_MACHINE_GUN:
-                if (game_settings.vibration == VibrationFull && !this->hit_reaction_ticks)
+                if (game_settings.vibration == VibrationFull && !hit_reaction_ticks)
                 {
-                    actuator_val = 4;
+                    actuator_ticks = 4;
                     actuator = 1;
-                    actuator_enabled = 120;
+                    actuator_val = 120;
                 ApplyWeaponVibration:
-                    SetGamePadActuator(0, actuator_val, actuator, actuator_enabled);
+                    GamePadInput::SetActuator(0, actuator_ticks, actuator, actuator_val);
                 }
                 break;
 
@@ -954,7 +1229,7 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
                 break;
         }
     }
-    fired_weapon = this->weapons[this->sel_weapon];
+    fired_weapon = weapons[sel_weapon];
     weapon_activity = true;
     if (fired_weapon && fired_weapon->type == WPN_MACHINE_GUN)
         goto BeginOtherWeapons;
@@ -965,10 +1240,10 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, uint32 enabled)
     {
         fired_weapon->Destroy(3);
     }
-    this->weapons[this->sel_weapon] = 0;
-    depleted_slot = this->sel_weapon;
-    this->sel_weapon = 0;
-    this->prev_weapon = depleted_slot;
+    weapons[sel_weapon] = 0;
+    depleted_slot = sel_weapon;
+    sel_weapon = 0;
+    prev_weapon = depleted_slot;
 MarkWeaponActivity:
     weapon_activity = true;
 
@@ -979,11 +1254,11 @@ UpdateOtherWeapons:
 
     do
     {
-        if (slot != this->sel_weapon)
+        if (slot != sel_weapon)
         {
-            other_weapon = this->weapons[slot];
+            other_weapon = weapons[slot];
             if (other_weapon)
-                other_weapon->Update(weapon_pos.words, rotation.components);
+                other_weapon->Update(&weapon_pos);
         }
         ++slot;
     } while (slot < 8);
@@ -991,24 +1266,24 @@ UpdateOtherWeapons:
     result = -2146500608;
     if (weapon_activity)
     {
-        result = GetGameTuning().weapon_activity_value;
+        result = GetGameTuning().weapon_activity;
+        game_session.weapon_activity = result;
     }
     return result;
 }
 
 uint32 Player::Finish()
 {
-    uint32 result, flags;
     FUNCTION_MARKER(0x8005DD40, "SLUS_003.73");
-    result = IsFinished();
+    uint32 result = IsFinished();
     if (!result)
     {
-        result = this->lifecycle_flags;
-        flags = this->model.flags;
+        result = lifecycle_flags;
+        uint16 flags = model.flags;
         result |= 0x40;
         flags |= 1;
-        this->lifecycle_flags = result;
-        this->model.flags = flags;
+        lifecycle_flags = result;
+        model.flags = flags;
     }
     return result;
 }
@@ -1016,144 +1291,130 @@ uint32 Player::Finish()
 uint32 Player::ReleaseResources()
 {
     FUNCTION_MARKER(0x8005DD84, "SLUS_003.73");
-    for (uint32 index = 0; index < 8; ++index)
-        if (weapons[index])
+    for (uint32 idx = 0; idx < 8; ++idx)
+        if (weapons[idx])
         {
-            weapons[index]->Destroy(3);
-            weapons[index] = 0;
+            weapons[idx]->Destroy(3);
+            weapons[idx] = 0;
         }
     return 0;
 }
 
-uint32 Player::Damage(uint32 damage, const sint32 *vector, uint32 reason)
+uint32 Player::Damage(uint32 damage, const Vector3 *vector, uint32 reason)
 {
     FUNCTION_MARKER(0x8005DDF0, "SLUS_003.73");
     if (GetCheatOptions().invulnerable)
         return 0;
-    if (this->health <= 0)
+    if (health <= 0)
         return 0;
     if (VisualObject::IsFinished())
         return 0;
-    if (this->disable_timer)
+    if (disable_timer)
         return 0;
-    if (this->weapon_stop_ticks)
+    if (weapon_stop_ticks)
         return 0;
     Vector3 impulse;
-    uint32 shift = 1;
-    const Vector3 zero_impulse = {0};
-    const uint32 *input = vector ? (const uint32 *)vector : zero_impulse.words;
-    ShiftVectorRight(impulse.words, input, shift);
-    AddVectors(motion.velocity.words, impulse.words);
+    impulse.ShiftRight(vector ? *vector : zero_vector, 1);
+    motion.velocity.Add(impulse);
     if ((sint32)damage >= 2)
     {
         sint32 maximum = (sint16)GetGameTuning().player.maximum_health;
         sint32 threshold = maximum / 5;
-        sint32 health = this->health;
         if (health < threshold)
-            damage = (uint32)((sint32)damage >> 1);
+            damage >>= 1;
         if (!game_settings.difficulty)
-            damage = (uint32)((sint32)damage >> 1);
+            damage >>= 1;
     }
-    uint32 remaining = (uint16)this->health - damage;
-    this->health = (sint16)(uint16)(remaining);
-    if ((sint16)remaining <= 0)
+    health -= damage;
+    if (health <= 0)
     {
-        this->health = (sint16)(uint16)(0);
+        health = 0;
         EnterDeathState();
-        ClearGamePadActuator(0, 0);
-        ClearGamePadActuator(0, 1);
+        GamePadInput::ClearActuator(0, 0);
+        GamePadInput::ClearActuator(0, 1);
         return 1;
     }
-    this->hit_reaction_ticks = 6;
+    hit_reaction_ticks = 6;
     if (reason == 5 || reason == 31)
     {
-        this->damage_glow_ticks = 90;
+        damage_glow_ticks = 90;
         SetColor(90, 255, 0, 0);
         model_effect.scale = 10240;
-        uint32 intensity = this->damage_glow_ticks;
+        uint32 intensity = damage_glow_ticks;
         model_effect.depth_bias = 10;
         model_effect.color_mode = (intensity << 1) | (intensity << 9) | 0x2000000 | (intensity << 17);
     }
     if (game_settings.vibration)
     {
-        SetGamePadActuator(0, 4, 0, 1);
-        SetGamePadActuator(1, 4, 1, 255);
+        GamePadInput::SetActuator(0, 4, 0, 1);
+        GamePadInput::SetActuator(1, 4, 1, 255);
     }
-    SetScreenFlash(128, 0, 0, 8, 0, 0);
+    SetScrFlash(128, 0, 0, 8, 0, 0);
     uint32 sound = RandomRange(4);
     PlaySoundEffect(sound + 4, 8192, 0);
-    if (!this->model.animation)
+    if (!model.animation)
     {
         uint32 range = RandomRange(4);
-        uint32 first_frame = hurt_frames[range][0];
-        uint32 last_frame = hurt_frames[range][1];
+        uint8 first_frame = hurt_frames[range][0];
+        uint8 last_frame = hurt_frames[range][1];
         SetAnimationRange(6, first_frame, last_frame);
     }
     return 1;
 }
 
-uint32 *Player::ApplyContactImpulse(const VisualObject &object)
+Vector3 *Player::ApplyContactImpulse(const VisualObject &object)
 {
     Vector3 difference, shifted, scaled, divided, impulse;
-    uint32 distance, left_shift, right_shift;
     FUNCTION_MARKER(0x8005E07C, "SLUS_003.73");
-    SubtractVectors(difference.words, model.pos.words, object.model.pos.words);
-    difference.words[1] = 0;
-    distance = MeasureVectorLength(difference.words);
+    difference.Subtract(model.pos, object.model.pos);
+    difference.y = 0;
+    uint32 distance = difference.Len();
     if (!distance)
         distance = 1;
-    left_shift = 12;
-    ShiftVectorRight(shifted.words, difference.words, left_shift);
-    MultiplyScalarVector(scaled.words, object.contact_strength, shifted.words);
-    DivideVector(divided.words, scaled.words, distance);
-    right_shift = 12;
-    ShiftVectorLeft(impulse.words, divided.words, right_shift);
-    AddVectors(motion.velocity.words, impulse.words);
-    return motion.velocity.words;
+    shifted.ShiftRight(difference, 12);
+    scaled.Scale(object.contact_strength, shifted);
+    divided.Divide(scaled, distance);
+    impulse.ShiftLeft(divided, 12);
+    motion.velocity.Add(impulse);
+    return &motion.velocity;
 }
 
 uint32 Player::ApplyBeamContactImpulse(const BeamBarrier &barrier)
 {
-    uint32 left, right, x, z, beam_angle, player_angle, subtract;
-    Vector3 impulse;
-    ShortVector3 angles;
     FUNCTION_MARKER(0x8005E154, "SLUS_003.73");
-    left = barrier.target.words[2];
-    right = barrier.model.pos.words[2];
-    x = barrier.target.words[0];
-    z = barrier.model.pos.words[0];
-    beam_angle = (1024 - (uint32)ratan2((sint32)(left - right), (sint32)(x - z))) & 4095;
-    left = pos_history.prev.words[2];
-    right = barrier.model.pos.words[2];
-    x = pos_history.prev.words[0];
-    z = barrier.model.pos.words[0];
-    player_angle = (1024 - (uint32)ratan2((sint32)(left - right), (sint32)(x - z))) & 4095;
-    subtract = beam_angle < player_angle ? player_angle - beam_angle < 2049 : beam_angle - player_angle >= 2049;
-    angles.words[0] = 0;
-    angles.words[1] = (uint16)((subtract ? beam_angle - 1024 : beam_angle + 1024) & 4095);
-    angles.words[2] = 0;
-    BuildDirectionVector(impulse.words, 512, angles.words);
-    AddVectors(motion.velocity.words, impulse.words);
+    sint32 dz = (uint32)barrier.target.z - barrier.model.pos.z;
+    sint32 dx = (uint32)barrier.target.x - barrier.model.pos.x;
+    uint16 beam_angle = (1024 - ratan2(dz, dx)) & 4095;
+    dz = (uint32)pos_history.prev.z - barrier.model.pos.z;
+    dx = (uint32)pos_history.prev.x - barrier.model.pos.x;
+    uint16 player_angle = (1024 - ratan2(dz, dx)) & 4095;
+    bool subtract = beam_angle < player_angle ? player_angle - beam_angle < 2049 : beam_angle - player_angle >= 2049;
+    ShortVector3 angles;
+    angles.x = 0;
+    angles.y = (subtract ? beam_angle - 1024 : beam_angle + 1024) & 4095;
+    angles.z = 0;
+    Vector3 impulse;
+    impulse.SetDir(512, angles);
+    motion.velocity.Add(impulse);
     slowdown_ticks = 60;
     slowdown_duration = 60;
     return 60;
 }
 
-uint32 Player::ReplaceWeapon(uint32 kind)
+uint32 Player::ReplaceWeapon(uint16 kind)
 {
     FUNCTION_MARKER(0x8005E260, "SLUS_003.73");
-    kind &= 65535;
     GameHeapBlock *object;
     uint32 weapon_damage;
-    uint32 previous;
+    uint32 prev;
     WeaponNode *new_weapon = 0;
     WeaponNode **slot;
     if (kind < 1 || kind > 7)
         return 0;
     if (kind == 1)
-        PlayCdVoiceEvent(0, 3, this->model.pos.words, 1);
+        PlayCdVoiceEvent(0, 3, &model.pos);
     else
-        PlayCdVoiceEvent(0, RandomRange(2), this->model.pos.words, 1);
+        PlayCdVoiceEvent(0, RandomRange(2), &model.pos);
     slot = &weapons[kind];
     if (*slot)
         (*slot)->Destroy(3);
@@ -1219,9 +1480,9 @@ uint32 Player::ReplaceWeapon(uint32 kind)
     *slot = new_weapon;
     // TODO Original allocation failure leaves no weapon for the damage store
     new_weapon->damage = weapon_damage;
-    previous = this->sel_weapon;
-    this->sel_weapon = kind;
-    this->prev_weapon = previous;
+    prev = sel_weapon;
+    sel_weapon = kind;
+    prev_weapon = prev;
     return 1;
 }
 
@@ -1230,8 +1491,9 @@ uint32 Player::EnterDeathState()
     FUNCTION_MARKER(0x8005E708, "SLUS_003.73");
     PlaySoundEffect(8, 0x2000, 0);
     PrepareDeathCamera();
-    uint32 state = this->movement_state, animation;
-    this->health = (sint16)(uint16)(0);
+    uint32 state = movement_state;
+    uint8 animation;
+    health = 0;
     switch (state)
     {
         case 1:
@@ -1259,63 +1521,60 @@ uint32 Player::EnterDeathState()
         case 262144:
             return 0x80000;
         default:
-        {
             return Finish();
-        }
     }
-    motion.velocity.words[2] = 0;
-    motion.velocity.words[1] = 0;
-    motion.velocity.words[0] = 0;
-    this->movement_state = 0x40000;
-    return SetAnimationRange(animation, 0, (uint32)-1);
+    motion.velocity = zero_vector;
+    movement_state = 0x40000;
+    return SetAnimationRange(animation, 0, -1);
 }
 
 void Player::PrepareDeathCamera()
 {
-    uint32 mode, angle;
+    uint32 mode;
+    uint16 angle;
     Camera *camera;
-    sint32 distance;
+    sint16 height;
     FUNCTION_MARKER(0x8005E90C, "SLUS_003.73");
     camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
     if (!camera)
         return;
-    if (!this->death_camera_enabled)
+    if (!death_camera_enabled)
         return;
-    this->death_ticks = 0;
-    SetCameraOrbitDistanceTransition(64, 32);
+    death_ticks = 0;
+    camera->SetOrbitDistanceTransition(64, 32);
     mode = level_environment.area_kind;
-    distance = mode == 10 ? -1400 : -700;
+    height = mode == 10 ? -1400 : -700;
     camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-    SetCameraOrbitHeightTransition((uint32)distance, 32);
+    camera->SetOrbitHeightTransition(height, 32);
     camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-    SetCameraTargetLateralOffsetTransition(0, 32);
+    camera->SetTargetLateralOffsetTransition(0, 32);
     camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-    SetCameraTargetHeightOffsetTransition(0, 32);
+    camera->SetTargetHeightOffsetTransition(0, 32);
     camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-    SetCameraTargetForwardOffsetTransition(0, 32);
+    camera->SetTargetForwardOffsetTransition(0, 32);
     camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-    angle = camera->angles.words[1];
+    angle = camera->angles.y;
     camera->SetYawTransition((angle + 1024) & 0xFFF, 34);
 }
 
 uint32 Player::InitializeAnimation()
 {
     FUNCTION_MARKER(0x8005E9E4, "SLUS_003.73");
-    SetAnimationRange(0, 0, (uint32)-1);
-    this->movement_state = 1;
+    SetAnimationRange(0, 0, -1);
+    movement_state = 1;
     return 1;
 }
 
 uint32 Player::TryEnterMovementState16()
 {
-    uint32 animation;
     FUNCTION_MARKER(0x8005EA1C, "SLUS_003.73");
-    if ((sint8)this->move_input[0] >= 0)
+    if ((sint8)move_input[0] >= 0)
         return 0;
-    if ((uint32)(this->move_heading - (uint32)768) < 2561)
+    uint16 angle = move_heading;
+    if (angle >= 768 && angle <= 3328)
         return 0;
-    animation = this->model.animation;
-    this->movement_state = 16;
+    uint8 animation = model.animation;
+    movement_state = 16;
     if (animation != 1)
         StartAnimation(1, 1);
     return 1;
@@ -1323,15 +1582,14 @@ uint32 Player::TryEnterMovementState16()
 
 uint32 Player::TryEnterMovementState32()
 {
-    uint32 animation;
     FUNCTION_MARKER(0x8005EA80, "SLUS_003.73");
-    if ((sint8)this->move_input[0] <= 0)
+    if ((sint8)move_input[0] <= 0)
         return 0;
-    sint32 angle = (sint16)this->move_heading;
+    uint16 angle = move_heading;
     if (angle < 1281 || angle >= 2816)
         return 0;
-    animation = this->model.animation;
-    this->movement_state = 32;
+    uint8 animation = model.animation;
+    movement_state = 32;
     if (animation != 1)
         StartAnimation(1, 1);
     return 1;
@@ -1339,15 +1597,14 @@ uint32 Player::TryEnterMovementState32()
 
 uint32 Player::TryEnterMovementState512()
 {
-    uint32 animation;
     FUNCTION_MARKER(0x8005EAF0, "SLUS_003.73");
-    if ((sint8)this->move_input[1] >= 0)
+    if ((sint8)move_input[1] >= 0)
         return 0;
-    sint32 angle = (sint16)this->move_heading;
+    uint16 angle = move_heading;
     if (angle < 2816 || angle >= 3329)
         return 0;
-    animation = this->model.animation;
-    this->movement_state = 512;
+    uint8 animation = model.animation;
+    movement_state = 512;
     if (animation != 1)
         StartAnimation(1, 1);
     return 1;
@@ -1355,15 +1612,14 @@ uint32 Player::TryEnterMovementState512()
 
 uint32 Player::TryEnterMovementState1024()
 {
-    uint32 animation;
     FUNCTION_MARKER(0x8005EB60, "SLUS_003.73");
-    if ((sint8)this->move_input[1] <= 0)
+    if ((sint8)move_input[1] <= 0)
         return 0;
-    sint32 angle = (sint16)this->move_heading;
+    uint16 angle = move_heading;
     if (angle < 768 || angle >= 1281)
         return 0;
-    animation = this->model.animation;
-    this->movement_state = 1024;
+    uint8 animation = model.animation;
+    movement_state = 1024;
     if (animation != 1)
         StartAnimation(1, 1);
     return 1;
@@ -1375,19 +1631,16 @@ uint32 Player::TryActivateOneShotActivator()
     FUNCTION_MARKER(0x8005EBD0, "SLUS_003.73");
     if (!one_shot_activator)
         return 0;
-    if (!(this->aim_input[0] | this->aim_input[1]))
+    if (!(aim_input[0] | aim_input[1]))
         return 0;
-    for (uint32 axis = 0; axis < 3; ++axis)
-    {
-        motion.velocity.words[axis] = 0;
-        motion.acceleration.words[axis] = 0;
-        model.angles.words[axis] = one_shot_activator->model.angles.words[axis];
-    }
-    SetAnimationRange(7, 0, (uint32)-1);
-    this->movement_state = 65536;
+    motion.velocity = zero_vector;
+    motion.acceleration = zero_vector;
+    model.angles = one_shot_activator->model.angles;
+    SetAnimationRange(7, 0, -1);
+    movement_state = 65536;
     if (!one_shot_activator)
     {
-        GameDiagnostic("TODO Interaction expired during player activation\n");
+        GameDiagnostic(("TODO Interaction expired during player activation\n"));
         abort();
     }
     one_shot_activator->Activate();
@@ -1400,19 +1653,16 @@ uint32 Player::TryActivateResettingActivator()
     FUNCTION_MARKER(0x8005EC7C, "SLUS_003.73");
     if (!resetting_activator)
         return 0;
-    if (!(this->aim_input[0] | this->aim_input[1]))
+    if (!(aim_input[0] | aim_input[1]))
         return 0;
-    for (uint32 axis = 0; axis < 3; ++axis)
-    {
-        motion.velocity.words[axis] = 0;
-        motion.acceleration.words[axis] = 0;
-        model.angles.words[axis] = resetting_activator->model.angles.words[axis];
-    }
-    SetAnimationRange(18, 0, (uint32)-1);
-    this->movement_state = 131072;
+    motion.velocity = zero_vector;
+    motion.acceleration = zero_vector;
+    model.angles = resetting_activator->model.angles;
+    SetAnimationRange(18, 0, -1);
+    movement_state = 131072;
     if (!resetting_activator)
     {
-        GameDiagnostic("TODO Interaction expired during player activation\n");
+        GameDiagnostic(("TODO Interaction expired during player activation\n"));
         abort();
     }
     resetting_activator->BeginActivation();
@@ -1422,211 +1672,185 @@ uint32 Player::TryActivateResettingActivator()
 uint32 Player::TryEnterActionState()
 {
     GamePadInput *input;
-    uint32 state, x, z, angle, heading, flags, sound;
+    uint32 state, heading;
+    uint16 angle, flags;
+    sint32 sound;
     Camera *camera;
     FUNCTION_MARKER(0x8005ED30, "SLUS_003.73");
-    input = this->pad;
+    input = pad;
     if (!input->buttons[16].down)
         return 0;
-    state = this->movement_state;
+    state = movement_state;
     if (state == 256)
     {
-        x = this->move_input[0];
-        z = this->move_input[1];
-        if (!(x | z))
+        if (!(move_input[0] | move_input[1]))
             return 0;
-        angle = this->move_heading;
+        angle = move_heading;
         camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-        this->action_heading = angle;
-        heading = camera ? camera->angles.words[1] + angle : angle;
-        this->model.angles.words[1] = heading & 4095;
-        flags = this->model.flags;
-        this->movement_state = 2048;
+        action_heading = angle;
+        heading = camera ? (uint16)camera->angles.y + angle : angle;
+        model.angles.y = heading & 4095;
+        flags = model.flags;
+        movement_state = 2048;
         sound = (flags & 8) ? 55 : 0;
         PlaySoundEffect(sound, 8192, 0);
-        SetAnimationRange(12, 6, (uint32)-1);
+        SetAnimationRange(12, 6, -1);
         return 1;
     }
     if (!(state & 1584))
     {
-        flags = this->model.flags & 8;
-        this->movement_state = 256;
+        flags = model.flags & 8;
+        movement_state = 256;
         if (flags)
             PlaySoundEffect(72, 8192, 0);
-        SetAnimationRange(5, 0, (uint32)-1);
+        SetAnimationRange(5, 0, -1);
         return 1;
     }
-    x = this->move_input[0];
-    z = this->move_input[1];
-    if (!(x | z))
+    if (!(move_input[0] | move_input[1]))
         return 0;
-    angle = this->move_heading;
+    angle = move_heading;
     camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-    this->action_heading = angle;
-    heading = camera ? camera->angles.words[1] + angle : angle;
-    this->model.angles.words[1] = heading & 4095;
-    this->movement_state = 2048;
-    SetAnimationRange(12, 0, (uint32)-1);
-    sound = (this->model.flags & 8) ? 55 : 0;
+    action_heading = angle;
+    heading = camera ? (uint16)camera->angles.y + angle : angle;
+    model.angles.y = heading & 4095;
+    movement_state = 2048;
+    SetAnimationRange(12, 0, -1);
+    sound = (model.flags & 8) ? 55 : 0;
     PlaySoundEffect(sound, 8192, 0);
     return 1;
 }
 
-uint32 Player::TryEnterRecordMovementState()
+uint32 Player::TryEnterRecMovementState()
 {
     FUNCTION_MARKER(0x8005EEDC, "SLUS_003.73");
     if (!rail || runtime.rail_entered)
         return 0;
     if (!rail->Project(model.pos, rail_pos))
         return 0;
-    for (uint32 axis = 0; axis < 3; ++axis)
-        model.pos.words[axis] = rail_pos.words[axis];
-    model.pos.words[1] += 524288;
-    uint32 kind = rail->kind;
+    model.pos = rail_pos;
+    model.pos.y = (uint32)model.pos.y + (524288);
+    uint16 kind = rail->kind;
     if (kind != 400 && kind != 401)
         return 0;
-    this->movement_state = kind == 400 ? 32768 : 16384;
-    motion.velocity.words[1] = 0;
-    model.angles.words[1] = (rail->heading + 2048) & 4095;
-    this->pad->buttons[17].pressed = 0;
+    movement_state = kind == 400 ? 32768 : 16384;
+    motion.velocity.y = 0;
+    model.angles.y = (rail->heading + 2048) & 4095;
+    pad->buttons[17].pressed = false;
     on_rail = 1;
     runtime.rail_entered = 1;
     if (kind == 400)
-        this->rail_voice = PlaySoundEffect(100, 8192, 0);
+        rail_voice = PlaySoundEffect(100, 8192, 0);
     return 1;
 }
 
 uint32 Player::TryEnterJumpState()
 {
-    GamePadInput *input;
-    uint32 latch, impulse, velocity, first, last, flags, delay;
-    ModelInstance *linked;
     FUNCTION_MARKER(0x8005F00C, "SLUS_003.73");
-    input = this->pad;
-    if (!input->buttons[17].pressed)
+    if (!pad->buttons[17].pressed)
         return 0;
-    if (this->jump_latch)
+    if (jump_latch)
         return 0;
     PlaySoundEffect(5, 8192, 0);
-    if (this->model.flags & 8)
+    if (model.flags & 8)
         PlaySoundEffect(63, 8192, 0);
-    latch = this->jump_latch;
-    this->jump_latch = latch + 1;
-    impulse = (uint32)GetGameTuning().player.jump_impulse;
-    linked = ground.GetObject();
-    impulse = (uint32)0 - (impulse << 12);
-    this->jump_velocity = impulse;
+    ++jump_latch;
+    sint32 impulse = GetGameTuning().player.jump_impulse;
+    ModelInstance *linked = ground.GetObject();
+    impulse *= -ONE;
+    jump_velocity = impulse;
     if (linked)
     {
-        velocity = static_cast<VisualObject *>(linked->owner)->motion.velocity.words[1];
+        uint32 velocity = (uint32) static_cast<VisualObject *>(linked->owner)->motion.velocity.y;
         if ((sint32)velocity < -262144)
             velocity <<= 1;
-        this->jump_velocity = impulse + velocity;
+        jump_velocity = impulse + velocity;
     }
-    this->movement_state = 2;
-    first = (uint32)GetGameTuning().player.jump_first_frame;
-    last = (uint32)GetGameTuning().player.jump_last_frame;
+    movement_state = 2;
+    sint16 first = GetGameTuning().player.jump_first_frame;
+    sint16 last = GetGameTuning().player.jump_last_frame;
     SetAnimationRange(2, first + 1, last);
-    flags = this->contact_flags & 1;
-    delay = GetGameTuning().player.jump_hold_ticks;
-    this->jump_hold_ticks = delay;
+    uint16 flags = contact_flags & 1;
+    jump_hold_ticks = GetGameTuning().player.jump_hold_ticks;
     runtime.jump_released = 0;
     if (flags)
-        this->move_ramp = 0;
+        move_ramp = 0;
     return 1;
 }
 
 uint32 Player::TryEnterAirborneState()
 {
-    uint32 timer, first, last;
-    bool check_timer = true;
     FUNCTION_MARKER(0x8005F124, "SLUS_003.73");
-    if (!(this->contact_flags & 2))
-    {
-        timer = this->ground_grace_ticks;
-        if (timer)
-            this->ground_grace_ticks = timer - 1;
-        else
-            check_timer = false;
-    }
-    if (check_timer && this->ground_grace_ticks)
+    if (!(contact_flags & 2) && ground_grace_ticks)
+        --ground_grace_ticks;
+    if (ground_grace_ticks)
         return 0;
-    this->fall_start_y = this->model.pos.words[1];
-    first = (uint32)GetGameTuning().player.jump_last_frame;
-    last = (uint32)GetGameTuning().player.airborne_last_frame;
+    fall_start_y = (uint32)model.pos.y;
+    sint16 first = GetGameTuning().player.jump_last_frame;
+    sint16 last = GetGameTuning().player.airborne_last_frame;
     SetAnimationRange(2, first + 1, last);
-    this->movement_state = 4;
+    movement_state = 4;
     return 1;
 }
 
 uint32 Player::TryEnterLandingState()
 {
-    GamePadInput *input;
-    uint32 threshold, distance = 0, numerator, denominator, damage, sound;
     FUNCTION_MARKER(0x8005F1B0, "SLUS_003.73");
-    if (!(this->contact_flags & 2))
+    if (!(contact_flags & 2))
         return 0;
-    threshold = this->fall_damage_threshold;
-    this->ground_grace_ticks = 4;
+    uint32 threshold = fall_damage_threshold;
+    ground_grace_ticks = 4;
+    sint32 distance = 0;
     if (threshold)
-        distance = (uint32)((sint32)(this->model.pos.words[1] - this->fall_start_y) >> 12);
-    if (threshold && (sint32)threshold < (sint32)distance)
+        distance = (sint32)((uint32)model.pos.y - fall_start_y) >> 12;
+    if (threshold && (sint32)threshold < distance)
     {
-        numerator = (distance - threshold) * (uint32)(sint32)(sint16)GetGameTuning().player.maximum_health;
-        denominator = this->fatal_fall_distance - threshold;
-        if (!denominator)
-            damage = (sint32)numerator < 0 ? 1 : (uint32)-1;
-        else if (numerator == 0x80000000 && denominator == (uint32)-1)
-            damage = numerator;
-        else
-            damage = (uint32)((sint32)numerator / (sint32)denominator);
-        Damage(damage, zero_vector.components, 0);
-        if (this->health <= 0)
+        sint32 numerator = (distance - threshold) * (sint16)GetGameTuning().player.maximum_health;
+        sint32 denominator = fatal_fall_distance - threshold;
+        uint32 damage = DivideSignedWord(numerator, denominator);
+        Damage(damage, &zero_vector, 0);
+        if (health <= 0)
             return 1;
     }
     else if (game_settings.vibration)
-        SetGamePadActuator(0, 4, 0, 1);
-    SetAnimationRange(2, (uint32)GetGameTuning().player.airborne_last_frame + 1, (uint32)-1);
-    sound = (this->model.flags & 8) ? 56 : 19;
+        GamePadInput::SetActuator(0, 4, 0, 1);
+    SetAnimationRange(2, GetGameTuning().player.airborne_last_frame + 1, -1);
+    sint32 sound = (model.flags & 8) ? 56 : 19;
     PlaySoundEffect(sound, 8192, 0);
-    input = this->pad;
-    this->movement_state = 8;
-    (input->buttons[17].pressed = 0);
+    GamePadInput *input = pad;
+    movement_state = 8;
+    input->buttons[17].pressed = false;
     runtime.rail_entered = 0;
     return 1;
 }
 
 uint32 Player::TryEnterAnimation10State()
 {
-    Vector3 scaled, position, offset;
-    sint32 angle_z, angle_x;
-    uint32 scale = 64, offset_scale = 128, flags, height;
     FUNCTION_MARKER(0x8005F300, "SLUS_003.73");
-    if (!(this->contact_flags & 64))
+    if (!(contact_flags & 64))
         return 0;
-    SetAnimationRange(10, 1, (uint32)-1);
-    flags = this->contact_flags & 128;
-    this->movement_state = 4096;
+    SetAnimationRange(10, 1, -1);
+    uint16 flags = contact_flags & 128;
+    movement_state = 4096;
     if (!flags)
     {
-        this->model.pos.words[1] = (uint32)this->ledge_pos[1] + 524288;
+        model.pos.y = (uint32)ledge_pos.y + 524288;
         return 1;
     }
-    MultiplyVector(scaled.words, ledge_normal.words, scale);
-    AddVectors(position.words, ledge_pos.words, scaled.words);
-    this->model.pos = position;
-    angle_z = (sint32)(uint32)this->ledge_normal[2];
-    height = this->model.pos.words[1];
-    angle_x = (sint32)(uint32)this->ledge_normal[0];
-    this->model.pos.words[1] = height + 524288;
-    this->model.angles.words[1] = (1024 - (uint32)ratan2(angle_z, angle_x)) & 4095;
-    MultiplyScalarVector(offset.words, offset_scale, ledge_normal.words);
-    SubtractVectors(position.words, this->model.pos.words, offset.words);
-    position.components[1] = (sint32)((uint32)position.components[1] - 884736);
+    Vector3 scaled, pos, offset;
+    scaled.Multiply(ledge_normal, 64);
+    pos.Add(ledge_pos, scaled);
+    model.pos = pos;
+    sint32 angle_z = ledge_normal.z;
+    sint32 angle_x = ledge_normal.x;
+    model.pos.y = (uint32)model.pos.y + (524288);
+    model.angles.y = (1024 - ratan2(angle_z, angle_x)) & 4095;
+    offset.Scale(128, ledge_normal);
+    pos.Subtract(model.pos, offset);
+    pos.y = (uint32)pos.y - (884736);
     if (!ground.GetObject())
     {
         Camera *camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
-        camera->SetTargetTransition(position.words, 36);
+        camera->SetTargetTransition(pos, 36);
     }
     return 1;
 }
@@ -1634,75 +1858,60 @@ uint32 Player::TryEnterAnimation10State()
 uint32 Player::UpdateGroundContact()
 {
     FUNCTION_MARKER(0x8005F470, "SLUS_003.73");
-    sint32 result;
-    uint32 water_x;
-    uint32 water_y;
-    uint32 water_z;
-    uint32 ray_z;
-
-    CollisionRay ray;
-
-    result = (movement_state & 0x3000);
-    if (result)
-        goto DisableProjection;
+    uint32 disabled = movement_state & 0x3000;
+    if (disabled)
+    {
+        projection.enabled = false;
+        return disabled;
+    }
     if (model.flags & 8)
     {
-        water_x = model.pos.words[0];
+        Vector3 water;
+        water.x = model.pos.x;
         projection.enabled = true;
-        water_y = (uint32)level_environment.water_y;
-        water_z = model.pos.words[2];
-        result = -ONE;
+        water.y = level_environment.water_y;
+        water.z = model.pos.z;
         surface.n.vx = 0;
         surface.n.vy = -ONE;
         surface.n.vz = 0;
-        surface.pos.words[0] = water_x;
-        surface.pos.words[1] = water_y;
-        surface.pos.words[2] = water_z;
-        return result;
+        surface.pos = water;
+        return -ONE;
     }
     if (contact_flags & 2)
     {
         projection.enabled = true;
-        result = (uint32)ground_offset << 12;
-        surface.pos.words[1] = model.pos.words[1] + (uint32)result;
-        return result;
+        uint32 offset = ground_offset << 12;
+        surface.pos.y = (uint32)model.pos.y + offset;
+        return offset;
     }
-    ray.endpoints[0].words[0] = model.pos.words[0];
-    ray.endpoints[0].words[1] = model.pos.words[1] - 0x40000;
-    ray_z = model.pos.words[2];
-    ray.endpoints[1].words[0] = ray.endpoints[0].words[0];
-    ray.endpoints[1].words[1] = ray.endpoints[0].words[1] + 0x800000;
-    ray.endpoints[0].words[2] = ray_z;
-    ray.endpoints[1].words[2] = ray_z;
-    InitializeCollisionRay(ray);
-    QueryCollisionRay(ray, 1);
-    result = 1;
+
+    CollisionRay ray;
+    ray.endpoints[0] = model.pos;
+    ray.endpoints[0].y = (uint32)ray.endpoints[0].y - (0x40000);
+    ray.endpoints[1] = ray.endpoints[0];
+    ray.endpoints[1].y = (uint32)ray.endpoints[1].y + (0x800000);
+    ray.Initialize();
+    ray.Query(1);
     if (!ray.hit.GetObject())
     {
-    DisableProjection:
         projection.enabled = false;
+        return 1;
     }
-    else
-    {
-        projection.enabled = true;
-        surface.pos.words[0] = ray.hit_pos.words[0];
-        surface.pos.words[1] = ray.hit_pos.words[1];
-        surface.pos.words[2] = ray.hit_pos.words[2];
-        surface.n.vx = ray.n.vx;
-        surface.n.vy = ray.n.vy;
-        result = (uint16)ray.n.vz;
-        surface.n.vz = ray.n.vz;
-    }
-    return result;
+    projection.enabled = true;
+    surface.pos = ray.hit_pos;
+    surface.n.vx = ray.n.vx;
+    surface.n.vy = ray.n.vy;
+    surface.n.vz = ray.n.vz;
+    return (uint16)ray.n.vz;
 }
 
 void Player::SetWeaponStop(uint32 duration)
 {
-    uint32 selected;
+    uint32 sel;
     FUNCTION_MARKER(0x8005F62C, "SLUS_003.73");
-    selected = this->sel_weapon;
-    this->weapon_stop_ticks = duration;
-    StopSelectedWeapon(selected);
+    sel = sel_weapon;
+    weapon_stop_ticks = duration;
+    StopSelWeapon(sel);
 }
 
 uint32 Player::Update()
@@ -1714,123 +1923,104 @@ uint32 Player::Update()
     ObjectBorrow borrow;
     Camera *transition_camera;
     uint32 trig_angle;
-    uint32 movement_x, movement_z;
+    sint8 movement_x, movement_z;
     Camera *movement_camera;
     ShortVector3 camera_angles, weapon_angles;
-    uint32 aim_axis0, aim_axis1, body_heading, model_heading;
+    uint8 aim_axis0, aim_axis1;
+    uint16 body_heading, model_heading;
     FUNCTION_MARKER(0x8005F688, "SLUS_003.73");
 
     sint32 rail_step;
-    sint32 weapon_stop_before;
-    sint32 result;
+    uint32 result;
     uint32 transition_result;
     ModelInstance *prev_ground;
-    sint32 hit_ticks_before;
-    sint8 hit_ticks_after;
-    sint32 glow_ticks_before;
-    sint8 glow_ticks_after;
-    sint32 disable_ticks_before;
-    sint32 disable_ticks_after;
-    sint32 initial_animation;
-    sint32 saved_y;
-    sint32 saved_z;
+    uint8 initial_animation;
     sint32 prev_vertical_velocity;
-    sint32 script_motion_mask;
-    sint32 area_kind;
-    sint16 dry_model_flags;
-    sint32 water_damage;
+    uint32 script_motion_mask;
+    uint32 area_kind;
+    uint16 dry_model_flags;
+    uint32 water_damage;
     sint32 ripple_radius;
     GameHeapBlock *ripple_storage;
-    sint32 ripple_steps;
-    sint32 ripple_size;
-    sint32 free_move_y;
-    sint32 free_move_z;
-    uint32 motion_contacts;
-    sint32 animation_start;
-    sint32 activation_target_z;
+    uint32 ripple_steps;
+    uint32 ripple_size;
+    uint32 free_move_y;
+    uint32 free_move_z;
+    uint16 motion_contacts;
+    sint8 animation_start;
+    uint32 activation_target_z;
     sint32 ramp_up;
-    sint32 ramp_before;
-    sint32 ramp_after;
     uint32 movement_state;
     sint32 move_octant;
-    sint32 idle_ticks;
-    sint32 idle_quote0;
-    sint32 idle_quote1;
-    sint32 jump_ready;
+    uint16 idle_ticks;
+    uint32 idle_quote0;
+    uint32 idle_quote1;
+    bool jump_ready;
     ModelInstance *jump_platform;
     sint32 jump_impulse;
-    sint32 next_state;
-    sint32 activator_pos_x;
-    sint32 activator_target_x;
-    sint32 activator_pos_z;
-    sint32 reset_pos_x;
-    sint32 reset_target_x;
-    sint32 reset_pos_z;
-    sint16 death_tick_before;
-    sint16 death_tick_after;
-    sint32 rail_animation;
-    sint32 rail_frame3;
-    sint32 rail_frame33;
-    sint32 rail_frame33_event;
-    sint32 air_animation;
+    uint32 next_state;
+    uint32 activator_pos_x;
+    uint32 activator_target_x;
+    uint32 activator_pos_z;
+    uint32 reset_pos_x;
+    uint32 reset_target_x;
+    uint32 reset_pos_z;
+    uint16 death_tick_after;
+    uint8 rail_animation;
+    uint32 rail_frame3;
+    uint32 rail_frame33;
+    uint32 rail_frame33_event;
+    uint8 air_animation;
     bool restart_air_animation;
-    sint32 climb_complete;
+    bool climb_complete;
     sint32 ledge_ground_y;
-    sint16 ledge_contact_flags;
+    uint16 ledge_contact_flags;
     sint32 move_axis;
-    sint32 crouch_frame;
+    sint8 crouch_frame;
     sint32 aim_octant;
-    sint32 move_angle;
-    sint32 move_angle_word;
-    sint32 move_angle_offset;
-    sint32 move_angle_bin;
+    uint16 move_angle;
     sint16 camera_yaw;
-    sint32 aim_angle;
-    sint32 aim_angle_word;
-    sint32 aim_angle_offset;
-    sint32 aim_angle_bin;
+    uint16 aim_angle;
     sint32 move_idx;
     sint32 aim_idx;
-    sint32 facing_state;
-    sint32 facing_angle;
+    uint32 facing_state;
+    uint16 facing_angle;
     bool immediate_facing;
-    sint32 desired_heading;
-    sint32 direction_animation;
-    sint32 animation_dir;
-    sint32 idle_animation;
+    uint16 desired_heading;
+    uint8 dir_animation;
+    sint8 animation_dir;
+    uint8 idle_animation;
     uint32 acceleration_state;
     bool velocity_changed;
-    sint32 velocity_state;
+    uint32 velocity_state;
     sint16 rail_forward_speed;
     sint16 rail_heading;
     sint16 rail_backward_speed;
     sint32 move_strength;
-    sint32 rail_state;
-    sint32 rail_sound;
+    uint32 rail_state;
+    uint32 rail_sound;
     bool platform_moved;
     ModelInstance *air_platform;
-    sint32 air_platform_velocity_x;
-    sint32 platform_carried_x;
+    uint32 air_platform_velocity_x;
+    uint32 platform_carried_x;
     ModelInstance *platform_z_owner;
     ModelInstance *ground_platform;
-    sint32 ground_velocity_x;
+    uint32 ground_velocity_x;
     ModelInstance *platform_y_owner;
-    sint32 platform_carried_y;
+    uint32 platform_carried_y;
     sint32 footstep_sound;
-    sint32 footstep_animation;
-    sint32 footstep_crossed;
-    sint32 footstep_event;
+    uint8 footstep_animation;
+    uint32 footstep_crossed;
+    uint32 footstep_event;
     sint32 played_footstep_sound;
-    sint32 footstep_frame;
-    sint32 footstep_animation_id;
-    sint32 jump_hold_before;
-    sint8 jump_hold_after;
-    sint32 slowdown_intensity;
-    sint32 slowdown_green;
-    sint16 slowdown_remaining;
+    sint16 footstep_frame;
+    uint8 footstep_animation_id;
+    uint32 slowdown_intensity;
+    uint32 slowdown_g;
+    uint16 slowdown_remaining;
     ModelInstance *contact;
     ModelInstance *pickup;
-    sint32 cleanup_state;
+    uint32 cleanup_state;
     Vector3 move_work;
     MATRIX inverse_camera_matrix;
     MATRIX camera_matrix;
@@ -1841,169 +2031,149 @@ uint32 Player::Update()
     const uint32 ledge_offset_scale = 128;
     const uint32 velocity_shift = 6;
     const uint32 trace_offset_scale = 16;
-    weapon_stop_before = this->weapon_stop_ticks;
-    result = (sint32)((uint32)weapon_stop_before - 1);
-    if (weapon_stop_before)
-    {
-        this->weapon_stop_ticks = result;
-        return result;
-    }
+    if (weapon_stop_ticks)
+        return --weapon_stop_ticks;
     prev_ground = ground.GetObject();
     if (prev_ground && ((static_cast<VisualObject *>(prev_ground->owner)->lifecycle_flags & 0x40) != 0))
         ground.Reset();
-    collision_query.allow_surface20 = false;
-    hit_ticks_before = this->hit_reaction_ticks;
-    hit_ticks_after = hit_ticks_before - 1;
-    if (hit_ticks_before)
-        this->hit_reaction_ticks = hit_ticks_after;
-    glow_ticks_before = this->damage_glow_ticks;
-    glow_ticks_after = glow_ticks_before - 1;
-    if (glow_ticks_before)
+    col_query.allow_surface20 = false;
+    if (hit_reaction_ticks)
+        --hit_reaction_ticks;
+    if (damage_glow_ticks)
     {
-        this->damage_glow_ticks = glow_ticks_after;
-        if (glow_ticks_after)
+        --damage_glow_ticks;
+        if (damage_glow_ticks)
         {
-            uint32 intensity = this->damage_glow_ticks;
+            uint32 intensity = damage_glow_ticks;
             model_effect.color_mode = intensity | (intensity << 8) | 0x2000000 | (intensity << 16);
         }
         else
             model_effect.color_mode = 0;
     }
-    disable_ticks_before = this->disable_timer;
-    disable_ticks_after = (sint32)((uint32)disable_ticks_before - 1);
-    if (disable_ticks_before)
+    if (disable_timer)
     {
-        disabled_pad = this->pad;
-        this->disable_timer = disable_ticks_after;
-        (disabled_pad->buttons[8].down = 0);
-        this->pad->buttons[9].down = 0;
-        this->pad->buttons[10].down = 0;
-        this->pad->buttons[11].down = 0;
-        this->pad->buttons[0].down = 0;
-        this->pad->buttons[2].down = 0;
-        this->pad->buttons[3].down = 0;
-        this->pad->buttons[1].down = 0;
-        this->pad->buttons[15].down = 0;
-        this->pad->buttons[4].down = 0;
-        this->pad->buttons[5].down = 0;
-        this->pad->buttons[6].down = 0;
-        this->pad->buttons[7].down = 0;
-        this->pad->buttons[17].pressed = 0;
-        this->pad->buttons[5].pressed = 0;
+        disabled_pad = pad;
+        --disable_timer;
+        disabled_pad->buttons[8].down = false;
+        pad->buttons[9].down = false;
+        pad->buttons[10].down = false;
+        pad->buttons[11].down = false;
+        pad->buttons[0].down = false;
+        pad->buttons[2].down = false;
+        pad->buttons[3].down = false;
+        pad->buttons[1].down = false;
+        pad->buttons[15].down = false;
+        pad->buttons[4].down = false;
+        pad->buttons[5].down = false;
+        pad->buttons[6].down = false;
+        pad->buttons[7].down = false;
+        pad->buttons[17].pressed = false;
+        pad->buttons[5].pressed = false;
     }
-    initial_animation = this->model.animation;
-    this->playback.speed = 0x10000;
-    if ((initial_animation == 5) && ((uint8)this->playback.dir == 1))
-        this->playback.speed = 0x20000;
+    initial_animation = model.animation;
+    playback.speed = 0x10000;
+    if ((initial_animation == 5) && (playback.dir == 1))
+        playback.speed = 0x20000;
     if (GetCheatOptions().enemy_finish_cheat)
     {
-        cheat_pad = this->pad;
+        cheat_pad = pad;
         if (cheat_pad->buttons[5].pressed)
         {
-            (cheat_pad->buttons[5].pressed = 0);
-            ::FinishSelectedEnemies();
+            cheat_pad->buttons[5].pressed = false;
+            VisualObject::FinishSelEnemies();
         }
     }
-    result = this->update_disabled;
+    result = update_disabled;
     if (!result)
     {
-        this->model.flags = (this->model.flags | 4);
-        uint32 saved_x = this->model.pos.words[0];
-        saved_y = this->model.pos.words[1];
-        saved_z = this->model.pos.words[2];
-        pos_history.prev.words[0] = saved_x;
-        pos_history.prev.words[1] = saved_y;
-        pos_history.prev.words[2] = saved_z;
+        model.flags = model.flags | 4;
+        pos_history.prev = model.pos;
         script_motion_mask = this->movement_state & 0xF000;
-        prev_vertical_velocity = motion.velocity.words[1];
-        this->model.color = 8421504;
+        prev_vertical_velocity = motion.velocity.y;
+        model.color = 8421504;
         if (!script_motion_mask)
-            ResolvePlayerCollisionMotion(*this);
-        dry_model_flags = this->model.flags & 0xFFF7;
+            ResolveColMotion();
+        dry_model_flags = model.flags & 0xFFF7;
         area_kind = level_environment.area_kind;
-        this->model.flags = dry_model_flags;
-        uint32 water_contact = 0;
+        model.flags = dry_model_flags;
+        bool water_contact = false;
         if (area_kind == 1 || area_kind == 5)
         {
             uint32 offset = ground_offset;
-            uint32 height = this->model.pos.words[1];
-            uint32 surface = (uint32)level_environment.water_y;
-            water_contact = (sint32)surface < (sint32)(height + (offset << 12));
+            uint32 height = model.pos.y;
+            sint32 surface = level_environment.water_y;
+            water_contact = surface < (sint32)(height + (offset << 12));
         }
         if (water_contact)
         {
             water_damage = level_environment.water_damage;
-            this->model.flags = (dry_model_flags | 8);
+            model.flags = dry_model_flags | 8;
             if (!water_damage)
             {
                 if ((game_clock.tick & 3) == 0)
                 {
-                    uint32 surface = (uint32)level_environment.water_y;
-                    move_work.components[0] = this->model.pos.words[0];
-                    move_work.components[1] = this->model.pos.words[1];
-                    move_work.components[2] = this->model.pos.words[2];
-                    move_work.components[1] = surface;
+                    sint32 surface = level_environment.water_y;
+                    move_work = model.pos;
+                    move_work.y = surface;
                     ripple_radius = RandomRange(32) + 32;
                     trig_angle = RandomRange(4096) & 0xFFF;
-                    move_work.components[0] = (sint32)((uint32)move_work.components[0] + (uint32)ripple_radius * (uint32)rsin(trig_angle));
-                    move_work.components[2] = (sint32)((uint32)move_work.components[2] + (uint32)ripple_radius * (uint32)rcos(trig_angle));
-                    ripple_storage = AllocateEffectStorage(116);
+                    move_work.x = (uint32)move_work.x + (ripple_radius * rsin(trig_angle));
+                    move_work.z = (uint32)move_work.z + (ripple_radius * rcos(trig_angle));
+                    ripple_storage = EffectObject::AllocateStorage(116);
                     if (ripple_storage)
                     {
                         ripple_size = RandomRange(32) + 32;
                         ripple_steps = RandomRange(4);
-                        new (ripple_storage) ExpandingRing(move_work.components, ripple_size, 16, 64, 16, 12, (uint32)ripple_steps + 4);
+                        new (ripple_storage) ExpandingRing(&move_work, ripple_size, 16, 64, 16, 12, ripple_steps + 4);
                     }
                 }
             }
             else
             {
-                Damage(water_damage, zero_vector.components, 0);
+                Damage(water_damage, &zero_vector, 0);
             }
         }
         if ((GetCheatOptions().free_movement && game_pads[0].buttons[4].down) && game_pads[0].buttons[6].down)
         {
-            free_move_y = pos_history.prev.words[1];
-            this->model.pos.words[1] = free_move_y;
+            free_move_y = pos_history.prev.y;
+            model.pos.y = free_move_y;
             if (game_pads[0].buttons[0].down)
-                this->model.pos.words[1] = (free_move_y - 393216);
+                model.pos.y = free_move_y - 393216;
             if (game_pads[0].buttons[3].down)
-                this->model.pos.words[1] = (this->model.pos.words[1] + (393216));
-            free_move_z = this->model.pos.words[2] + (5 * (this->model.pos.words[2] - pos_history.prev.words[2]));
-            this->model.pos.words[0] = (this->model.pos.words[0] + ((5 * (this->model.pos.words[0] - pos_history.prev.words[0]))));
-            this->model.pos.words[2] = free_move_z;
+                model.pos.y = (uint32)model.pos.y + 393216;
+            free_move_z = (uint32)model.pos.z + (5 * ((uint32)model.pos.z - pos_history.prev.z));
+            model.pos.x = (uint32)model.pos.x + (5 * ((uint32)model.pos.x - pos_history.prev.x));
+            model.pos.z = free_move_z;
         }
-        motion_contacts = this->contact_flags;
-        this->collision_radius = 100;
-        this->model.angles.words[2] = 0;
-        this->model.angles.words[0] = 0;
-        if (((((uint8)((motion_contacts >> 1))) ^ 1) & 1) != 0)
+        motion_contacts = contact_flags;
+        col_radius = 100;
+        model.angles.z = 0;
+        model.angles.x = 0;
+        if (!(motion_contacts & 2))
         {
-            this->airborne_ticks = this->airborne_ticks + 1;
+            ++airborne_ticks;
         }
         else
         {
-            this->airborne_ticks = 0;
-            this->jump_latch = 0;
+            airborne_ticks = 0;
+            jump_latch = 0;
         }
-        if (((!GetCheatOptions().free_movement && (this->model.animation == 17)) && this->playback.complete) && !(this->fall_damage_threshold))
+        if (((!GetCheatOptions().free_movement && (model.animation == 17)) && playback.complete) && !fall_damage_threshold)
             EnterDeathState();
         ReadInput();
-        if (this->move_input[0] | this->move_input[1])
+        if (move_input[0] | move_input[1])
         {
-            ramp_up = this->move_ramp;
+            ramp_up = move_ramp;
             if (ramp_up < 8)
-                this->move_ramp = (ramp_up + 1);
+                move_ramp = ramp_up + 1;
         }
         else
         {
-            ramp_before = this->move_ramp;
-            ramp_after = (sint32)((uint32)ramp_before - 1);
-            if (ramp_before)
-                this->move_ramp = ramp_after;
+            if (move_ramp)
+                --move_ramp;
         }
         movement_state = this->movement_state;
-        this->weapons_enabled = 1;
+        weapons_enabled = 1;
         if (movement_state == 512)
         {
             this->idle_ticks = 0;
@@ -2052,7 +2222,7 @@ uint32 Player::Update()
                 if (transition_result)
                     goto SelectDirectionalAnimation;
                 move_octant = 0;
-                if (!this->playback.complete)
+                if (!playback.complete)
                     goto SelectDirectionalAnimation;
             ReturnToIdleAnimation:
                 InitializeAnimation();
@@ -2069,18 +2239,18 @@ uint32 Player::Update()
                         if (movement_state == 4)
                         {
                             this->idle_ticks = 0;
-                            if (this->airborne_ticks < 49 || this->model.animation != 2)
+                            if (airborne_ticks < 49 || model.animation != 2)
                             {
-                                air_animation = this->model.animation;
+                                air_animation = model.animation;
                                 if (air_animation != 17)
                                 {
                                     restart_air_animation = false;
-                                    if (((sint32)(motion.velocity.words[1] ^ (uint32)prev_vertical_velocity) < 0) || (air_animation != 2))
+                                    if (((motion.velocity.y ^ prev_vertical_velocity) < 0) || (air_animation != 2))
                                         restart_air_animation = true;
                                     if (restart_air_animation)
                                     {
-                                        this->fall_start_y = this->model.pos.words[1];
-                                        SetAnimationRange(2, ((sint32)GetGameTuning().player.jump_last_frame + 1), (sint32)GetGameTuning().player.airborne_last_frame);
+                                        fall_start_y = (uint32)model.pos.y;
+                                        SetAnimationRange(2, GetGameTuning().player.jump_last_frame + 1, GetGameTuning().player.airborne_last_frame);
                                         motion.drag[1] = GetGameTuning().player.airborne_drag;
                                     }
                                 }
@@ -2093,7 +2263,7 @@ uint32 Player::Update()
                             move_octant = 0;
                             if (!transition_result)
                             {
-                                transition_result = TryEnterRecordMovementState();
+                                transition_result = TryEnterRecMovementState();
                                 move_octant = 0;
                                 if (!transition_result)
                                 {
@@ -2148,9 +2318,9 @@ uint32 Player::Update()
                             move_octant = 0;
                             if (transition_result)
                                 goto SelectDirectionalAnimation;
-                            if (this->playback.complete)
+                            if (playback.complete)
                                 SetAnimationRange(0, 0, -1);
-                            idle_ticks = (this->idle_ticks + 1) & 65535;
+                            idle_ticks = this->idle_ticks + 1;
                             this->idle_ticks = idle_ticks;
                             if (idle_ticks == 1350)
                             {
@@ -2163,7 +2333,7 @@ uint32 Player::Update()
                             if (idle_ticks == 4050)
                             {
                                 idle_quote1 = RandomRange(8);
-                                PlayCdVoiceEvent(8, idle_quote1, model.pos.words, 0);
+                                PlayCdVoiceEvent(8, idle_quote1, &model.pos);
                                 this->idle_ticks = 1350;
                             ClearMovementOctant:
                                 move_octant = 0;
@@ -2174,19 +2344,19 @@ uint32 Player::Update()
                     goto SelectDirectionalAnimation;
                 }
                 this->idle_ticks = 0;
-                transition_result = TryEnterRecordMovementState();
+                transition_result = TryEnterRecMovementState();
                 move_octant = 0;
                 if (transition_result)
                     goto SelectDirectionalAnimation;
                 if (TryEnterAnimation10State())
                     goto ClearMovementOctant;
-                if (!(this->pad->buttons[17].down))
+                if (!pad->buttons[17].down)
                     runtime.jump_released = 1;
                 next_state = 4;
-                if (this->jump_hold_ticks)
+                if (jump_hold_ticks)
                 {
                     move_octant = 0;
-                    if (this->pad->buttons[17].down)
+                    if (pad->buttons[17].down)
                         goto SelectDirectionalAnimation;
                     next_state = 4;
                 }
@@ -2226,7 +2396,7 @@ uint32 Player::Update()
                 move_octant = 0;
                 if (transition_result)
                     goto SelectDirectionalAnimation;
-                move_axis = (sint8)(this->move_input[0]);
+                move_axis = (sint8)move_input[0];
                 goto CheckMovementInput;
             }
             if (movement_state < 0x21)
@@ -2263,7 +2433,7 @@ uint32 Player::Update()
                 move_octant = 0;
                 if (transition_result)
                     goto SelectDirectionalAnimation;
-                move_axis = (sint8)(this->move_input[0]);
+                move_axis = (sint8)move_input[0];
             CheckMovementInput:
                 move_octant = 0;
 
@@ -2273,17 +2443,17 @@ uint32 Player::Update()
             }
             if (movement_state == 128)
             {
-                jump_ready = this->playback.complete;
+                jump_ready = playback.complete;
                 this->idle_ticks = 0;
                 if (jump_ready)
                 {
                     jump_platform = ground.GetObject();
-                    jump_impulse = (sint32)(0u - ((uint32)GetGameTuning().player.jump_impulse << 12));
-                    this->jump_velocity = jump_impulse;
+                    jump_impulse = -GetGameTuning().player.jump_impulse * ONE;
+                    jump_velocity = jump_impulse;
                     if (jump_platform)
-                        this->jump_velocity = (jump_impulse + static_cast<VisualObject *>(jump_platform->owner)->motion.velocity.words[1]);
+                        jump_velocity = jump_impulse + (uint32) static_cast<VisualObject *>(jump_platform->owner)->motion.velocity.y;
                     this->movement_state = 2;
-                    this->jump_hold_ticks = GetGameTuning().player.jump_hold_ticks;
+                    jump_hold_ticks = GetGameTuning().player.jump_hold_ticks;
                 }
                 goto ClearMovementOctant;
             }
@@ -2295,16 +2465,16 @@ uint32 Player::Update()
             if (transition_result)
                 goto SelectDirectionalAnimation;
             this->idle_ticks = 0;
-            this->collision_radius = 50;
+            col_radius = 50;
             transition_result = TryEnterActionState();
             move_octant = 0;
             if (transition_result)
                 goto SelectDirectionalAnimation;
             animation_start = 21;
-            if (this->pad->buttons[16].down)
+            if (pad->buttons[16].down)
                 goto SelectDirectionalAnimation;
-            if (((sint8)(this->model.frame)) < 21)
-                animation_start = (sint8)(this->model.frame);
+            if (((sint8)model.frame) < 21)
+                animation_start = model.frame;
         ReverseCrouchAnimation:
             SetAnimationRange(5, animation_start, 0);
 
@@ -2313,12 +2483,12 @@ uint32 Player::Update()
         }
         if (movement_state == 0x4000)
         {
-            rail_animation = this->model.animation;
+            rail_animation = model.animation;
             this->idle_ticks = 0;
             if (rail_animation != 13)
                 goto ClearMovementOctant;
             rail_frame3 = DidAnimationCrossFrame(13, 3);
-            if ((UpdateEventLatch(rail_frame3, 1) || ((rail_frame33 = DidAnimationCrossFrame(13, 33)), (rail_frame33_event = UpdateEventLatch(rail_frame33, 1)), (move_octant = 0), rail_frame33_event)))
+            if (UpdateEventLatch(rail_frame3, 1) || ((rail_frame33 = DidAnimationCrossFrame(13, 33)), (rail_frame33_event = UpdateEventLatch(rail_frame33, 1)), (move_octant = 0), rail_frame33_event))
             {
                 static_cast<FlexibleTraversalRail *>(rail.Get())->ApplyRandomOffset(64);
                 move_octant = 0;
@@ -2334,16 +2504,16 @@ uint32 Player::Update()
                 if (transition_result)
                     goto SelectDirectionalAnimation;
                 this->idle_ticks = 0;
-                this->collision_radius = 50;
+                col_radius = 50;
                 transition_result = TryEnterAirborneState();
                 move_octant = 0;
                 if (transition_result)
                     goto SelectDirectionalAnimation;
-                crouch_frame = (sint8)(this->model.frame);
-                if ((crouch_frame < 21) && (this->pad->buttons[16].down || (crouch_frame < 11)))
+                crouch_frame = model.frame;
+                if ((crouch_frame < 21) && (pad->buttons[16].down || (crouch_frame < 11)))
                     goto SelectDirectionalAnimation;
                 next_state = 256;
-                if (this->pad->buttons[16].down)
+                if (pad->buttons[16].down)
                     goto ApplyMovementState;
                 animation_start = 21;
                 goto ReverseCrouchAnimation;
@@ -2354,7 +2524,7 @@ uint32 Player::Update()
                 {
                     this->idle_ticks = 0;
                     this->movement_state = 0x2000;
-                    this->playback.speed = 111408;
+                    playback.speed = 111408;
                     SetAnimationRange(11, 0, -1);
                     move_octant = 0;
                     goto SelectDirectionalAnimation;
@@ -2362,30 +2532,30 @@ uint32 Player::Update()
                 move_octant = 0;
                 if (movement_state == 0x2000)
                 {
-                    climb_complete = this->playback.complete;
+                    climb_complete = playback.complete;
                     this->idle_ticks = 0;
-                    this->playback.speed = 111408;
+                    playback.speed = 111408;
                     if (!climb_complete)
                         goto ClearMovementOctant;
                     SetAnimationRange(0, 0, -1);
 
-                    MultiplyScalarVector(move_work.words, ledge_offset_scale, ledge_normal.words);
-                    SubtractVectors(model.pos.words, move_work.words);
-                    climb_pad = this->pad;
-                    this->model.pos.words[1] = (this->model.pos.words[1] - (884736));
-                    (climb_pad->buttons[17].pressed = 0);
-                    ledge_ground_y = FindGroundHeight(model.pos.words, 0, 2048);
+                    move_work.Scale(ledge_offset_scale, ledge_normal);
+                    model.pos.Subtract(move_work);
+                    climb_pad = pad;
+                    model.pos.y = (uint32)model.pos.y - 884736;
+                    climb_pad->buttons[17].pressed = false;
+                    ledge_ground_y = CollisionRay::FindGroundHeight(model.pos, 0, 2048);
                     if (ledge_ground_y != -1)
                     {
-                        ledge_contact_flags = this->contact_flags | 2;
-                        this->model.pos.words[1] = (ledge_ground_y - (ground_offset << 12));
-                        this->contact_flags = ledge_contact_flags;
+                        ledge_contact_flags = contact_flags | 2;
+                        model.pos.y = (uint32)ledge_ground_y - (ground_offset << 12);
+                        contact_flags = ledge_contact_flags;
                     }
-                    this->ground_grace_ticks = 4;
+                    ground_grace_ticks = 4;
                     transition_camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
                     this->movement_state = 1;
-                    motion.velocity.words[2] = 0;
-                    motion.velocity.words[0] = 0;
+                    motion.velocity.z = 0;
+                    motion.velocity.x = 0;
                     transition_camera->ClearTargetTransition();
                     move_octant = 0;
                 }
@@ -2429,7 +2599,7 @@ uint32 Player::Update()
             move_octant = 0;
             if (transition_result)
                 goto SelectDirectionalAnimation;
-            move_axis = (sint8)(this->move_input[1]);
+            move_axis = (sint8)move_input[1];
             goto CheckMovementInput;
         }
         if (movement_state == 0x10000)
@@ -2437,32 +2607,32 @@ uint32 Player::Update()
             OneShotActivator *one_shot = one_shot_activator.Get();
             if (!one_shot)
             {
-                GameDiagnostic("TODO Missing active one-shot activator\n");
+                GameDiagnostic(("TODO Missing active one-shot activator\n"));
                 abort();
             }
-            activator_pos_x = this->model.pos.words[0];
+            activator_pos_x = model.pos.x;
             this->idle_ticks = 0;
-            activator_target_x = one_shot->activation_pos.words[0];
-            if ((sint32)Abs32((sint32)((uint32)activator_target_x - (uint32)activator_pos_x) >> 3) <= 0x7FFF)
-                this->model.pos.words[0] = activator_target_x;
+            activator_target_x = one_shot->activation_pos.x;
+            if (abs((sint32)(activator_target_x - activator_pos_x) >> 3) <= 0x7FFF)
+                model.pos.x = activator_target_x;
             else
-                this->model.pos.words[0] = ((uint32)activator_pos_x + ((sint32)((uint32)activator_target_x - (uint32)activator_pos_x) >> 3));
-            activator_pos_z = this->model.pos.words[2];
-            activation_target_z = one_shot_activator->activation_pos.words[2];
-            if ((sint32)Abs32((sint32)((uint32)activation_target_z - (uint32)activator_pos_z) >> 3) <= 0x7FFF)
-                this->model.pos.words[2] = activation_target_z;
+                model.pos.x = activator_pos_x + ((sint32)(activator_target_x - activator_pos_x) >> 3);
+            activator_pos_z = model.pos.z;
+            activation_target_z = one_shot_activator->activation_pos.z;
+            if (abs((sint32)(activation_target_z - activator_pos_z) >> 3) <= 0x7FFF)
+                model.pos.z = activation_target_z;
             else
-                this->model.pos.words[2] = ((uint32)activator_pos_z + ((sint32)((uint32)activation_target_z - (uint32)activator_pos_z) >> 3));
-            if ((((uint32)(this->model.frame)) - 25) < 0x19)
+                model.pos.z = activator_pos_z + ((sint32)(activation_target_z - activator_pos_z) >> 3);
+            if (model.frame >= 25 && model.frame < 50)
             {
                 if (one_shot_activator)
                 {
-                    one_shot_activator->model.angles.words[2] = (one_shot_activator->model.angles.words[2] - 28) & 4095;
-                    if (this->model.frame == 32)
+                    one_shot_activator->model.angles.z = ((uint16)one_shot_activator->model.angles.z - 28) & 4095;
+                    if (model.frame == 32)
                         one_shot_activator->SpawnObjects();
                 }
             }
-            if (this->playback.complete)
+            if (playback.complete)
                 this->movement_state = 1;
             goto ClearMovementOctant;
         }
@@ -2477,18 +2647,12 @@ uint32 Player::Update()
         SelectDirectionalAnimation:
             aim_octant = 0;
 
-            if (this->move_input[0] | this->move_input[1])
+            if (move_input[0] | move_input[1])
             {
-                move_angle = this->move_heading;
-                move_angle_word = (uint32)move_angle << 16;
-                if (((uint32)((move_angle - 257))) < 0xDFF)
+                move_angle = move_heading;
+                if (move_angle >= 257 && move_angle <= 3839)
                 {
-                    move_angle = (sint16)(move_angle);
-                    move_angle_offset = (move_angle_word >> 16) - 256;
-                    move_angle_bin = move_angle_offset >> 9;
-                    if (move_angle_offset < 0)
-                        move_angle_bin = (move_angle + 255) >> 9;
-                    move_octant = move_angle_bin + 2;
+                    move_octant = ((move_angle - 256) >> 9) + 2;
                 }
                 else
                 {
@@ -2496,18 +2660,12 @@ uint32 Player::Update()
                 }
             }
             camera_yaw = 0;
-            if (this->aim_input[0] | this->aim_input[1])
+            if (aim_input[0] | aim_input[1])
             {
-                aim_angle = this->aim_heading;
-                aim_angle_word = (uint32)aim_angle << 16;
-                if (((uint32)((aim_angle - 257))) < 0xDFF)
+                aim_angle = aim_heading;
+                if (aim_angle >= 257 && aim_angle <= 3839)
                 {
-                    aim_angle = (sint16)(aim_angle);
-                    aim_angle_offset = (aim_angle_word >> 16) - 256;
-                    aim_angle_bin = aim_angle_offset >> 9;
-                    if (aim_angle_offset < 0)
-                        aim_angle_bin = (aim_angle + 255) >> 9;
-                    aim_octant = aim_angle_bin + 2;
+                    aim_octant = ((aim_angle - 256) >> 9) + 2;
                     camera_yaw = 0;
                 }
                 else
@@ -2519,34 +2677,32 @@ uint32 Player::Update()
             aim_idx = aim_octant - 1;
             movement_camera = visual_lists.cameras ? static_cast<Camera *>(visual_lists.cameras->owner) : 0;
             if (movement_camera)
-                camera_yaw = movement_camera->angles.words[1];
+                camera_yaw = movement_camera->angles.y;
             facing_state = this->movement_state;
             if ((facing_state & 0x630) != 0)
             {
                 if (aim_octant)
                 {
-                    const DirectionAnimation &entry = direction_animations[move_idx];
-                    direction_animation = entry.animation[aim_idx];
-                    animation_dir = entry.direction[aim_idx];
-                    if ((direction_animation != this->model.animation) || (animation_dir != this->playback.dir))
+                    const DirectionAnimation &entry = dir_animations[move_idx];
+                    dir_animation = entry.animation[aim_idx];
+                    animation_dir = entry.dir[aim_idx];
+                    if ((dir_animation != model.animation) || (animation_dir != playback.dir))
                     {
-                        StartAnimation(direction_animation, animation_dir);
+                        StartAnimation(dir_animation, animation_dir);
                     }
                     immediate_facing = false;
                     facing_angle = entry.facing[aim_idx];
-                    uint32 model_offset = entry.body_heading[aim_idx];
-                    uint32 movement_heading = this->move_heading;
-                    desired_heading = (sint16)((uint32)camera_yaw + model_offset + movement_heading - ((uint32)move_idx << 9));
+                    desired_heading = camera_yaw + entry.body_heading[aim_idx] + move_heading - move_idx * 512;
                 }
                 else
                 {
-                    if (((this->model.animation != 1) || ((facing_angle = 0), ((uint8)this->playback.dir != 1))))
+                    if ((model.animation != 1) || ((facing_angle = 0), (playback.dir != 1)))
                     {
                         StartAnimation(1, 1);
                         facing_angle = 0;
                     }
                     immediate_facing = false;
-                    desired_heading = (sint16)((camera_yaw + this->move_heading));
+                    desired_heading = camera_yaw + move_heading;
                 }
                 goto ApplyFacingTransition;
             }
@@ -2557,13 +2713,13 @@ uint32 Player::Update()
                     if (aim_octant)
                     {
                         immediate_facing = false;
-                        facing_angle = (((uint16)direction_animations[9].facing[aim_idx] + this->aim_heading) - (((uint16)(aim_idx)) << 9)) & 0xFFF;
-                        desired_heading = (sint16)((camera_yaw + direction_animations[9].body_heading[aim_idx]));
+                        facing_angle = (dir_animations[9].facing[aim_idx] + aim_heading - aim_idx * 512) & 0xFFF;
+                        desired_heading = camera_yaw + dir_animations[9].body_heading[aim_idx];
                     }
                     else
                     {
                         facing_angle = 0;
-                        desired_heading = (sint16)(this->model.angles.words[1]);
+                        desired_heading = model.angles.y;
                         immediate_facing = false;
                     }
                     goto ApplyFacingTransition;
@@ -2573,44 +2729,41 @@ uint32 Player::Update()
                     if (aim_octant)
                     {
                         immediate_facing = false;
-                        facing_angle = (((uint16)direction_animations[9].facing[aim_idx] + this->aim_heading) - (((uint16)(aim_idx)) << 9)) & 0xFFF;
-                        desired_heading = (sint16)((camera_yaw + direction_animations[9].body_heading[aim_idx]));
+                        facing_angle = (dir_animations[9].facing[aim_idx] + aim_heading - aim_idx * 512) & 0xFFF;
+                        desired_heading = camera_yaw + dir_animations[9].body_heading[aim_idx];
                     }
                     else
                     {
                         facing_angle = 0;
                         immediate_facing = false;
-                        desired_heading = (sint16)((camera_yaw + this->move_heading));
+                        desired_heading = camera_yaw + move_heading;
                     }
                     goto ApplyFacingTransition;
                 }
                 if (facing_state == 0x4000)
                 {
-                    if (aim_octant || !((this->move_input[0] | this->move_input[1])))
+                    if (aim_octant || !(move_input[0] | move_input[1]))
                     {
-                        if (this->model.animation != 14)
+                        if (model.animation != 14)
                             SetAnimationRange(14, 0, -1);
                         if (!aim_octant)
                         {
                         AdvanceFacingTransition:
-                            if (this->facing_ticks)
+                            if (facing_ticks)
                             {
                                 ModelJointAngles &facing = GetModelJointAngles(7);
-                                uint32 step = (uint16)this->facing_step;
-                                uint32 yaw = facing.rotation.words[1];
-                                facing.rotation.words[1] = (uint16)((yaw + step) & 4095);
-                                uint32 remaining = this->facing_ticks - 1;
-                                this->facing_ticks = remaining;
+                                facing.rotation.y = ((uint16)facing.rotation.y + facing_step) & 4095;
+                                uint32 remaining = facing_ticks - 1;
+                                facing_ticks = remaining;
                                 if (!remaining)
                                 {
-                                    uint32 target = (uint16)this->facing_target;
-                                    facing.rotation.words[1] = (uint16)target;
+                                    facing.rotation.y = facing_target;
                                 }
                             }
 
                             acceleration_state = this->movement_state;
-                            motion.acceleration.words[2] = 0;
-                            motion.acceleration.words[0] = 0;
+                            motion.acceleration.z = 0;
+                            motion.acceleration.x = 0;
                             if (acceleration_state != 0x4000)
                             {
                                 if (acceleration_state >= 0x4001)
@@ -2618,7 +2771,7 @@ uint32 Player::Update()
                                     if (acceleration_state != 0x8000)
                                     {
                                     ApplyGravity:
-                                        motion.acceleration.words[1] = ((uint32)GetGameTuning().player.gravity << 12);
+                                        motion.acceleration.y = GetGameTuning().player.gravity * ONE;
 
                                     TransformMovement:
                                         if ((this->movement_state & 0x80000) == 0)
@@ -2632,7 +2785,7 @@ uint32 Player::Update()
                                         if (movement_camera)
                                         {
                                             camera_angles = movement_camera->angles;
-                                            BuildModelRotationMatrix(camera_angles.words, camera_matrix);
+                                            camera_angles.BuildRotationMatrix(camera_matrix);
                                         }
                                         else
                                         {
@@ -2645,87 +2798,89 @@ uint32 Player::Update()
                                         TransposeRotationMatrix(camera_matrix, inverse_camera_matrix);
                                         SetRotMatrix(&inverse_camera_matrix);
 
-                                        ShiftVectorRight(camera_velocity.words, motion.velocity.words, velocity_shift);
+                                        camera_velocity.ShiftRight(motion.velocity, velocity_shift);
 
                                         move_work = camera_velocity;
-                                        xport_gte_write_data(9, (uint32)move_work.components[0]);
-                                        xport_gte_write_data(10, (uint32)move_work.components[1]);
-                                        xport_gte_write_data(11, (uint32)move_work.components[2]);
+                                        xport_gte_write_data(9, move_work.comp[0]);
+                                        xport_gte_write_data(10, move_work.comp[1]);
+                                        xport_gte_write_data(11, move_work.comp[2]);
                                         xport_gte_execute(0x49E012);
-                                        move_work.components[0] = (sint32)xport_gte_read_data(25);
-                                        move_work.components[1] = (sint32)xport_gte_read_data(26);
-                                        move_work.components[2] = (sint32)xport_gte_read_data(27);
+                                        move_work.comp[0] = xport_gte_read_data(25);
+                                        move_work.comp[1] = xport_gte_read_data(26);
+                                        move_work.comp[2] = xport_gte_read_data(27);
 
-                                        ShiftVectorLeft(move_work.words, velocity_shift);
+                                        move_work.ShiftLeft(velocity_shift);
                                         velocity_state = this->movement_state;
                                         if ((velocity_state & 0x71100) == 0)
                                         {
                                             switch (velocity_state)
                                             {
                                                 case 0x800:
-                                                    if (((sint8)(this->model.frame)) < 20)
+                                                    if (((sint8)model.frame) < 20)
                                                     {
-                                                        move_work.components[0] = (sint32)(0u - ((uint32)(sint32)(sint16)GetGameTuning().player.move_speed * (uint32)rsin(this->action_heading & 0xFFFu)));
+                                                        move_work.x = -(sint16)GetGameTuning().player.move_speed * rsin(action_heading & 0xFFF);
                                                         velocity_changed = true;
-                                                        move_work.components[2] = (sint32)(0u - ((uint32)(sint32)(sint16)GetGameTuning().player.move_speed * (uint32)rcos(this->action_heading & 0xFFFu)));
+                                                        move_work.z = -(sint16)GetGameTuning().player.move_speed * rcos(action_heading & 0xFFF);
                                                     }
                                                     break;
 
                                                 case 0x4000:
-                                                    if (!((this->aim_input[0] | this->aim_input[1])) && this->move_input[0])
+                                                    if (!(aim_input[0] | aim_input[1]) && (move_input[0] | move_input[1]))
                                                     {
-                                                        if ((((rail->heading - (camera_yaw + this->move_heading)) & 0xFFFu) - 1025) < 0x7FF)
+                                                        uint16 relative_heading = (rail->heading - (camera_yaw + move_heading)) & 4095;
+                                                        if (relative_heading >= 1025 && relative_heading <= 3071)
                                                         {
                                                             rail_backward_speed = GetGameTuning().player.move_speed;
-                                                            this->playback.speed = 0x20000;
+                                                            playback.speed = 0x20000;
                                                             rail_step = rail_backward_speed / 4;
                                                             rail_heading = (rail->heading + 2048) & 0xFFF;
                                                         }
                                                         else
                                                         {
                                                             rail_forward_speed = GetGameTuning().player.move_speed;
-                                                            this->playback.speed = 0x20000;
+                                                            playback.speed = 0x20000;
                                                             rail_heading = rail->heading;
                                                             rail_step = rail_forward_speed / -4;
                                                         }
-                                                        this->model.angles.words[1] = rail_heading;
+                                                        model.angles.y = rail_heading;
                                                         velocity_changed = true;
                                                     }
                                                     break;
 
                                                 case 0x8000:
-                                                    move_work.components[0] = ((sint32)(sint16)GetGameTuning().player.move_speed / 4) * 8u * (uint32)rsin((rail->heading - camera_yaw) & 0xFFFu);
+                                                    rail_forward_speed = GetGameTuning().player.move_speed;
+                                                    move_work.x = (rail_forward_speed / 4) * 8 * rsin((rail->heading - camera_yaw) & 0xFFF);
                                                     velocity_changed = true;
-                                                    move_work.components[2] = ((sint32)(sint16)GetGameTuning().player.move_speed / 4) * 8u * (uint32)rcos((rail->heading - camera_yaw) & 0xFFFu);
+                                                    move_work.z = (rail_forward_speed / 4) * 8 * rcos((rail->heading - camera_yaw) & 0xFFF);
                                                     break;
 
                                                 default:
-                                                    movement_x = this->move_input[0];
-                                                    movement_z = this->move_input[1];
+                                                    movement_x = move_input[0];
+                                                    movement_z = move_input[1];
 
                                                     if (movement_x | movement_z)
                                                     {
-                                                        move_strength = Abs32(((sint32)(sint8)movement_x * 4096) / 96) + Abs32(((sint32)(sint8)movement_z * 4096) / 96);
+                                                        move_strength = abs((movement_x * ONE) / 96) + abs((movement_z * ONE) / 96);
                                                         if (move_strength >= 4097)
                                                             move_strength = 4096;
                                                         if (movement_x)
                                                         {
-                                                            move_work.components[2] = (sint32)(0u - ((uint32)((sint32)((uint32)rcos(this->move_heading & 0xFFFu) * (uint32)move_strength) >> 12) * (uint32)(sint32)(sint16)GetGameTuning().player.move_speed));
-                                                            move_work.components[2] = (sint32)((uint32)move_work.components[2] * this->move_ramp) / 8;
+                                                            move_work.z = -((rcos(move_heading & 0xFFF) * move_strength) >> 12) * (sint16)GetGameTuning().player.move_speed;
+                                                            move_work.z = (sint32)((uint32)move_work.z * move_ramp) / 8;
                                                             velocity_changed = true;
                                                         }
-                                                        if (this->move_input[1])
+                                                        if (move_input[1])
                                                         {
-                                                            move_work.components[0] = (sint32)(0u - ((uint32)((sint32)((uint32)rsin(this->move_heading & 0xFFFu) * (uint32)move_strength) >> 12) * (uint32)(sint32)(sint16)GetGameTuning().player.move_speed));
-                                                            move_work.components[0] = (sint32)((uint32)move_work.components[0] * this->move_ramp) / 8;
+                                                            move_work.x = -((rsin(move_heading & 0xFFF) * move_strength) >> 12) * (sint16)GetGameTuning().player.move_speed;
+                                                            move_work.x = (sint32)((uint32)move_work.x * move_ramp) / 8;
                                                             velocity_changed = true;
                                                         }
                                                     }
                                                     else if (!active_force)
                                                     {
                                                         velocity_changed = true;
-                                                        move_work.components[0] = 0;
-                                                        move_work.components[2] = 0;
+                                                        move_work.comp[0] = 0;
+                                                        move_work.comp[2] = 0;
                                                     }
                                                     break;
                                             }
@@ -2733,93 +2888,87 @@ uint32 Player::Update()
                                         SetRotMatrix(&camera_matrix);
                                         if (velocity_changed)
                                         {
-                                            ShiftVectorRight(world_velocity.words, move_work.words, velocity_shift);
+                                            world_velocity.ShiftRight(move_work, velocity_shift);
 
                                             motion.velocity = world_velocity;
-                                            xport_gte_write_data(9, motion.velocity.words[0]);
-                                            xport_gte_write_data(10, motion.velocity.words[1]);
-                                            xport_gte_write_data(11, motion.velocity.words[2]);
+                                            xport_gte_write_data(9, (uint32)motion.velocity.x);
+                                            xport_gte_write_data(10, (uint32)motion.velocity.y);
+                                            xport_gte_write_data(11, (uint32)motion.velocity.z);
                                             xport_gte_execute(0x49E012);
-                                            motion.velocity.words[0] = xport_gte_read_data(25);
-                                            motion.velocity.words[1] = xport_gte_read_data(26);
-                                            motion.velocity.words[2] = xport_gte_read_data(27);
+                                            motion.velocity.x = xport_gte_read_data(25);
+                                            motion.velocity.y = xport_gte_read_data(26);
+                                            motion.velocity.z = xport_gte_read_data(27);
 
-                                            ShiftVectorLeft(motion.velocity.words, velocity_shift);
+                                            motion.velocity.ShiftLeft(velocity_shift);
                                             rail_state = this->movement_state;
                                             if ((rail_state & 0x8000) != 0)
                                             {
-                                                AddVectors(this->model.pos.words, motion.velocity.words);
-                                                AddVectors(rail_pos.words, motion.velocity.words);
-                                                if (!rail->Project(rail_pos, rail_point) || this->pad->buttons[17].pressed)
+                                                model.pos.Add(motion.velocity);
+                                                rail_pos.Add(motion.velocity);
+                                                if (!rail->Project(rail_pos, rail_point) || pad->buttons[17].pressed)
                                                 {
-                                                    this->pad->buttons[17].pressed = 0;
-                                                    rail_sound = this->rail_voice;
+                                                    pad->buttons[17].pressed = false;
+                                                    rail_sound = rail_voice;
                                                     this->movement_state = 4;
                                                     on_rail = 0;
                                                     ::StopSoundVoices(rail_sound);
                                                     goto ApplyPlatformMotion;
                                                 }
                                             ApplyRailPoint:
-                                                this->model.pos = rail_point;
-                                                rail_pos.words[0] = this->model.pos.words[0];
-                                                rail_pos.words[1] = this->model.pos.words[1];
-                                                rail_pos.words[2] = this->model.pos.words[2];
-                                                this->model.pos.words[1] = (this->model.pos.words[1] + (0x80000));
+                                                model.pos = rail_point;
+                                                rail_pos = model.pos;
+                                                model.pos.y = (uint32)model.pos.y + 0x80000;
                                                 goto ApplyPlatformMotion;
                                             }
                                             if ((rail_state & 0x4000) == 0)
                                                 goto ApplyPlatformMotion;
-                                            if (rail->Advance(rail_pos, rail_step, rail_point) && !this->pad->buttons[17].pressed)
+                                            if (rail->Advance(rail_pos, rail_step, rail_point) && !pad->buttons[17].pressed)
                                             {
                                                 goto ApplyRailPoint;
                                             }
-                                            this->pad->buttons[17].pressed = 0;
+                                            pad->buttons[17].pressed = false;
                                         }
                                         else
                                         {
-                                            if ((((this->movement_state & 0xC000) == 0) || ((rail_pad = this->pad), !(rail_pad->buttons[17].pressed))))
+                                            if (((this->movement_state & 0xC000) == 0) || ((rail_pad = pad), !rail_pad->buttons[17].pressed))
                                             {
                                             ApplyPlatformMotion:
                                                 if (!(ground.GetObject()))
                                                     goto UpdateFootsteps;
 
                                                 platform_moved = false;
-                                                platform_pos = this->model.pos;
+                                                platform_pos = model.pos;
                                                 if ((this->movement_state & 0x3000) != 0)
                                                 {
-                                                    AddVectors(this->model.pos.words, static_cast<VisualObject *>(ground.GetObject()->owner)->motion.velocity.words);
+                                                    model.pos.Add(static_cast<VisualObject *>(ground.GetObject()->owner)->motion.velocity);
                                                     platform_moved = true;
                                                     goto CheckPlatformMotion;
                                                 }
-                                                if (this->airborne_ticks)
+                                                if (airborne_ticks)
                                                 {
-                                                    if (((this->move_input[0] | this->move_input[1]) || ((air_platform = ground.GetObject()), (air_platform_velocity_x = static_cast<VisualObject *>(air_platform->owner)->motion.velocity.words[0]), !((air_platform_velocity_x | static_cast<VisualObject *>(air_platform->owner)->motion.velocity.words[2])))))
+                                                    if ((move_input[0] | move_input[1]) || ((air_platform = ground.GetObject()), (air_platform_velocity_x = (uint32) static_cast<VisualObject *>(air_platform->owner)->motion.velocity.x), !(air_platform_velocity_x | (uint32) static_cast<VisualObject *>(air_platform->owner)->motion.velocity.z)))
                                                     {
                                                     CheckPlatformMotion:
                                                         if (platform_moved)
                                                         {
-                                                            (platform_ray.endpoints[0].words[0] = platform_pos.words[0]);
-                                                            (platform_ray.endpoints[0].words[1] = platform_pos.words[1]);
-                                                            (platform_ray.endpoints[0].words[2] = platform_pos.words[2]);
-                                                            (platform_ray.endpoints[1].words[0] = this->model.pos.words[0]);
-                                                            (platform_ray.endpoints[1].words[1] = this->model.pos.words[1]);
-                                                            (platform_ray.endpoints[1].words[2] = this->model.pos.words[2]);
-                                                            InitializeCollisionRay(platform_ray);
-                                                            QueryCollisionRay(platform_ray, 1);
+                                                            platform_ray.endpoints[0] = platform_pos;
+                                                            platform_ray.endpoints[1] = model.pos;
+                                                            platform_ray.Initialize();
+                                                            platform_ray.Query(1);
                                                             if (platform_ray.hit.GetObject())
                                                             {
-                                                                this->model.pos = platform_pos;
+                                                                model.pos = platform_pos;
                                                             }
                                                         }
 
                                                     UpdateFootsteps:
-                                                        if ((this->contact_flags & 0x100) != 0)
+                                                        if ((contact_flags & 0x100) != 0)
                                                             runtime.jump_released = 1;
 
-                                                        if ((this->jump_hold_ticks && this->pad->buttons[17].down) && !runtime.jump_released)
-                                                            motion.velocity.words[1] = this->jump_velocity;
+                                                        if ((jump_hold_ticks && pad->buttons[17].down) && !runtime.jump_released)
+                                                            motion.velocity.y = jump_velocity;
                                                         footstep_sound = 74;
-                                                        if ((this->model.flags & 8) != 0)
+                                                        if ((model.flags & 8) != 0)
                                                         {
                                                             if (runtime.last_footstep_sound == 74)
                                                                 footstep_sound = 75;
@@ -2828,18 +2977,18 @@ uint32 Player::Update()
                                                         {
                                                             do
                                                                 footstep_sound = RandomRange(4) + 31;
-                                                            while ((footstep_sound == runtime.last_footstep_sound));
+                                                            while (footstep_sound == runtime.last_footstep_sound);
                                                         }
-                                                        footstep_animation = this->model.animation;
+                                                        footstep_animation = model.animation;
                                                         switch (footstep_animation)
                                                         {
                                                             case 1:
-                                                                footstep_crossed = DidAnimationCrossFrame(1, (sint32)GetGameTuning().player.footstep_frames[0]);
+                                                                footstep_crossed = DidAnimationCrossFrame(1, GetGameTuning().player.footstep_frames[0]);
                                                                 footstep_event = UpdateEventLatch(footstep_crossed, 1);
                                                                 played_footstep_sound = footstep_sound;
                                                                 if (!footstep_event)
                                                                 {
-                                                                    footstep_frame = (sint32)GetGameTuning().player.footstep_frames[1];
+                                                                    footstep_frame = GetGameTuning().player.footstep_frames[1];
                                                                     footstep_animation_id = 1;
                                                                     break;
                                                                 }
@@ -2848,83 +2997,76 @@ uint32 Player::Update()
 
                                                                 runtime.last_footstep_sound = footstep_sound;
                                                             AdvanceMovementTimers:
-                                                                jump_hold_before = this->jump_hold_ticks;
-
-                                                                jump_hold_after = jump_hold_before - 1;
-                                                                if (jump_hold_before)
-                                                                    this->jump_hold_ticks = jump_hold_after;
-                                                                slowdown_intensity = this->slowdown_ticks;
+                                                                if (jump_hold_ticks)
+                                                                    --jump_hold_ticks;
+                                                                slowdown_intensity = slowdown_ticks;
                                                                 if (slowdown_intensity)
                                                                 {
-                                                                    slowdown_green = slowdown_intensity << 8;
+                                                                    slowdown_g = slowdown_intensity << 8;
                                                                     if (slowdown_intensity >= 129)
                                                                     {
                                                                         slowdown_intensity = 128;
-                                                                        slowdown_green = 0x8000;
+                                                                        slowdown_g = 0x8000;
                                                                     }
-                                                                    model_effect.color_mode = (((slowdown_intensity | slowdown_green) | 0x6000000) | (slowdown_intensity << 17));
+                                                                    model_effect.color_mode = ((slowdown_intensity | slowdown_g) | 0x6000000) | (slowdown_intensity << 17);
                                                                     model_effect.scale = 0x2000;
-                                                                    slowdown_remaining = this->slowdown_ticks;
+                                                                    slowdown_remaining = slowdown_ticks;
                                                                     model_effect.depth_bias = 10;
-                                                                    this->slowdown_ticks = --slowdown_remaining;
+                                                                    slowdown_ticks = --slowdown_remaining;
                                                                     if (slowdown_remaining)
                                                                     {
                                                                     CheckActorContact:
-                                                                        if (!VectorsDiffer(pos_history.prev.words, this->model.pos.words))
+                                                                        if (!pos_history.prev.Differs(model.pos))
                                                                         {
                                                                         UpdateMovementTrace:
                                                                             if (!runtime.motion_update_seen)
                                                                                 runtime.motion_update_seen = 1;
 
-                                                                            SubtractVectors(frame_delta.words, this->model.pos.words, pos_history.prev.words);
+                                                                            frame_delta.Subtract(model.pos, pos_history.prev);
                                                                             if (this->movement_state != 0x40000)
                                                                             {
-                                                                                if ((frame_delta.words[0] | frame_delta.words[1]) | frame_delta.words[2])
+                                                                                if (((uint32)frame_delta.x | frame_delta.y) | (uint32)frame_delta.z)
                                                                                 {
                                                                                     runtime.trace_direction = frame_delta;
                                                                                 }
-                                                                                NormalizeFixedVector(trace_dir.words, runtime.trace_direction.words);
+                                                                                trace_dir.Normalize(runtime.trace_direction);
 
-                                                                                MultiplyVector(trace_offset.words, trace_dir.words, trace_offset_scale);
-                                                                                SubtractVectors(trace_start.words, pos_history.prev.words, trace_offset.words);
-                                                                                (motion_ray.endpoints[0].words[0] = trace_start.words[0]);
-                                                                                (motion_ray.endpoints[0].words[1] = trace_start.words[1]);
-                                                                                (motion_ray.endpoints[0].words[2] = trace_start.words[2]);
-                                                                                (motion_ray.endpoints[1].words[0] = this->model.pos.words[0]);
-                                                                                (motion_ray.endpoints[1].words[1] = this->model.pos.words[1]);
-                                                                                (motion_ray.endpoints[1].words[2] = this->model.pos.words[2]);
-                                                                                InitializeCollisionRay(motion_ray);
-                                                                                collision_query.require_surface02 = false;
-                                                                                motion_ray.triggers = 1;
-                                                                                QueryCollisionRay(motion_ray, 1);
-                                                                                collision_query.require_surface02 = false;
+                                                                                trace_offset.Multiply(trace_dir, trace_offset_scale);
+                                                                                trace_start.Subtract(pos_history.prev, trace_offset);
+                                                                                motion_ray.endpoints[0] = trace_start;
+                                                                                motion_ray.endpoints[1] = model.pos;
+                                                                                motion_ray.Initialize();
+                                                                                col_query.require_surface02 = false;
+                                                                                motion_ray.triggers = true;
+                                                                                motion_ray.Query(1);
+                                                                                col_query.require_surface02 = false;
                                                                             }
                                                                             UpdateAnimationModel(PlayerHierarchy);
-                                                                            weapon_angles.components[0] = 0;
-                                                                            weapon_angles.components[1] = (sint16)camera_yaw;
-                                                                            weapon_angles.components[2] = 0;
+                                                                            weapon_angles.comp[0] = 0;
+                                                                            weapon_angles.y = camera_yaw;
+                                                                            weapon_angles.comp[2] = 0;
                                                                             aim_axis0 = 0;
                                                                             aim_axis1 = 0;
-                                                                            if (this->analog_aim)
+                                                                            if (analog_aim)
                                                                             {
-                                                                                aim_axis0 = this->aim_input[0];
-                                                                                aim_axis1 = this->aim_input[1];
+                                                                                aim_axis0 = aim_input[0];
+                                                                                aim_axis1 = aim_input[1];
                                                                             }
                                                                             if (aim_axis0 | aim_axis1)
                                                                             {
-                                                                                weapon_angles.components[1] = (sint16)(((uint32)camera_yaw + this->aim_heading) & 4095);
+                                                                                weapon_angles.y = (camera_yaw + aim_heading) & 4095;
                                                                             }
                                                                             else
                                                                             {
-                                                                                body_heading = this->model.angles.words[1];
-                                                                                model_heading = GetModelJointAngles(7).rotation.words[1];
-                                                                                weapon_angles.components[1] = (sint16)(body_heading + model_heading);
+                                                                                body_heading = model.angles.y;
+                                                                                model_heading = (uint16)GetModelJointAngles(7).rotation.y;
+                                                                                weapon_angles.y = body_heading + model_heading;
                                                                             }
-                                                                            UpdateWeapons(weapon_angles, this->weapons_enabled);
+                                                                            UpdateWeapons(weapon_angles, weapons_enabled);
                                                                             UpdateGroundContact();
-                                                                            if (((sint16)((uint16)this->health)) < 0)
-                                                                                this->health = (sint16)(uint16)(0);
-                                                                            if (!(on_rail))
+                                                                            if (health < 0)
+                                                                                health = 0;
+                                                                            if (!on_rail)
                                                                                 rail = 0;
                                                                             if ((this->movement_state & 0x180000) == 0)
                                                                                 traversal_region = 0;
@@ -2941,7 +3083,7 @@ uint32 Player::Update()
                                                                             return result;
                                                                         }
 
-                                                                        contact = TraceSegmentCollision(pos_history.prev.words, this->model.pos.words, visual_lists.actors);
+                                                                        contact = CollisionRay::TraceSeg(pos_history.prev, model.pos, visual_lists.actors);
                                                                         if (contact)
                                                                         {
                                                                             if (static_cast<VisualObject *>(contact->owner)->kind == 201)
@@ -2949,7 +3091,7 @@ uint32 Player::Update()
                                                                             ApplyContactImpulse(*static_cast<VisualObject *>(contact->owner));
                                                                         }
                                                                     CheckPickupContact:
-                                                                        pickup = TraceSegmentCollision(pos_history.prev.words, this->model.pos.words, visual_lists.pickups);
+                                                                        pickup = CollisionRay::TraceSeg(pos_history.prev, model.pos, visual_lists.pickups);
 
                                                                         if (pickup)
                                                                             static_cast<Pickup *>(pickup->owner)->Collect(*this);
@@ -2960,22 +3102,22 @@ uint32 Player::Update()
                                                                 goto CheckActorContact;
 
                                                             case 3:
-                                                                footstep_crossed = DidAnimationCrossFrame(3, (sint32)GetGameTuning().player.footstep_frames[0]);
+                                                                footstep_crossed = DidAnimationCrossFrame(3, GetGameTuning().player.footstep_frames[0]);
                                                                 footstep_event = UpdateEventLatch(footstep_crossed, 1);
                                                                 played_footstep_sound = footstep_sound;
                                                                 if (footstep_event)
                                                                     goto PlayFootstep;
-                                                                footstep_frame = (sint32)GetGameTuning().player.footstep_frames[1];
+                                                                footstep_frame = GetGameTuning().player.footstep_frames[1];
                                                                 footstep_animation_id = 3;
                                                                 break;
 
                                                             case 4:
-                                                                footstep_crossed = DidAnimationCrossFrame(4, (sint32)GetGameTuning().player.footstep_frames[0]);
+                                                                footstep_crossed = DidAnimationCrossFrame(4, GetGameTuning().player.footstep_frames[0]);
                                                                 footstep_event = UpdateEventLatch(footstep_crossed, 1);
                                                                 played_footstep_sound = footstep_sound;
                                                                 if (footstep_event)
                                                                     goto PlayFootstep;
-                                                                footstep_frame = (sint32)GetGameTuning().player.footstep_frames[1];
+                                                                footstep_frame = GetGameTuning().player.footstep_frames[1];
                                                                 footstep_animation_id = 4;
                                                                 break;
 
@@ -3000,36 +3142,36 @@ uint32 Player::Update()
                                                             goto AdvanceMovementTimers;
                                                         goto PlayFootstep;
                                                     }
-                                                    platform_carried_x = this->model.pos.words[0] + air_platform_velocity_x;
+                                                    platform_carried_x = (uint32)model.pos.x + air_platform_velocity_x;
                                                     platform_z_owner = ground.GetObject();
-                                                    this->model.pos.words[0] = platform_carried_x;
+                                                    model.pos.x = platform_carried_x;
                                                 }
                                                 else
                                                 {
                                                     ground_platform = ground.GetObject();
-                                                    ground_velocity_x = static_cast<VisualObject *>(ground_platform->owner)->motion.velocity.words[0];
-                                                    uint32 platform_y = static_cast<VisualObject *>(ground_platform->owner)->motion.velocity.words[1];
-                                                    uint32 platform_z = static_cast<VisualObject *>(ground_platform->owner)->motion.velocity.words[2];
+                                                    ground_velocity_x = (uint32) static_cast<VisualObject *>(ground_platform->owner)->motion.velocity.x;
+                                                    uint32 platform_y = (uint32) static_cast<VisualObject *>(ground_platform->owner)->motion.velocity.y;
+                                                    uint32 platform_z = (uint32) static_cast<VisualObject *>(ground_platform->owner)->motion.velocity.z;
                                                     if (!(ground_velocity_x | platform_y | platform_z))
                                                         goto CheckPlatformMotion;
                                                     platform_y_owner = ground.GetObject();
-                                                    this->model.pos.words[0] = (this->model.pos.words[0] + (ground_velocity_x));
-                                                    platform_carried_y = this->model.pos.words[1] + static_cast<VisualObject *>(platform_y_owner->owner)->motion.velocity.words[1];
+                                                    model.pos.x = (uint32)model.pos.x + ground_velocity_x;
+                                                    platform_carried_y = (uint32)model.pos.y + (uint32) static_cast<VisualObject *>(platform_y_owner->owner)->motion.velocity.y;
                                                     platform_z_owner = ground.GetObject();
-                                                    this->model.pos.words[1] = platform_carried_y;
+                                                    model.pos.y = platform_carried_y;
                                                 }
                                                 platform_moved = true;
-                                                this->model.pos.words[2] = (this->model.pos.words[2] + (static_cast<VisualObject *>(platform_z_owner->owner)->motion.velocity.words[2]));
+                                                model.pos.z = (uint32)model.pos.z + ((uint32) static_cast<VisualObject *>(platform_z_owner->owner)->motion.velocity.z);
                                                 goto CheckPlatformMotion;
                                             }
-                                            (rail_pad->buttons[17].pressed = 0);
+                                            rail_pad->buttons[17].pressed = false;
                                         }
                                         this->movement_state = 4;
                                         on_rail = 0;
                                         goto ApplyPlatformMotion;
                                     }
                                 }
-                                else if ((acceleration_state != 4096))
+                                else if (acceleration_state != 4096)
                                 {
                                     goto ApplyGravity;
                                 }
@@ -3040,37 +3182,37 @@ uint32 Player::Update()
                         }
 
                         immediate_facing = true;
-                        facing_angle = (((uint16)direction_animations[9].facing[aim_idx] + this->aim_heading) - (((uint16)(aim_idx)) << 9)) & 0xFFF;
-                        desired_heading = (sint16)((camera_yaw + direction_animations[9].body_heading[aim_idx]));
+                        facing_angle = (dir_animations[9].facing[aim_idx] + aim_heading - aim_idx * 512) & 0xFFF;
+                        desired_heading = camera_yaw + dir_animations[9].body_heading[aim_idx];
                     ApplyFacingTransition:
                         SetFacingTransition(facing_angle, desired_heading, immediate_facing);
 
                         goto AdvanceFacingTransition;
                     }
-                    if (this->model.animation != 13)
+                    if (model.animation != 13)
                         StartAnimation(13, 1);
-                    desired_heading = (sint16)(this->model.angles.words[1]);
+                    desired_heading = model.angles.y;
                     facing_angle = 0;
                 }
-                else if ((facing_state == 0x8000))
+                else if (facing_state == 0x8000)
                 {
-                    if (this->model.animation != 14)
+                    if (model.animation != 14)
                         SetAnimationRange(14, 0, -1);
                     if (aim_octant)
                     {
                         immediate_facing = true;
-                        facing_angle = (sint16)((((uint16)direction_animations[9].facing[aim_idx] + this->aim_heading) - (((uint16)(aim_idx)) << 9)));
-                        desired_heading = (sint16)((camera_yaw + direction_animations[9].body_heading[aim_idx]));
+                        facing_angle = dir_animations[9].facing[aim_idx] + aim_heading - aim_idx * 512;
+                        desired_heading = camera_yaw + dir_animations[9].body_heading[aim_idx];
                         goto ApplyFacingTransition;
                     }
-                    desired_heading = (sint16)(this->model.angles.words[1]);
+                    desired_heading = model.angles.y;
                     facing_angle = 0;
                 }
                 else
                 {
                     if ((facing_state & 0x1F3800) != 0)
                     {
-                        desired_heading = (sint16)(this->model.angles.words[1]);
+                        desired_heading = model.angles.y;
                         facing_angle = 0;
                     }
                     else
@@ -3084,30 +3226,30 @@ uint32 Player::Update()
             }
             if (aim_octant)
             {
-                if (this->model.animation != 9)
+                if (model.animation != 9)
                     StartAnimation(9, 1);
 
                 immediate_facing = false;
-                facing_angle = (((uint16)direction_animations[8].facing[aim_idx] + this->aim_heading) - (((uint16)(aim_idx)) << 9)) & 0xFFF;
-                desired_heading = (sint16)((camera_yaw + direction_animations[8].body_heading[aim_idx]));
+                facing_angle = (dir_animations[8].facing[aim_idx] + aim_heading - aim_idx * 512) & 0xFFF;
+                desired_heading = camera_yaw + dir_animations[8].body_heading[aim_idx];
                 goto ApplyFacingTransition;
             }
-            idle_animation = this->model.animation;
+            idle_animation = model.animation;
             if (idle_animation == 6)
             {
-                if (!(this->playback.complete))
+                if (!playback.complete)
                 {
                 KeepCurrentFacing:
 
                     facing_angle = 0;
-                    desired_heading = (sint16)(this->model.angles.words[1]);
+                    desired_heading = model.angles.y;
                     immediate_facing = false;
                     goto ApplyFacingTransition;
                 }
             }
             else
             {
-                if (!(this->model.animation))
+                if (!model.animation)
                     goto KeepCurrentFacing;
                 if (idle_animation == 5)
                     goto KeepCurrentFacing;
@@ -3120,29 +3262,29 @@ uint32 Player::Update()
             ResettingActivator *resetting = resetting_activator.Get();
             if (!resetting)
             {
-                GameDiagnostic("TODO Missing active resetting activator\n");
+                GameDiagnostic(("TODO Missing active resetting activator\n"));
                 abort();
             }
-            reset_pos_x = this->model.pos.words[0];
+            reset_pos_x = model.pos.x;
             this->idle_ticks = 0;
-            reset_target_x = resetting->activation_pos.words[0];
-            if ((sint32)Abs32((sint32)((uint32)reset_target_x - (uint32)reset_pos_x) >> 3) <= 0x7FFF)
-                this->model.pos.words[0] = reset_target_x;
+            reset_target_x = resetting->activation_pos.x;
+            if (abs((sint32)(reset_target_x - reset_pos_x) >> 3) <= 0x7FFF)
+                model.pos.x = reset_target_x;
             else
-                this->model.pos.words[0] = ((uint32)reset_pos_x + ((sint32)((uint32)reset_target_x - (uint32)reset_pos_x) >> 3));
-            reset_pos_z = this->model.pos.words[2];
-            activation_target_z = resetting_activator->activation_pos.words[2];
-            if ((sint32)Abs32((sint32)((uint32)activation_target_z - (uint32)reset_pos_z) >> 3) <= 0x7FFF)
-                this->model.pos.words[2] = activation_target_z;
+                model.pos.x = reset_pos_x + ((sint32)(reset_target_x - reset_pos_x) >> 3);
+            reset_pos_z = model.pos.z;
+            activation_target_z = resetting_activator->activation_pos.z;
+            if (abs((sint32)(activation_target_z - reset_pos_z) >> 3) <= 0x7FFF)
+                model.pos.z = activation_target_z;
             else
-                this->model.pos.words[2] = ((uint32)reset_pos_z + ((sint32)((uint32)activation_target_z - (uint32)reset_pos_z) >> 3));
-            if ((this->model.frame == 14) && ((uint8)this->playback.dir == 1))
+                model.pos.z = reset_pos_z + ((sint32)(activation_target_z - reset_pos_z) >> 3);
+            if ((model.frame == 14) && (playback.dir == 1))
                 resetting_activator->Activate();
-            if (this->playback.complete)
+            if (playback.complete)
             {
-                if ((uint8)this->playback.dir == 1)
+                if (playback.dir == 1)
                 {
-                    SetAnimationRange(18, ((sint8)(this->model.frame)), 0);
+                    SetAnimationRange(18, (sint8)model.frame, 0);
                     move_octant = 0;
                     goto SelectDirectionalAnimation;
                 }
@@ -3153,21 +3295,19 @@ uint32 Player::Update()
         move_octant = 0;
         if (movement_state != 0x40000)
             goto SelectDirectionalAnimation;
-        death_tick_before = this->death_ticks;
         this->idle_ticks = 0;
-        death_tick_after = death_tick_before + 1;
-        this->death_ticks = death_tick_after;
-        if (((death_tick_after == 32) || (death_tick_after == 64)) || (death_tick_after == 96))
+        death_tick_after = ++death_ticks;
+        if (death_tick_after == 32 || death_tick_after == 64 || death_tick_after == 96)
         {
             if (visual_lists.cameras)
             {
-                if (this->death_camera_enabled)
-                    static_cast<Camera *>(visual_lists.cameras->owner)->SetYawTransition((static_cast<Camera *>(visual_lists.cameras->owner)->angles.words[1] + 1024) & 0xFFF, 34);
+                if (death_camera_enabled)
+                    static_cast<Camera *>(visual_lists.cameras->owner)->SetYawTransition(((uint16) static_cast<Camera *>(visual_lists.cameras->owner)->angles.y + 1024) & 0xFFF, 34);
             }
-            if (this->death_ticks == 64)
-                ::FadeScreenToWhite(128, 1);
+            if (death_ticks == 64)
+                ::FadeScrToWhite(128, 1);
         }
-        if (!(this->playback.complete))
+        if (!playback.complete)
         {
             runtime.death_wait = 0;
             move_octant = 0;
@@ -3175,10 +3315,10 @@ uint32 Player::Update()
         }
         if (game_progress.lives == 1)
         {
-            if (runtime.death_wait < 128)
+            if ((sint32)runtime.death_wait < 128)
                 goto AdvanceDeathWait;
         }
-        else if ((runtime.death_wait < 64))
+        else if ((sint32)runtime.death_wait < 64)
         {
         AdvanceDeathWait:
             ++runtime.death_wait;
@@ -3187,68 +3327,77 @@ uint32 Player::Update()
             goto SelectDirectionalAnimation;
         }
         Finish();
-        ::ResetScreenFlash();
+        ::ResetScrFlash();
         goto AdvanceDeathWait;
     }
     return result;
 }
 
-void Player::SetFacingTransition(uint32 target_angle, uint32 heading, uint32 immediate)
+uint32 Player::SqVelocityComponent(sint32 velocity)
+{
+    uint32 component = velocity >> 9;
+    return component * component;
+}
+
+void Player::SetFacingTransition(uint16 target_angle, uint16 heading, bool immediate)
 {
     FUNCTION_MARKER(0x80061A78, "SLUS_003.73");
-    uint32 target = target_angle & 4095, desired = heading & 4095;
+    sint32 target = target_angle & 4095;
+    sint32 desired = heading & 4095;
     ModelJointAngles &facing = GetModelJointAngles(7);
-    uint32 yaw_distance, angle_distance, angle_word;
-    sint32 old_heading, old_angle, delta;
-    if (this->analog_aim || this->aim_press_ticks == 1)
-        immediate = 1;
+    if (analog_aim || aim_press_ticks == 1)
+        immediate = true;
     if (immediate)
     {
-        this->model.angles.words[1] = desired;
-        facing.rotation.words[1] = (uint16)(target);
-        this->facing_step = 0;
-        this->facing_ticks = 0;
+        model.angles.y = desired;
+        facing.rotation.y = target;
+        facing_step = 0;
+        facing_ticks = 0;
         return;
     }
-    old_heading = (sint16)this->model.angles.words[1];
-    delta = (sint32)desired - old_heading;
-    yaw_distance = delta < 0 ? 0 - (uint32)delta : (uint32)delta;
-    if (yaw_distance - 1025 < 2047)
+    sint32 old_heading = model.angles.y;
+    sint32 delta = desired - old_heading;
+    sint32 yaw_distance = delta < 0 ? -delta : delta;
+    if (yaw_distance >= 1025 && yaw_distance <= 3071)
     {
-        this->model.angles.words[1] = desired;
-        facing.rotation.words[1] = (uint16)(target);
-        this->facing_step = 0;
-        this->facing_ticks = 0;
+        model.angles.y = desired;
+        facing.rotation.y = target;
+        facing_step = 0;
+        facing_ticks = 0;
         return;
     }
-    old_angle = (sint16)facing.rotation.words[1];
-    delta = (sint32)target - old_angle;
-    angle_distance = delta < 0 ? 0 - (uint32)delta : (uint32)delta;
-    angle_word = facing.rotation.words[1];
-    if (angle_distance - 1025 < 2047)
+    sint32 old_angle = facing.rotation.y;
+    delta = target - old_angle;
+    sint32 angle_distance = delta < 0 ? -delta : delta;
+    uint16 angle_word = facing.rotation.y;
+    if (angle_distance >= 1025 && angle_distance <= 3071)
     {
-        this->model.angles.words[1] = desired;
-        facing.rotation.words[1] = (uint16)(target);
-        this->facing_step = 0;
-        this->facing_ticks = 0;
+        model.angles.y = desired;
+        facing.rotation.y = target;
+        facing_step = 0;
+        facing_ticks = 0;
         return;
     }
     if (yaw_distance && angle_distance)
     {
-        uint32 angle = angle_word;
-        angle = old_heading < (sint32)desired ? angle - yaw_distance : angle + yaw_distance;
-        facing.rotation.words[1] = (uint16)(angle & 4095);
+        sint32 angle = old_heading < desired ? angle_word - yaw_distance : angle_word + yaw_distance;
+        facing.rotation.y = angle & 4095;
     }
-    this->facing_ticks = 8;
-    this->model.angles.words[1] = desired;
-    this->facing_target = target;
-    old_angle = (sint16)facing.rotation.words[1];
-    angle_word = facing.rotation.words[1];
-    if (old_angle < (sint32)target)
-        delta = (sint32)target - old_angle < 1024 ? (sint32)target - old_angle : (sint16)(target - 4096) - old_angle;
+    facing_ticks = 8;
+    model.angles.y = desired;
+    facing_target = target;
+    old_angle = facing.rotation.y;
+    angle_word = facing.rotation.y;
+    if (old_angle < target)
+        delta = target - old_angle < 1024 ? target - old_angle : target - 4096 - old_angle;
     else
-        delta = old_angle - (sint32)target < 1024 ? (sint32)target - old_angle : (sint32)target - (sint16)(angle_word - 4096);
-    delta /= 8;
-    this->facing_step = (uint32)delta;
-    return;
+    {
+        delta = target - old_angle;
+        if (old_angle - target >= 1024)
+        {
+            sint16 wrapped_angle = angle_word - 4096;
+            delta = target - wrapped_angle;
+        }
+    }
+    facing_step = delta / 8;
 }

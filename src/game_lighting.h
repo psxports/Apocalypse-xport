@@ -6,13 +6,11 @@ extern "C"
 #include "psx.h"
 }
 
+struct ShortVector3;
+
 struct LightColor
 {
     sint16 r, g, b;
-
-    LightColor() : r(0), g(0), b(0)
-    {
-    }
 };
 
 struct GameLighting
@@ -21,12 +19,14 @@ struct GameLighting
     MATRIX colors;
     LightColor far_color;
     LightColor background_color;
+
+public:
     GameLighting();
 };
 
 extern GameLighting game_lighting;
 void ResetGameLighting();
-void SetLightingDirections(const sint16 *first, const sint16 *second, const sint16 *third);
-void SetLightingColors(const sint16 *first, const sint16 *second, const sint16 *third);
+void SetLightingDirs(const ShortVector3 &v0, const ShortVector3 &v1, const ShortVector3 &v2);
+void SetLightingColors(const LightColor &v0, const LightColor &v1, const LightColor &v2);
 
 #endif

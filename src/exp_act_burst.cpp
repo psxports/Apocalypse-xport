@@ -4,19 +4,18 @@
 #include "game_heap.h"
 #include "game_diagnostics.h"
 #include "model_render_view.h"
-
 #include "exp_act_burst.h"
-#include "effect_sprite.h"
+#include "animated_sprite.h"
 #include "effect_lifecycle.h"
-#include "vector_arithmetic.h"
-#include "effect_color.h"
+#include "global.h"
 #include "angle_math.h"
-#include "game_random.h"
+#include "effect_object.h"
+#include "effect_controller.h"
 
-ExpActBurst::ExpActBurst(const uint32 *position, uint32 count, uint32 spread, uint32 jitter_y, uint32 upward_speed, uint32 gravity, uint32 drag_y, uint32 speed, uint32 acceleration, uint32 drag_xz, uint32 angle_speed, uint32 angle_acceleration, uint32 size_step, uint32 color_step, uint32 fade_start, uint32 frame_step) : EffectController(), age(0), count(count), fade_start(fade_start)
+ExpActBurst::ExpActBurst(const Vector3 *pos, sint32 count, uint32 spread, uint32 jitter_y, uint32 upward_speed, uint32 gravity, uint8 drag_y, uint32 speed, uint32 acceleration, uint8 drag_xz, uint16 angle_speed, uint16 angle_acceleration, uint16 size_step, sint16 color_step, sint32 fade_start, uint16 frame_step) : EffectController(), age(0), count(count), fade_start(fade_start)
 {
-    Vector3 origin, target, direction, tmp, child_position;
-    uint32 pair;
+    Vector3 origin, target, dir, tmp, child_pos;
+    sint32 pair;
     uint32 side;
     GameHeapBlock *child;
     uint32 scalar;
@@ -24,90 +23,90 @@ ExpActBurst::ExpActBurst(const uint32 *position, uint32 count, uint32 spread, ui
     uint32 idx = 0;
     ShortVector3 angles;
     FUNCTION_MARKER(0x8001D484, "SLUS_003.73");
-    if ((sint32)count > 20)
+    if (count > 20)
     {
-        GameDiagnostic("ExpActBurst exceeds its twenty sprite slots\n");
+        GameDiagnostic(("ExpActBurst exceeds its twenty sprite slots\n"));
         abort();
     }
-    SetPosition(position);
-    origin.words[0] = GetModelRenderView().pos.words[0] << 12;
-    origin.words[2] = GetModelRenderView().pos.words[2] << 12;
-    origin.words[1] = 0;
-    target.words[0] = position[0];
-    target.words[2] = position[2];
-    target.words[1] = 0;
-    CalculateDirectionAngles(angles.words, origin.words, target.words);
-    angles.components[1] = (sint16)((uint32)(uint16)angles.components[1] + 1024);
-    BuildDirectionVector(direction.words, 1, angles.words);
-    uint32 velocity_y = ((uint32)0 - upward_speed) << 12;
-    uint32 acceleration_y = (uint32)0 - gravity;
+    SetPos(pos);
+    origin.x = (uint32)GetModelRenderView().pos.x << 12;
+    origin.z = (uint32)GetModelRenderView().pos.z << 12;
+    origin.y = 0;
+    target.x = pos->x;
+    target.z = pos->z;
+    target.y = 0;
+    angles.SetDir(origin, target);
+    angles.y += 1024;
+    dir.SetDir(1, angles);
+    uint32 velocity_y = -(upward_speed << 12);
+    uint32 acceleration_y = -gravity;
     uint32 vertical_range = jitter_y * 2 + 1;
-    for (pair = 0; (sint32)pair < (sint32)count / 2; ++pair)
+    for (pair = 0; pair < count / 2; ++pair)
     {
         for (side = 0; side < 2; ++side)
         {
             scalar = RandomRange(spread);
-            MultiplyVector(tmp.words, direction.words, scalar);
+            tmp.Multiply(dir, scalar);
             if (!side)
-                AddVectors(child_position.words, this->pos.words, tmp.words);
+                child_pos.Add(this->pos, tmp);
             else
-                SubtractVectors(child_position.words, this->pos.words, tmp.words);
+                child_pos.Subtract(this->pos, tmp);
             random = RandomRange(vertical_range);
-            child_position.words[1] += (random - jitter_y) << 12;
-            AnimatedSprite *sprite = 0;
-            child = AllocateEffectStorage(120);
+            child_pos.y = (uint32)child_pos.y + ((random - jitter_y) << 12);
+            AnimatedSprite *spr = 0;
+            child = EffectObject::AllocateStorage(120);
             if (child)
             {
-                sprite = new (child) AnimatedSprite(child_position.words, VFX_EXP_ACT, 1000, 1, 0, (uint32)-2);
+                spr = new (child) AnimatedSprite(&child_pos, VFX_EXP_ACT, 1000, 1, 0, -2);
             }
-            if (!sprite)
+            if (!spr)
             {
-                GameDiagnostic("ExpActBurst sprite allocation failed\n");
+                GameDiagnostic(("ExpActBurst sprite allocation failed\n"));
                 abort();
             }
-            sprite->persistent = 1;
-            sprites[idx++] = sprite;
-            scalar = side ? (uint32)0 - speed : speed;
-            MultiplyVector(tmp.words, direction.words, scalar);
-            sprite->velocity = tmp;
-            sprite->velocity.words[1] = velocity_y;
-            scalar = side ? (uint32)0 - acceleration : acceleration;
-            MultiplyVector(tmp.words, direction.words, scalar);
-            sprite->acceleration = tmp;
-            sprite->acceleration.words[1] = acceleration_y;
-            sprite->drag[0] = drag_xz;
-            sprite->drag[2] = drag_xz;
-            sprite->drag[1] = drag_y;
+            spr->persistent = true;
+            sprs[idx++] = spr;
+            scalar = side ? -speed : speed;
+            tmp.Multiply(dir, scalar);
+            spr->velocity = tmp;
+            spr->velocity.y = velocity_y;
+            scalar = side ? -acceleration : acceleration;
+            tmp.Multiply(dir, scalar);
+            spr->acceleration = tmp;
+            spr->acceleration.y = acceleration_y;
+            spr->drag[0] = drag_xz;
+            spr->drag[2] = drag_xz;
+            spr->drag[1] = drag_y;
             random = RandomRange(4096);
-            sprite->angle = random;
-            sprite->angle_speed = side ? (uint32)0 - angle_speed : angle_speed;
-            sprite->angle_accel = side ? (uint32)0 - angle_acceleration : angle_acceleration;
-            sprite->color_step = color_step;
-            sprite->shrink_step = size_step;
-            sprite->SetFrameStep((uint32)(sint32)(sint16)frame_step);
-            sprite->AddFlags(8);
+            spr->angle = random;
+            spr->angle_speed = side ? -angle_speed : angle_speed;
+            spr->angle_accel = side ? -angle_acceleration : angle_acceleration;
+            spr->color_step = color_step;
+            spr->shrink_step = size_step;
+            spr->SetFrameStep(frame_step);
+            spr->AddFlags(8);
         }
     }
 }
 
 ExpActBurst::~ExpActBurst()
 {
-    for (uint32 idx = 0; (sint32)idx < (sint32)count; ++idx)
-        if (sprites[idx])
-            sprites[idx]->Destroy(3);
+    for (sint32 idx = 0; idx < count; ++idx)
+        if (sprs[idx])
+            sprs[idx]->Destroy(3);
 }
 
 uint32 ExpActBurst::Destroy(uint32 reason)
 {
     FUNCTION_MARKER(0x8001D918, "SLUS_003.73");
-    for (uint32 idx = 0; (sint32)idx < (sint32)count; ++idx)
+    for (sint32 idx = 0; idx < count; ++idx)
     {
-        if (sprites[idx])
-            sprites[idx]->Destroy(3);
-        sprites[idx] = 0;
+        if (sprs[idx])
+            sprs[idx]->Destroy(3);
+        sprs[idx] = 0;
     }
     EffectController::Destroy(0);
-    return reason & 1 ? ReleaseEffectStorage(this) : 0;
+    return reason & 1 ? ReleaseStorage() : 0;
 }
 
 void ExpActBurst::Update()
@@ -115,28 +114,28 @@ void ExpActBurst::Update()
     FUNCTION_MARKER(0x8001D9D0, "SLUS_003.73");
     ObjectBorrow object_borrow;
     ++age;
-    if ((sint16)age == 1)
+    if (age == 1)
         return;
     bool empty = true;
-    for (uint32 idx = 0; (sint32)idx < (sint32)count; ++idx)
+    for (sint32 idx = 0; idx < count; ++idx)
     {
-        AnimatedSprite *sprite = sprites[idx].Get();
-        if (!sprite)
+        AnimatedSprite *spr = sprs[idx].Get();
+        if (!spr)
             continue;
-        AddVectors(sprite->pos.words, sprite->velocity.words);
-        AddVectors(sprite->velocity.words, sprite->acceleration.words);
-        DampVector(sprite->velocity.words, sprite->drag);
-        sprite->angle += sprite->angle_speed;
-        sprite->angle_speed += sprite->angle_accel;
-        sprite->size += sprite->shrink_step;
+        spr->pos.Add(spr->velocity);
+        spr->velocity.Add(spr->acceleration);
+        spr->velocity.Damp(spr->drag);
+        spr->angle += spr->angle_speed;
+        spr->angle_speed += spr->angle_accel;
+        spr->size += spr->shrink_step;
         empty = false;
-        if ((sint32)fade_start < (sint16)age)
+        if (fade_start < age)
         {
-            FadePackedColor(&sprite->color, sprite->color_step);
-            if (!(sprite->color & 0xFFFFFF))
+            FadePackedColor(spr->color, spr->color_step);
+            if (!(spr->color & 0xFFFFFF))
             {
-                sprite->Destroy(3);
-                sprites[idx] = 0;
+                spr->Destroy(3);
+                sprs[idx] = 0;
             }
         }
     }

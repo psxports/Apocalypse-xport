@@ -10,10 +10,6 @@ extern "C"
 #include "psx.h"
 }
 
-void ClearObjectActivationFlags(ModelInstance *instance);
-void RestoreNearbySuspendedObjects();
-uint32 FinishSelectedEnemies();
-void ActivateObjectsByIndex(ModelInstance *instance, uint32 index);
 uint32 ActivateEnemyIndices(RecordCursor indices);
 uint32 SpawnEnemyIndices(RecordCursor indices);
 

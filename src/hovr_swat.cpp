@@ -1,52 +1,44 @@
 #include <new>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "game_heap.h"
 #include "level_session.h"
 #include "game_tick.h"
-
-#include "record_scripts.h"
-
+#include "resource_script.h"
 #include "world_gravity.h"
-
 #include "object_initializers.h"
-
 #include "effect_object.h"
-#include "effect_sprite.h"
+#include "sprite.h"
 #include "effect_lifecycle.h"
 #include "audio_session.h"
-
-#include "vector_distance.h"
+#include "global.h"
 #include "visual_object.h"
-#include "model_resources.h"
+#include "model_bank.h"
 #include "angle_math.h"
 #include "game_diagnostics.h"
 #include "player.h"
-#include "vector_arithmetic.h"
-#include "game_random.h"
 #include "game_object_allocation.h"
 #include "explosion_effects.h"
 #include "ring_burst_effect.h"
-#include "particle_debris.h"
-#include "projectile_oscillating.h"
-
+#include "debris.h"
+#include "oscillating_projectile.h"
 #include "hovr_swat.h"
 #include "record_data.h"
 #include "audio_voice.h"
+#include "enemy.h"
+#include "swat.h"
 
-HovrSwat::HovrSwat(const RecordCursor &record_data, uint32 index) : Enemy(), sound_timer(0), rotor_sound(0), sound_distance(0), debris_first(0), debris_count(0)
+HovrSwat::HovrSwat(const RecordCursor &rec_data, uint16 idx) : Enemy(), sound_timer(0), rotor_sound(0), sound_distance(0), debris_first(0), debris_count(0)
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     RecordCursor cursor;
     FUNCTION_MARKER(0x800590DC, "SLUS_003.73");
-    aim_pos.words[0] = aim_pos.words[1] = aim_pos.words[2] = 0;
-    aim_offset.words[0] = aim_offset.words[1] = aim_offset.words[2] = 0;
+    aim_pos.x = aim_pos.y = aim_pos.z = 0;
+    aim_offset.x = aim_offset.y = aim_offset.z = 0;
 
-    cursor = ReadPosition(record_data);
+    cursor = ReadPos(rec_data);
     script_cursor = ReadAngles(cursor);
-    this->record_idx = index;
+    rec_idx = idx;
     Init();
 }
 
@@ -54,38 +46,37 @@ HovrSwat::~HovrSwat()
 {
     if (rotor_sound)
         StopSoundVoices(rotor_sound);
-    DestroyEffects();
+    DestroySmoke();
 }
 
 uint32 HovrSwat::Init()
 {
-    uint32 random, bank, count;
+    uint8 random, bank;
     FUNCTION_MARKER(0x800591D4, "SLUS_003.73");
-    count = game_progress.level.enemy_total;
-    game_progress.level.enemy_total = count + 1u;
+    ++game_progress.level.enemy_total;
     SetModelBank("HovrSwat");
     AddToList(visual_lists.actors);
-    this->kind = 201;
+    kind = 201;
     motion.drag[0] = 3;
     motion.drag[1] = 3;
     motion.drag[2] = 3;
-    sound_distance = MeasurePositionDistance(model.pos.words, visual_lists.cameras->pos.words);
+    sound_distance = model.pos.Distance(visual_lists.cameras->pos);
     AllocateBehaviorTable(1, 4);
     ai.parameters[0] = 12;
     ai.parameters[1] = 128;
-    SetBehaviorValue(0, 1, 10);
-    SetBehaviorValue(0, 2, 80);
-    SetBehaviorValue(0, 3, 90);
-    SetAnimationRange(0u, 0u, 0xFFFFFFFF);
-    InitEffects();
-    this->health = (sint16)(uint16)(20u);
-    rotor_sound = PlayPositionedSound(101, model.pos.words, 0);
+    SetBehaviorVal(0, 1, 10);
+    SetBehaviorVal(0, 2, 80);
+    SetBehaviorVal(0, 3, 90);
+    SetAnimationRange(0, 0, 0xFFFFFFFF);
+    InitSmoke();
+    health = 20;
+    rotor_sound = PlayPositionedSound(101, &model.pos, 0);
     random = RandomRange(8);
-    bank = GetRecordModelBankSlot();
+    bank = GetRecModelBankSlot();
     sound_timer = random + 1;
-    debris_first = ::FindModelResourceIndex(0xDB2D0C4F, bank);
+    debris_first = ModelBank::FindResourceIdx(0xDB2D0C4F, bank);
     debris_count = 10;
-    this->control.script_active = 1;
+    control.script_active = 1;
     return 1;
 }
 
@@ -95,39 +86,35 @@ uint32 HovrSwat::Destroy(uint32 reason)
     FUNCTION_MARKER(0x8005933C, "SLUS_003.73");
     StopSoundVoices(rotor_sound);
     rotor_sound = 0;
-    DestroyEffects();
+    DestroySmoke();
     RemoveFromList(visual_lists.actors);
     Enemy::FreeBehaviorTable();
     result = Enemy::Destroy(0);
     if (reason & 1)
-        return ReleaseObjectStorage(this);
+        return ReleaseStorage();
     return result;
 }
 
-uint32 HovrSwat::Damage(uint32 damage, const sint32 *input_vector, uint32)
+uint32 HovrSwat::Damage(uint32 damage, const Vector3 *input_vector, uint32)
 {
     FUNCTION_MARKER(0x800593CC, "SLUS_003.73");
-    uint32 hits = (uint32)this->control.damage_phase;
-    sint32 health = this->health;
+    sint16 health = this->health;
     Vector3 impulse;
-    uint32 shift = 3, remaining, flags;
     ModelInstance *player;
-    this->control.damage_phase = hits + 1;
+    ++control.damage_phase;
     if (health > 0)
     {
-        ShiftVectorRight(impulse.words, (const uint32 *)input_vector, shift);
-        AddVectors(motion.velocity.words, impulse.words);
-        remaining = (uint16)this->health - damage;
-        this->health = (sint16)(uint16)(remaining);
-        if ((sint16)remaining > 0)
+        impulse.ShiftRight(*input_vector, 3);
+        motion.velocity.Add(impulse);
+        this->health -= damage;
+        if (this->health > 0)
             SetColor(3, 255, 255, 255);
         else
         {
             player = visual_lists.players;
             if (player)
-                TryPlayPlayerKillQuote(player->pos.words);
-            flags = this->lifecycle_flags;
-            this->lifecycle_flags = flags & 0xFFEF;
+                static_cast<Player *>(player->owner)->TryPlayKillQuote();
+            lifecycle_flags &= 0xFFEF;
             Fragment();
             Finish();
         }
@@ -135,191 +122,184 @@ uint32 HovrSwat::Damage(uint32 damage, const sint32 *input_vector, uint32)
     return 1;
 }
 
-uint32 HovrSwat::Fragment()
+void HovrSwat::Fragment()
 {
-    uint32 trig_angle;
+    uint16 trig_angle;
     Vector3 velocity;
-    uint32 index;
-    uint32 angle;
-    uint32 factor;
+    uint32 idx;
+    uint16 angle, factor, model_idx;
     GameHeapBlock *child;
-    uint32 kind;
     FUNCTION_MARKER(0x800594BC, "SLUS_003.73");
-    HandleExplosionProximity(this->model.pos.words, 0);
-    SpawnExplosionRing(this->model.pos.words, 200, 240, 200, 0, 5, 0, 100);
-    for (index = 0; index < 6; ++index)
+    HandleExplosionProximity(&model.pos, 0);
+    RingBurstEffect::SpawnExplosion(&model.pos, 200, 240, 200, 0, 5, 0, 100);
+    for (idx = 0; idx < 6; ++idx)
     {
         velocity = motion.velocity;
         angle = RandomRange(4096);
         factor = RandomRange(8);
         trig_angle = angle & 0xFFF;
-        velocity.words[0] += (uint32)rsin(trig_angle) * (factor + 24);
+        velocity.x = (uint32)velocity.x + (rsin(trig_angle) * (factor + 24));
         factor = RandomRange(16);
-        velocity.words[1] -= (factor + 32) << 12;
+        velocity.y = (uint32)velocity.y - ((factor + 32) * ONE);
         factor = RandomRange(8);
-        velocity.words[2] += (uint32)rcos(trig_angle) * (factor + 24);
+        velocity.z = (uint32)velocity.z + (rcos(trig_angle) * (factor + 24));
         child = AllocateZeroedObject(320);
         if (child)
         {
             factor = RandomRange(debris_count);
-            kind = (debris_first + factor) & 0xFFFF;
-            new (child) Debris(this->model.pos.words, velocity.words, kind, 0, 2, 32, GetRecordModelBankName());
+            model_idx = debris_first + factor;
+            new (child) Debris(&model.pos, &velocity, model_idx, 0, 2, 32, GetRecModelBankName());
         }
     }
-    return 0;
 }
 
-uint32 HovrSwat::InitEffects()
+void HovrSwat::InitSmoke()
 {
-    uint32 index, size = 1024, offset_y = 0;
-    Vector3 position;
-    uint32 red = 64, green = 64, blue = 128;
+    uint32 idx;
+    uint16 size = 1024;
+    sint32 offset_y = 0;
+    Vector3 pos;
+    uint8 r = 64, g = 64, b = 128;
     FUNCTION_MARKER(0x80059644, "SLUS_003.73");
-    position = model.pos;
+    pos = model.pos;
     use_small_effect_pool = false;
-    for (index = 0; index < 8; ++index)
+    for (idx = 0; idx < 8; ++idx)
     {
-        GameHeapBlock *allocation = AllocateEffectStorage(112);
+        GameHeapBlock *allocation = EffectObject::AllocateStorage(112);
         if (allocation)
         {
-            Sprite *sprite = new (allocation) Sprite();
-            sprite->persistent = 1;
-            position.words[1] = model.pos.words[1] + offset_y;
-            sprite->SetPosition(position.words);
-            sprite->SelectResource("Smoke");
-            sprite->SetSize(size);
-            sprite->EnableSemiTransparency();
-            sprite->SetColors(red, green, blue);
-            red -= 8;
-            green -= 8;
-            blue -= 12;
-            smoke[index] = sprite;
+            Sprite *spr = new (allocation) Sprite();
+            spr->persistent = true;
+            pos.y = (uint32)model.pos.y + offset_y;
+            spr->SetPos(&pos);
+            spr->SelectResource("Smoke");
+            spr->SetSize(size);
+            spr->EnableSemiTransparency();
+            spr->SetColors(r, g, b);
+            r -= 8;
+            g -= 8;
+            b -= 12;
+            smoke[idx] = spr;
         }
         size += 256;
         offset_y += 0x18000;
     }
     use_small_effect_pool = true;
-    return 1;
 }
 
-uint32 HovrSwat::DestroyEffects()
+void HovrSwat::DestroySmoke()
 {
     FUNCTION_MARKER(0x8005979C, "SLUS_003.73");
-    for (uint32 index = 0; index < 8; ++index)
+    for (uint32 idx = 0; idx < 8; ++idx)
     {
-        Sprite *sprite = smoke[index];
-        if (sprite)
+        Sprite *spr = smoke[idx];
+        if (spr)
         {
-            sprite->Destroy(3);
-            smoke[index] = 0;
+            spr->Destroy(3);
+            smoke[idx] = 0;
         }
     }
-    return 0;
 }
 
-uint32 HovrSwat::UpdateEffects()
+void HovrSwat::UpdateSmoke()
 {
-    Vector3 position;
+    Vector3 pos;
     FUNCTION_MARKER(0x80059808, "SLUS_003.73");
-    position = model.pos;
-    for (uint32 index = 0; index < 8; ++index)
+    pos = model.pos;
+    for (sint32 idx = 0; idx < 8; ++idx)
     {
-        Sprite *sprite = smoke[index];
-        if (sprite)
+        Sprite *spr = smoke[idx];
+        if (spr)
         {
-            uint32 random = RandomRange(32);
-            uint32 offset = ((index << 5) + random - 16) << 12;
-            position.words[1] = model.pos.words[1] + offset;
-            sprite->SetPosition(position.words);
+            uint8 random = RandomRange(32);
+            sint32 offset = (idx * 32 + random - 16) * ONE;
+            pos.y = (uint32)model.pos.y + offset;
+            spr->SetPos(&pos);
         }
     }
-    return 0;
 }
 
 uint32 HovrSwat::Update()
 {
-    RecordDataBorrow record_borrow;
-    uint32 flags, hits, timer, distance, scale;
-    Vector3 position;
+    RecordDataBorrow rec_borrow;
+    uint32 flags, distance;
+    uint16 activation, timer, scale;
+    Vector3 pos;
     ShortVector3 angles;
     FUNCTION_MARKER(0x800598B8, "SLUS_003.73");
-    flags = this->activation_flags;
-    this->control.prev_activation_flags = flags;
-    if (flags & 1u)
+    activation = activation_flags;
+    control.prev_activation_flags = activation;
+    if (activation & 1)
     {
-        hits = (uint32)this->control.activation_count;
-        this->activation_flags = flags & 0xFFFEu;
-        this->control.activation_count = hits + 1u;
+        activation_flags = activation & 0xFFFE;
+        ++control.activation_count;
     }
-    position = zero_vector;
-    motion.acceleration = position;
-    if ((uint32)this->control.script_active)
+    motion.acceleration = zero_vector;
+    if (control.script_active)
     {
-        timer = (uint32)this->control.script_delay;
+        timer = control.script_delay;
         if (timer)
-            this->control.script_delay = timer - 1u;
+            control.script_delay = timer - 1;
         else
             ExecuteScript(script_cursor);
     }
     else
         UpdateState();
-    if (this->control.flags & 1u)
+    if (control.flags & 1)
     {
-        distance = MeasurePositionDistance(this->model.pos.words, this->destination.words);
-        if (distance < 129u)
-            this->control.flags = this->control.flags & ~1u;
+        distance = model.pos.Distance(dst);
+        if (distance < 129)
+            control.flags &= ~1;
         else
         {
-            CalculateDirectionAngles(angles.words, this->model.pos.words, this->destination.words);
+            angles.SetDir(model.pos, dst);
             scale = ai.parameters[0];
-            BuildDirectionVector(motion.acceleration.words, scale, angles.words);
+            motion.acceleration.SetDir(scale, angles);
         }
     }
-    flags = this->control.flags;
-    if (flags & 0x1Du)
+    flags = control.flags;
+    if (flags & 0x1D)
     {
-        if (flags & 0x10u)
+        if (flags & 0x10)
         {
             ModelInstance *subject = tracked_target.GetObject();
             if (subject)
             {
-                aim_pos.words[0] = subject->pos.words[0];
-                aim_pos.words[1] = subject->pos.words[1];
-                aim_pos.words[2] = subject->pos.words[2];
+                aim_pos = subject->pos;
             }
             else
                 control.flags &= ~16;
         }
-        else if (flags & 8u)
+        else if (flags & 8)
         {
-            AddVectors(position.words, model.pos.words, this->aim_offset.words);
-            this->aim_pos = position;
+            pos.Add(model.pos, aim_offset);
+            aim_pos = pos;
         }
-        if (flags & 0x1Cu)
+        if (flags & 0x1C)
         {
-            position = this->model.pos;
-            CalculateDirectionAngles(angles.words, position.words, this->aim_pos.words);
-            if (flags & 0x10u)
-                angles.words[0] = 0;
+            pos = model.pos;
+            angles.SetDir(pos, aim_pos);
+            if (flags & 0x10)
+                angles.x = 0;
         }
         else
-            CalculateDirectionAngles(angles.words, this->model.pos.words, this->destination.words);
+            angles.SetDir(model.pos, dst);
         scale = ai.parameters[1];
-        UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, angles, scale);
+        UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, angles, scale);
     }
     else
     {
-        motion.angular_velocity.words[2] = 0;
-        motion.angular_velocity.words[1] = 0;
-        motion.angular_velocity.words[0] = 0;
-        motion.angular_acceleration.words[2] = 0;
-        motion.angular_acceleration.words[1] = 0;
-        motion.angular_acceleration.words[0] = 0;
+        motion.angular_velocity.z = 0;
+        motion.angular_velocity.y = 0;
+        motion.angular_velocity.x = 0;
+        motion.angular_acceleration.z = 0;
+        motion.angular_acceleration.y = 0;
+        motion.angular_acceleration.x = 0;
     }
-    this->model.angles.words[0] = 0;
+    model.angles.x = 0;
     UpdateWorldTransform();
-    if ((uint32)this->control.gravity_enabled)
-        AddVectors(motion.acceleration.words, world_gravity.vector.words);
+    if (control.gravity_enabled)
+        motion.acceleration.Add(world_gravity.vector);
     IntegrateMotion();
     if (rotor_sound)
     {
@@ -328,62 +308,62 @@ uint32 HovrSwat::Update()
             sound_timer = timer - 1;
         else
         {
-            distance = MeasurePositionDistance(model.pos.words, visual_lists.cameras->pos.words);
+            distance = model.pos.Distance(visual_lists.cameras->pos);
             sound_timer = 8;
-            UpdatePositionedSoundVoices(rotor_sound, model.pos.words, (sint32)(distance - sound_distance));
+            UpdatePositionedSoundVoices(rotor_sound, &model.pos, (sint32)(distance - sound_distance));
             sound_distance = distance;
         }
     }
-    else if (!(game_clock.tick & 7u))
-        rotor_sound = PlayPositionedSound(101, model.pos.words, 0);
-    return UpdateEffects();
+    else if (!(game_clock.tick & 7))
+        rotor_sound = PlayPositionedSound(101, &model.pos, 0);
+    UpdateSmoke();
+    return 0;
 }
 
-uint32 HovrSwat::ExecuteCommand(uint32 command)
+uint32 HovrSwat::ExecuteCommand(uint16 command)
 {
-    RecordDataBorrow record_borrow;
-    uint32 value, shift = 12;
-    Vector3 position;
+    RecordDataBorrow rec_borrow;
+    uint16 val;
+    Vector3 pos;
     RecordCursor cursor;
     FUNCTION_MARKER(0x80059D1C, "SLUS_003.73");
-    command &= 0xFFFFu;
     switch (command)
     {
         case 0x4220:
         case 0x4222:
-            cursor = AlignScriptCursor(script_cursor);
-            position.words[0] = cursor.Read32();
-            position.words[1] = (cursor + 4u).Read32();
-            position.words[2] = (cursor + 8u).Read32();
-            ShiftVectorLeft(position.words, shift);
-            if (command == 0x4222u)
-                AddVectors(position.words, this->model.pos.words);
-            script_cursor = cursor + 12u;
-            SetDestination(position.words);
+            cursor = script_cursor.Aligned(4);
+            pos.x = cursor.Read32();
+            pos.y = (cursor + 4).Read32();
+            pos.z = (cursor + 8).Read32();
+            pos.ShiftLeft(12);
+            if (command == 0x4222)
+                pos.Add(model.pos);
+            script_cursor = cursor + 12;
+            SetDst(&pos);
             return 1;
         case 0x4221:
             cursor = script_cursor;
-            value = cursor.Read16();
-            script_cursor = cursor + 2u;
-            if (value & 0x2000u)
+            val = cursor.Read16();
+            script_cursor = cursor + 2;
+            if (val & 0x2000)
             {
-                value = ResolveParameter(value);
+                val = ResolveParameter(val);
             }
-            ReadRecordPosition(position.words, value & 0xFFFF);
-            SetDestination(position.words);
+            ReadRecPos(&pos, val);
+            SetDst(&pos);
             return 1;
         case 0x4262:
             cursor = script_cursor;
-            value = cursor.Read16();
-            script_cursor = cursor + 2u;
-            if (!value)
+            val = cursor.Read16();
+            script_cursor = cursor + 2;
+            if (!val)
                 Fire();
             return 1;
         case 0x4406:
             cursor = script_cursor;
-            value = cursor.Read16();
-            script_cursor = cursor + 2u;
-            if (value)
+            val = cursor.Read16();
+            script_cursor = cursor + 2;
+            if (val)
                 SetTargetObject(visual_lists.players);
             else
                 ClearTarget();
@@ -393,15 +373,10 @@ uint32 HovrSwat::ExecuteCommand(uint32 command)
     }
 }
 
-uint32 HovrSwat::SetDestination(const uint32 *position)
+uint32 HovrSwat::SetDst(const Vector3 *pos)
 {
     FUNCTION_MARKER(0x80059F28, "SLUS_003.73");
-    const uint32 x = position[0];
-    const uint32 y = position[1];
-    const uint32 z = position[2];
-    destination.words[0] = x;
-    destination.words[1] = y;
-    destination.words[2] = z;
+    dst = *pos;
     control.flags |= 1;
     return control.flags;
 }
@@ -418,179 +393,165 @@ uint32 HovrSwat::SetTargetObject(ModelInstance *target)
 
 uint32 HovrSwat::ClearTarget()
 {
-    uint32 flags = this->control.flags & 0xFFFFFFE3;
+    uint32 flags = control.flags & 0xFFFFFFE3;
     FUNCTION_MARKER(0x8005A020, "SLUS_003.73");
-    this->control.flags = flags;
+    control.flags = flags;
     return flags;
 }
 
 uint32 HovrSwat::Fire()
 {
-    Vector3 position;
+    Vector3 pos;
     GameHeapBlock *projectile;
     uint32 damage;
-    uint32 speed;
+    uint16 speed;
     ShortVector3 rotation;
     FUNCTION_MARKER(0x8005A034, "SLUS_003.73");
     if (!visual_lists.players)
         return 0;
     SetAnimationRange(2, 0, 0xFFFFFFFF);
-    position = model.pos;
-    CalculateDirectionAngles(rotation.words, position.words, visual_lists.players->pos.words);
-    projectile = AllocateEffectStorage(108);
+    pos = model.pos;
+    rotation.SetDir(pos, visual_lists.players->pos);
+    projectile = EffectObject::AllocateStorage(108);
     if (projectile)
     {
-        damage = GetBehaviorValue(0, 1) & 0xFFFF;
+        damage = GetBehaviorVal(0, 1);
         damage = ScaleDamageForDifficulty(damage);
-        speed = GetBehaviorValue(0, 2) & 0xFFFF;
-        new (projectile) OscillatingProjectile(position.words, rotation.components, damage, 45, speed, 16, 240, 240, 240, 64, 32, 128);
+        speed = GetBehaviorVal(0, 2);
+        new (projectile) OscillatingProjectile(&pos, &rotation, damage, 45, speed, 16, 240, 240, 240, 64, 32, 128);
     }
-    return PlayPositionedSound(20, model.pos.words, 0);
+    return PlayPositionedSound(20, &model.pos, 0);
 }
 
-uint32 HovrSwat::UpdateState()
+void HovrSwat::UpdateState()
 {
-    uint32 trig_angle;
-    uint32 state, value, radius, orbit_size, yaw;
-    Vector3 position, vector, normal;
+    uint16 phase, radius, orbit_size, yaw, yaw_step, trig_angle;
+    uint16 delay;
+    uint8 animation;
+    sint8 frame;
+    bool clockwise;
+    Vector3 pos, vector, normal;
     ModelInstance *player;
-    sint32 saved_yaw;
     ShortVector3 rotation;
     FUNCTION_MARKER(0x8005A170, "SLUS_003.73");
     if (ai.state)
-        return 1;
-    state = ai.phase;
-    if (state == 0u || state == 1u)
+        return;
+    phase = ai.phase;
+    if (phase == 0 || phase == 1)
     {
-        value = (uint32)this->control.prev_activation_flags & 1u;
-        if (value)
+        if (control.prev_activation_flags & 1)
         {
-            position = this->model.pos;
-            position.words[1] -= 0x800000u;
-            SetDestination(position.words);
+            pos = model.pos;
+            pos.y = (uint32)pos.y - (0x800000);
+            SetDst(&pos);
             ai.phase = 2;
-            return 2;
+            return;
         }
-        if (!state)
+        if (!phase)
         {
             player = visual_lists.players;
             if (!player)
-                return 0;
-            value = this->model.pos.words[0];
-            vector.words[0] = (uint32)((sint32)(value - player->pos.words[0]) >> 12);
-            vector.words[1] = 0;
-            value = this->model.pos.words[2];
-            vector.words[2] = (uint32)((sint32)(value - player->pos.words[2]) >> 12);
-            NormalizeShortVector(vector.words, normal.words);
-            ai.work[0] = normal.words[0];
+                return;
+            vector.x = (sint32)((uint32)model.pos.x - player->pos.x) >> 12;
+            vector.y = 0;
+            vector.z = (sint32)((uint32)model.pos.z - player->pos.z) >> 12;
+            NormalizeShortVector(vector, normal);
+            ai.work[0] = normal.x;
             ai.work[2] = 1024;
             ai.work[3] = 512;
             ai.work[4] = 0;
-            ai.work[1] = normal.words[2];
-            if (RandomRange(64) & 1u)
-                this->control.flags = this->control.flags | 0x20u;
-            value = ai.phase + 1u;
-            ai.phase = value;
-            return value;
+            ai.work[1] = normal.z;
+            if (RandomRange(64) & 1)
+                control.flags |= 0x20;
+            ++ai.phase;
+            return;
         }
-        if (!(this->control.flags & 1u))
+        if (!(control.flags & 1))
         {
-            value = RandomRange(32);
-            if (!value)
+            if (!RandomRange(32))
             {
-                trig_angle = RandomRange(4096) & 0xFFFu;
-                ai.work[0] = (uint16)rsin(trig_angle);
-                value = (uint16)rcos(trig_angle);
-                ai.work[1] = value;
-                return value;
+                trig_angle = RandomRange(4096) & 0xFFF;
+                ai.work[0] = rsin(trig_angle);
+                ai.work[1] = rcos(trig_angle);
+                return;
             }
             player = visual_lists.players;
             if (!player)
-                return value;
+                return;
             SetTargetObject(visual_lists.players);
             player = visual_lists.players;
             radius = ai.work[2];
             orbit_size = ai.work[3];
             yaw = ai.work[4];
-            saved_yaw = (sint16)ai.work[4];
-            position = player->pos;
-            position.words[0] += (uint32)(sint32)(sint16)ai.work[0] * radius;
-            value = (uint32)(sint32)(sint16)ai.work[1] * radius;
-            position.words[1] -= 0x100000u;
-            position.words[2] += value;
-            trig_angle = RandomRange(4096) & 0xFFFu;
-            rotation.words[0] = (uint16)((sint32)rsin(trig_angle) >> 6);
-            rotation.words[1] = (uint16)yaw;
-            rotation.words[2] = 0;
-            BuildDirectionVector(vector.words, orbit_size, rotation.words);
-            AddVectors(position.words, vector.words);
-            SetDestination(position.words);
-            value = this->control.flags & 0x20u;
-            yaw = RandomRange(64);
-            yaw = value ? (uint32)saved_yaw + 256u + yaw : (uint32)saved_yaw - 256u - yaw;
-            ai.work[4] = yaw & 0xFFFu;
+            pos = player->pos;
+            pos.x = (uint32)pos.x + ((sint16)ai.work[0] * radius);
+            pos.y = (uint32)pos.y - (0x100000);
+            pos.z = (uint32)pos.z + ((sint16)ai.work[1] * radius);
+            trig_angle = RandomRange(4096) & 0xFFF;
+            rotation.x = rsin(trig_angle) >> 6;
+            rotation.y = yaw;
+            rotation.z = 0;
+            vector.SetDir(orbit_size, rotation);
+            pos.Add(vector);
+            SetDst(&pos);
+            clockwise = (control.flags & 0x20) != 0;
+            yaw_step = RandomRange(64);
+            ai.work[4] = (clockwise ? yaw + 256 + yaw_step : yaw - 256 - yaw_step) & 0xFFF;
             if (!RandomRange(4))
             {
                 if (RandomRange(2))
                 {
-                    if (radius < 2048u)
-                        ai.work[2] = radius + 32u;
+                    if (radius < 2048)
+                        ai.work[2] = radius + 32;
                 }
-                else if (radius >= 513u)
-                    ai.work[2] = radius - 32u;
+                else if (radius >= 513)
+                    ai.work[2] = radius - 32;
             }
-            value = RandomRange(4);
-            if (value)
-                return value;
+            if (RandomRange(4))
+                return;
             if (RandomRange(2))
             {
-                value = orbit_size + 16u;
-                if (orbit_size < 1024u)
-                    ai.work[3] = value;
+                if (orbit_size < 1024)
+                    ai.work[3] = orbit_size + 16;
             }
-            else
-            {
-                value = orbit_size - 16u;
-                if (orbit_size >= 257u)
-                    ai.work[3] = value;
-            }
-            return value;
+            else if (orbit_size >= 257)
+                ai.work[3] = orbit_size - 16;
+            return;
         }
-        value = this->model.animation;
-        if (value == 1u)
+        animation = model.animation;
+        if (animation == 1)
         {
-            value = this->playback.complete;
-            if (!value)
-                return value;
-            value = (uint32)(sint32)(sint8)this->model.frame;
-            if (!value)
+            if (!playback.complete)
+                return;
+            frame = model.frame;
+            if (!frame)
             {
-                value = GetBehaviorValue(0, 3) & 0xFFFFu;
-                value = RandomRange(value);
-                if (value)
-                    return value;
-                return SetAnimationRange(1u, 0u, 0xFFFFFFFF);
+                delay = GetBehaviorVal(0, 3);
+                if (RandomRange(delay))
+                    return;
+                SetAnimationRange(1, 0, 0xFFFFFFFF);
+                return;
             }
-            ai.work[5] = value;
+            ai.work[5] = frame;
         }
-        else if (value == 2u)
+        else if (animation == 2)
         {
-            value = this->playback.complete;
-            if (!value)
-                return value;
+            if (!playback.complete)
+                return;
             if (RandomRange(3))
-                return SetAnimationRange(1u, (uint32)(sint32)(sint16)ai.work[5], 0u);
+            {
+                SetAnimationRange(1, (sint16)ai.work[5], 0);
+                return;
+            }
         }
         else
-            return SetAnimationRange(1u, 0u, 0xFFFFFFFF);
-        return Fire();
+        {
+            SetAnimationRange(1, 0, 0xFFFFFFFF);
+            return;
+        }
+        Fire();
+        return;
     }
-    if (state == 2u)
-    {
-        value = this->control.flags & 1u;
-        if (value)
-            return value;
-        return Finish();
-    }
-    return 2;
+    if (phase == 2 && !(control.flags & 1))
+        Finish();
 }

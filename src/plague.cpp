@@ -1,115 +1,90 @@
 #include <new>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "collision_ray.h"
 #include "audio_session.h"
 #include "game_tuning.h"
 #include "game_tick.h"
-
-#include "pickup_factory.h"
-
+#include "pickup.h"
 #include "world_gravity.h"
-
 #include "object_initializers.h"
-
 #include "effect_object.h"
+#include "primitive_particle.h"
 #include "camera.h"
 #include "player.h"
-
-#include "weapon_nodes.h"
+#include "weapon_type.h"
+#include "particle_beam.h"
 #include "projectile_line.h"
+#include "line_projectile.h"
 #include "enemy_list.h"
 #include "visual_object.h"
 #include "angle_math.h"
 #include "object_damage.h"
-#include "vector_arithmetic.h"
-#include "vector_distance.h"
+#include "global.h"
 #include "collision.h"
 #include "model_animation.h"
+#include "model_attachment_data.h"
 #include "model_attachment.h"
-#include "game_random.h"
 #include "game_diagnostics.h"
-
 #include "plague.h"
 #include "ring_burst_effect.h"
 #include "game_panel.h"
 #include "glow_effect.h"
+#include "expanding_glow.h"
 #include "ring_effect.h"
 #include "game_heap.h"
 #include "game_object_allocation.h"
 #include "audio_voice.h"
 #include "effect_lifecycle.h"
 #include "record_data.h"
-
 #include "object_force.h"
-
-// Native extractions of original packed-angle loads and repeated motion blocks
-
 #include "level_session.h"
-#include "projectile_trail.h"
-#include "plague_ground_effects.h"
-#include "particle_settings.h"
-
+#include "trail_projectile.h"
+#include "plague_ground_effect.h"
 #include "textured_quad.h"
 #include "plague_area.h"
-
-// Native extractions of repeated waypoint, velocity and recovery blocks
-
-// Native extractions of original weapon construction and sine-table blocks
-
-// Native callback ABI discards the original parameter-reader result
-
-// Native pointer adapter for original coordinate loads
-
-static uint32 DividePlagueJump(uint32 numerator, uint32 denominator)
-{
-    if (!denominator)
-        return (sint32)numerator < 0 ? 1 : (uint32)-1;
-    if (numerator == 0x80000000 && denominator == (uint32)-1)
-        return numerator;
-    return (uint32)((sint32)numerator / (sint32)denominator);
-}
+#include "enemy.h"
 
 void Plague::StopMotion()
 {
-    motion.velocity.words[2] = 0;
-    motion.velocity.words[1] = 0;
-    motion.velocity.words[0] = 0;
-    motion.acceleration.words[2] = 0;
-    motion.acceleration.words[1] = 0;
-    motion.acceleration.words[0] = 0;
+    motion.velocity.z = 0;
+    motion.velocity.y = 0;
+    motion.velocity.x = 0;
+    motion.acceleration.z = 0;
+    motion.acceleration.y = 0;
+    motion.acceleration.x = 0;
 }
 
-void Plague::SelectFarTarget(Vector3 &position)
+void Plague::SelectFarTarget(Vector3 &pos)
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     uint32 random;
     do
     {
         random = RandomRange(8);
-        ReadRecordPosition(position.words, spawn_points.far_points[random]);
-    } while (MeasurePositionDistance(position.words, model.pos.words) < 257);
+        ReadRecPos(&pos, spawn_points.far_points[random]);
+    } while (pos.Distance(model.pos) < 257);
 }
 
 void Plague::ClearVelocity()
 {
-    motion.velocity.words[2] = 0;
-    motion.velocity.words[1] = 0;
-    motion.velocity.words[0] = 0;
+    motion.velocity.z = 0;
+    motion.velocity.y = 0;
+    motion.velocity.x = 0;
 }
 
-void Plague::SaveRecovery(uint32 state)
+void Plague::SaveRecovery(uint16 state)
 {
-    uint32 previous = ai.state;
-    uint32 substate = ai.phase;
+    uint16 prev = ai.state;
+    uint16 substate = ai.phase;
     ai.state = state;
     ai.phase = 0;
-    ai.parameters[2] = previous;
+    ai.parameters[2] = prev;
     ai.parameters[3] = substate;
 }
 
-void Plague::CreateOrbitWeapon(uint32 index)
+void Plague::CreateOrbitWeapon(uint32 idx)
 {
     GameHeapBlock *allocation = AllocateZeroedHeapBlock(104);
     ParticleBeam *created = 0;
@@ -117,56 +92,50 @@ void Plague::CreateOrbitWeapon(uint32 index)
     {
         created = new (allocation) ParticleBeam(&visual_lists.players, 64, 1, 0, 118);
     }
-    orbit_weapons[index] = created;
+    orbit_weapons[idx] = created;
     if (!created)
     {
-        GameDiagnostic("Plague orbit weapon allocation failed\n");
+        GameDiagnostic(("Plague orbit weapon allocation failed\n"));
         abort();
     }
     created->damage = 4;
 }
 
-uint32 Plague::ReadOrbitDelta() const
+sint32 Plague::ReadOrbitDelta() const
 {
-    uint32 sine = rsin(orbit_phase & 4095);
-    return (uint32)((sint32)(19 * sine) >> 11);
-}
-
-void Plague::SetParameters(uint32 command)
-{
-    ReadParameters(command);
+    sint32 s = rsin(orbit_phase & 4095);
+    return (19 * s) >> 11;
 }
 
 static const uint8 spread_radius[16] = {32, 60, 64, 60, 58, 58, 64, 76, 96, 76, 64, 58, 58, 60, 64, 60};
 
-Plague::Plague(const RecordCursor &record_data, uint32 index) : Enemy(), last_pickup_tick(0), jump_index(0), attack_count(0), jump_timer(0), pickup_stage(0), orbit_sound(0), orbit_phase(0), orbit_timer(0)
+Plague::Plague(const RecordCursor &rec_data, uint16 idx) : Enemy(), last_pickup_tick(0), jump_idx(0), attack_count(0), jump_timer(0), pickup_stage(0), orbit_sound(0), orbit_phase(0), orbit_timer(0)
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
 
-    uint32 value;
+    uint16 val;
     RecordCursor rotation;
     RecordCursor cursor;
     FUNCTION_MARKER(0x8004509C, "SLUS_003.73");
-    facing_pos.words[0] = facing_pos.words[1] = facing_pos.words[2] = 0;
-    orbit_angles.words[0] = orbit_angles.words[1] = orbit_angles.words[2] = 0;
-    rotation = ReadPosition(record_data);
-    value = rotation.Read16();
+    facing_pos.x = facing_pos.y = facing_pos.z = 0;
+    orbit_angles.x = orbit_angles.y = orbit_angles.z = 0;
+    rotation = ReadPos(rec_data);
+    val = rotation.Read16();
     cursor = rotation + 6;
-    this->model.angles.words[0] = value;
-    value = (rotation + 2).Read16();
-    this->model.angles.words[1] = value;
-    value = (rotation + 4).Read16();
+    model.angles.x = val;
+    val = (rotation + 2).Read16();
+    model.angles.y = val;
+    val = (rotation + 4).Read16();
     script_cursor = cursor;
-    this->control.script_active = 1;
-    this->record_idx = index;
-    this->model.angles.words[2] = value;
+    control.script_active = 1;
+    rec_idx = idx;
+    model.angles.z = val;
     Configure();
     ExecuteScript(script_cursor);
 }
 
 void Plague::Configure()
 {
-    uint32 value;
     FUNCTION_MARKER(0x80045134, "SLUS_003.73");
     SetModelBank("plague");
     motion.drag[0] = 31;
@@ -175,26 +144,27 @@ void Plague::Configure()
     AddToList(visual_lists.actors);
     StartAnimation(0, 1);
     AllocateBehaviorTable(1, 5);
-    value = ScaleDamageForDifficulty(10);
-    SetBehaviorValue(0, 1, value & 0xFFFF);
-    SetBehaviorValue(0, 2, 160);
+    uint16 damage = ScaleDamageForDifficulty(10);
+    SetBehaviorVal(0, 1, damage);
+    SetBehaviorVal(0, 2, 160);
     ai.parameters[0] = 16;
     ai.parameters[1] = 32;
-    this->kind = 223;
+    kind = 223;
     contact_strength = 128;
-    ai.parameters[9] = (ai.parameters[9] & 0xFF00) | (uint8)(0);
+    ai.parameters[9] &= 0xFF00;
     ai.state = 0;
     ai.phase = 0;
-    this->model.scale.words[0] = 6000;
-    this->model.scale.words[1] = 6000;
-    this->model.scale.words[2] = 6000;
-    this->ground_offset = 292;
-    value = this->model.flags;
-    this->control.hierarchy_ready = 0;
+    this->model.scale.x = 6000;
+    this->model.scale.y = 6000;
+    this->model.scale.z = 6000;
+    ground_offset = 292;
+    uint16 flags = this->model.flags;
+    control.hierarchy_ready = 0;
     projection.enabled = true;
-    this->model.flags = value | 0x200;
-    memset(&projection.dir, 0, sizeof(projection.dir));
-    projection.dir.m[0][1] = -4096;
+    this->model.flags = flags | 0x200;
+    projection.dir.x = 0;
+    projection.dir.y = -ONE;
+    projection.dir.z = 0;
     projection.color = 0x808080;
     camera_subject.SetObject(&model);
 }
@@ -205,9 +175,9 @@ Plague::~Plague()
         attack_ring->Destroy(3);
     if (orbit_sound)
         StopSoundVoices(orbit_sound);
-    for (uint32 index = 0; index < 3; ++index)
-        if (orbit_weapons[index])
-            orbit_weapons[index]->Destroy(3);
+    for (uint32 idx = 0; idx < 3; ++idx)
+        if (orbit_weapons[idx])
+            orbit_weapons[idx]->Destroy(3);
 }
 
 uint32 Plague::Destroy(uint32 reason)
@@ -215,7 +185,7 @@ uint32 Plague::Destroy(uint32 reason)
     FUNCTION_MARKER(0x800452B4, "SLUS_003.73");
     RemoveFromList(visual_lists.actors);
     FreeBehaviorTable();
-    ClearTrackedObjectHealth();
+    VisualObject::ClearTrackedHealth();
     projection.enabled = false;
     if (attack_ring)
         attack_ring->Destroy(3);
@@ -223,54 +193,50 @@ uint32 Plague::Destroy(uint32 reason)
     if (orbit_sound)
         StopSoundVoices(orbit_sound);
     orbit_sound = 0;
-    for (uint32 index = 0; index < 3; ++index)
+    for (uint32 idx = 0; idx < 3; ++idx)
     {
-        if (orbit_weapons[index])
-            orbit_weapons[index]->Destroy(3);
-        orbit_weapons[index] = 0;
+        if (orbit_weapons[idx])
+            orbit_weapons[idx]->Destroy(3);
+        orbit_weapons[idx] = 0;
     }
     camera_subject.Reset();
     Enemy::Destroy(0);
     if (reason & 1)
-        return ReleaseObjectStorage(this);
+        return ReleaseStorage();
     return 0;
 }
 
 uint32 Plague::Update()
 {
     ModelBorrow model_borrow;
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     ModelInstance *hero;
-    uint32 x, y, z, flags, value, timer;
-    uint32 scale, vx, vy, vz, distance, damage;
-    CollisionRay record;
+    uint32 flags, distance;
+    uint16 scale, timer;
+    CollisionRay rec;
     Vector3 delta, normal;
     ShortVector3 desired;
-    sint32 frame, magnitude;
+    sint8 frame;
+    sint32 mag;
     FUNCTION_MARKER(0x800453F4, "SLUS_003.73");
     hero = visual_lists.players;
     if (!hero)
         return 0;
-    x = (uint32)zero_vector[0];
-    y = (uint32)zero_vector[1];
-    z = (uint32)zero_vector[2];
-    motion.acceleration.words[0] = x;
-    motion.acceleration.words[1] = y;
-    motion.acceleration.words[2] = z;
-    if (!(uint32)this->control.hierarchy_ready)
+    motion.acceleration = zero_vector;
+    if (!control.hierarchy_ready)
     {
-        SetModelBoneTable(this->model.bank, PlagueAttachments);
-        this->control.hierarchy_ready = 1;
+        model.SetAttachmentTable(PlagueAttachments);
+        control.hierarchy_ready = 1;
     }
-    flags = this->activation_flags;
-    this->control.prev_activation_flags = flags;
-    if (flags & 1)
+    uint16 activation = activation_flags;
+    control.prev_activation_flags = activation;
+    if (activation & 1)
     {
-        value = (uint32)this->control.activation_count;
-        this->control.activation_count = value + 1;
-        value = this->control.flags;
-        this->activation_flags = flags & 0xFFFE;
-        this->control.flags = value | 0x100;
+        uint8 count = control.activation_count;
+        control.activation_count = count + 1;
+        flags = control.flags;
+        activation_flags = activation & 0xFFFE;
+        control.flags = flags | 0x100;
     }
     if (player_distance < 256)
     {
@@ -278,11 +244,11 @@ uint32 Plague::Update()
         if (hero)
             static_cast<VisualObject *>(visual_lists.players->owner)->ApplyContactImpulse(*this);
     }
-    if ((uint32)this->control.script_active)
+    if (control.script_active)
     {
-        timer = (uint32)this->control.script_delay;
+        timer = control.script_delay;
         if (timer)
-            this->control.script_delay = timer - 1;
+            control.script_delay = timer - 1;
         else
             ExecuteScript(script_cursor);
     }
@@ -290,31 +256,26 @@ uint32 Plague::Update()
         UpdateState();
     UpdateOrbitingWeapons();
     SpawnPickup();
-    if ((uint32)this->control.gravity_enabled)
-        AddVectors(motion.acceleration.words, world_gravity.vector.words);
+    if (control.gravity_enabled)
+        motion.acceleration.Add(world_gravity.vector);
     IntegrateMotion();
-    record.endpoints[0].words[0] = this->model.pos.words[0];
-    record.endpoints[0].words[1] = this->model.pos.words[1] - 0x40000;
-    z = this->model.pos.words[2];
-    record.endpoints[1].words[0] = record.endpoints[0].words[0];
-    record.endpoints[1].words[1] = record.endpoints[0].words[1] + 0x1000000;
-    record.endpoints[0].words[2] = z;
-    record.endpoints[1].words[2] = z;
-    InitializeCollisionRay(record);
-    QueryCollisionRay(record, 1);
-    if (record.hit.GetObject())
+    rec.endpoints[0] = model.pos;
+    rec.endpoints[0].y = (uint32)rec.endpoints[0].y - (0x40000);
+    rec.endpoints[1] = rec.endpoints[0];
+    rec.endpoints[1].y = (uint32)rec.endpoints[0].y + 0x1000000;
+    rec.Initialize();
+    rec.Query(1);
+    if (rec.hit.GetObject())
     {
         projection.enabled = true;
-        surface.pos.words[0] = record.hit_pos.words[0];
-        surface.pos.words[1] = record.hit_pos.words[1];
-        surface.pos.words[2] = record.hit_pos.words[2];
-        surface.n.vx = (uint16)record.n.vx;
-        surface.n.vy = (uint16)record.n.vy;
-        surface.n.vz = (uint16)record.n.vz;
+        surface.pos = rec.hit_pos;
+        surface.n.vx = rec.n.vx;
+        surface.n.vy = rec.n.vy;
+        surface.n.vz = rec.n.vz;
     }
     else
         projection.enabled = false;
-    flags = this->control.flags;
+    flags = control.flags;
     if (flags & 0x31)
     {
         if (flags & 16)
@@ -322,146 +283,125 @@ uint32 Plague::Update()
             ModelInstance *subject = tracked_target.GetObject();
             if (subject)
             {
-                facing_pos.words[0] = subject->pos.words[0];
-                facing_pos.words[1] = subject->pos.words[1];
-                facing_pos.words[2] = subject->pos.words[2];
+                facing_pos = subject->pos;
             }
             else
                 control.flags &= ~16;
         }
-        const uint32 *aim_pos = flags & 0x30 ? facing_pos.words : destination.words;
-        CalculateDirectionAngles(desired.words, model.pos.words, aim_pos);
-        desired.components[0] = 0;
+        const Vector3 *aim_pos = flags & 0x30 ? &facing_pos : &dst;
+        desired.SetDir(model.pos, *aim_pos);
+        desired.comp[0] = 0;
         scale = flags & 0x30 ? 32 : ai.parameters[1];
-        UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, scale);
+        UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, desired, scale);
         if (flags & 0x30)
             goto attack;
-        if (this->control.flags & 4)
+        if (control.flags & 4)
         {
-            frame = (sint8)this->model.frame;
+            frame = (sint8)model.frame;
             if (frame < 13)
             {
-                this->playback.speed = 0x10000;
-                this->control.gravity_enabled = 0;
+                playback.speed = 0x10000;
+                control.gravity_enabled = 0;
                 StopMotion();
             }
             else if (jump_timer)
-                this->control.gravity_enabled = 1;
-            frame = (sint8)this->model.frame;
-            if (frame >= 13 && !(this->control.flags & 8))
+                control.gravity_enabled = 1;
+            frame = (sint8)model.frame;
+            if (frame >= 13 && !(control.flags & 8))
             {
-                x = this->destination.words[0];
-                y = this->model.pos.words[0];
-                timer = jump_timer;
-                vx = DividePlagueJump(x - y, timer);
-                x = this->destination.words[2];
-                y = this->model.pos.words[2];
-                timer = jump_timer;
-                vz = DividePlagueJump(x - y, timer);
-                x = this->destination.words[1];
-                y = this->model.pos.words[1];
-                timer = jump_timer;
-                vy = DividePlagueJump(x - y, timer);
-                value = this->control.flags;
-                this->control.flags = value | 8;
-                motion.velocity.words[0] = vx;
-                motion.velocity.words[2] = vz;
-                motion.velocity.words[1] = vy - (timer << 14);
-                PlayPositionedSound(114, model.pos.words, 0);
+                sint32 vx = DivideSignedWord((uint32)dst.x - model.pos.x, jump_timer);
+                sint32 vz = DivideSignedWord((uint32)dst.z - model.pos.z, jump_timer);
+                uint32 duration = jump_timer;
+                sint32 vy = DivideSignedWord((uint32)dst.y - model.pos.y, duration);
+                flags = control.flags;
+                control.flags = flags | 8;
+                motion.velocity.x = vx;
+                motion.velocity.z = vz;
+                motion.velocity.y = vy - (duration << 14);
+                PlayPositionedSound(114, &model.pos, 0);
             }
             else
             {
-                frame = (sint8)this->model.frame;
+                frame = (sint8)model.frame;
                 if (frame >= 23)
                 {
                     if (!jump_timer)
                         goto jump_finished;
-                    vy = motion.velocity.words[1];
-                    this->playback.speed = (sint32)vy >= 0 && frame < 34 ? 0x10000 : 0;
+                    playback.speed = motion.velocity.y >= 0 && frame < 34 ? 0x10000 : 0;
                 }
             }
             timer = jump_timer;
             if (timer)
             {
-                value = (timer - 1) & 0xFFFF;
-                jump_timer = value;
-                if (!value)
+                --timer;
+                jump_timer = timer;
+                if (!timer)
                 {
-                    PlayPositionedSound(119, model.pos.words, 0);
-                    x = this->destination.words[0];
-                    y = this->destination.words[1];
-                    z = this->destination.words[2];
-                    this->model.pos.words[0] = x;
-                    this->model.pos.words[1] = y;
-                    this->model.pos.words[2] = z;
+                    PlayPositionedSound(119, &model.pos, 0);
+                    model.pos = dst;
                     StopMotion();
-                    this->playback.speed = 0x10000;
-                    this->control.gravity_enabled = 0;
+                    playback.speed = 0x10000;
+                    control.gravity_enabled = 0;
                 }
             }
         jump_finished:
-            if (this->playback.complete)
-                this->control.flags = this->control.flags & 0xFFFFFFF2;
+            if (playback.complete)
+                control.flags = control.flags & 0xFFFFFFF2;
         }
         else
         {
-            value = this->model.animation;
-            if (value != 6 && value != 1)
+            uint8 animation = model.animation;
+            if (animation != 6 && animation != 1)
                 StartAnimation(1, 1);
-            for (value = 0; value < 3; ++value)
+            for (uint32 axis = 0; axis < 3; ++axis)
             {
-                x = this->destination.words[value];
-                y = this->model.pos.words[value];
-                delta.words[value] = (uint32)((sint32)(x - y) >> 12);
+                delta.comp[axis] = (sint32)((uint32)dst.comp[axis] - model.pos.comp[axis]) >> 12;
             }
-            NormalizeShortVector(delta.words, normal.words);
-            magnitude = (sint16)motion.angular_velocity.words[1];
-            if (magnitude < 0)
-                magnitude = -magnitude;
-            if (magnitude > 128)
-                magnitude = 128;
-            scale = ai.parameters[0] * (128 - (uint32)magnitude) / 128;
-            vx = normal.words[0] * scale;
-            vy = normal.words[1] * scale;
-            vz = normal.words[2] * scale;
-            motion.velocity.words[0] = vx;
-            motion.velocity.words[1] = vy;
-            motion.velocity.words[2] = vz;
-            distance = MeasureHorizontalDistance(this->model.pos.words, this->destination.words);
+            NormalizeShortVector(delta, normal);
+            mag = motion.angular_velocity.y;
+            if (mag < 0)
+                mag = -mag;
+            if (mag > 128)
+                mag = 128;
+            scale = ai.parameters[0] * (128 - mag) / 128;
+            motion.velocity.x = (uint32)normal.x * scale;
+            motion.velocity.y = (uint32)normal.y * scale;
+            motion.velocity.z = (uint32)normal.z * scale;
+            distance = model.pos.HorizontalDistance(dst);
             scale = ai.parameters[0];
-            if (distance < 2 * scale)
-                this->control.flags = this->control.flags & ~1;
+            if (distance < (uint32)(2 * scale))
+                control.flags = control.flags & ~1;
         }
     }
 attack:
-    if (this->model.animation == 7)
+    if (model.animation == 7)
     {
         hero = visual_lists.players;
-        if (hero && (uint32)(this->model.frame - 15) < 5 && MeasureHorizontalDistance(model.pos.words, hero->pos.words) < 280)
+        if (hero && model.frame >= 15 && model.frame < 20 && model.pos.HorizontalDistance(hero->pos) < 280)
         {
-            damage = ScaleDamageForDifficulty(2);
+            uint32 damage = ScaleDamageForDifficulty(2);
             VisualObject *damage_target = static_cast<VisualObject *>(visual_lists.players->owner);
-            damage_target->Damage(damage, zero_vector.components, 0);
+            damage_target->Damage(damage, &zero_vector, 0);
         }
     }
     return UpdateWorldTransform();
 }
 
-uint32 Plague::Damage(uint32 damage, const sint32 *, uint32 reason)
+uint32 Plague::Damage(uint32 damage, const Vector3 *, uint32 reason)
 {
-    uint32 value, health;
+    uint8 count;
+    sint32 reduced;
     FUNCTION_MARKER(0x80045B14, "SLUS_003.73");
-    value = (uint32)this->control.damage_phase;
-    this->control.damage_phase = value + 1;
-    value = (uint32)((sint32)damage >> 1);
+    count = control.damage_phase;
+    control.damage_phase = count + 1;
+    reduced = (sint32)damage >> 1;
     if (reason == 30)
-        value = (uint32)((sint32)value >> 1);
+        reduced >>= 1;
     else if (reason == 11)
-        value -= (uint32)((sint32)value >> 1);
-    health = (uint16)this->health - value;
-    this->health = (sint16)(uint16)(health);
-    if ((sint32)(health << 16) <= 0)
-        ClearTrackedObjectHealth();
+        reduced -= reduced >> 1;
+    health -= reduced;
+    if (health <= 0)
+        VisualObject::ClearTrackedHealth();
     SetColor(3, 0, 255, 0);
     return 1;
 }
@@ -469,20 +409,22 @@ uint32 Plague::Damage(uint32 damage, const sint32 *, uint32 reason)
 void Plague::UpdateState()
 {
     ModelBorrow model_borrow;
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     ModelInstance *hero;
-    uint32 state = ai.state, substate, value, flags;
+    uint16 state = ai.state, substate, val;
+    uint32 flags, pos_y;
     GameHeapBlock *child;
-    uint32 second;
+    uint16 activation_idx, scale_z;
     uint32 random;
-    uint32 timer;
-    uint32 phase;
-    uint32 speed;
+    uint16 timer, phase, speed;
     uint32 damage;
-    Vector3 position, velocity, scaled, sum1, sum2, sum3, sum4;
-    uint32 scalar, x, y, angle;
-    ShortVector3 direction, aim;
-    sint32 health, radius, ground, increment;
+    Vector3 pos, velocity, scaled, sum[4];
+    uint32 scalar;
+    sint32 x, y;
+    uint16 angle;
+    ShortVector3 dir, aim;
+    sint16 health, height, inc;
+    sint32 ground;
     FUNCTION_MARKER(0x80045BA8, "SLUS_003.73");
     if (state >= 33)
         return;
@@ -492,31 +434,31 @@ void Plague::UpdateState()
             substate = ai.phase;
             if (!substate)
             {
-                ground = (sint32)FindGroundHeight(model.pos.words, 0, 4096);
+                ground = CollisionRay::FindGroundHeight(model.pos, 0, 4096);
                 if (ground == -1)
                     return;
-                value = this->model.pos.words[1];
-                radius = (sint16)(uint32)this->ground_offset;
-                if (((sint32)((uint32)ground - value) >> 12) >= 2 * radius)
+                pos_y = (uint32)this->model.pos.y;
+                height = ground_offset;
+                if (((sint32)((uint32)ground - pos_y) >> 12) >= 2 * height)
                     return;
-                value = (uint32)ground - ((uint32)radius << 12);
-                this->model.pos.words[1] = value;
-                shadow.height = (uint32)((sint32)((uint32)ground - value) >> 12);
-                surface.pos.words[1] = (uint32)ground;
-                this->control.gravity_enabled = 0;
+                pos_y = (uint32)ground - ((uint32)height << 12);
+                this->model.pos.y = pos_y;
+                shadow.height = (sint32)((uint32)ground - pos_y) >> 12;
+                surface.pos.y = ground;
+                control.gravity_enabled = 0;
                 ClearVelocity();
                 ai.work[1] = 0;
-                this->health = (sint16)(uint16)(800);
-                ::TrackObjectHealth(*this, 24, 42, 4096);
+                this->health = 800;
+                TrackHealth(24, 42, 4096);
                 StartAnimation(0, 1);
                 goto advance_substate;
             }
             if (substate != 1)
                 return;
-            value = ai.work[1];
-            increment = (sint16)ai.work[1];
-            if (value < 180)
-                ai.work[1] = (uint32)increment + 1;
+            val = ai.work[1];
+            inc = (sint16)ai.work[1];
+            if (val < 180)
+                ai.work[1] = inc + 1;
             else
             {
                 ai.work[1] = 0;
@@ -530,43 +472,43 @@ void Plague::UpdateState()
             if (!RandomRange(64))
             {
                 random = RandomRange(2);
-                ReadRecordPosition(position.words, spawn_points.ground_effect[random]);
-                child = AllocateEffectStorage(112);
+                ReadRecPos(&pos, spawn_points.ground_effect[random]);
+                child = EffectObject::AllocateStorage(112);
                 if (child)
                 {
                     damage = ScaleDamageForDifficulty(10);
-                    new (child) PlagueGroundEffect(position.words, damage, 64, 128, 16, 20, 48);
+                    new (child) PlagueGroundEffect(&pos, damage, 64, 128, 16, 20, 48);
                 }
-                PlayPositionedSound(116, position.words, 0);
+                PlayPositionedSound(116, &pos, 0);
             }
             substate = ai.phase;
             if (!substate)
             {
-                if (this->control.flags & 1)
+                if (control.flags & 1)
                     return;
                 if (this->health < 560)
                 {
-                    second = spawn_points.ground_effect[0];
-                    ::ActivateObjectsByIndex(visual_lists.solids, second);
-                    second = spawn_points.ground_effect[1];
-                    ::ActivateObjectsByIndex(visual_lists.solids, second);
+                    activation_idx = spawn_points.ground_effect[0];
+                    VisualObject::ActivateByIdx(visual_lists.solids, activation_idx);
+                    activation_idx = spawn_points.ground_effect[1];
+                    VisualObject::ActivateByIdx(visual_lists.solids, activation_idx);
                     goto advance_state;
                 }
-                value = jump_index + 1;
-                jump_index = value;
-                if ((value & 255) >= 2)
-                    jump_index = 0;
-                value = jump_index;
-                ReadRecordPosition(position.words, spawn_points.near_points[value]);
-                ground = (sint32)FindGroundHeight(position.words, 512, 2048);
-                radius = (sint16)(uint32)this->ground_offset;
-                position.words[1] = (uint32)ground - ((uint32)radius << 12);
-                SetJumpTarget(position.words);
-                value = ai.phase;
+                uint8 next_jump = jump_idx + 1;
+                jump_idx = next_jump;
+                if (next_jump >= 2)
+                    jump_idx = 0;
+                val = jump_idx;
+                ReadRecPos(&pos, spawn_points.near_points[val]);
+                ground = CollisionRay::FindGroundHeight(pos, 512, 2048);
+                height = ground_offset;
+                pos.y = (uint32)ground - ((uint32)height << 12);
+                SetJumpTarget(&pos);
+                val = ai.phase;
                 attack_count = 0;
                 goto store_substate;
             }
-            if (substate != 1 || (this->control.flags & 1))
+            if (substate != 1 || (control.flags & 1))
                 return;
             phase = attack_count;
             if (phase >= 2 || (phase == substate && RandomRange(2)))
@@ -584,56 +526,55 @@ void Plague::UpdateState()
             return;
 
         case 2:
-            flags = this->control.flags;
+            flags = control.flags;
             pickup_stage = 2;
             if (!(flags & 128))
             {
-                increment = (sint16)ai.work[0];
-                if (increment >= 101)
+                inc = (sint16)ai.work[0];
+                if (inc >= 101)
                 {
-                    value = orbit_sound;
-                    this->control.flags = flags | 128;
-                    ::StopSoundVoices(value);
+                    uint32 sound = orbit_sound;
+                    control.flags = flags | 128;
+                    ::StopSoundVoices(sound);
                 }
                 else
-                    ai.work[0] = (uint32)increment + 1;
+                    ai.work[0] = inc + 1;
             }
             substate = ai.phase;
             if (!substate)
             {
-                second = spawn_points.orbit_record;
-                ::ActivateObjectsByIndex(visual_lists.solids, second);
-                value = PlaySoundEffect(115, 8192, 0);
-                orbit_sound = value;
+                activation_idx = spawn_points.orbit_rec;
+                VisualObject::ActivateByIdx(visual_lists.solids, activation_idx);
+                orbit_sound = PlaySoundEffect(115, 8192, 0);
             }
             if (substate <= 1)
             {
-                if (this->control.flags & 1)
+                if (control.flags & 1)
                     return;
                 random = RandomRange(2);
-                ReadRecordPosition(position.words, spawn_points.near_points[random]);
-                ground = (sint32)FindGroundHeight(position.words, 512, 2048);
-                radius = (sint16)(uint32)this->ground_offset;
-                position.words[1] = (uint32)ground - ((uint32)radius << 12);
-                SetJumpTarget(position.words);
+                ReadRecPos(&pos, spawn_points.near_points[random]);
+                ground = CollisionRay::FindGroundHeight(pos, 512, 2048);
+                height = ground_offset;
+                pos.y = (uint32)ground - ((uint32)height << 12);
+                SetJumpTarget(&pos);
                 goto advance_substate;
             }
             if (substate != 2)
                 return;
-            flags = this->control.flags;
+            flags = control.flags;
             if (flags & 1)
                 return;
             if (this->health < 320 && (flags & 128))
             {
-                second = spawn_points.orbit_record;
-                ::ActivateObjectsByIndex(visual_lists.solids, second);
-                this->control.flags = this->control.flags & 0xFFFFFF7F;
-                SelectFarTarget(position);
-                ground = (sint32)FindGroundHeight(position.words, 512, 2048);
-                radius = (sint16)(uint32)this->ground_offset;
-                position.words[1] = (uint32)ground - ((uint32)radius << 12);
-                SetJumpTarget(position.words);
-                value = ai.state;
+                activation_idx = spawn_points.orbit_rec;
+                VisualObject::ActivateByIdx(visual_lists.solids, activation_idx);
+                control.flags = control.flags & 0xFFFFFF7F;
+                SelectFarTarget(pos);
+                ground = CollisionRay::FindGroundHeight(pos, 512, 2048);
+                height = ground_offset;
+                pos.y = (uint32)ground - ((uint32)height << 12);
+                SetJumpTarget(&pos);
+                val = ai.state;
                 ai.phase = 0;
                 ai.work[0] = 0;
                 goto store_state;
@@ -645,7 +586,7 @@ void Plague::UpdateState()
             pickup_stage = 3;
             if (!substate)
             {
-                if (this->control.flags & 1)
+                if (control.flags & 1)
                     return;
                 StartAnimation(0, 1);
                 TrackTarget(visual_lists.players);
@@ -653,9 +594,9 @@ void Plague::UpdateState()
             }
             if (substate != 1)
                 return;
-            increment = (sint16)ai.work[0];
-            if (increment < 161)
-                ai.work[0] = (uint32)increment + 1;
+            inc = (sint16)ai.work[0];
+            if (inc < 161)
+                ai.work[0] = inc + 1;
             else
             {
                 ClearFacing();
@@ -668,17 +609,17 @@ void Plague::UpdateState()
             pickup_stage = 4;
             if (!substate)
             {
-                value = ai.phase;
+                val = ai.phase;
                 ai.parameters[0] = 42;
                 goto store_substate;
             }
             if (substate == 1)
             {
-                if (this->control.flags & 1)
+                if (control.flags & 1)
                     return;
                 if (this->model.animation != 9)
-                    SetAnimationRange(9, 0, 0xFFFFFFFF);
-                else if (this->playback.complete)
+                    SetAnimationRange(9, 0, -1);
+                else if (playback.complete)
                     ai.phase = 2;
                 return;
             }
@@ -686,7 +627,7 @@ void Plague::UpdateState()
                 return;
             if (this->health <= 0)
             {
-                this->control.flags = this->control.flags & 0xFFFFFFFE;
+                control.flags = control.flags & 0xFFFFFFFE;
                 ClearVelocity();
                 ai.state = 5;
                 ai.phase = 0;
@@ -694,76 +635,75 @@ void Plague::UpdateState()
             }
             if (this->model.animation != 6)
                 StartAnimation(6, 1);
-            flags = this->control.flags;
+            flags = control.flags;
             if (!(flags & 1) || !RandomRange(12))
             {
                 if (RandomRange(3))
                 {
                     hero = visual_lists.players;
-                    position = hero->pos;
+                    pos = hero->pos;
                 }
                 else
                 {
                     hero = visual_lists.players;
                     scalar = 8;
-                    position = hero->pos;
-                    MultiplyScalarVector(velocity.words, scalar, static_cast<VisualObject *>(hero->owner)->motion.velocity.words);
-                    velocity.words[1] = 0;
+                    pos = hero->pos;
+                    velocity.Scale(scalar, static_cast<VisualObject *>(hero->owner)->motion.velocity);
+                    velocity.y = 0;
                     scalar = 8;
-                    MultiplyScalarVector(scaled.words, scalar, velocity.words);
-                    AddVectors(position.words, scaled.words);
+                    scaled.Scale(scalar, velocity);
+                    pos.Add(scaled);
                 }
-                ground = (sint32)FindGroundHeight(position.words, 512, 2048);
+                ground = CollisionRay::FindGroundHeight(pos, 512, 2048);
                 if (ground == -1)
-                    position.words[1] = this->model.pos.words[1];
+                    pos.y = this->model.pos.y;
                 else
                 {
-                    radius = (sint16)(uint32)this->ground_offset;
-                    position.words[1] = (uint32)ground - ((uint32)radius << 12);
+                    height = ground_offset;
+                    pos.y = (uint32)ground - ((uint32)height << 12);
                 }
-                SetMoveTarget(position.words);
+                SetMoveTarget(&pos);
             }
-            increment = (sint16)ai.work[1];
-            if (increment)
-                value = (uint32)increment - 1;
+            inc = (sint16)ai.work[1];
+            if (inc)
+                val = inc - 1;
             else
             {
-                position = this->model.pos;
-                y = position.words[1];
-                radius = (sint16)(uint32)this->ground_offset;
+                pos = this->model.pos;
+                pos_y = (uint32)pos.y;
+                height = ground_offset;
                 use_small_effect_pool = false;
-                position.words[1] = y + 0xFFFF0000 + ((uint32)radius << 12);
-                child = AllocateEffectStorage(172);
+                pos.y = pos_y + 0xFFFF0000 + ((uint32)height << 12);
+                child = EffectObject::AllocateStorage(172);
                 if (child)
                 {
                     health = this->health;
-                    damage = (uint32)((sint32)(150 * (240 - (uint32)health)) / 240) + 150;
+                    sint32 lifetime = 150 * (240 - health) / 240 + 150;
                     PlagueArea *area = new (child) PlagueArea();
                     area->EnableSemiTransparency();
                     area->SelectResource(0x019D23F9);
                     area->depth_bias = 128;
-                    direction.components[2] = 0;
-                    direction.components[0] = 0;
-                    direction.components[1] = -4096;
+                    dir.z = 0;
+                    dir.x = 0;
+                    dir.y = -ONE;
                     random = RandomRange(48);
-                    area->SetColors((random + 64) & 255, 128, 0);
+                    area->SetColors(random + 64, 128, 0);
                     area->radius = 0;
-                    value = area->radius;
-                    area->SetPosition(position.words, direction.components, value, 0);
-                    area->lifetime = damage;
-                    AddVectors(sum1.words, area->pos.words, area->corners[0].words);
-                    AddVectors(sum2.words, sum1.words, area->corners[1].words);
-                    AddVectors(sum3.words, sum2.words, area->corners[2].words);
+                    area->SetPos(&pos, &dir, area->radius, 0);
+                    area->lifetime = lifetime;
+                    sum[0].Add(area->pos, area->corners[0]);
+                    sum[1].Add(sum[0], area->corners[1]);
+                    sum[2].Add(sum[1], area->corners[2]);
                     scalar = 2;
-                    ShiftVectorRight(sum4.words, sum3.words, scalar);
-                    area->center = sum4;
+                    sum[3].ShiftRight(sum[2], scalar);
+                    area->center = sum[3];
                 }
                 use_small_effect_pool = true;
-                value = 5;
+                val = 5;
             }
-            ai.work[1] = value;
+            ai.work[1] = val;
             hero = visual_lists.players;
-            if (MeasureHorizontalDistance(model.pos.words, hero->pos.words) < 256)
+            if (model.pos.HorizontalDistance(hero->pos) < 256)
                 SaveRecovery(32);
             return;
 
@@ -781,14 +721,14 @@ void Plague::UpdateState()
                     camera->follow.target.SetObject(&model);
                     camera->aim.flags = 1;
                     camera->aim.target.SetObject(&model);
-                    SetCameraOrbitDistanceTransition(1584, 16);
-                    SetCameraOrbitHeightTransition((uint32)-1208, 16);
-                    SetCameraTargetLateralOffsetTransition(0, 16);
-                    SetCameraTargetHeightOffsetTransition((uint32)-76, 16);
-                    SetCameraTargetForwardOffsetTransition(240, 16);
+                    camera->SetOrbitDistanceTransition(1584, 16);
+                    camera->SetOrbitHeightTransition(-1208, 16);
+                    camera->SetTargetLateralOffsetTransition(0, 16);
+                    camera->SetTargetHeightOffsetTransition(-76, 16);
+                    camera->SetTargetForwardOffsetTransition(240, 16);
                     camera->SetYawTransition(2496, 16);
                 }
-                SetAnimationRange(8, 0, 0xFFFFFFFF);
+                SetAnimationRange(8, 0, -1);
                 goto advance_substate;
             }
             if (substate == 3)
@@ -798,50 +738,50 @@ void Plague::UpdateState()
             }
             if (substate == 1)
             {
-                if (this->playback.complete)
+                if (playback.complete)
                 {
-                    SetAnimationRange(4, 0, 0xFFFFFFFF);
-                    value = ai.phase;
+                    SetAnimationRange(4, 0, -1);
+                    val = ai.phase;
                     ai.work[0] = 0;
                     ai.work[1] = 16;
-                    ai.phase = value + 1;
+                    ai.phase = val + 1;
                 }
             }
             else if (substate != 2)
                 return;
-            increment = (sint8)this->model.frame;
+            inc = (sint8)this->model.frame;
             timer = ai.work[0];
-            if (increment >= 45)
+            if (inc >= 45)
             {
-                direction.components[0] = 512;
+                dir.x = 512;
                 use_small_effect_pool = false;
-                direction.components[1] = 4096;
-                direction.components[2] = 0;
-                SetParticleSpread(direction.components);
-                ::SetParticleSize(2);
+                dir.y = 4096;
+                dir.z = 0;
+                PrimitiveParticle::SetSpread(&dir);
+                PrimitiveParticle::SetSize(2);
                 random = RandomRange(64);
-                SetParticleColor((random + 48) & 255, 128, 0);
-                SetParticleColorStep(1, 2, 0);
-                GetModelAttachment(position.words, *this, 0);
-                CalculateDirectionAngles(aim.words, model.pos.words, position.words);
-                velocity = position;
-                direction.components[0] = -1024;
-                direction.components[1] = 0;
-                direction.components[2] = 0;
-                velocity.words[1] += 0xFF800000;
-                child = AllocateEffectStorage(108);
+                PrimitiveParticle::SetColor(random + 48, 128, 0);
+                PrimitiveParticle::SetColorStep(1, 2, 0);
+                GetModelAttachment(pos, *this, 0);
+                aim.SetDir(model.pos, pos);
+                velocity = pos;
+                dir.x = -1024;
+                dir.y = 0;
+                dir.z = 0;
+                velocity.y = (uint32)velocity.y + (0xFF800000);
+                child = EffectObject::AllocateStorage(108);
                 if (child)
                 {
-                    new (child) TrailProjectile(position.words, velocity.words, direction.words, 16, 64, 64, 200, 240, 200, 0, 128, 0);
+                    new (child) TrailProjectile(&pos, &velocity, &dir, 16, 64, 64, 200, 240, 200, 0, 128, 0);
                 }
-                GetModelAttachment(position.words, *this, 1);
-                CalculateDirectionAngles(aim.words, model.pos.words, position.words);
-                velocity = position;
-                velocity.words[1] += 0xFF800000;
-                child = AllocateEffectStorage(108);
+                GetModelAttachment(pos, *this, 1);
+                aim.SetDir(model.pos, pos);
+                velocity = pos;
+                velocity.y = (uint32)velocity.y + (0xFF800000);
+                child = EffectObject::AllocateStorage(108);
                 if (child)
                 {
-                    new (child) TrailProjectile(position.words, velocity.words, direction.words, 16, 64, 64, 200, 240, 200, 0, 128, 0);
+                    new (child) TrailProjectile(&pos, &velocity, &dir, 16, 64, 64, 200, 240, 200, 0, 128, 0);
                 }
                 use_small_effect_pool = true;
                 if ((sint8)this->model.frame >= 68)
@@ -850,66 +790,62 @@ void Plague::UpdateState()
             if (!RandomRange(12))
             {
                 random = RandomRange(2);
-                PlayPositionedSound(random + 1, model.pos.words, 0);
-                child = AllocateEffectStorage(124);
+                PlayPositionedSound(random + 1, &model.pos, 0);
+                child = EffectObject::AllocateStorage(124);
                 if (child)
                 {
-                    new (child) ExpandingGlow(model.pos.words, 64, 128, 0, 512, 10);
+                    new (child) ExpandingGlow(&model.pos, 64, 128, 0, 512, 10);
                 }
-                child = AllocateEffectStorage(124);
+                child = EffectObject::AllocateStorage(124);
                 if (child)
                 {
-                    new (child) RingBurstEffect(model.pos.words, 5, 255, 255, 255, 1, 32, 128, 0, 1, 60, 0, 1, 100, 120, 80, 100, 10, 4);
+                    new (child) RingBurstEffect(&model.pos, 5, 255, 255, 255, 1, 32, 128, 0, 1, 60, 0, 1, 100, 120, 80, 100, 10, 4);
                 }
             }
             if (timer > 180)
             {
-                increment = (sint16)this->model.scale.words[0];
-                value = this->model.scale.words[0] - 128;
-                if (increment > 512)
+                if (model.scale.x > 512)
                 {
-                    second = this->model.scale.words[2];
-                    this->model.scale.words[0] = value;
-                    this->model.scale.words[2] = second - 128;
+                    scale_z = (uint16)this->model.scale.z;
+                    model.scale.x -= 128;
+                    this->model.scale.z = scale_z - 128;
                 }
                 else
                 {
-                    increment = (sint16)this->model.scale.words[1];
-                    value = this->model.scale.words[1] - 512;
-                    if (increment > 512)
-                        this->model.scale.words[1] = value;
+                    if (model.scale.y > 512)
+                        model.scale.y -= 512;
                     else
                         ai.phase = ai.phase + 1;
                 }
             }
             ai.work[0] = timer + 1;
-            increment = (sint16)ai.work[1];
-            angle = this->model.angles.words[1];
-            this->model.angles.words[1] = angle + (uint32)increment;
-            ai.work[1] = (uint32)increment + 1;
+            inc = (sint16)ai.work[1];
+            angle = this->model.angles.y;
+            this->model.angles.y = angle + inc;
+            ai.work[1] = inc + 1;
             return;
 
         case 16:
             substate = ai.phase;
             if (!substate)
             {
-                flags = this->control.flags;
+                flags = control.flags;
                 hero = visual_lists.players;
-                this->control.flags = flags & 0xFFFFFFFE;
+                control.flags = flags & 0xFFFFFFFE;
                 ClearVelocity();
                 TrackTarget(visual_lists.players);
-                SetAnimationRange(2, 0, 0xFFFFFFFF);
-                GetModelAttachment(position.words, *this, 0);
-                GameHeapBlock *allocation = AllocateEffectStorage(104);
+                SetAnimationRange(2, 0, -1);
+                GetModelAttachment(pos, *this, 0);
+                GameHeapBlock *allocation = EffectObject::AllocateStorage(104);
                 RingEffect *created = 0;
                 if (allocation)
                 {
-                    created = new (allocation) RingEffect(position.words, 32, 64, 128, 128, 128, 16, 64, 0);
+                    created = new (allocation) RingEffect(&pos, 32, 64, 128, 128, 128, 16, 64, 0);
                 }
                 attack_ring = created;
                 if (!attack_ring)
                 {
-                    GameDiagnostic("Plague attack ring allocation failed\n");
+                    GameDiagnostic(("Plague attack ring allocation failed\n"));
                     abort();
                 }
                 attack_ring->SetRadii(16);
@@ -919,14 +855,14 @@ void Plague::UpdateState()
                 goto restore_recovery;
             if (substate != 1)
                 return;
-            GetModelAttachment(position.words, *this, 0);
+            GetModelAttachment(pos, *this, 0);
             if ((sint8)this->model.frame < 37)
             {
                 if (attack_ring)
                 {
-                    attack_ring->SetPosition(position.words);
-                    increment = (sint8)model.frame;
-                    attack_ring->SetRadii(((uint32)increment << 2) + 16);
+                    attack_ring->SetPos(&pos);
+                    inc = (sint8)model.frame;
+                    attack_ring->SetRadii(inc * 4 + 16);
                 }
                 return;
             }
@@ -936,53 +872,53 @@ void Plague::UpdateState()
                 attack_ring = 0;
             }
             hero = visual_lists.players;
-            CalculateDirectionAngles(aim.words, position.words, hero->pos.words);
-            child = AllocateEffectStorage(268);
+            aim.SetDir(pos, hero->pos);
+            child = EffectObject::AllocateStorage(268);
             if (child)
             {
-                speed = GetBehaviorValue(0, 2) & 65535;
-                damage = GetBehaviorValue(0, 1) & 65535;
-                new (child) LineProjectile(position.words, aim.components, speed, damage, &visual_lists.players, 64, 96, 0, 0);
+                speed = GetBehaviorVal(0, 2);
+                damage = GetBehaviorVal(0, 1);
+                new (child) LineProjectile(&pos, &aim, speed, damage, &visual_lists.players, 64, 96, 0, 0);
             }
             for (phase = 0; phase < 4096; phase += 256)
             {
-                increment = rcos(phase & 4095);
-                value = spread_radius[phase >> 8];
-                x = (uint32)increment * value;
-                increment = rsin(phase & 4095);
-                y = (uint32)increment * value;
-                direction.components[2] = 0;
-                direction.components[0] = (sint16)(((uint32)(uint16)aim.components[0] - (uint32)((sint32)x >> 12)) & 4095);
-                direction.components[1] = (sint16)(((uint32)(uint16)aim.components[1] + (uint32)((sint32)y >> 12)) & 4095);
-                child = AllocateEffectStorage(268);
+                inc = rcos(phase);
+                uint8 spread = spread_radius[phase >> 8];
+                x = inc * spread;
+                inc = rsin(phase);
+                y = inc * spread;
+                dir.z = 0;
+                dir.x = ((uint16)aim.x - (x >> 12)) & 4095;
+                dir.y = ((uint16)aim.y + (y >> 12)) & 4095;
+                child = EffectObject::AllocateStorage(268);
                 if (child)
                 {
-                    speed = GetBehaviorValue(0, 2) & 65535;
-                    damage = GetBehaviorValue(0, 1) & 65535;
-                    new (child) LineProjectile(position.words, direction.components, speed, damage, &visual_lists.players, 64, 96, 0, 0);
+                    speed = GetBehaviorVal(0, 2);
+                    damage = GetBehaviorVal(0, 1);
+                    new (child) LineProjectile(&pos, &dir, speed, damage, &visual_lists.players, 64, 96, 0, 0);
                 }
             }
-            PlayPositionedSound(117, model.pos.words, 0);
+            PlayPositionedSound(117, &model.pos, 0);
             goto advance_substate;
 
         case 32:
             substate = ai.phase;
             if (!substate)
             {
-                flags = this->control.flags;
+                flags = control.flags;
                 hero = visual_lists.players;
-                this->control.flags = flags & 0xFFFFFFFE;
+                control.flags = flags & 0xFFFFFFFE;
                 ClearVelocity();
                 TrackTarget(visual_lists.players);
-                SetAnimationRange(7, 0, 0xFFFFFFFF);
+                SetAnimationRange(7, 0, -1);
                 goto advance_substate;
             }
             if (substate == 1)
             {
-                if (!this->playback.complete)
+                if (!playback.complete)
                     return;
-                increment = (sint8)this->model.frame;
-                SetAnimationRange(7, (uint32)increment, 0);
+                inc = (sint8)this->model.frame;
+                SetAnimationRange(7, inc, 0);
                 goto advance_substate;
             }
             if (substate == 2)
@@ -994,30 +930,30 @@ void Plague::UpdateState()
     }
 
 far_jump_and_repeat:
-    SelectFarTarget(position);
-    ground = (sint32)FindGroundHeight(position.words, 512, 2048);
-    radius = (sint16)(uint32)this->ground_offset;
-    position.words[1] = (uint32)ground - ((uint32)radius << 12);
-    SetJumpTarget(position.words);
-    value = ai.phase;
-    ai.phase = value - 1;
+    SelectFarTarget(pos);
+    ground = CollisionRay::FindGroundHeight(pos, 512, 2048);
+    height = ground_offset;
+    pos.y = (uint32)ground - ((uint32)height << 12);
+    SetJumpTarget(&pos);
+    val = ai.phase;
+    ai.phase = val - 1;
     return;
 
 advance_state:
-    value = ai.state;
+    val = ai.state;
     ai.phase = 0;
 store_state:
-    ai.state = value + 1;
+    ai.state = val + 1;
     return;
 
 advance_substate:
-    value = ai.phase;
+    val = ai.phase;
 store_substate:
-    ai.phase = value + 1;
+    ai.phase = val + 1;
     return;
 
 restore_recovery:
-    if (!this->playback.complete)
+    if (!playback.complete)
         return;
     ClearFacing();
     state = ai.parameters[2];
@@ -1026,31 +962,32 @@ restore_recovery:
     ai.phase = substate;
 }
 
-uint32 Plague::SpawnPickup()
+void Plague::SpawnPickup()
 {
-    RecordDataBorrow record_borrow;
-    uint32 state, now, elapsed, index, trigger, choice, resource;
-    Vector3 position;
-    sint32 health, maximum;
+    RecordDataBorrow rec_borrow;
+    uint16 state, trigger, resource;
+    uint32 now, elapsed, idx, choice;
+    Vector3 pos;
+    sint16 health, maximum;
     FUNCTION_MARKER(0x80046EBC, "SLUS_003.73");
     state = pickup_stage;
     now = game_clock.tick;
     elapsed = now - last_pickup_tick;
     if ((sint32)elapsed < 481)
-        return 0xFFFFFFFF;
-    if (state - 1 < 2)
+        return;
+    if (state == 1 || state == 2)
     {
         if (state == 2)
         {
-            maximum = (sint32)(sint16)GetGameTuning().player.maximum_health;
+            maximum = GetGameTuning().player.maximum_health;
             ModelInstance *player = visual_lists.players;
             health = static_cast<VisualObject *>(player->owner)->health;
-            maximum = (maximum + (maximum < 0 ? 1 : 0)) >> 1;
+            maximum /= 2;
             if (health < maximum)
             {
-                index = RandomRange(2);
-                trigger = spawn_points.early_support[index];
-                ReadRecordPosition(position.words, trigger);
+                idx = RandomRange(2);
+                trigger = spawn_points.early_support[idx];
+                ReadRecPos(&pos, trigger);
                 resource = 14;
                 goto create;
             }
@@ -1058,60 +995,61 @@ uint32 Plague::SpawnPickup()
         choice = RandomRange(3);
         if (!choice)
         {
-            index = RandomRange(2);
-            trigger = spawn_points.early_support[index];
-            ReadRecordPosition(position.words, trigger);
+            idx = RandomRange(2);
+            trigger = spawn_points.early_support[idx];
+            ReadRecPos(&pos, trigger);
             resource = 5;
             goto create;
         }
-        index = RandomRange(4);
-        trigger = spawn_points.early_pickups[index];
+        idx = RandomRange(4);
+        trigger = spawn_points.early_pickups[idx];
     }
     else
     {
         choice = RandomRange(3);
         if (choice == 1)
         {
-            index = RandomRange(2);
-            trigger = spawn_points.late_health[index + 2];
-            ReadRecordPosition(position.words, trigger);
+            idx = RandomRange(2);
+            trigger = spawn_points.late_health[idx + 2];
+            ReadRecPos(&pos, trigger);
             resource = 14;
             goto create;
         }
         if (choice)
         {
-            index = RandomRange(2);
-            trigger = spawn_points.late_health[index];
-            ReadRecordPosition(position.words, trigger);
+            idx = RandomRange(2);
+            trigger = spawn_points.late_health[idx];
+            ReadRecPos(&pos, trigger);
             resource = 15;
             goto create;
         }
-        index = RandomRange(4);
-        trigger = spawn_points.late_pickups[index];
+        idx = RandomRange(4);
+        trigger = spawn_points.late_pickups[idx];
     }
-    ReadRecordPosition(position.words, trigger);
+    ReadRecPos(&pos, trigger);
     choice = RandomRange(2);
     resource = choice ? 3 : 4;
 create:
-    ::SpawnPickup(resource, position.words, 4, 240, zero_vector.words);
+    Pickup::Spawn(resource, &pos, 4, 240, &zero_vector);
     now = game_clock.tick;
     last_pickup_tick = now;
-    return now;
 }
 
-uint32 Plague::UpdateOrbitingWeapons()
+void Plague::UpdateOrbitingWeapons()
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     ModelInstance *node = visual_lists.solids;
-    uint32 timer, angle, index, random;
-    Vector3 position, direction;
+    sint32 timer;
+    uint16 angle;
+    uint32 idx, random;
+    Vector3 pos, dir;
     ShortVector3 angles;
     FUNCTION_MARKER(0x800470B0, "SLUS_003.73");
     orbit_object.Reset();
     if (node)
     {
-        uint32 identity = spawn_points.orbit_record;
-        while (static_cast<VisualObject *>(node->owner)->record_idx != identity)
+        uint16 identity = spawn_points.orbit_rec;
+        while (static_cast<VisualObject *>(node->owner)->rec_idx != identity)
         {
             node = node->next;
             if (!node)
@@ -1122,12 +1060,12 @@ uint32 Plague::UpdateOrbitingWeapons()
     }
     if (control.flags & 128)
     {
-        ReadRecordPosition(position.words, spawn_points.orbit_center);
+        ReadRecPos(&pos, spawn_points.orbit_center);
         if (!orbit_weapons[0])
         {
-            orbit_angles.words[1] = 1365;
-            orbit_angles.words[0] = 0;
-            orbit_angles.words[2] = 2730;
+            orbit_angles.y = 1365;
+            orbit_angles.x = 0;
+            orbit_angles.z = 2730;
             CreateOrbitWeapon(0);
         }
         else if (!orbit_weapons[1])
@@ -1137,7 +1075,7 @@ uint32 Plague::UpdateOrbitingWeapons()
             else
             {
                 timer = orbit_timer;
-                orbit_weapons[0]->segment_len = (uint32)((sint32)(timer << 12) / 150 / 9);
+                orbit_weapons[0]->seg_len = timer * ONE / 150 / 9;
             }
         }
         else if (!orbit_weapons[2])
@@ -1146,177 +1084,163 @@ uint32 Plague::UpdateOrbitingWeapons()
                 CreateOrbitWeapon(2);
             else
             {
-                timer = (uint32)orbit_timer - 150;
-                orbit_weapons[1]->segment_len = (uint32)((sint32)(timer << 12) / 150 / 9);
+                timer = orbit_timer - 150;
+                orbit_weapons[1]->seg_len = timer * ONE / 150 / 9;
             }
         }
         else if (orbit_timer < 450)
         {
-            timer = (uint32)orbit_timer - 300;
-            orbit_weapons[2]->segment_len = (uint32)((sint32)(timer << 12) / 150 / 9);
+            timer = orbit_timer - 300;
+            orbit_weapons[2]->seg_len = timer * ONE / 150 / 9;
         }
-        for (index = 0; index < 3; ++index)
+        for (idx = 0; idx < 3; ++idx)
         {
-            uint32 delta = ReadOrbitDelta();
-            angle = (orbit_angles.words[index] + delta) & 4095;
-            orbit_angles.words[index] = angle;
-            if (orbit_weapons[index])
+            sint32 delta = ReadOrbitDelta();
+            angle = ((uint16)orbit_angles.comp[idx] + delta) & 4095;
+            orbit_angles.comp[idx] = angle;
+            if (orbit_weapons[idx])
             {
-                angles.components[0] = 0;
-                angles.components[1] = angle;
-                angles.components[2] = 0;
-                BuildDirectionVector(direction.words, 145, angles.words);
-                AddVectors(direction.words, position.words);
-                orbit_weapons[index]->Fire(direction.words, angles.components);
+                angles.comp[0] = 0;
+                angles.comp[1] = angle;
+                angles.comp[2] = 0;
+                dir.SetDir(145, angles);
+                dir.Add(pos);
+                orbit_weapons[idx]->Fire(dir, angles);
             }
         }
         node = orbit_object.GetObject();
         if (node)
-            node->angles.words[1] = (node->angles.words[1] + ReadOrbitDelta()) & 4095;
+            node->angles.y = ((uint16)node->angles.y + ReadOrbitDelta()) & 4095;
         random = RandomRange(4);
         orbit_phase += 4 + random;
         ++orbit_timer;
-        return random;
+        return;
     }
     node = orbit_object.GetObject();
     if (node)
-        node->angles.words[1] = (node->angles.words[1] + 32) & 4095;
-    for (index = 0; index < 3; ++index)
+        node->angles.y = ((uint16)node->angles.y + 32) & 4095;
+    for (idx = 0; idx < 3; ++idx)
     {
-        if (orbit_weapons[index])
-            orbit_weapons[index]->Destroy(3);
-        orbit_weapons[index] = 0;
+        if (orbit_weapons[idx])
+            orbit_weapons[idx]->Destroy(3);
+        orbit_weapons[idx] = 0;
     }
-    return 0;
 }
 
-uint32 Plague::ReadParameters(uint32 command)
+void Plague::SetParameters(uint16 command)
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     uint16 *fields[8] = {spawn_points.ground_effect, spawn_points.ground_effect + 1, &spawn_points.orbit_center, 0, 0, 0, spawn_points.early_support, spawn_points.early_support + 1};
-    uint32 value, index;
+    uint16 val;
+    uint32 idx;
     RecordCursor cursor;
     RecordCursor cached;
     FUNCTION_MARKER(0x800474F0, "SLUS_003.73");
-    command &= 0xFFFF;
     if (command != 0x2130)
-        return Enemy::ReadParameters(command);
+    {
+        Enemy::ReadParameters(command);
+        return;
+    }
     cursor = script_cursor + 2;
     script_cursor = cursor;
-    value = cursor.Read16();
+    val = cursor.Read16();
     cursor += 2;
     script_cursor = cursor;
-    for (index = 0; index < 8; ++index)
+    for (idx = 0; idx < 8; ++idx)
     {
         cursor = script_cursor;
-        value = cursor.Read16();
+        val = cursor.Read16();
         cursor += 2;
-        spawn_points.far_points[index] = value;
+        spawn_points.far_points[idx] = val;
         script_cursor = cursor;
     }
     cached = cursor;
-    value = cached.Read16();
+    val = cached.Read16();
     script_cursor = cached + 2;
-    spawn_points.orbit_record = value;
-    value = (cached + 2).Read16();
+    spawn_points.orbit_rec = val;
+    val = (cached + 2).Read16();
     script_cursor = cached + 36;
-    for (index = 0; index < 2; ++index)
+    for (idx = 0; idx < 2; ++idx)
     {
         cursor = script_cursor;
-        value = cursor.Read16();
+        val = cursor.Read16();
         cursor += 2;
-        spawn_points.near_points[index] = value;
+        spawn_points.near_points[idx] = val;
         script_cursor = cursor;
     }
     cached = cursor;
-    for (index = 0; index < 8; ++index)
+    for (idx = 0; idx < 8; ++idx)
     {
-        value = (cached + 2 * index).Read16();
-        script_cursor = cached + 2 * index + 2;
+        val = (cached + 2 * idx).Read16();
+        script_cursor = cached + 2 * idx + 2;
         // Consume unused encoded slots without retaining dead runtime fields
-        if (fields[index])
-            *fields[index] = value;
+        if (fields[idx])
+            *fields[idx] = val;
     }
-    for (index = 0; index < 8; ++index)
+    for (idx = 0; idx < 8; ++idx)
     {
         cursor = script_cursor;
-        value = cursor.Read16();
+        val = cursor.Read16();
         cursor += 2;
-        if (index < 4)
-            spawn_points.early_pickups[index] = value;
+        if (idx < 4)
+            spawn_points.early_pickups[idx] = val;
         else
-            spawn_points.late_pickups[index - 4] = value;
+            spawn_points.late_pickups[idx - 4] = val;
         script_cursor = cursor;
     }
     cached = cursor;
-    for (index = 0; index < 4; ++index)
+    for (idx = 0; idx < 4; ++idx)
     {
-        value = (cached + 2 * index).Read16();
-        script_cursor = cached + 2 * index + 2;
-        spawn_points.late_health[index] = value;
+        val = (cached + 2 * idx).Read16();
+        script_cursor = cached + 2 * idx + 2;
+        spawn_points.late_health[idx] = val;
     }
-    return 0;
 }
 
-uint32 Plague::ExecuteCommand(uint32 command)
+uint32 Plague::ExecuteCommand(uint16 command)
 {
     FUNCTION_MARKER(0x800476D0, "SLUS_003.73");
-    return Enemy::ExecuteCommand(command & 0xFFFF);
+    return Enemy::ExecuteCommand(command);
 }
 
-uint32 Plague::SetJumpTarget(const uint32 *position)
+void Plague::SetJumpTarget(const Vector3 *pos)
 {
     FUNCTION_MARKER(0x800476F0, "SLUS_003.73");
-    SetAnimationRange(5, 0, (uint32)-1);
-    uint32 x = position[0];
-    uint32 y = position[1];
-    uint32 z = position[2];
-    this->destination.words[0] = x;
-    this->destination.words[1] = y;
-    this->destination.words[2] = z;
-    uint32 flags = this->control.flags;
+    SetAnimationRange(5, 0, -1);
+    dst = *pos;
+    uint32 flags = control.flags;
     jump_timer = 40;
     flags |= 5;
-    this->control.flags = flags;
-    return flags;
+    control.flags = flags;
 }
 
-uint32 Plague::SetMoveTarget(const uint32 *position)
+void Plague::SetMoveTarget(const Vector3 *pos)
 {
     FUNCTION_MARKER(0x80047758, "SLUS_003.73");
-    uint32 x = position[0];
-    uint32 y = position[1];
-    uint32 z = position[2];
-    this->destination.words[0] = x;
-    this->destination.words[1] = y;
-    this->destination.words[2] = z;
-    uint32 flags = (this->control.flags | 1) & 0xFFFFFFF3;
-    this->control.flags = flags;
-    return flags;
+    dst = *pos;
+    uint32 flags = (control.flags | 1) & 0xFFFFFFF3;
+    control.flags = flags;
 }
 
-uint32 Plague::TrackTarget(ModelInstance *target)
+void Plague::TrackTarget(ModelInstance *target)
 {
     FUNCTION_MARKER(0x80047788, "SLUS_003.73");
-    uint32 flags = static_cast<VisualObject *>(target->owner)->IsFinished();
-    if (flags)
-        return flags;
+    if (static_cast<VisualObject *>(target->owner)->IsFinished())
+        return;
+    uint32 flags = control.flags;
     tracked_target.SetObject(target);
-    flags = (control.flags & 0xFFFFFFDF) | 16;
-    control.flags = flags;
-    return flags;
+    control.flags = (flags & 0xFFFFFFDF) | 16;
 }
 
-uint16 *Plague::ClearFacing()
+void Plague::ClearFacing()
 {
     FUNCTION_MARKER(0x80047808, "SLUS_003.73");
-    uint32 flags = this->control.flags & 0xFFFFFFCF;
-    this->control.flags = flags;
-    motion.angular_velocity.words[2] = 0;
-    motion.angular_velocity.words[1] = 0;
-    motion.angular_velocity.words[0] = 0;
-    motion.angular_acceleration.words[2] = 0;
-    motion.angular_acceleration.words[1] = 0;
-    motion.angular_acceleration.words[0] = 0;
-    return motion.angular_acceleration.words;
+    uint32 flags = control.flags & 0xFFFFFFCF;
+    control.flags = flags;
+    motion.angular_velocity.z = 0;
+    motion.angular_velocity.y = 0;
+    motion.angular_velocity.x = 0;
+    motion.angular_acceleration.z = 0;
+    motion.angular_acceleration.y = 0;
+    motion.angular_acceleration.x = 0;
 }

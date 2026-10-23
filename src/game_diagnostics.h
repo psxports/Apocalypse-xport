@@ -8,9 +8,11 @@ extern "C"
 {
 #endif
 #if defined(NDEBUG)
-    #define GameDiagnostic(...) ((void)0)
+    #define GameDiagnostic(args) ((void)0)
 #else
-sint32 GameDiagnostic(const char *format, ...);
+sint32 PrintGameDiagnostic(const char *format, ...);
+    // Parenthesized arguments preserve C++98 preprocessing
+    #define GameDiagnostic(args) PrintGameDiagnostic args
 #endif
 #ifdef __cplusplus
 }

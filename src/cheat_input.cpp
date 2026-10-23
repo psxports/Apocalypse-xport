@@ -1,9 +1,8 @@
 #include "audio_session.h"
 #include "game_tuning.h"
-#include "game_pad_poll.h"
+#include "game_pad_input.h"
 #include "visual_object.h"
 #include "cheat_input.h"
-#include "game_diagnostics.h"
 
 static CheatOptions cheat_options = {0, 0, 0, 1};
 static uint32 cheat_cursor;
@@ -12,7 +11,7 @@ static uint8 cheat_input[16];
 struct CheatPattern
 {
     const char *code;
-    uint32 len;
+    uint8 len;
 };
 
 static const CheatPattern cheat_patterns[12] = {{"SCUDXS", 6}, {"DULLTURD", 8}, {"SUX", 3}, {"XTC", 3}, {"SLUT", 4}, {"XXXXX", 5}, {"TCXS", 4}, {"DDT", 3}, {"SCX", 3}, {"LUXTST", 6}, {"STRUDL", 6}, {"TUXD", 4}};
@@ -29,63 +28,56 @@ void ClearCheatInputBuffer()
         cheat_input[idx] = 0;
 }
 
-static void ToggleCheatFlag(uint32 &value)
+bool UpdateCheatInput()
 {
-    value ^= 1;
-}
-
-uint32 UpdateCheatInput(void)
-{
-    uint32 key, cursor, entry, remaining, matched = (uint32)-1, equal, current, candidate, value;
+    uint8 key;
+    sint32 cursor, entry, remaining, matched = -1;
+    bool equal;
+    uint32 val;
     const char *pattern;
     FUNCTION_MARKER(0x80076D6C, "SLUS_003.73");
     if (!game_pads[0].buttons[4].down)
-        return 0;
+        return false;
     if (game_pads[0].buttons[10].pressed)
-        key = 85;
+        key = 'U';
     else if (game_pads[0].buttons[9].pressed)
-        key = 82;
+        key = 'R';
     else if (game_pads[0].buttons[11].pressed)
-        key = 68;
+        key = 'D';
     else if (game_pads[0].buttons[8].pressed)
-        key = 76;
+        key = 'L';
     else if (game_pads[0].buttons[0].pressed)
-        key = 84;
+        key = 'T';
     else if (game_pads[0].buttons[2].pressed)
-        key = 67;
+        key = 'C';
     else if (game_pads[0].buttons[3].pressed)
-        key = 88;
+        key = 'X';
     else if (game_pads[0].buttons[1].pressed)
-        key = 83;
+        key = 'S';
     else
-        return 0;
+        return false;
     cursor = cheat_cursor;
-    cheat_input[cursor] = (uint8)key;
+    cheat_input[cursor] = key;
     for (entry = 0; entry < 12; ++entry)
     {
         remaining = cheat_patterns[entry].len;
         cursor = cheat_cursor;
         --remaining;
         pattern = cheat_patterns[entry].code;
-        current = cheat_input[cursor];
-        candidate = ((uint32)(uint8)pattern[remaining]);
-        if (current == candidate)
+        if (cheat_input[cursor] == pattern[remaining])
         {
-            pattern = cheat_patterns[entry].code;
-            equal = 1;
+            equal = true;
             for (;;)
             {
                 --cursor;
                 if (!remaining)
                     break;
                 --remaining;
-                if ((sint32)cursor < 0)
+                if (cursor < 0)
                     cursor = 15;
-                current = cheat_input[cursor];
-                candidate = ((uint32)(uint8)pattern[remaining]);
-                if (current != candidate)
+                if (cheat_input[cursor] != pattern[remaining])
                 {
-                    equal = 0;
+                    equal = false;
                     break;
                 }
             }
@@ -96,7 +88,7 @@ uint32 UpdateCheatInput(void)
             }
         }
     }
-    if (matched != (uint32)-1)
+    if (matched != -1)
         cheat_input[cheat_cursor] = 0;
     cursor = cheat_cursor + 1;
     cheat_cursor = cursor;
@@ -105,52 +97,52 @@ uint32 UpdateCheatInput(void)
     switch (matched)
     {
         case 0:
-            ToggleCheatFlag(GetCheatOptions().weapon_cheat);
+            GetCheatOptions().weapon_cheat ^= 1;
             break;
         case 1:
             if (visual_lists.players)
-                ToggleCheatFlag(GetCheatOptions().invulnerable);
+                GetCheatOptions().invulnerable ^= 1;
             break;
         case 2:
-            ToggleCheatFlag(GetCheatOptions().status_hud);
+            GetCheatOptions().status_hud ^= 1;
             break;
         case 3:
             if (visual_lists.players)
                 static_cast<VisualObject *>(visual_lists.players->owner)->health = (sint16)GetGameTuning().player.maximum_health;
             break;
         case 4:
-            ToggleCheatFlag(GetCheatOptions().enemy_finish_cheat);
+            GetCheatOptions().enemy_finish_cheat ^= 1;
             break;
         case 5:
-            ToggleCheatFlag(GetCheatOptions().free_movement);
+            GetCheatOptions().free_movement ^= 1;
             break;
         case 6:
-            ToggleCheatFlag(GetCheatOptions().unlimited_lives);
+            GetCheatOptions().unlimited_lives ^= 1;
             break;
         case 7:
-            ToggleCheatFlag(GetCheatOptions().debug_panel);
+            GetCheatOptions().debug_panel ^= 1;
             break;
         case 8:
-            ToggleCheatFlag(GetCheatOptions().level_skip);
+            GetCheatOptions().level_skip ^= 1;
             break;
         case 9:
-            ToggleCheatFlag(GetCheatOptions().suspend_resource_loading);
+            GetCheatOptions().suspend_resource_loading ^= 1;
             break;
         case 10:
-            ToggleCheatFlag(GetCheatOptions().war_record_spawn);
+            GetCheatOptions().war_rec_spawn ^= 1;
             break;
         case 11:
-            value = GetCheatOptions().level_select ^ 1;
-            GetCheatOptions().level_select = value;
-            GetCheatOptions().autotest = value;
-            GetCheatOptions().build_date = value;
-            GetCheatOptions().level_skip = value;
+            val = GetCheatOptions().level_select ^ 1;
+            GetCheatOptions().level_select = val;
+            GetCheatOptions().autotest = val;
+            GetCheatOptions().build_date = val;
+            GetCheatOptions().level_skip = val;
             break;
         default:
             break;
     }
-    if (matched == (uint32)-1)
-        return 0;
+    if (matched == -1)
+        return false;
     PlaySoundEffect(26, 8192, 0);
-    return 1;
+    return true;
 }

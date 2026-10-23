@@ -1,33 +1,42 @@
 #ifndef RING_BURST_EFFECT_H
 #define RING_BURST_EFFECT_H
 
+#include "vector3.h"
 #include "ring_effect.h"
 
-// TODO Recover the original name for the burst ring owner
+// Alternating randomized radii with independent center and ring fades
 class RingBurstEffect : public RingEffect
 {
 public:
-    RingBurstEffect(const uint32 *position, uint32 segments, uint32 red, uint32 green, uint32 blue, uint32 center_fade, uint32 ring_red, uint32 ring_green, uint32 ring_blue, uint32 ring_fade, uint32 extent, uint32 angle_step, uint32 regenerate, uint32 odd_min, uint32 odd_range, uint32 even_min, uint32 even_range, uint32 decay, uint32 lifetime);
-
     virtual ~RingBurstEffect()
     {
     }
 
-    virtual uint32 Destroy(uint32 reason);
-    virtual void Update();
-    uint32 RegenerateRadii();
-
 private:
-    uint16 age;
+    sint16 age;
     uint16 lifetime;
     sint16 center_fade;
     sint16 ring_fade;
     uint16 angle_inc;
-    sint16 radius_params[4];
+
+    struct RadiusRange
+    {
+        sint16 min, range;
+    } radius_params[2];
+
     sint16 decay;
     uint8 regenerate;
-};
 
-void SpawnExplosionRing(const uint32 *position, uint32 size, uint32 red, uint32 green, uint32 blue, uint32 segments, uint32 mode, uint32 extent);
+public:
+    RingBurstEffect(const Vector3 *src_pos, uint32 segs, uint8 r, uint8 g, uint8 b, sint16 center_fade, uint8 ring_r, uint8 ring_g, uint8 ring_b, sint16 ring_fade, uint32 extent, uint16 angle_step, uint8 regenerate, sint16 odd_min, sint16 odd_range, sint16 even_min, sint16 even_range, sint16 decay, uint16 lifetime);
+
+private:
+    uint32 RegenerateRadii();
+
+public:
+    virtual void Update();
+    static void SpawnExplosion(const Vector3 *pos, sint32 size, uint8 r, uint8 g, uint8 b, uint32 segs, bool mode, uint32 extent);
+    virtual uint32 Destroy(uint32 reason);
+};
 
 #endif

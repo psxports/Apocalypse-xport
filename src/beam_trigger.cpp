@@ -1,66 +1,38 @@
 #include <new>
 #include <stdlib.h>
 
+#include "collision_ray.h"
 #include "game_heap.h"
 #include "visual_object.h"
 #include "game_diagnostics.h"
 #include "beam_trigger.h"
 #include "effect_lifecycle.h"
 #include "record_data.h"
-#include "game_object_allocation.h"
 #include "collision.h"
 #include "record_factory.h"
 #include "audio_session.h"
-#include "game_random.h"
+#include "global.h"
 #include "point_segments.h"
+#include "effect_object.h"
 
-uint32 BeamTrigger::InitializeEffect()
+BeamTrigger::BeamTrigger(uint16 idx) : VisualObject(), triggered(false), timer(0), spawn_rec(0), effect()
 {
-    FUNCTION_MARKER(0x8001A478, "SLUS_003.73");
-    GameHeapBlock *allocation = AllocateEffectStorage(96);
-    if (!allocation)
-    {
-        GameDiagnostic("Beam trigger point allocation failed\n");
-        abort();
-    }
-    effect = new (allocation) PointSegments(1);
-    effect->origin.words[0] = model.pos.words[0];
-    effect->origin.words[1] = model.pos.words[1];
-    effect->origin.words[2] = model.pos.words[2];
-    effect->persistent = 1;
-    effect->EnableSegments();
-    effect->points[0].pos.words[0] = target.words[0];
-    effect->points[0].pos.words[1] = target.words[1];
-    effect->points[0].pos.words[2] = target.words[2];
-    effect->points[0].rgbc.r = rgb[0];
-    effect->points[0].rgbc.g = rgb[1];
-    effect->points[0].rgbc.b = rgb[2];
-    return rgb[2];
-}
-
-BeamTrigger::BeamTrigger(const uint8 *, uint32 index) : VisualObject(), triggered(0), timer(0), spawn_rec(0), effect()
-{
-    RecordDataBorrow record_borrow;
-    uint32 flags, secondary_flags, reference, value;
+    RecordDataBorrow rec_borrow;
+    uint16 reference;
     RecordCursor cursor;
-    RecordCursor record;
+    RecordCursor rec;
     FUNCTION_MARKER(0x8001A2E8, "SLUS_003.73");
-    flags = this->model.flags;
-    secondary_flags = this->lifecycle_flags;
-    this->model.flags = flags | 1;
-    this->lifecycle_flags = secondary_flags & 0xFFEF;
+    model.flags |= 1;
+    lifecycle_flags &= 0xFFEF;
     AddToList(visual_lists.actors);
-    index &= 65535;
-    triggered = 0;
-    ReadRecordPosition(this->model.pos.words, index);
-    cursor = GetRecordPayload(index);
+    triggered = false;
+    ReadRecPos(&model.pos, idx);
+    cursor = GetRecPayload(idx);
     reference = (cursor + 2).Read16();
-    record = GetLevelRecord(reference);
-    value = (record).Read16();
-    if ((sint16)value == 3)
+    rec = GetLevelRec(reference);
+    if (rec.Read16() == 3)
     {
-        value = (cursor + 4).Read16();
-        spawn_rec = value;
+        spawn_rec = (cursor + 4).Read16();
         reference = (cursor + 2).Read16();
     }
     else
@@ -68,18 +40,12 @@ BeamTrigger::BeamTrigger(const uint8 *, uint32 index) : VisualObject(), triggere
         spawn_rec = reference;
         reference = (cursor + 4).Read16();
     }
-    ReadRecordPosition(target.words, reference);
+    ReadRecPos(&target, reference);
     rgb[0] = 32;
     rgb[1] = 0;
     rgb[2] = 0;
     timer = 0;
     InitializeEffect();
-}
-
-BeamTrigger::~BeamTrigger()
-{
-    if (effect)
-        effect->Destroy(3);
 }
 
 uint32 BeamTrigger::Destroy(uint32 reason)
@@ -90,22 +56,43 @@ uint32 BeamTrigger::Destroy(uint32 reason)
         effect->Destroy(3);
     effect = 0;
     VisualObject::Destroy(0);
-    return reason & 1 ? ReleaseObjectStorage(this) : 0;
+    return reason & 1 ? ReleaseStorage() : 0;
+}
+
+uint8 BeamTrigger::InitializeEffect()
+{
+    FUNCTION_MARKER(0x8001A478, "SLUS_003.73");
+    GameHeapBlock *allocation = EffectObject::AllocateStorage(96);
+    if (!allocation)
+    {
+        GameDiagnostic(("Beam trigger point allocation failed\n"));
+        abort();
+    }
+    effect = new (allocation) PointSegments(1);
+    effect->origin = model.pos;
+    effect->persistent = true;
+    effect->EnableSegs();
+    effect->points[0].pos = target;
+    effect->points[0].rgbc.r = rgb[0];
+    effect->points[0].rgbc.g = rgb[1];
+    effect->points[0].rgbc.b = rgb[2];
+    return rgb[2];
 }
 
 uint32 BeamTrigger::Update()
 {
     FUNCTION_MARKER(0x8001A550, "SLUS_003.73");
     ModelInstance *player = visual_lists.players;
-    uint32 active = 0;
-    if (player && TraceSegmentCollision(model.pos.words, target.words, player))
+    bool active = false;
+    if (player && CollisionRay::TraceSeg(model.pos, target, player))
     {
-        active = 1;
+        active = true;
         if (!triggered)
         {
             PlaySoundEffect(41, 8192, 0);
-            SpawnRecord(spawn_rec);
-            triggered = 1;
+            // The script may destroy this trigger or its effect
+            SpawnRec(spawn_rec);
+            triggered = true;
         }
         if (effect)
         {
@@ -115,13 +102,13 @@ uint32 BeamTrigger::Update()
         }
         timer = 0;
     }
-    uint32 flags = activation_flags;
+    uint16 flags = activation_flags;
     uint32 result = flags & 0xFFFE;
     if (flags & 1)
     {
         activation_flags = result;
         result = 1;
-        triggered = 1;
+        triggered = true;
     }
     if (active)
         return result;
@@ -167,4 +154,10 @@ uint32 BeamTrigger::Update()
         }
     }
     return result;
+}
+
+BeamTrigger::~BeamTrigger()
+{
+    if (effect)
+        effect->Destroy(3);
 }

@@ -1,3 +1,4 @@
+#include <string.h>
 #include <stdlib.h>
 
 #include "input_recording.h"
@@ -12,9 +13,10 @@ InputRecording input_recording;
 static RecordedInputEvent *AllocateInputEvents(uint32 bytes)
 {
     uint32 count = bytes / 8 + ((bytes & 7) != 0);
-    if (count > (size_t)-1 / sizeof(RecordedInputEvent))
+    RecordedInputEvent *events;
+    if (count > (size_t)-1 / sizeof(*events))
         abort();
-    RecordedInputEvent *events = (RecordedInputEvent *)malloc((size_t)count * sizeof(RecordedInputEvent));
+    events = (RecordedInputEvent *)malloc(count * sizeof(*events));
     if (!events)
         abort();
     return events;
@@ -42,11 +44,11 @@ void InputRecording::ReleaseData()
     bytes = cursor = 0;
 }
 
-void InputRecording::Clear()
+void ClearInputRecording()
 {
     FUNCTION_MARKER(0x80063A38, "SLUS_003.73");
-    ReleaseData();
-    mode = Live;
+    input_recording.ReleaseData();
+    input_recording.Stop();
 }
 
 void InputRecording::ResetCursor()
@@ -63,7 +65,7 @@ void InputRecording::Require(uint32 span) const
 {
     if (!data || cursor > bytes / 8 || span > bytes - cursor * 8)
     {
-        GameDiagnostic("Input event outside recording buffer\n");
+        GameDiagnostic(("Input event outside recording buffer\n"));
         abort();
     }
 }
@@ -82,7 +84,7 @@ void InputRecording::LoadReplay(const char *name)
     uint32 logical_bytes = GetResourceFileSize(name);
     if (logical_bytes < 6 || logical_bytes > size)
     {
-        GameDiagnostic("Invalid input recording resource size\n");
+        GameDiagnostic(("Invalid input recording resource size\n"));
         abort();
     }
     ReleaseData();
@@ -93,20 +95,20 @@ void InputRecording::LoadReplay(const char *name)
     WaitForResourceRead();
     owned = AllocateInputEvents(logical_bytes);
     uint32 count = logical_bytes / 8 + ((logical_bytes & 7) != 0);
-    for (uint32 index = 0; index < count; ++index)
+    for (uint32 idx = 0; idx < count; ++idx)
     {
-        uint32 offset = index * 8;
+        uint32 offset = idx * 8;
         uint32 remaining = logical_bytes - offset;
         RecordedInputEvent event = {0, 0, 0, 0};
         if (remaining >= 4)
-            event.timestamp = xport_load_le32(encoded + offset);
+            memcpy(&event.timestamp, encoded + offset, sizeof(event.timestamp));
         if (remaining >= 6)
-            event.frame = xport_load_le16(encoded + offset + 4);
+            memcpy(&event.frame, encoded + offset + 4, sizeof(event.frame));
         if (remaining >= 7)
             event.button = encoded[offset + 6];
         if (remaining >= 8)
             event.down = encoded[offset + 7];
-        owned[index] = event;
+        owned[idx] = event;
     }
     free(encoded);
     data = owned;
@@ -118,7 +120,7 @@ void InputRecording::BeginRecording(uint32 capacity)
 {
     if (capacity < 6)
     {
-        GameDiagnostic("Input recording capacity is too small\n");
+        GameDiagnostic(("Input recording capacity is too small\n"));
         abort();
     }
     ReleaseData();
@@ -134,12 +136,12 @@ void InputRecording::Append(uint32 timestamp, uint16 frame, uint8 button, uint8 
     Require(14);
     if (mode != Recording || !owned)
     {
-        GameDiagnostic("Input recording is not writable\n");
+        GameDiagnostic(("Input recording is not writable\n"));
         abort();
     }
     if (button >= 20)
     {
-        GameDiagnostic("Input recording button index is invalid\n");
+        GameDiagnostic(("Input recording button index is invalid\n"));
         abort();
     }
     RecordedInputEvent *event = owned + cursor;
@@ -168,7 +170,7 @@ RecordedInputEvent InputRecording::ReadEvent() const
     const RecordedInputEvent &event = data[cursor];
     if (event.frame == 65535 || event.button >= 20)
     {
-        GameDiagnostic("Invalid nonterminal input event\n");
+        GameDiagnostic(("Invalid nonterminal input event\n"));
         abort();
     }
     return event;
@@ -181,13 +183,13 @@ void InputRecording::AdvanceReplay(uint32 timestamp)
     last_timestamp = timestamp;
 }
 
-const char *GetDemoRecordingName(uint32 index)
+const char *GetDemoRecordingName(uint32 idx)
 {
     static const char *const names[4] = {"demo2.dem", "demo3.dem", "demo1.dem", ""};
-    if (index >= 4)
+    if (idx >= 4)
     {
-        GameDiagnostic("Demo recording index outside catalogue\n");
+        GameDiagnostic(("Demo recording index outside catalogue\n"));
         abort();
     }
-    return names[index];
+    return names[idx];
 }

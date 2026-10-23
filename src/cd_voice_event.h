@@ -6,30 +6,31 @@ extern "C"
 #include "psx.h"
 }
 
+struct Vector3;
+
 struct CdVoiceState
 {
     uint32 base_sector;
     uint32 cooldown;
-    uint32 enabled;
-    uint32 active;
-    uint32 available;
-    uint32 prepared;
+    bool enabled;
+    bool active;
+    bool available;
+    bool prepared;
     uint32 kind;
     uint32 variant;
     uint32 last_frame;
     uint32 end_sector;
-    uint32 current_sector;
+    uint32 cur_sector;
     uint8 response[8];
 };
 
 extern CdVoiceState cd_voice;
 void ResetCdVoiceState();
-void SetCdAudioEnabled(uint32 enabled);
-uint32 SeekCdAudioEntry(uint32 index);
-
+void SetCdAudioEnabled(bool enabled);
+uint32 UpdateCdVoiceBalance(const Vector3 *pos);
 uint32 LocateXaVoiceFile();
-uint32 SelectCdVoice(uint32 kind, uint32 variant);
-uint32 UpdateCdVoiceBalance(const uint32 *position);
-uint32 PlayCdVoiceEvent(uint32 kind, uint32 variant, const uint32 *position, uint32 mode);
+uint32 SeekCdAudioEntry(uint32 idx);
+uint32 PlayCdVoiceEvent(uint32 kind, uint32 variant, const Vector3 *pos);
+uint32 SelectCdVoice(sint32 kind, uint32 variant);
 
 #endif

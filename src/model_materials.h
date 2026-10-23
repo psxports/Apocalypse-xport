@@ -1,6 +1,8 @@
 #ifndef MODEL_MATERIALS_H
 #define MODEL_MATERIALS_H
 
+#include "model_uv_vertex.h"
+
 extern "C"
 {
 #include "psx.h"
@@ -20,10 +22,10 @@ struct ModelColorKey
 
 struct ModelColorTrack
 {
-    uint8 color_index;
+    uint8 color_idx;
     uint8 key;
     uint8 elapsed;
-    uint32 key_count;
+    uint8 key_count;
     ModelColorKey *keys;
 };
 
@@ -34,14 +36,6 @@ struct ModelColorAnimation
     bool present;
 };
 
-struct ModelUvVertex
-{
-    uint8 u;
-    uint8 v;
-    uint8 wave_x;
-    uint8 wave_y;
-};
-
 struct ModelUvQuad
 {
     ModelUvVertex vertices[4];
@@ -49,7 +43,7 @@ struct ModelUvQuad
 
 struct ModelTextureTrack
 {
-    uint32 object_index;
+    uint32 object_idx;
     sint16 scroll_x;
     sint16 scroll_y;
     uint32 phase_speed;
@@ -63,18 +57,18 @@ struct ModelTextureAnimation
     ModelTextureTrack *tracks;
 };
 
-void ReleaseModelTextureAnimation(ModelTextureAnimation &animation);
-void LoadModelTextureAnimation(ModelTextureAnimation &animation, const uint8 *data, uint32 bytes, uint32 object_count);
+void ReleaseModelTexAnimation(ModelTextureAnimation &animation);
+void LoadModelTexAnimation(ModelTextureAnimation &animation, const uint8 *data, uint32 bytes, uint32 object_count);
 
-void ReleaseModelPalette(ModelPalette &palette);
-void LoadModelPalette(ModelPalette &palette, const uint8 *data, uint32 bytes);
-uint32 ReadModelPaletteColor(const ModelPalette *palette, uint32 index);
-void SelectModelPalette(const ModelPalette &palette);
-const ModelPalette *GetCurrentModelPalette();
-void ResetModelPaletteSelection();
+void ReleaseModelPal(ModelPalette &pal);
+void LoadModelPal(ModelPalette &pal, const uint8 *data, uint32 bytes);
+uint32 ReadModelPalColor(const ModelPalette *pal, uint32 idx);
+void SelectModelPal(const ModelPalette &pal);
+const ModelPalette *GetCurModelPal();
+void ResetModelPalSelection();
 void ReleaseModelColorAnimation(ModelColorAnimation &animation);
 void LoadModelColorAnimation(ModelColorAnimation &animation, const uint8 *data, uint32 bytes);
-void ValidateModelColorAnimation(const ModelPalette &palette, const ModelColorAnimation &animation);
-void AdvanceModelColors(ModelPalette &palette, ModelColorAnimation &animation, uint32 step);
+void ValidateModelColorAnimation(const ModelPalette &pal, const ModelColorAnimation &animation);
+void AdvanceModelColors(ModelPalette &pal, ModelColorAnimation &animation, uint32 step);
 
 #endif

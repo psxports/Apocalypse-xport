@@ -9,14 +9,13 @@ extern "C"
 #include "texture_resources.h"
 
 class EffectObject;
-class Object;
 struct GameHeapBlock;
 
 struct EffectLists
 {
     EffectObject *controllers;
-    EffectObject *sprites;
-    EffectObject *endpoint_sprites;
+    EffectObject *sprs;
+    EffectObject *endpoint_sprs;
     EffectObject *particles;
     EffectObject *quads;
     // Three- and four-vertex effects share this list
@@ -33,21 +32,5 @@ struct EffectLists
 extern EffectLists effect_lists;
 extern bool use_small_effect_pool;
 extern uint32 effect_count;
-
-void ResetEffectDrawMode();
-const DR_TPAGE &GetEffectDrawMode();
-void InitializeEffectResources();
-const TextureGroup *GetEffectResourceGroup(uint32 resource);
-const TextureGroup *GetButtonResourceGroup();
-const TextureResource *GetShadowTexture();
-void ForgetEffectTexture(const TextureGroup *grp);
-void ForgetEffectTexture(const TextureResource *tex);
-void ClearEffectResourceBindings();
-void UpdateEffects(void);
-void DestroyTransientEffects();
-void DestroyFinishedEffects();
-void DestroyEffectsByIdentifier(uint32 identifier);
-GameHeapBlock *AllocateEffectStorage(uint32 size);
-uint32 ReleaseEffectStorage(Object *object);
 
 #endif

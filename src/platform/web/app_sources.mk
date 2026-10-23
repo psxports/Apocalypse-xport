@@ -1,15 +1,83 @@
 APP_SOURCES := \
+	../../explosion_ring.cpp \
+	../../checkpoint_names.cpp \
+	../../record_cursor.cpp \
+	../../record_data_borrow.cpp \
+	../../resource_script.cpp \
+	../../resource_script_borrow.cpp \
+	../../collision_ray.cpp \
+	../../model_instance.cpp \
+	../../force.cpp \
+	../../model_reference.cpp \
+	../../object_reference_base.cpp \
+	../../scaled_object.cpp \
+	../../texture_group.cpp \
+	../../texture_group_block.cpp \
+	../../texture_resource.cpp \
+	../../animated_hud_text.cpp \
+	../../control_bindings.cpp \
+	../../game_pad_input.cpp \
+	../../model_bank.cpp \
+	../../model_uv_vertex.cpp \
+	../../pad_button.cpp \
+	../../player_save_progress.cpp \
+	../../player_save_record.cpp \
+	../../short_vector3.cpp \
+	../../activation_record_base.cpp \
+	../../animated_sprite.cpp \
+	../../ballistic_hazard.cpp \
+	../../beast_ground_effect.cpp \
+	../../beast_orbit_effect.cpp \
+	../../death_fading_ring.cpp \
+	../../death_persistent_ring.cpp \
+	../../droplet.cpp \
+	../../effect_controller.cpp \
+	../../endpoint_sprite.cpp \
+	../../expanding_glow.cpp \
+	../../fireball.cpp \
+	../../flamethrower_pickup_effect.cpp \
+	../../flexible_traversal_rail.cpp \
+	../../floating_hazard.cpp \
+	../../grenades.cpp \
+	../../homing_missiles.cpp \
+	../../impact_ring.cpp \
+	../../line_effect.cpp \
+	../../line_projectile.cpp \
+	../../looping_endpoint_sprite.cpp \
+	../../mini_tank_ring.cpp \
+	../../moving_sprite.cpp \
+	../../one_shot_activator.cpp \
+	../../particle_beam.cpp \
+	../../particle_beam_pickup_effect.cpp \
+	../../particle_sprite.cpp \
+	../../pickup_effect.cpp \
+	../../plague_ground_effect.cpp \
+	../../plague_impact_effect.cpp \
+	../../primitive_particle.cpp \
+	../../projectile_tracer.cpp \
+	../../pulse_laser.cpp \
+	../../pulse_laser_pickup_effect.cpp \
+	../../renderable_effect.cpp \
+	../../resetting_activator.cpp \
+	../../ribbon_trail.cpp \
+	../../rip_laser.cpp \
+	../../rip_laser_pickup_effect.cpp \
+	../../rockets.cpp \
+	../../smoke.cpp \
+	../../sprite.cpp \
+	../../textured_effect.cpp \
+	../../textured_triangle.cpp \
+	../../traversal_region.cpp \
+	../../weapon_node.cpp \
+	../../weapon_node_base.cpp \
+	../../global.cpp \
+	../../vector3.cpp \
 	../../game_main.cpp \
 	../../scene_effect_packets.cpp \
-	../../death_effects.cpp \
 	../../plague_area.cpp \
 	../../game_boot.cpp \
-	../../geometry_commands.cpp \
 	../../game_graphics_init.cpp \
 	../../game_diagnostics.cpp \
-	../../movie_stream.cpp \
-	../../game_image_resource.cpp \
-	../../game_pad_poll.cpp \
 	../../game_gpu_present.cpp \
 	../../menu_lifecycle.cpp \
 	../../object_initializers.cpp \
@@ -32,28 +100,22 @@ APP_SOURCES := \
 	../../expanding_ring.cpp \
 	../../point_segments.cpp \
 	../../player.cpp \
-	../../player_collision.cpp \
 	../../camera.cpp \
-	../../quaternion_math.cpp \
-	../../weapon_nodes.cpp \
-	../../projectile_tracking.cpp \
-	../../projectile_ballistic.cpp \
+	../../quaternion.cpp \
+	../../tracking_projectile.cpp \
+	../../ballistic_projectile.cpp \
 	../../projectile_base.cpp \
-	../../projectile_weaving.cpp \
+	../../weaving_projectile.cpp \
 	../../projectile_line.cpp \
-	../../projectile_launch.cpp \
-	../../effect_launch_explosion.cpp \
-	../../effect_sprite.cpp \
+	../../launched_projectile.cpp \
+	../../launch_explosion_effect.cpp \
 	../../beam_segments.cpp \
-	../../weapon_targeting.cpp \
-	../../projectile_oscillating.cpp \
+	../../oscillating_projectile.cpp \
 	../../textured_quad.cpp \
-	../../visual_object_update.cpp \
 	../../plague.cpp \
 	../../the_beast.cpp \
 	../../game_lighting.cpp \
-	../../beast_effects.cpp \
-	../../projectile_guided.cpp \
+	../../guided_projectile.cpp \
 	../../ring_effect.cpp \
 	../../war.cpp \
 	../../death.cpp \
@@ -61,39 +123,30 @@ APP_SOURCES := \
 	../../sequence_transport.cpp \
 	../../sprite_trail.cpp \
 	../../fire_cycle.cpp \
-	../../war_effects.cpp \
+	../../war_impact.cpp \
 	../../ribbon_segments.cpp \
-	../../beam_endpoint.cpp \
+	../../endpoint_beam.cpp \
 	../../object.cpp \
-	../../particle_debris.cpp \
+	../../debris.cpp \
 	../../model_animation.cpp \
 	../../model_pose.cpp \
 	../../model_attachment.cpp \
-	../../level_hazards.cpp \
 	../../beam_trigger.cpp \
-	../../effect_segments.cpp \
+	../../segment_effect.cpp \
 	../../traversal_rail.cpp \
 	../../beam_barrier.cpp \
 	../../effect_splash.cpp \
 	../../object_force.cpp \
-	../../object_fragments.cpp \
-	../../object_damage.cpp \
-	../../collision.cpp \
-	../../pickup_effects.cpp \
 	../../model_matrix.cpp \
 	../../model_projection.cpp \
 	../../main_menu.cpp \
 	../../model_render_view.cpp \
 	../../model_render.cpp \
 	../../model_scratch_packets.cpp \
-	../../model_shadow.cpp \
-	../../angle_math.cpp \
 	../../hud_text.cpp \
 	../../cd_audio.cpp \
-	../../menu_saves.cpp \
 	../../card_save.cpp \
 	../../credits_player.cpp \
-	../../credits.cpp \
 	../../menu_input.cpp \
 	../../loading_screen.cpp \
 	../../record_groups.cpp \
@@ -101,11 +154,10 @@ APP_SOURCES := \
 	../../model_clipping.cpp \
 	../../model_lighting.cpp \
 	../../model_subdivision.cpp \
-	../../visual_registry.cpp \
+	../../visual_registry_entry.cpp \
 	../../cheat_input.cpp \
 	../../beast_final_visual.cpp \
 	../../scripted_level_object.cpp \
-	../../level_interactions.cpp \
 	../../textured_fragment.cpp \
 	../../opaque_fragment.cpp \
 	../../ring_burst_effect.cpp \
@@ -115,22 +167,16 @@ APP_SOURCES := \
 	../../screen_flash.cpp \
 	../../glow_effect.cpp \
 	../../region_actions.cpp \
-	../../spawn_points.cpp \
 	../../record_factory.cpp \
 	../../proximity_ring_emitter.cpp \
 	../../oscillating_ring.cpp \
 	../../path_particle_emitter.cpp \
-	../../record_data.cpp \
-	../../record_scripts.cpp \
 	../../activation_record.cpp \
-	../../vector_distance.cpp \
 	../../scripted_effect_controller.cpp \
-	../../vector_arithmetic.cpp \
 	../../game_panel.cpp \
 	../../hud_sprites.cpp \
-	../../model_resources.cpp \
 	../../model_vram.cpp \
-	../../model_grid.cpp \
+	../../model_bank_grid.cpp \
 	../../model_animation_data.cpp \
 	../../model_attachment_data.cpp \
 	../../model_hierarchy.cpp \
@@ -138,27 +184,21 @@ APP_SOURCES := \
 	../../model_geometry.cpp \
 	../../texture_resources.cpp \
 	../../model_keys.cpp \
-	../../palette_resources.cpp \
+	../../palette_resource.cpp \
 	../../audio_session.cpp \
 	../../audio_voice.cpp \
 	../../resource_io.cpp \
-	../../fireball_effects.cpp \
 	../../panel_particle.cpp \
-	../../effect_lifecycle.cpp \
-	../../effect_color.cpp \
 	../../fading_particle.cpp \
-	../../particle_settings.cpp \
 	../../player_save_state.cpp \
 	../../game_settings.cpp \
 	../../game_tuning.cpp \
 	../../level_session.cpp \
 	../../record_commands.cpp \
-	../../plague_ground_effects.cpp \
-	../../projectile_trail.cpp \
+	../../trail_projectile.cpp \
 	../../hud_text_packets.cpp \
 	../../scene_lifecycle.cpp \
 	../../world_gravity.cpp \
-	../../game_random.cpp \
 	../../startup_resources.cpp \
 	../../level_catalogue.cpp \
 	../../startup_image.cpp \
@@ -166,12 +206,10 @@ APP_SOURCES := \
 	../../mesh_ring_effect.cpp \
 	../../ring_attack.cpp \
 	../../bouncing_point_effect.cpp \
-	../../pickup_factory.cpp \
 	../../pickup.cpp \
 	../../cd_voice_event.cpp \
 	../../game_tick.cpp \
 	../../pause_menu.cpp \
-	../../game_string.cpp \
 	../../menu_window.cpp \
 	../../debug_finish_repro.cpp \
 	../../game_data_io.cpp \

@@ -10,7 +10,7 @@ static void RequireSequenceTrack(sint16 sequence, sint16 track)
 {
     if (sequence < 0 || sequence >= spu_sequence_scheduler.sequence_count || track < 0 || track >= spu_sequence_scheduler.separation_count || !spu_sequence_scheduler.tracks[sequence])
     {
-        GameDiagnostic("Sequence track outside its native table\n");
+        GameDiagnostic(("Sequence track outside its native table\n"));
         abort();
     }
 }
@@ -81,10 +81,10 @@ static uint32 SequenceChannelPan(sint16 sequence, sint16 track, uint8 pan)
     return spu_sequence_scheduler_pan(&spu_sequence_scheduler, sequence, track, pan, SetSequenceChannelVoices, ReadSequenceDelta);
 }
 
-static uint32 SequenceDamper(sint16 sequence, sint16 track, uint8 value)
+static uint32 SequenceDamper(sint16 sequence, sint16 track, uint8 val)
 {
     FUNCTION_MARKER(0x8008CA6C, "SLUS_003.73");
-    return spu_sequence_scheduler_damper(&spu_sequence_scheduler, sequence, track, value, ReadSequenceDelta);
+    return spu_sequence_scheduler_damper(&spu_sequence_scheduler, sequence, track, val, ReadSequenceDelta);
 }
 
 static uint32 SequencePitchBend(sint16 sequence, sint16 track)
@@ -104,10 +104,10 @@ static uint32 SequenceControl(sint16 sequence, sint16 track, uint8 control)
     return spu_sequence_scheduler_control_change(&spu_sequence_scheduler, sequence, track, control, &spu_sequence_handlers, ReadSequenceDelta);
 }
 
-static uint32 SequenceDataEntry(sint16 sequence, sint16 track, uint8 value)
+static uint32 SequenceDataEntry(sint16 sequence, sint16 track, uint8 val)
 {
-    SpuSequenceSchedulerTrack *record = spu_sequence_scheduler.tracks[sequence] + track;
-    return spu_sequence_scheduler_data_entry(record, sequence, track, value, spu_tone_commands, 20, ReadSequenceDelta);
+    SpuSequenceSchedulerTrack *rec = spu_sequence_scheduler.tracks[sequence] + track;
+    return spu_sequence_scheduler_data_entry(rec, sequence, track, val, spu_tone_commands, 20, ReadSequenceDelta);
 }
 
 static uint32 EnableSequenceReverb(uint32 enabled)
@@ -120,45 +120,45 @@ static uint32 SequenceResetControllers(sint16 sequence, sint16 track)
     return spu_sequence_scheduler_reset_controllers(&spu_sequence_scheduler, sequence, track, EnableSequenceReverb, ReadSequenceDelta);
 }
 
-static uint32 SequenceNrpnLsb(sint16 sequence, sint16 track, uint8 value)
+static uint32 SequenceNrpnLsb(sint16 sequence, sint16 track, uint8 val)
 {
-    return spu_sequence_scheduler_nrpn_lsb(&spu_sequence_scheduler, sequence, track, value, spu_sequence_dispatch_mark, ReadSequenceDelta);
+    return spu_sequence_scheduler_nrpn_lsb(&spu_sequence_scheduler, sequence, track, val, spu_sequence_dispatch_mark, ReadSequenceDelta);
 }
 
-static uint32 SequenceNrpnMsb(sint16 sequence, sint16 track, uint8 value)
+static uint32 SequenceNrpnMsb(sint16 sequence, sint16 track, uint8 val)
 {
-    return spu_sequence_scheduler_nrpn_msb(&spu_sequence_scheduler, sequence, track, value, ReadSequenceDelta);
+    return spu_sequence_scheduler_nrpn_msb(&spu_sequence_scheduler, sequence, track, val, ReadSequenceDelta);
 }
 
-static uint32 SequenceRpnLsb(sint16 sequence, sint16 track, uint8 value)
+static uint32 SequenceRpnLsb(sint16 sequence, sint16 track, uint8 val)
 {
-    return spu_sequence_scheduler_rpn_lsb(&spu_sequence_scheduler, sequence, track, value, ReadSequenceDelta);
+    return spu_sequence_scheduler_rpn_lsb(&spu_sequence_scheduler, sequence, track, val, ReadSequenceDelta);
 }
 
-static uint32 SequenceRpnMsb(sint16 sequence, sint16 track, uint8 value)
+static uint32 SequenceRpnMsb(sint16 sequence, sint16 track, uint8 val)
 {
-    return spu_sequence_scheduler_rpn_msb(&spu_sequence_scheduler, sequence, track, value, ReadSequenceDelta);
+    return spu_sequence_scheduler_rpn_msb(&spu_sequence_scheduler, sequence, track, val, ReadSequenceDelta);
 }
 
-static uint32 SequenceReverbDepth(sint16 sequence, sint16 track, uint8 value)
+static uint32 SequenceReverbDepth(sint16 sequence, sint16 track, uint8 val)
 {
-    return spu_sequence_scheduler_reverb_depth(&spu_sequence_scheduler, sequence, track, value, spu_sequence_vm_reverb_depth, ReadSequenceDelta);
+    return spu_sequence_scheduler_reverb_depth(&spu_sequence_scheduler, sequence, track, val, spu_sequence_vm_reverb_depth, ReadSequenceDelta);
 }
 
 template <uint8 attribute>
-static uint32 SetSequenceToneAttribute(sint16 bank, sint16 program, sint16 tone, VagAtr attributes, uint8 value)
+static uint32 SetSequenceToneAttribute(sint16 bank, sint16 program, sint16 tone, VagAtr attributes, uint8 val)
 {
-    return spu_vab_nrpn_attr_by_value(attribute, bank, program, tone, attributes, value);
+    return spu_vab_nrpn_attr_by_value(attribute, bank, program, tone, attributes, val);
 }
 
-static uint32 SetSequenceReverbType(uint8 value)
+static uint32 SetSequenceReverbType(uint8 val)
 {
-    return spu_sequence_vm_reverb_type(value);
+    return spu_sequence_vm_reverb_type(val);
 }
 
-static uint32 SetSequenceReverbDepth(uint8 value)
+static uint32 SetSequenceReverbDepth(uint8 val)
 {
-    return spu_sequence_vm_reverb_depth(value, value);
+    return spu_sequence_vm_reverb_depth(val, val);
 }
 
 static const SpuSequenceHandlers default_handlers = {SequenceNote, SequenceProgram, SequencePitchBend, SequenceMeta, SequenceControl, SequenceDataEntry, SequenceChannelVolume, SequenceChannelPan, SequenceDamper, SequenceNrpnLsb, SequenceNrpnMsb, SequenceRpnLsb, SequenceRpnMsb, SequenceReverbDepth, SequenceResetControllers};
@@ -278,7 +278,7 @@ uint32 InitializeSequenceTracks(sint16 sequences, sint16 tracks)
     FUNCTION_MARKER(0x8008F16C, "SLUS_003.73");
     if (sequences <= 0 || sequences > 32 || tracks <= 0 || tracks > 16)
     {
-        GameDiagnostic("Invalid native sequence table dimensions\n");
+        GameDiagnostic(("Invalid native sequence table dimensions\n"));
         abort();
     }
     spu_sequence_scheduler.processing = 1;
@@ -288,7 +288,7 @@ uint32 InitializeSequenceTracks(sint16 sequences, sint16 tracks)
     track_storage = (SpuSequenceSchedulerTrack *)calloc((uint32)sequences * tracks, sizeof(*track_storage));
     if (!track_storage)
     {
-        GameDiagnostic("Cannot allocate native sequence tracks\n");
+        GameDiagnostic(("Cannot allocate native sequence tracks\n"));
         abort();
     }
     uint32 result = spu_sequence_scheduler_set_table(&spu_sequence_scheduler, track_storage, sequences, tracks);
@@ -317,19 +317,19 @@ sint32 OpenAudioSequence(const uint8 *data, uint32 size, sint16 bank)
     return result;
 }
 
-uint32 PlaySequence(uint32 sequence, uint32 mode, uint32 loops)
+uint32 PlaySequence(sint16 sequence, uint8 mode, sint16 loops)
 {
-    RequireSequenceTrack((sint16)sequence, 0);
-    SpuSequenceSchedulerTrack *track = spu_sequence_scheduler.tracks[(uint16)sequence];
+    RequireSequenceTrack(sequence, 0);
+    SpuSequenceSchedulerTrack *track = spu_sequence_scheduler.tracks[sequence];
     track->stream.cursor = track->stream.start;
     track->stream.loop_start = track->stream.start;
     track->stream.replay = track->stream.start;
-    return spu_sequence_scheduler_play_mode(&spu_sequence_scheduler, (sint16)sequence, 0, mode, (sint16)loops, SetSequenceVolumeCallback);
+    return spu_sequence_scheduler_play_mode(&spu_sequence_scheduler, sequence, 0, mode, loops, SetSequenceVolumeCallback);
 }
 
-uint32 SetSequenceVolumes(uint32 sequence, uint32 left, uint32 right)
+uint32 SetSequenceVolumes(sint16 sequence, sint16 left, sint16 right)
 {
-    return SetSequenceVoiceVolumes((sint16)sequence, (sint16)left, (sint16)right);
+    return SetSequenceVoiceVolumes(sequence, left, right);
 }
 
 uint32 StopAndResetSequence(sint16 sequence)
@@ -346,11 +346,11 @@ uint32 RequestSequenceStop(uint32 sequence, uint32 track)
     return spu_sequence_scheduler_request_pause(&spu_sequence_scheduler, sequence, track, SaveSequenceVolume);
 }
 
-uint32 RequestSequenceReplay(uint32 sequence, uint32 track)
+uint32 RequestSequenceReplay(sint16 sequence, sint16 track)
 {
     FUNCTION_MARKER(0x8008E72C, "SLUS_003.73");
-    RequireSequenceTrack((sint16)sequence, (sint16)track);
-    return spu_sequence_scheduler_replay_mode(&spu_sequence_scheduler, (sint16)sequence, (sint16)track);
+    RequireSequenceTrack(sequence, track);
+    return spu_sequence_scheduler_replay_mode(&spu_sequence_scheduler, sequence, track);
 }
 
 uint32 StopSequenceImmediately(uint32 sequence, uint32 track)

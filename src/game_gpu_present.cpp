@@ -1,22 +1,12 @@
-#include <stdio.h>
 #include <stdlib.h>
 
 #include "scene_lifecycle.h"
+
 extern "C"
 {
 #include "game_gpu_present.h"
 #include "game_diagnostics.h"
 #include "psx_gpu.h"
-}
-
-void SetDisplayMask(sint32 enabled)
-{
-    SetDispMask(enabled);
-}
-
-sint32 PresentGpuFrame(void)
-{
-    return gpu_present();
 }
 
 uint32 SubmitActiveGpuFrame(void)
@@ -26,7 +16,7 @@ uint32 SubmitActiveGpuFrame(void)
     if (!scene_render.published)
     {
         // TODO Recover the original FF66C publisher before enabling VBlank submission
-        GameDiagnostic("Scene VBlank submission has no published frame\n");
+        GameDiagnostic(("Scene VBlank submission has no published frame\n"));
         abort();
     }
     PutDrawEnv(&scene_render.published->draw);

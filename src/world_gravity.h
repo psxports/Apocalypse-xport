@@ -14,10 +14,12 @@ struct WorldGravity
     Vector3 opposed;
     uint32 magnitude;
     uint32 tenth;
+
+public:
+    static uint32 SetVector(const Vector3 *vector);
+    static void Reset();
 };
 
 extern WorldGravity world_gravity;
-void ResetGravityVector();
-uint32 SetGravityVector(const uint32 *vector);
 
 #endif

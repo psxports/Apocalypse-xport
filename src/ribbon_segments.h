@@ -2,8 +2,8 @@
 #define RIBBON_SEGMENTS_H
 
 #include "vector3.h"
-
 #include "effect_object.h"
+#include "renderable_effect.h"
 #include "texture_resources.h"
 
 struct RibbonPoint
@@ -17,30 +17,42 @@ struct RibbonPoint
 
 class RibbonSegments : public RenderableEffect
 {
-public:
-    RibbonSegments(uint32 segments, uint32 mode);
-    virtual ~RibbonSegments();
-    virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Render();
-    void SetMaterial(uint32 name);
-    uint32 SetColors(uint32 red, uint32 green, uint32 blue, uint32 tail_red, uint32 tail_green, uint32 tail_blue);
-    uint32 SetSize(uint32 width, uint32 height);
-
+private:
     uint8 mode;
-    uint8 hidden;
-    uint32 u_scroll;
+
+protected:
+    bool hidden;
+    sint32 u_scroll;
+
+public:
     uint32 v_scroll;
     uint32 v_step;
-    uint32 waving;
-    uint32 point_count;
+    bool waving;
+    sint32 point_count;
     RibbonPoint *points;
 
 protected:
-    TextureResource *tex;
+    const TextureResource *tex;
+
+private:
+    RibbonSegments &operator=(const RibbonSegments &);
+
+private:
+    static sint32 CalculateNormal(XY xy0, XY xy1, sint32 *x_ret, sint32 *y_ret, sint32 min_len);
+
+public:
+    RibbonSegments(uint32 segs, uint8 mode);
+    virtual uint32 Destroy(uint32 reason);
+    void SetMaterial(uint32 name);
+    uint32 SetColors(uint8 r, uint8 g, uint8 b, uint8 tail_r, uint8 tail_g, uint8 tail_b);
+    uint32 SetSize(uint16 width, uint16 height);
+    virtual uint32 Render();
 
 private:
     RibbonSegments(const RibbonSegments &);
-    RibbonSegments &operator=(const RibbonSegments &);
+
+public:
+    virtual ~RibbonSegments();
 };
 
 #endif

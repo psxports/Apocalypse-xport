@@ -1,28 +1,29 @@
 #ifndef MACHINE_GUN_H
 #define MACHINE_GUN_H
 
-#include "weapon_nodes.h"
+#include "weapon_type.h"
+#include "weapon_node.h"
 
 // Default player hitscan weapon with tracer and ricochet effects
 class MachineGun : public WeaponNode
 {
-public:
-    explicit MachineGun(ModelInstance **list);
-    virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Fire(const uint32 *position, const sint16 *rotation);
-    virtual uint32 Update(const uint32 *position, const sint16 *angles);
-    virtual uint32 ReadLight(uint8 *red, uint8 *green, uint8 *blue);
-    void Configure(uint32 pitch_spread, uint32 yaw_spread, uint8 fire_rate, uint32 range, uint8 muzzle_effect, uint32 sound_id, uint32 flash_scale);
-
 private:
     uint32 pitch_spread;
     uint32 yaw_spread;
-    uint8 muzzle_effect;
+    bool muzzle_effect;
     uint8 fire_rate;
     uint32 range;
-    uint32 sound_id;
+    sint32 sound_id;
     uint32 flash_scale;
-    uint32 light_pending;
+    bool light_pending;
+
+public:
+    explicit MachineGun(ModelInstance **list);
+    virtual uint32 Destroy(uint32 reason);
+    void Configure(uint32 pitch_spread, uint32 yaw_spread, uint8 fire_rate, uint32 range, uint8 muzzle_effect, sint32 sound_id, uint32 flash_scale);
+    virtual uint32 Fire(const Vector3 &input_pos, const ShortVector3 &input_angles);
+    virtual uint32 Update(const Vector3 *pos);
+    virtual uint32 ReadLight(uint8 *r, uint8 *g, uint8 *b);
 };
 
 #endif

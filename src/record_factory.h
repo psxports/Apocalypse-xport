@@ -6,10 +6,10 @@ extern "C"
 #include "psx.h"
 }
 
-uint32 InitializeLevelRecords();
+uint32 InitializeLevelRecs();
 class VisualObject;
 
-VisualObject *CreateObjectFromRecord(uint32 index);
-void SpawnRecord(uint32 index);
+VisualObject *CreateObjectFromRec(uint32 idx);
+void SpawnRec(uint32 idx);
 
 #endif

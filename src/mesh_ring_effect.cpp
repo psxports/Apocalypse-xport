@@ -6,36 +6,54 @@
 #include "model_render_view.h"
 #include "game_diagnostics.h"
 #include "mesh_ring_effect.h"
-#include "model_resources.h"
+#include "model_bank.h"
 #include "effect_lifecycle.h"
 #include "angle_math.h"
-#include "vector_arithmetic.h"
+#include "global.h"
+#include "ring_effect.h"
+#include "effect_object.h"
+#include "renderable_effect.h"
+#include "texture_resources.h"
 
 struct MeshRingEffect::Projection
 {
-    uint32 scr[3];
+    XY scr[3];
     bool valid[3];
     sint16 depth;
 };
 
-MeshRingEffect::MeshRingEffect(uint32 count, uint32 resource) : RenderableEffect(), radius(0), expansion(0), u_scroll(0), v_scroll(0), seg_mask(0xFFFFFFFF), forced_depth(0), seg_count(count), segs(0), proj(0), tex(0)
+sint32 MeshRingEffect::ReadCameraOffset(sint32 pos, uint32 axis)
+{
+    return (pos >> 12) - (uint32)GetModelRenderView().pos.comp[axis];
+}
+
+static uint32 LinkPacket(void *packet, uint32 *ot_entry)
+{
+    P_TAG *header = (P_TAG *)packet;
+    header->addr = *ot_entry;
+    uint32 result = (*ot_entry & 0xFF000000) | gpu_packet_link((uintptr_t)packet);
+    *ot_entry = result;
+    return result;
+}
+
+MeshRingEffect::MeshRingEffect(sint32 count, uint32 resource) : RenderableEffect(), radius(0), expansion(0), u_scroll(0), v_scroll(0), seg_mask(0xFFFFFFFF), forced_depth(0), seg_count(count), segs(0), proj(0), tex(0)
 {
     FUNCTION_MARKER(0x80028FB8, "SLUS_003.73");
-    angles.words[0] = angles.words[1] = angles.words[2] = 0;
-    if (!count || count > 0x7FFFFFFF || count > 0xFFFFFFFF / 140 || count > (size_t)-1 / sizeof(*segs) || count > (size_t)-1 / sizeof(*proj))
+    angles.x = angles.y = angles.z = 0;
+    if (count <= 0 || count > 0xFFFFFFFF / 140 || count > (size_t)-1 / sizeof(*segs) || count > (size_t)-1 / sizeof(*proj))
     {
-        GameDiagnostic("Invalid mesh ring segment count %u\n", count);
+        GameDiagnostic(("Invalid mesh ring segment count %d\n", count));
         abort();
     }
-    segs = (Segment *)malloc((size_t)count * sizeof(*segs));
-    proj = (Projection *)malloc((size_t)count * sizeof(*proj));
+    segs = (Segment *)malloc(count * sizeof(*segs));
+    proj = (Projection *)malloc(count * sizeof(*proj));
     if (!segs || !proj)
     {
-        GameDiagnostic("Mesh ring geometry allocation failed\n");
+        GameDiagnostic(("Mesh ring geometry allocation failed\n"));
         abort();
     }
-    tex = &GetTextureResource(resource);
-    for (uint32 i = 0; i < seg_count; ++i)
+    tex = &TextureResource::Get(resource);
+    for (sint32 i = 0; i < seg_count; ++i)
     {
         // OT links and unused packet payload are replaced before publication
         memset(segs[i].poly, 0, sizeof(segs[i].poly));
@@ -49,13 +67,7 @@ MeshRingEffect::MeshRingEffect(uint32 count, uint32 resource) : RenderableEffect
         }
     }
     SetColors(128, 128, 128);
-    SetTextureOffsets(0, 0, 2);
-}
-
-MeshRingEffect::~MeshRingEffect()
-{
-    free(proj);
-    free(segs);
+    SetTexOffsets(0, 0, 2);
 }
 
 uint32 MeshRingEffect::Destroy(uint32 reason)
@@ -66,16 +78,33 @@ uint32 MeshRingEffect::Destroy(uint32 reason)
     proj = 0;
     segs = 0;
     uint32 result = RenderableEffect::Destroy(0);
-    return reason & 1 ? ReleaseEffectStorage(this) : result;
+    return reason & 1 ? ReleaseStorage() : result;
 }
 
-void MeshRingEffect::Update()
+uint32 MeshRingEffect::SetGeometry(const Vector3 *src_pos, uint32 radius, uint32 expansion)
 {
-    // Original 0x8003A144 has no body or defined return carrier
-    return;
+    FUNCTION_MARKER(0x80029198, "SLUS_003.73");
+    pos = *src_pos;
+    this->expansion = expansion;
+    this->radius = radius;
+    ShortVector3 angle = angles;
+    sint32 inc = ONE / seg_count;
+    for (sint32 i = 0; i < seg_count; ++i)
+    {
+        Vector3 dir, radius_offset, radial_step;
+        dir.SetDir(1, angle);
+        radius_offset.Multiply(dir, this->radius);
+        Segment *seg = segs + i;
+        seg->v[0].Add(pos, radius_offset);
+        radial_step.Multiply(dir, this->expansion);
+        seg->v[1].Add(seg->v[0], radial_step);
+        seg->v[2].Add(seg->v[1], radial_step);
+        angle.y = (uint16)angle.y + inc;
+    }
+    return 0;
 }
 
-uint32 MeshRingEffect::SetTextureOffsets(uint32 u, uint32 v, uint32 repeats)
+uint32 MeshRingEffect::SetTexOffsets(uint32 u, uint32 v, uint32 repeats)
 {
     FUNCTION_MARKER(0x80029324, "SLUS_003.73");
     u_scroll = u;
@@ -83,8 +112,8 @@ uint32 MeshRingEffect::SetTextureOffsets(uint32 u, uint32 v, uint32 repeats)
     u = tex->uv[0].u + (u & 63);
     v = tex->uv[0].v + (v & 63);
     sint32 numerator = repeats << 6;
-    uint32 step = numerator / (sint32)seg_count;
-    for (uint32 i = 0; i < seg_count; ++i)
+    sint32 step = numerator / seg_count;
+    for (sint32 i = 0; i < seg_count; ++i)
     {
         POLY_GT4 *poly = segs[i].poly;
         uint32 u0 = u;
@@ -96,97 +125,50 @@ uint32 MeshRingEffect::SetTextureOffsets(uint32 u, uint32 v, uint32 repeats)
     return 0;
 }
 
-uint32 MeshRingEffect::SetColors(uint32 red, uint32 green, uint32 blue)
+uint32 MeshRingEffect::SetColors(sint32 r, sint32 g, sint32 b)
 {
     FUNCTION_MARKER(0x800293D8, "SLUS_003.73");
-    if ((sint32)red < 0)
-        red = 0;
-    if ((sint32)green < 0)
-        green = 0;
-    if ((sint32)blue < 0)
-        blue = 0;
-    for (uint32 i = 0; i < seg_count; ++i)
+    if (r < 0)
+        r = 0;
+    if (g < 0)
+        g = 0;
+    if (b < 0)
+        b = 0;
+    for (sint32 i = 0; i < seg_count; ++i)
     {
         POLY_GT4 *poly = segs[i].poly;
         setRGB0(poly, 0, 0, 0);
         setRGB1(poly, 0, 0, 0);
-        setRGB2(poly, red, green, blue);
-        setRGB3(poly, red, green, blue);
-        setRGB0(poly + 1, red, green, blue);
-        setRGB1(poly + 1, red, green, blue);
+        setRGB2(poly, r, g, b);
+        setRGB3(poly, r, g, b);
+        setRGB0(poly + 1, r, g, b);
+        setRGB1(poly + 1, r, g, b);
         setRGB2(poly + 1, 0, 0, 0);
         setRGB3(poly + 1, 0, 0, 0);
     }
     return 0;
 }
 
-uint32 MeshRingEffect::SetGeometry(const uint32 *position, uint32 radius, uint32 expansion)
-{
-    FUNCTION_MARKER(0x80029198, "SLUS_003.73");
-    uint32 x = position[0];
-    uint32 y = position[1];
-    uint32 z = position[2];
-    pos.words[0] = x;
-    pos.words[1] = y;
-    pos.words[2] = z;
-    this->expansion = expansion;
-    this->radius = radius;
-    ShortVector3 angle = angles;
-    uint32 inc = 4096 / (sint32)seg_count;
-    for (uint32 i = 0; i < seg_count; ++i)
-    {
-        Vector3 dir, radius_offset, inner_pos, radial_step, middle_pos, outer_pos;
-        BuildDirectionVector(dir.words, 1, angle.words);
-        MultiplyVector(radius_offset.words, dir.words, this->radius);
-        AddVectors(inner_pos.words, pos.words, radius_offset.words);
-        Segment *segment = segs + i;
-        segment->v[0] = inner_pos;
-        MultiplyVector(radial_step.words, dir.words, this->expansion);
-        AddVectors(middle_pos.words, segment->v[0].words, radial_step.words);
-        segment->v[1] = middle_pos;
-        AddVectors(outer_pos.words, segment->v[1].words, radial_step.words);
-        segment->v[2] = outer_pos;
-        angle.words[1] += inc;
-    }
-    return 0;
-}
-
-static sint32 ReadMeshRingCameraOffset(uint32 position, uint32 axis)
-{
-    uint32 camera = GetModelRenderView().pos.words[axis];
-    return (sint32)((uint32)((sint32)position >> 12) - camera);
-}
-
-static uint32 LinkMeshRingRenderPacket(uint8 *packet, uint32 *ordering_entry)
-{
-    P_TAG *header = (P_TAG *)packet;
-    uint32 link = *ordering_entry;
-    header->addr = link;
-    link = *ordering_entry;
-    uint32 result = (link & 0xFF000000) | gpu_packet_link((uintptr_t)packet);
-    *ordering_entry = result;
-    return result;
-}
-
 uint32 MeshRingEffect::Render()
 {
     FUNCTION_MARKER(0x8002948C, "SLUS_003.73");
-    for (uint32 i = 0; i < seg_count; ++i)
+    for (sint32 i = 0; i < seg_count; ++i)
     {
         Projection *p = proj + i;
         p->depth = 0;
         for (uint32 j = 0; j < 3; ++j)
         {
-            const uint32 *v = segs[i].v[2 - j].words;
-            sint32 x = ReadMeshRingCameraOffset(v[0], 0);
-            sint32 y = ReadMeshRingCameraOffset(v[1], 1);
-            sint32 z = ReadMeshRingCameraOffset(v[2], 2);
-            xport_gte_write_data(0, (uint32)(uint16)x | ((uint32)(uint16)y << 16));
+            const Vector3 &v = segs[i].v[2 - j];
+            XY input;
+            input.x = MeshRingEffect::ReadCameraOffset(v.x, 0);
+            input.y = MeshRingEffect::ReadCameraOffset(v.y, 1);
+            sint32 z = MeshRingEffect::ReadCameraOffset(v.z, 2);
+            xport_gte_write_data(0, input.xy);
             xport_gte_write_data(1, z);
             xport_gte_execute(0x180001);
-            p->scr[j] = xport_gte_read_data(14);
+            p->scr[j].xy = xport_gte_read_data(14);
             sint32 depth = xport_gte_read_data(27);
-            sint32 scr = p->scr[j];
+            sint32 scr = p->scr[j].xy;
             if (scr == 67044351 || scr == 67107840 || scr == -67107841 || scr == -67044352 || depth < -20000 || depth >= 20001)
                 p->valid[j] = false;
             else
@@ -197,10 +179,12 @@ uint32 MeshRingEffect::Render()
             }
         }
     }
-    PSX_RECT tex_window = {(sint16)tex->uv[0].u, (sint16)tex->uv[0].v, 64, 64};
+    PSX_RECT tex_window = {tex->uv[0].u, tex->uv[0].v, 64, 64};
     PSX_RECT no_window = {0, 0, 0, 0};
     uint32 result = 0;
-    for (uint32 i = 1; i <= seg_count; ++i)
+    const sint32 state_size = 2 * sizeof(DR_TWIN) + sizeof(DR_TPAGE);
+    const sint32 poly_size = sizeof(POLY_GT4);
+    for (sint32 i = 1; i <= seg_count; ++i)
     {
         const Projection *prev = proj + i - 1;
         const Projection *next = proj + (i == seg_count ? 0 : i);
@@ -211,7 +195,7 @@ uint32 MeshRingEffect::Render()
             uint32 *ot_entry = scene_render.cur->ot + (ot_offset >> 2);
             uint8 *window_packet = scene_render.cursor;
             uint8 *limit = scene_render.limit;
-            result = limit - window_packet < (sint32)(2 * sizeof(DR_TWIN) + sizeof(DR_TPAGE));
+            result = limit - window_packet < state_size;
             if (result)
                 return result;
             uint8 *reset_packet = window_packet + sizeof(DR_TWIN);
@@ -223,59 +207,67 @@ uint32 MeshRingEffect::Render()
             DR_TPAGE *restore_mode = (DR_TPAGE *)mode_packet;
             setTexWindow(reset_window, &no_window);
             setTexWindow(apply_window, &tex_window);
-            uint8 *poly_packet[2];
-            poly_packet[0] = 0;
-            uint32 state_tag = GetEffectDrawMode().tag;
-            uint32 state_code = GetEffectDrawMode().code[0];
-            poly_packet[1] = 0;
+            POLY_GT4 *poly[2] = {0, 0};
+            uint32 state_tag = EffectObject::GetDrawMode().tag;
+            uint32 state_code = EffectObject::GetDrawMode().code[0];
             restore_mode->tag = state_tag;
             restore_mode->code[0] = state_code;
-            LinkMeshRingRenderPacket(reset_packet, ot_entry);
+            LinkPacket(reset_packet, ot_entry);
             if ((prev->valid[0] && prev->valid[1]) && next->valid[0] && next->valid[1])
             {
-                poly_packet[0] = scene_render.cursor;
+                poly[0] = (POLY_GT4 *)scene_render.cursor;
                 uint8 *limit = scene_render.limit;
-                result = limit - poly_packet[0] < (sint32)sizeof(POLY_GT4);
+                result = limit - scene_render.cursor < poly_size;
                 if (result)
                     return result;
-                uint8 *next_packet = poly_packet[0] + sizeof(POLY_GT4);
+                uint8 *next_packet = scene_render.cursor + sizeof(POLY_GT4);
                 scene_render.cursor = next_packet;
-                POLY_GT4 *poly = (POLY_GT4 *)poly_packet[0];
                 // Original packet templates use the unchanged geometry base
-                *poly = segs[0].poly[0];
-                poly->p[0].xy.xy = prev->scr[0];
-                poly->p[1].xy.xy = next->scr[0];
-                poly->p[2].xy.xy = prev->scr[1];
-                poly->p[3].xy.xy = next->scr[1];
+                *poly[0] = segs[0].poly[0];
+                poly[0]->p[0].xy = prev->scr[0];
+                poly[0]->p[1].xy = next->scr[0];
+                poly[0]->p[2].xy = prev->scr[1];
+                poly[0]->p[3].xy = next->scr[1];
             }
             if ((prev->valid[2] && prev->valid[1]) && next->valid[2] && next->valid[1])
             {
-                poly_packet[1] = scene_render.cursor;
+                poly[1] = (POLY_GT4 *)scene_render.cursor;
                 uint8 *limit = scene_render.limit;
-                result = limit - poly_packet[1] < (sint32)sizeof(POLY_GT4);
+                result = limit - scene_render.cursor < poly_size;
                 if (result)
                     return result;
-                uint8 *next_packet = poly_packet[1] + sizeof(POLY_GT4);
+                uint8 *next_packet = scene_render.cursor + sizeof(POLY_GT4);
                 scene_render.cursor = next_packet;
-                POLY_GT4 *poly = (POLY_GT4 *)poly_packet[1];
-                *poly = segs[0].poly[1];
-                poly->p[0].xy.xy = prev->scr[1];
-                poly->p[1].xy.xy = next->scr[1];
-                poly->p[2].xy.xy = prev->scr[2];
-                poly->p[3].xy.xy = next->scr[2];
+                *poly[1] = segs[0].poly[1];
+                poly[1]->p[0].xy = prev->scr[1];
+                poly[1]->p[1].xy = next->scr[1];
+                poly[1]->p[2].xy = prev->scr[2];
+                poly[1]->p[3].xy = next->scr[2];
             }
-            if (poly_packet[0])
+            if (poly[0])
             {
-                LinkMeshRingRenderPacket(poly_packet[0], ot_entry);
+                LinkPacket(poly[0], ot_entry);
             }
-            if (poly_packet[1])
+            if (poly[1])
             {
-                LinkMeshRingRenderPacket(poly_packet[1], ot_entry);
+                LinkPacket(poly[1], ot_entry);
             }
-            uint32 head_link = LinkMeshRingRenderPacket(window_packet, ot_entry);
+            uint32 head_link = LinkPacket(window_packet, ot_entry);
             restore_mode->tag = (restore_mode->tag & 0xFF000000) | (head_link & 0xFFFFFF);
             *ot_entry = (*ot_entry & 0xFF000000) | gpu_packet_link((uintptr_t)mode_packet);
         }
     }
     return 1;
+}
+
+MeshRingEffect::~MeshRingEffect()
+{
+    free(proj);
+    free(segs);
+}
+
+void MeshRingEffect::Update()
+{
+    // Original 0x8003A144 has no body or defined return carrier
+    return;
 }

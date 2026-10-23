@@ -17,6 +17,6 @@ struct GameClock
 
 extern GameClock game_clock;
 void ResetGameClock();
-uint32 AdvanceGameTick(void);
+uint32 AdvanceGameTick();
 
 #endif

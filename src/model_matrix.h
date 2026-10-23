@@ -1,13 +1,13 @@
 #ifndef MODEL_MATRIX_H
 #define MODEL_MATRIX_H
 
+#include "vector3.h"
+
 extern "C"
 {
 #include "psx.h"
 }
 
-void BuildModelRotationMatrix(const uint16 angles[3], MATRIX &matrix);
-void ScaleModelRotationMatrix(const uint16 factors[3], MATRIX &matrix);
 void InitializeModelIdentityMatrix(MATRIX &matrix);
 void TransformModelMatrix(const MATRIX &input, MATRIX &output);
 void ClearModelRotationMatrix(MATRIX &output);

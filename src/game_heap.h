@@ -8,13 +8,13 @@ extern "C"
 
 struct GameHeapBlock;
 
-void StopWithHeapErrorColor(uint32 red, uint32 green, uint32 blue);
+void StopWithHeapErrorColor(uint32 r, uint32 g, uint32 b);
 uint32 InitializeGameHeaps();
 uint32 GetGameHeapUsed(uint32 heap);
 uint32 GetGameHeapCapacity(uint32 heap);
 bool IsGameHeapUnderPressure();
 GameHeapBlock *AllocateHeapBlock(uint32 requested, sint32 heap, sint32 fatal);
 GameHeapBlock *AllocateZeroedHeapBlock(uint32 requested);
-uint32 ReleaseHeapBlock(GameHeapBlock *allocation);
+uint32 ReleaseHeapBlock(GameHeapBlock *block);
 
 #endif

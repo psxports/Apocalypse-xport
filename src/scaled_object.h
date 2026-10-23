@@ -17,10 +17,11 @@ public:
     {
     }
 
-    virtual uint32 Destroy(uint32 reason);
-
 protected:
     ScaledObject();
+
+public:
+    virtual uint32 Destroy(uint32 reason);
 };
 
 #endif

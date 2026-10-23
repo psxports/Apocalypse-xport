@@ -2,26 +2,29 @@
 #define PATH_PARTICLE_EMITTER_H
 
 #include "effect_object.h"
+#include "effect_controller.h"
 
 // Emit smoke sprites and rings along linked record positions
 class PathParticleEmitter : public EffectController
 {
-public:
-    uint32 start_rec;
+private:
+    uint16 start_rec;
     uint16 smoke_frequency;
     uint16 ring_frequency;
-    uint32 identifier;
 
-    PathParticleEmitter(uint32 identifier);
+public:
+    uint32 identifier;
 
     virtual ~PathParticleEmitter()
     {
     }
 
+public:
+    static void Spawn(uint32 identifier);
+    static void DestroyByIdentifier(uint32 identifier);
+    PathParticleEmitter(uint32 identifier);
     virtual uint32 Destroy(uint32 reason);
     virtual void Update();
 };
-
-void SpawnPathParticleEmitter(uint32 identifier);
 
 #endif

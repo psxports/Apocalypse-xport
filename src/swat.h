@@ -1,7 +1,10 @@
 #ifndef SWAT_H
 #define SWAT_H
+
+#include "object_reference.h"
 #include "enemy.h"
 #include "vector3.h"
+#include "weapon_node.h"
 
 struct SwatPopulation
 {
@@ -10,7 +13,6 @@ struct SwatPopulation
 };
 
 extern SwatPopulation swat_population;
-void ResetSwatPopulation();
 
 class OscillatingRing;
 class WeaponNode;
@@ -18,38 +20,15 @@ class WeaponNode;
 // The default type200 model resource is swat; variants share its original table
 class Swat : public Enemy
 {
-public:
-    Swat(const RecordCursor &record_data, uint32 index);
-    Swat(const uint32 *position, const RecordCursor &script);
-    uint32 Init();
-    uint32 ChooseBehavior();
-    uint32 SpawnZombieFragment();
-    void FragmentAndFinish(uint32 mode);
-    uint32 EnterDeathState13();
-    void EnterDeathState14();
-    uint32 BeginAttack();
-    uint32 Fire();
-    uint32 FireProjectile();
-    uint32 SetMode(uint32 mode);
-    virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
-    void UpdateState();
-    uint32 ApplyExplosionDamage();
-    virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 reason);
-    virtual uint32 ExecuteCommand(uint32 command);
-    void DeathReaction(const sint32 *vector, uint32 reason);
-    uint32 DetachTurret();
-    uint32 AttachTurret(ModelInstance *linked);
-
 private:
     friend class Turret;
 
     struct BehaviorRange
     {
         uint32 minimum_distance;
-        uint32 start_weight;
+        sint32 start_weight;
         uint32 maximum_distance;
-        uint32 end_weight;
+        sint32 end_weight;
 
         BehaviorRange() : minimum_distance(0), start_weight(0), maximum_distance(0), end_weight(0)
         {
@@ -66,18 +45,56 @@ private:
     uint8 fragment_count;
     ModelReference mounted_object;
     ObjectReference<WeaponNode> weapon;
-    void SetBehaviorRange(uint32 index, uint32 minimum_distance, uint32 maximum_distance, uint32 start_weight, uint32 end_weight);
-    uint32 SetMoveTarget(const uint32 *position);
-    uint32 SetJumpTarget(const uint32 *position);
-    uint32 SetSpecialTarget(const uint32 *position);
-    uint32 SetTargetRecord(uint32 index);
-    uint32 ClearTarget();
-    void SetDeathState(uint32 state);
-    static sint32 Divide(sint32 numerator, uint32 divisor);
-    static uint32 DivideUnsigned(uint32 numerator, uint32 denominator);
-    static sint32 Abs32(sint32 value);
-    uint32 ResolveCommandValue(uint32 value);
-    static sint32 QueryGround(const uint32 position[3], uint32 below, uint32 above);
+
+public:
+    Swat(const RecordCursor &rec_data, uint16 idx);
+    Swat(const Vector3 *pos_vector, const RecordCursor &script);
+
+private:
+    void Init();
+
+public:
+    virtual uint32 Destroy(uint32 reason);
+
+private:
+    void ApplyExplosionDamage();
+
+public:
+    virtual uint32 Update();
+    virtual uint32 Damage(uint32 damage, const Vector3 *input_vector, uint32 reason);
+
+private:
+    void SpawnZombieFragment();
+    void DeathReaction(const Vector3 *vector, uint32 reason);
+    void FragmentAndFinish(uint32 mode);
+    void EnterMovingParticleDeath();
+    void EnterAttachmentParticleDeath();
+    void UpdateState();
+    void SetBehaviorRange(uint32 idx, uint32 minimum_distance, uint32 maximum_distance, sint32 start_weight, sint32 end_weight);
+
+public:
+    void SetMode(uint16 mode);
+    virtual uint32 ExecuteCommand(uint16 command);
+
+private:
+    void DetachTurret();
+    void AttachTurret(ModelInstance *linked);
+    void BeginAttack();
+    void Fire();
+    void FireProjectile();
+    void SetMoveTarget(const Vector3 *pos);
+    void SetJumpTarget(const Vector3 *pos);
+    void SetSpecialTarget(const Vector3 *pos);
+    void SetTargetRec(uint16 idx);
+    void ClearTarget();
+    uint8 ChooseBehavior();
+
+public:
+    static void ResetPopulation();
+
+private:
+    void SetDeathState(uint16 state);
+    uint16 ResolveCommandVal(uint16 val);
 };
 
 #endif

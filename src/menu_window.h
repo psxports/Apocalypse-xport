@@ -40,13 +40,13 @@ extern const char view_credits[];
 extern const char music_credits[];
 extern const char view_intro[];
 extern const char reset_to_defaults[];
-extern const char center_screen[];
+extern const char center_scr[];
 extern const char calibrate_analog_controller[];
 extern const char vibration_settings[];
 extern const char return_to_controller_config[];
 extern const char use_the_directional[];
 extern const char buttons_to_center[];
-extern const char the_screen[];
+extern const char the_scr[];
 extern const char move_the_left_stick[];
 extern const char and_right_stick_to_all[];
 extern const char four_corners_then_press[];
@@ -123,53 +123,81 @@ extern const char empty_slot[];
 
 struct MenuItem
 {
+    struct Color
+    {
+        uint8 r;
+        uint8 g;
+        uint8 b;
+    };
+
     const char *label;
     char *owned_label;
-    uint16 scale;
-    uint16 target_scale;
-    uint16 selected_scale;
-    uint16 unselected_scale;
+    // Animation values retain signed halfword comparisons and store wrap
+    sint16 scale;
+    sint16 target_scale;
+    sint16 sel_scale;
+    sint16 unselected_scale;
     uint8 height;
-    uint8 enabled;
-    uint8 color[2][3];
+    bool enabled;
+    Color color[2];
     uint8 brightness;
-    uint16 pulse;
-    uint16 glow;
+    sint16 pulse;
+    sint16 glow;
 };
-
-void ResetMenuRepeat();
 
 class MenuWindow : public Object
 {
 public:
-    MenuWindow(uint32 x, uint32 y, uint32 mode, uint32 selected_scale, uint32 unselected_scale, uint32 spacing);
-    virtual ~MenuWindow();
-    virtual uint32 Destroy(uint32 reason);
-    uint32 CenterVertical(void);
-    uint32 Draw(void);
-    uint32 Update(void);
-    uint32 FindItem(const char *label);
-    uint32 AddItem(const char *label);
-    uint32 AddOwnedItem(const char *label);
-    uint32 EnableItem(const char *label);
-    uint32 DisableItem(const char *label);
-    uint32 SetItemHeight(const char *label, uint32 height);
-    uint32 IsSelected(const char *label);
-    uint32 GetItemPosition(const char *label, uint32 *x, uint32 *y);
-    const char *GetItemLabel(uint32 idx) const;
-    const char *GetSelectedLabel() const;
-    uint32 ResetSelection(uint32 selected);
-    uint32 ResetSelection(void);
-
     uint8 alignment;
-    uint8 selected;
-    uint8 has_arrows;
+    uint8 sel;
+    bool has_arrows;
     uint8 arrow_item;
-    uint8 numbered;
+    bool numbered;
     uint8 count;
-    uint32 scr_pos[2];
+
+    struct Position
+    {
+        uint32 x;
+        uint32 y;
+    } scr_pos;
+
     uint32 spacing;
     MenuItem items[15];
+
+public:
+    static uint32 SetDarkRedText();
+    void DrawVolumeSlider();
+    static sint32 ReadNavigationStep();
+    static const char *GetButtonLabel(uint32 button);
+    static sint16 AssignButton(uint32 button, sint16 *sel, sint16 *binding0, sint16 *binding1, sint16 *binding2);
+    static uint32 SetRedText(void);
+    static uint32 SetGreenText(void);
+    MenuWindow(uint32 x, uint32 y, uint8 alignment, sint16 sel_scale, sint16 unselected_scale, uint32 spacing);
+    virtual uint32 Destroy(uint32 reason);
+    uint32 CenterVertical();
+    uint32 ResetSelection(uint8 sel);
+    uint32 ResetSelection();
+    uint32 FindItem(const char *label);
+    uint32 AddItem(const char *label);
+    uint32 EnableItem(const char *label);
+    uint32 DisableItem(const char *label);
+    uint32 SetItemHeight(const char *label, uint8 height);
+    bool IsSel(const char *label);
+    bool GetItemPos(const char *label, uint32 *x, uint32 *y);
+    uint32 Draw();
+    uint32 Update();
+    static uint32 EnterSaveSelection();
+    uint32 PopulateSaveSelection();
+    virtual ~MenuWindow();
+    uint32 AddOwnedItem(const char *label);
+    const char *GetItemLabel(uint32 idx) const;
+    const char *GetSelLabel() const;
+
+private:
+    static sint32 ReadSliderWidth(sint16 volume, uint32 multiplier, uint32 shift);
+
+public:
+    static void ResetRepeat();
 };
 
 #endif

@@ -15,7 +15,7 @@ struct ExplosionEvent
     Vector3 pos;
     uint32 radius;
     uint32 strength;
-    uint32 priority;
+    sint32 priority;
 };
 
 struct ExplosionQueue
@@ -26,10 +26,10 @@ struct ExplosionQueue
 
 extern ExplosionQueue explosion_queue;
 void ResetExplosionState();
-void QueueExplosion(const uint32 *position, uint32 radius, uint32 strength, uint32 priority);
+void QueueExplosion(const Vector3 *pos, uint32 radius, uint32 strength, sint32 priority);
 void ResetExplosionQueue();
-uint32 SpawnExplosionParticles(const uint32 *position, uint32 count, uint32 resource, uint32 size, uint32 spread);
-uint32 HandleExplosionProximity(const uint32 *position, uint32 kind);
-void SpawnExplosion(const uint32 *position, uint32 large);
+uint32 SpawnExplosionParticles(const Vector3 *pos, uint32 count, uint32 resource, uint16 size, uint32 spread);
+void HandleExplosionProximity(const Vector3 *pos, uint32 kind);
+void SpawnExplosion(const Vector3 *pos, bool large);
 
 #endif

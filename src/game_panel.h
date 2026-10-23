@@ -20,34 +20,23 @@ extern PanelText panel_text;
 void ResetPanelText();
 
 struct TextureGroup;
-class MenuWindow;
-class VisualObject;
-void DrawMenuVolumeSlider(MenuWindow &menu);
 
-const char *ReadMenuButtonLabel(uint32 button);
-sint32 ReadMenuNavigationStep();
-sint32 AssignMenuButton(uint32 button, sint16 *sel, sint16 *binding0, sint16 *binding1, sint16 *binding2);
-uint32 SetMenuRedText(void);
-uint32 SetMenuGreenText(void);
 uint32 DrawMenuLeftHint(void);
 uint32 DrawMenuHints(void);
 uint32 DrawMenuCenteredHint(void);
-void DrawPauseMenuDisplay(void);
+void DrawPauseMenuDisp();
 
-uint32 TrackObjectHealth(VisualObject &object, uint32 x, uint32 y, uint32 scale);
-void ClearTrackedObjectHealth();
 void DrawGamePanel();
 uint32 DrawDebugPanel();
 void LoadPanelResource();
-void ForgetPanelTexture(const TextureGroup *grp);
-void ClearPanelTextureBinding();
-uint32 ResetPanelDisplayTimer();
+void ForgetPanelTex(const TextureGroup *grp);
+uint32 ResetPanelDispTimer();
 
-uint32 SetMenuDarkRedText();
 void ResetMenuFireBuffers();
 void ReleaseMenuBuffers();
 uint32 HasMenuBuffers();
-uint32 CreateMenuBuffers(uint32 resource, uint32 width, uint32 height, uint32 mode);
+// Byte-pixel rows require width >= 4, divisible by 4, and a nonzero height
+uint32 CreateMenuBuffers(uint32 resource, uint16 width, uint16 height, uint8 intensity);
 uint32 BlurMenuBuffers();
 
 #endif

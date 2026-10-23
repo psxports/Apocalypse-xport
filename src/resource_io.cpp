@@ -4,10 +4,17 @@
 #include "movie_lifecycle.h"
 #include "cd_voice_event.h"
 #include "game_diagnostics.h"
-
 #include "resource_io.h"
 #include "game_data_io.h"
 #include "loading_screen.h"
+
+struct ResourceExtentFile
+{
+    uint32 offset;
+    uint32 bytes;
+};
+
+typedef char ResourceExtentFileSize[sizeof(ResourceExtentFile) == 8 ? 1 : -1];
 
 struct ResourceEntry
 {
@@ -25,14 +32,22 @@ struct ResourceDirectory
 
 struct ResourceRead
 {
-    uint8 *dst;
+    enum Phase
+    {
+        Idle,
+        Preparing,
+        Reading,
+        Completing
+    };
+
+    void *dst;
     uint32 offset;
     uint32 bytes;
     uint32 progress;
-    uint32 phase;
+    Phase phase;
     uint32 option;
-    uint32 failures;
-    sint32 error;
+    uint8 failures;
+    bool failed;
 };
 
 static ResourceDirectory resource_directory;
@@ -40,10 +55,8 @@ static ResourceRead resource_read;
 
 static uint32 RoundResourceSize(uint32 bytes)
 {
-    uint32 rounded = bytes + 2047;
-    if ((sint32)rounded < 0)
-        rounded = bytes + 4094;
-    return (uint32)((sint32)rounded >> 11) << 11;
+    // Directory decoding limits every resource to 0x7FFFF800 bytes
+    return (bytes + 2047) & ~2047;
 }
 
 static void ReleaseResourceDirectory()
@@ -68,8 +81,9 @@ static bool DecodeResourceDirectory(const uint8 *data, uint32 bytes, uint32 wad_
         pos = (pos + 4) & ~3;
         if (pos > bytes || bytes - pos < 8)
             return false;
-        uint32 offset = xport_load_le32(data + pos);
-        uint32 size = xport_load_le32(data + pos + 4);
+        const ResourceExtentFile &file = *(const ResourceExtentFile *)(data + pos);
+        uint32 offset = file.offset;
+        uint32 size = file.bytes;
         if ((offset & 2047) || size > 0x7FFFF800 || offset > wad_bytes || RoundResourceSize(size) > wad_bytes - offset)
             return false;
         pos += 8;
@@ -97,8 +111,9 @@ static bool DecodeResourceDirectory(const uint8 *data, uint32 bytes, uint32 wad_
         entries[idx].name = name;
         name += len;
         pos = (pos + 4) & ~3;
-        entries[idx].offset = xport_load_le32(data + pos);
-        entries[idx].bytes = xport_load_le32(data + pos + 4);
+        const ResourceExtentFile &file = *(const ResourceExtentFile *)(data + pos);
+        entries[idx].offset = file.offset;
+        entries[idx].bytes = file.bytes;
         pos += 8;
     }
     ReleaseResourceDirectory();
@@ -114,7 +129,7 @@ static void LoadResourceDirectory()
     const char *path = "DATA/CD.HED";
     if (!xport_file_size(path, &bytes) || !bytes || bytes > 0x7FFFFFFF || !xport_file_size("DATA/CD.WAD", &wad_bytes) || wad_bytes > 0x7FFFFFFF)
     {
-        GameDiagnostic("Cannot size game resource directory or archive\n");
+        GameDiagnostic(("Cannot size game resource directory or archive\n"));
         abort();
     }
     uint8 *data = (uint8 *)malloc(bytes);
@@ -122,16 +137,16 @@ static void LoadResourceDirectory()
     free(data);
     if (!valid)
     {
-        GameDiagnostic("Invalid game resource directory: %s\n", path);
+        GameDiagnostic(("Invalid game resource directory: %s\n", path));
         abort();
     }
 }
 
-static uint8 FoldResourceNameByte(uint8 value)
+static uint8 FoldResourceNameByte(uint8 val)
 {
-    if (value >= 'A' && value <= 'Z')
-        value += 'a' - 'A';
-    return value;
+    if (val >= 'A' && val <= 'Z')
+        val += 'a' - 'A';
+    return val;
 }
 
 static const ResourceEntry *FindResource(const char *name)
@@ -140,7 +155,7 @@ static const ResourceEntry *FindResource(const char *name)
     {
         const ResourceEntry *entry = resource_directory.entries + idx;
         const char *left = name, *right = entry->name;
-        while (*left && FoldResourceNameByte((uint8)*left) == FoldResourceNameByte((uint8)*right))
+        while (*left && FoldResourceNameByte(*left) == FoldResourceNameByte(*right))
         {
             ++left;
             ++right;
@@ -170,10 +185,10 @@ void SetResourceReadOption(uint32 option)
 uint32 InitializeResourceDirectory()
 {
     FUNCTION_MARKER(0x8006AEE4, "SLUS_003.73");
-    resource_read.phase = 0;
+    resource_read.phase = ResourceRead::Idle;
     resource_read.failures = 0;
     resource_read.dst = 0;
-    resource_read.error = 0;
+    resource_read.failed = false;
     CdSetDebug(0);
     if (!CdInit())
         abort();
@@ -196,7 +211,7 @@ uint32 GetResourceFileSize(const char *name)
     const ResourceEntry *entry = FindResource(name);
     if (!entry)
     {
-        GameDiagnostic("Missing game resource: %s\n", name);
+        GameDiagnostic(("Missing game resource: %s\n", name));
         abort();
     }
     return entry->bytes;
@@ -206,11 +221,11 @@ uint32 LookupResource(const char *name)
 {
     FUNCTION_MARKER(0x8006B04C, "SLUS_003.73");
     resource_read.progress = 0;
-    GameDiagnostic("\n%s", name);
+    GameDiagnostic(("\n%s", name));
     const ResourceEntry *entry = FindResource(name);
     if (!entry)
     {
-        GameDiagnostic("\nMissing game resource: %s\n", name);
+        GameDiagnostic(("\nMissing game resource: %s\n", name));
         abort();
     }
     resource_read.offset = entry->offset;
@@ -222,9 +237,9 @@ uint32 BeginResourceRead(void *dst)
 {
     FUNCTION_MARKER(0x8006B234, "SLUS_003.73");
     ResetMoviePlayback();
-    resource_read.dst = (uint8 *)dst;
-    resource_read.error = 0;
-    resource_read.phase = 1;
+    resource_read.dst = dst;
+    resource_read.failed = false;
+    resource_read.phase = ResourceRead::Preparing;
     resource_read.progress = 0;
     cd_voice.active = 0;
     cd_voice.available = 1;
@@ -236,41 +251,41 @@ uint32 ProcessResourceRead()
 {
     FUNCTION_MARKER(0x8006B2A8, "SLUS_003.73");
     bool error = false;
-    if (resource_read.phase == 1)
+    if (resource_read.phase == ResourceRead::Preparing)
     {
         resource_read.progress = 0;
-        if (CdControl(9, 0, 0))
-            resource_read.phase = 2;
+        if (CdControl(CdlPause, 0, 0))
+            resource_read.phase = ResourceRead::Reading;
         else
             error = true;
     }
-    else if (resource_read.phase == 2)
+    else if (resource_read.phase == ResourceRead::Reading)
     {
-        resource_read.error = resource_read.bytes && ReadDataResource(resource_read.dst, resource_read.offset, resource_read.bytes) ? 0 : -1;
-        if (!resource_read.error)
-            resource_read.phase = 3;
+        resource_read.failed = !resource_read.bytes || !ReadDataResource(resource_read.dst, resource_read.offset, resource_read.bytes);
+        if (!resource_read.failed)
+            resource_read.phase = ResourceRead::Completing;
         else
         {
             error = true;
-            resource_read.phase = 1;
+            resource_read.phase = ResourceRead::Preparing;
         }
     }
-    else if (resource_read.phase == 3)
+    else if (resource_read.phase == ResourceRead::Completing)
     {
         if (resource_read.progress == resource_read.bytes)
         {
-            resource_read.phase = 0;
+            resource_read.phase = ResourceRead::Idle;
             resource_read.dst = 0;
         }
-        else if (resource_read.error >= 0)
+        else if (!resource_read.failed)
             resource_read.progress = resource_read.bytes;
         else
         {
             error = true;
-            if ((sint32)++resource_read.failures >= 5)
+            if (++resource_read.failures >= 5)
             {
                 resource_read.failures = 0;
-                resource_read.phase = 1;
+                resource_read.phase = ResourceRead::Preparing;
             }
         }
     }

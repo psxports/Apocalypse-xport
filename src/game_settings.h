@@ -1,17 +1,12 @@
 #ifndef GAME_SETTINGS_H
 #define GAME_SETTINGS_H
 
+#include "control_bindings.h"
+
 extern "C"
 {
 #include "psx.h"
 }
-
-struct ControlBindings
-{
-    ControlBindings();
-    sint16 digital[4];
-    sint16 analog[4];
-};
 
 enum VibrationMode
 {
@@ -27,10 +22,11 @@ struct GameSettings
     }
 
     ControlBindings bindings;
-    uint16 music_volume;
-    uint16 effects_volume;
-    uint16 voice_volume;
-    uint32 vibration;
+    // Signed gains retain halfword wrap before the menu sign-bit and upper clamps
+    sint16 music_volume;
+    sint16 effects_volume;
+    sint16 voice_volume;
+    VibrationMode vibration;
     uint32 difficulty;
 };
 
@@ -54,7 +50,7 @@ struct SavedGameSettings
     uint8 bindings[8];
 };
 
-uint32 SaveGameSettings(SavedGameSettings &record);
-uint32 RestoreGameSettings(const SavedGameSettings &record);
+uint8 SaveGameSettings(SavedGameSettings &rec);
+uint32 RestoreGameSettings(const SavedGameSettings &rec);
 
 #endif

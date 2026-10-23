@@ -1,10 +1,11 @@
 #ifndef THE_BEAST_H
 #define THE_BEAST_H
 
+#include "object_reference.h"
 #include "vector3.h"
-
 #include "enemy.h"
 #include "angle_math.h"
+#include "particle_beam.h"
 
 class ParticleBeam;
 class Flamethrower;
@@ -13,47 +14,70 @@ class GuidedProjectile;
 
 class TheBeast : public Enemy
 {
-public:
-    TheBeast(const RecordCursor &record_data, uint32 index);
-    virtual ~TheBeast();
-    virtual uint32 Destroy(uint32 reason);
-    virtual uint32 Update();
-    void UpdateBehavior();
-    virtual uint32 Damage(uint32 damage, const sint32 *vector, uint32 kind);
-    void Configure();
-    uint32 SpawnPickup();
-    uint32 Resize(uint32 increment);
-    virtual uint32 UpdateLighting();
-    virtual uint32 ExecuteCommand(uint32 command);
-    virtual void SetParameters(uint32 command);
-    uint32 SetDestination(const uint32 *position);
-    uint32 SetJumpDestination(const uint32 *position);
-    uint32 TrackTarget(ModelInstance *target);
-    uint32 SetFacingPoint(const uint32 *position);
-    uint16 *ClearFacing();
-    uint32 SetBoneFacingPoint(const uint32 *position);
-    uint32 ClearBoneFacing();
-
 private:
-    void AdvancePhase();
-    void SelectState(uint32 state);
-    void RestoreState();
-    void ClearVelocity();
-    void BeginAttack();
-    void PlayAnimation(uint32 animation);
-    void JumpToPoint(uint32 *position);
-    uint32 ReadBeamPoint();
-    void PositionBeamPoint(uint32 *position, uint16 *angles, uint32 turn);
-    uint8 used_points[5];
     Vector3 bone_aim_pos;
     AngleMotion aim;
     ModelReference tracked_target;
     Vector3 aim_pos;
     uint16 jump_timer;
+    uint8 used_points[5];
     ObjectReference<ParticleBeam> beams[2];
     ObjectReference<Flamethrower> flamethrower;
     ObjectReference<RingEffect> charge_rings[2];
     ObjectReference<GuidedProjectile> held_projectile;
+
+public:
+    TheBeast(const RecordCursor &rec_data, uint16 idx);
+
+private:
+    void Configure();
+
+public:
+    virtual uint32 Destroy(uint32 reason);
+
+private:
+    uint32 SpawnPickup();
+
+public:
+    virtual uint32 Update();
+
+private:
+    void Resize(sint32 inc);
+
+public:
+    virtual uint32 UpdateLighting();
+    virtual uint32 Damage(uint32 damage, const Vector3 *vector, uint32 reason);
+
+private:
+    void UpdateBehavior();
+
+public:
+    virtual void SetParameters(uint16 command);
+    virtual uint32 ExecuteCommand(uint16 command);
+
+private:
+    void SetDst(const Vector3 *pos);
+    void SetJumpDst(const Vector3 *pos);
+    void TrackTarget(ModelInstance *target);
+    void SetFacingPoint(const Vector3 *pos);
+    void ClearFacing();
+    void SetBoneFacingPoint(const Vector3 *pos);
+    void ClearBoneFacing();
+    static void ReadLightDir(Character &object, uint32 bone, bool horizontal, ShortVector3 &dir);
+
+public:
+    virtual ~TheBeast();
+
+private:
+    void AdvancePhase();
+    void SelectState(uint16 state);
+    void RestoreState();
+    void ClearVelocity();
+    void BeginAttack();
+    void PlayAnimation(uint8 animation);
+    void JumpToPoint(Vector3 &pos);
+    uint16 ReadBeamPoint();
+    void PosBeamPoint(Vector3 &pos, ShortVector3 &angles, uint8 turn);
 };
 
 #endif

@@ -1,132 +1,114 @@
 #include <new>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
+#include "collision_ray.h"
 #include "effect_lifecycle.h"
 #include "level_session.h"
 #include "game_tick.h"
-
-#include "record_scripts.h"
-
+#include "resource_script.h"
 #include "collision.h"
-
 #include "world_gravity.h"
-
 #include "object_initializers.h"
-
-#include "vector_distance.h"
+#include "global.h"
 #include "camera.h"
-
 #include "flamethrower.h"
-#include "projectile_weaving.h"
-#include "model_resources.h"
+#include "weaving_projectile.h"
+#include "model_bank.h"
 #include "visual_object.h"
 #include "angle_math.h"
 #include "model_animation.h"
+#include "model_attachment_data.h"
 #include "model_attachment.h"
-#include "game_random.h"
 #include "game_diagnostics.h"
 #include "player.h"
 #include "game_panel.h"
 #include "fire_cycle.h"
-
 #include "tank.h"
 #include "projectile_base.h"
 #include "record_data.h"
-#include "vector_arithmetic.h"
-#include "particle_debris.h"
+#include "debris.h"
 #include "effect_splash.h"
+#include "impact_ring.h"
 #include "ring_burst_effect.h"
 #include "game_object_allocation.h"
 #include "game_heap.h"
 #include "audio_voice.h"
 #include "audio_session.h"
 #include "items.h"
+#include "enemy.h"
+#include "effect_object.h"
 
-Tank::Tank(const RecordCursor &record_data, uint32 index) : Enemy(), fire_mask(0), debris_first(0), debris_count(0), move_sound(0)
+Tank::Tank(const RecordCursor &rec_data, uint16 idx) : Enemy(), fire_mask(0), debris_first(0), debris_count(0), move_sound(0)
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     RecordCursor cursor;
     FUNCTION_MARKER(0x80055F14, "SLUS_003.73");
-    aim_pos.words[0] = aim_pos.words[1] = aim_pos.words[2] = 0;
-    aim_offset.words[0] = aim_offset.words[1] = aim_offset.words[2] = 0;
+    aim_pos.x = aim_pos.y = aim_pos.z = 0;
+    aim_offset.x = aim_offset.y = aim_offset.z = 0;
 
-    cursor = ReadPosition(record_data);
+    cursor = ReadPos(rec_data);
     cursor = ReadAngles(cursor);
     script_cursor = cursor;
-    this->control.script_active = 1;
-    this->record_idx = index;
+    control.script_active = 1;
+    rec_idx = idx;
     Init();
     cursor = script_cursor;
-    ExecuteScript(RecordCursor(cursor));
+    ExecuteScript(cursor);
 }
 
-Tank::Tank(const uint32 *position_vector, const RecordCursor &script) : Enemy(), fire_mask(0), debris_first(0), debris_count(0), move_sound(0)
+Tank::Tank(const Vector3 *pos_vector, const RecordCursor &script) : Enemy(), fire_mask(0), debris_first(0), debris_count(0), move_sound(0)
 {
-    RecordDataBorrow record_borrow;
-    uint32 x, y, z;
-    RecordCursor cursor;
+    RecordDataBorrow rec_borrow;
     FUNCTION_MARKER(0x80055F9C, "SLUS_003.73");
-    aim_pos.words[0] = aim_pos.words[1] = aim_pos.words[2] = 0;
-    aim_offset.words[0] = aim_offset.words[1] = aim_offset.words[2] = 0;
-    x = position_vector[0];
-    y = position_vector[1];
-    z = position_vector[2];
-    pos_history.saved.words[0] = x;
-    pos_history.saved.words[1] = y;
-    pos_history.saved.words[2] = z;
-    this->model.pos.words[0] = x;
-    this->model.pos.words[1] = y;
-    this->model.pos.words[2] = z;
+    aim_pos.x = aim_pos.y = aim_pos.z = 0;
+    aim_offset.x = aim_offset.y = aim_offset.z = 0;
+    pos_history.saved = *pos_vector;
+    model.pos = pos_history.saved;
     script_cursor = script;
-    this->control.script_active = 1u;
+    control.script_active = 1;
     Init();
-    cursor = script_cursor;
     ExecuteScript(script_cursor);
 }
 
 uint32 Tank::Init()
 {
-    uint32 flags;
     GameHeapBlock *child;
-    uint32 value;
-    uint32 bank;
+    uint16 damage;
+    uint8 bank;
     FUNCTION_MARKER(0x80056038, "SLUS_003.73");
-    game_progress.level.enemy_total = game_progress.level.enemy_total + 1u;
+    ++game_progress.level.enemy_total;
     AddToList(visual_lists.solids);
-    this->kind = 205;
-    flags = this->model.flags;
+    kind = 205;
     motion.drag[0] = 3;
-    this->model.flags = flags | 16u;
+    model.flags |= 16;
     motion.drag[1] = 3;
     motion.drag[2] = 3;
     AllocateBehaviorTable(3, 9);
-    this->control.gravity_enabled = 0;
+    control.gravity_enabled = 0;
     ai.state = 0;
     ai.phase = 0;
-    this->control.hierarchy_ready = 0;
-    SetBehaviorValue(0, 0, 0);
-    SetBehaviorValue(0, 1, 30);
-    SetBehaviorValue(0, 2, 64);
-    SetBehaviorValue(0, 3, 64);
-    SetBehaviorValue(0, 4, 64);
-    SetBehaviorValue(0, 5, 0);
-    SetBehaviorValue(1, 0, 0);
-    SetBehaviorValue(1, 1, 1);
-    SetBehaviorValue(1, 2, 128);
-    SetBehaviorValue(1, 3, 12);
-    SetBehaviorValue(1, 4, 64);
-    SetBehaviorValue(1, 5, 0);
-    SetBehaviorValue(2, 0, 0);
-    SetBehaviorValue(2, 1, 20);
-    SetBehaviorValue(2, 2, 30);
-    SetBehaviorValue(2, 3, 512);
-    SetBehaviorValue(2, 4, 8);
-    SetBehaviorValue(2, 5, 300);
-    SetBehaviorValue(2, 6, 256);
-    SetBehaviorValue(2, 7, 128);
-    SetBehaviorValue(2, 8, 0);
+    control.hierarchy_ready = 0;
+    SetBehaviorVal(0, 0, 0);
+    SetBehaviorVal(0, 1, 30);
+    SetBehaviorVal(0, 2, 64);
+    SetBehaviorVal(0, 3, 64);
+    SetBehaviorVal(0, 4, 64);
+    SetBehaviorVal(0, 5, 0);
+    SetBehaviorVal(1, 0, 0);
+    SetBehaviorVal(1, 1, 1);
+    SetBehaviorVal(1, 2, 128);
+    SetBehaviorVal(1, 3, 12);
+    SetBehaviorVal(1, 4, 64);
+    SetBehaviorVal(1, 5, 0);
+    SetBehaviorVal(2, 0, 0);
+    SetBehaviorVal(2, 1, 20);
+    SetBehaviorVal(2, 2, 30);
+    SetBehaviorVal(2, 3, 512);
+    SetBehaviorVal(2, 4, 8);
+    SetBehaviorVal(2, 5, 300);
+    SetBehaviorVal(2, 6, 256);
+    SetBehaviorVal(2, 7, 128);
+    SetBehaviorVal(2, 8, 0);
     child = AllocateZeroedHeapBlock(72);
     Flamethrower *created = 0;
     if (child)
@@ -134,17 +116,16 @@ uint32 Tank::Init()
         created = new (child) Flamethrower(&visual_lists.players, 0);
     }
     weapon = created;
-    value = GetBehaviorValue(1, 1);
-    bank = GetRecordModelBankSlot();
+    damage = GetBehaviorVal(1, 1);
+    bank = GetRecModelBankSlot();
     if (!weapon)
     {
-        GameDiagnostic("Tank flamethrower allocation failed\n");
+        GameDiagnostic(("Tank flamethrower allocation failed\n"));
         abort();
     }
-    weapon->damage = value & 65535;
-    value = ::FindModelResourceIndex(0xA48DD5EC, bank);
-    this->debris_first = value;
-    this->debris_count = 10u;
+    weapon->damage = damage;
+    debris_first = ModelBank::FindResourceIdx(0xA48DD5EC, bank);
+    debris_count = 10;
     return 10;
 }
 
@@ -158,314 +139,296 @@ Tank::~Tank()
 
 uint32 Tank::Destroy(uint32 reason)
 {
-    uint32 flags, sound;
+    uint32 sound;
     FUNCTION_MARKER(0x800562C4, "SLUS_003.73");
     RemoveFromList(visual_lists.solids);
     Enemy::FreeBehaviorTable();
-    if (this->control.flags & 32)
+    if (control.flags & 32)
     {
-        ClearTrackedObjectHealth();
-        flags = this->control.flags;
-        this->control.flags = flags & 0xFFFFFFDF;
+        VisualObject::ClearTrackedHealth();
+        control.flags &= 0xFFFFFFDF;
     }
     if (weapon)
         weapon->Destroy(3);
     weapon = 0;
-    sound = this->move_sound;
+    sound = move_sound;
     if (sound)
         StopSoundVoices(sound);
     move_sound = 0;
     if (camera_subject.GetObject() == &model)
         camera_subject.Reset();
     Enemy::Destroy(0);
-    return (reason & 1) ? ReleaseObjectStorage(this) : 0;
+    return (reason & 1) ? ReleaseStorage() : 0;
 }
 
 uint32 Tank::Update()
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     ShortVector3 motion_target;
-    uint32 flags, value, count, mode, sound;
-    Vector3 position;
+    uint32 flags, sound;
+    uint16 val, count;
+    uint16 activation;
+    uint8 mode;
+    bool fire;
+    Vector3 tmp_pos;
     ShortVector3 desired;
-    sint32 wanted_yaw, current_yaw;
-    uint32 move;
+    sint32 wanted_yaw, cur_yaw;
+    bool move;
+    sint32 yaw_delta;
     FUNCTION_MARKER(0x800563B4, "SLUS_003.73");
-    position = zero_vector;
-    motion.acceleration = position;
-    flags = this->activation_flags;
-    this->control.prev_activation_flags = flags;
-    if (flags & 1u)
+    motion.acceleration = zero_vector;
+    activation = activation_flags;
+    control.prev_activation_flags = activation;
+    if (activation & 1)
     {
-        value = (uint32)this->control.activation_count;
-        this->activation_flags = flags & 0xFFFEu;
-        this->control.activation_count = value + 1u;
+        activation_flags = activation & 0xFFFE;
+        ++control.activation_count;
     }
-    if (!(uint32)this->control.hierarchy_ready)
+    if (!control.hierarchy_ready)
     {
-        flags = this->model.flags;
-        this->control.hierarchy_ready = 1;
-        this->model.flags = flags | 4u;
-        SetAnimationRange(0u, 0u, 0xFFFFFFFF);
+        control.hierarchy_ready = 1;
+        model.flags |= 4;
+        SetAnimationRange(0, 0, 0xFFFFFFFF);
     }
-    if ((uint32)this->control.script_active)
+    if (control.script_active)
     {
-        count = (uint32)this->control.script_delay;
+        count = control.script_delay;
         if (count)
-            this->control.script_delay = count - 1u;
+            control.script_delay = count - 1;
         else
             ExecuteScript(script_cursor);
     }
     else
         UpdateState();
-    if (!(this->model.flags & 4u))
+    if (!(model.flags & 4))
         return 0;
-    flags = this->control.flags;
-    if (flags & 16u)
+    flags = control.flags;
+    if (flags & 16)
     {
         ModelInstance *subject = tracked_target.GetObject();
         if (subject)
         {
             VisualObject *visual = static_cast<VisualObject *>(subject->owner);
-            const uint32 *pos = visual->kind == 50 ? visual->surface.pos.words : subject->pos.words;
-            aim_pos.words[0] = pos[0];
-            aim_pos.words[1] = pos[1];
-            aim_pos.words[2] = pos[2];
+            aim_pos = visual->kind == 50 ? visual->surface.pos : subject->pos;
         }
         else
             control.flags &= ~16;
-        mode = (uint32)this->fire_mask;
+        mode = fire_mask;
     }
-    else if (flags & 8u)
+    else if (flags & 8)
     {
-        AddVectors(position.words, model.pos.words, this->aim_offset.words);
-        this->aim_pos = position;
-        mode = (uint32)this->fire_mask;
+        tmp_pos.Add(model.pos, aim_offset);
+        aim_pos = tmp_pos;
+        mode = fire_mask;
     }
     else
-        mode = (flags & 4u) ? (uint32)this->fire_mask : 0u;
+        mode = (flags & 4) ? fire_mask : 0;
     Aim(mode);
-    if (this->control.flags & 1u)
+    if (control.flags & 1)
     {
-        if ((sint32)MeasureHorizontalDistance(this->model.pos.words, this->destination.words) < 128)
+        if ((sint32)model.pos.HorizontalDistance(dst) < 128)
         {
-            flags = this->control.flags;
-            this->control.flags = flags & 0xFFFFFFFE;
+            control.flags &= 0xFFFFFFFE;
         }
         else
         {
-            sound = this->move_sound;
+            sound = move_sound;
             if (sound)
             {
-                if (!(game_clock.tick & 15u))
-                    UpdatePositionedSoundVoices(sound, model.pos.words, 0);
+                if (!(game_clock.tick & 15))
+                    UpdatePositionedSoundVoices(sound, &model.pos, 0);
             }
             else
-                this->move_sound = PlayPositionedSound(49, model.pos.words, 0);
-            CalculateDirectionAngles(desired.words, this->model.pos.words, this->destination.words);
-            desired.words[0] = 0;
+                move_sound = PlayPositionedSound(49, &model.pos, 0);
+            desired.SetDir(model.pos, dst);
+            desired.x = 0;
             motion_target.x = 0;
-            motion_target.y = desired.words[1];
+            motion_target.y = desired.y;
             motion_target.z = 0;
-            UpdateAngleAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, motion_target, 16u);
-            this->model.angles.words[0] = 0;
-            wanted_yaw = (sint16)desired.words[1];
-            current_yaw = (sint16)this->model.angles.words[1];
-            move = wanted_yaw == current_yaw;
-            if (wanted_yaw < current_yaw)
-                move = (uint32)(current_yaw - wanted_yaw) - 64u >= 0xF81u;
-            else if (wanted_yaw > current_yaw)
-                move = (uint32)(wanted_yaw - current_yaw) - 64u >= 0xF81u;
+            UpdateAngularAcceleration(model.angles, motion.angular_velocity, motion.angular_acceleration, motion_target, 16);
+            model.angles.x = 0;
+            wanted_yaw = desired.y;
+            cur_yaw = model.angles.y;
+            yaw_delta = abs(wanted_yaw - cur_yaw);
+            move = yaw_delta < 64 || yaw_delta >= 4033;
             if (move)
-                BuildDirectionVector(motion.velocity.words, ai.parameters[0], desired.words);
+                motion.velocity.SetDir(ai.parameters[0], desired);
             else
             {
-                motion.velocity.words[2] = 0;
-                motion.velocity.words[1] = 0;
-                motion.velocity.words[0] = 0;
+                motion.velocity.z = 0;
+                motion.velocity.y = 0;
+                motion.velocity.x = 0;
             }
         }
     }
     else
     {
-        sound = this->move_sound;
+        sound = move_sound;
         if (sound)
         {
-            ::StopSoundVoices(sound);
-            this->move_sound = 0u;
+            StopSoundVoices(sound);
+            move_sound = 0;
         }
     }
-    if ((uint32)this->control.gravity_enabled)
-        AddVectors(motion.acceleration.words, world_gravity.vector.words);
+    if (control.gravity_enabled)
+        motion.acceleration.Add(world_gravity.vector);
     IntegrateMotion();
-    AddAngleVector(joints[0].angles.words, joints[0].velocity.words);
-    NormalizeAngles(joints[0].angles.words);
-    AddAngleVector(joints[0].velocity.words, joints[0].acceleration.words);
-    DampAngles(joints[0].velocity.words, motion.angular_drag);
-    SnapSmallAngles(joints[0].velocity.words);
-    GetModelJointAngles(1).rotation.words[1] = joints[0].angles.words[1];
-    GetModelJointAngles(2).rotation.words[0] = joints[0].angles.words[0];
-    value = GetModelJointAngles(2).rotation.words[0];
-    if (value - 129u < 0x77Fu)
-        GetModelJointAngles(2).rotation.words[0] = (uint16)(128u);
-    AddAngleVector(joints[1].angles.words, joints[1].velocity.words);
-    NormalizeAngles(joints[1].angles.words);
-    AddAngleVector(joints[1].velocity.words, joints[1].acceleration.words);
-    DampAngles(joints[1].velocity.words, motion.angular_drag);
-    SnapSmallAngles(joints[1].velocity.words);
-    GetModelJointAngles(3).rotation.words[1] = joints[1].angles.words[1];
+    joints[0].angles.AddAngles(joints[0].velocity);
+    joints[0].angles.NormalizeAngles();
+    joints[0].velocity.AddAngles(joints[0].acceleration);
+    joints[0].velocity.DampAngles(motion.angular_drag);
+    joints[0].velocity.SnapAngles();
+    GetModelJointAngles(1).rotation.y = joints[0].angles.y;
+    GetModelJointAngles(2).rotation.x = joints[0].angles.x;
+    val = (uint16)GetModelJointAngles(2).rotation.x;
+    if (val >= 129 && val < 2048)
+        GetModelJointAngles(2).rotation.x = 128;
+    joints[1].angles.AddAngles(joints[1].velocity);
+    joints[1].angles.NormalizeAngles();
+    joints[1].velocity.AddAngles(joints[1].acceleration);
+    joints[1].velocity.DampAngles(motion.angular_drag);
+    joints[1].velocity.SnapAngles();
+    GetModelJointAngles(3).rotation.y = joints[1].angles.y;
     UpdateWorldTransform();
-    BuildModelPose(*this);
-    if (GetBehaviorValue(0, 0) & 0xFFFFu)
+    BuildModelPose();
+    if (GetBehaviorVal(0, 0))
     {
-        this->fire_mask = (uint32)this->fire_mask | 1u;
-        count = GetBehaviorValue(0, 5);
-        if (count & 0xFFFFu)
-            SetBehaviorValue(0, 5, (count - 1u) & 0xFFFFu);
+        fire_mask |= 1;
+        count = GetBehaviorVal(0, 5);
+        if (count)
+            SetBehaviorVal(0, 5, count - 1);
         else
         {
             FireProjectile();
-            value = GetBehaviorValue(0, 3);
-            SetBehaviorValue(0, 5, value & 0xFFFFu);
+            val = GetBehaviorVal(0, 3);
+            SetBehaviorVal(0, 5, val);
         }
     }
     else
-        this->fire_mask = (uint32)this->fire_mask & 0xFEu;
-    mode = (GetBehaviorValue(1, 0) & 0xFFFFu) != 0u;
-    flags = (uint32)this->fire_mask;
-    this->fire_mask = mode ? flags | 2u : flags & 0xFDu;
-    FireBeam(mode);
-    value = GetBehaviorValue(2, 0) & 0xFFFFu;
-    if (!value)
-        return value;
-    count = GetBehaviorValue(2, 8);
-    if (count & 0xFFFFu)
-        value = (count - 1u) & 0xFFFFu;
+        fire_mask &= 0xFE;
+    fire = GetBehaviorVal(1, 0) != 0;
+    if (fire)
+        fire_mask |= 2;
+    else
+        fire_mask &= 0xFD;
+    FireBeam(fire);
+    val = GetBehaviorVal(2, 0);
+    if (!val)
+        return val;
+    count = GetBehaviorVal(2, 8);
+    if (count)
+        val = count - 1;
     else
     {
-        FireDebris();
-        value = GetBehaviorValue(2, 2) & 0xFFFFu;
+        SpawnItem();
+        val = GetBehaviorVal(2, 2);
     }
-    SetBehaviorValue(2, 8, value);
+    SetBehaviorVal(2, 8, val);
     return 0;
 }
 
-uint32 Tank::FireProjectile()
+void Tank::FireProjectile()
 {
-    uint32 yaw;
-    uint32 pitch;
-    Vector3 position;
+    Vector3 pos;
     GameHeapBlock *child;
-    uint32 value;
+    uint32 val;
     ShortVector3 angles;
     FUNCTION_MARKER(0x80056980, "SLUS_003.73");
-    yaw = this->model.angles.words[1];
-    yaw = (yaw + GetModelJointAngles(1).rotation.words[1]) & 0xFFFu;
-    pitch = joints[0].angles.words[0];
-    angles.words[0] = (uint16)pitch;
-    angles.words[1] = (uint16)yaw;
-    angles.words[2] = 0;
-    GetModelAttachment(position.words, *this, 2u);
+    angles.x = joints[0].angles.x;
+    angles.y = ((uint16)model.angles.y + (uint16)GetModelJointAngles(1).rotation.y) & 0xFFF;
+    angles.z = 0;
+    GetModelAttachment(pos, *this, 2);
     WeavingProjectile *projectile = 0;
     child = AllocateZeroedObject(440);
     if (child)
     {
-        projectile = new (child) WeavingProjectile(position.words, angles.components, 0, 4, 128, &visual_lists.players, zero_vector.words);
+        projectile = new (child) WeavingProjectile(pos, angles, 0, 4, 128, &visual_lists.players, zero_vector);
     }
-    value = GetBehaviorValue(0, 1);
-    value = ScaleDamageForDifficulty(value & 65535);
+    val = GetBehaviorVal(0, 1);
+    val = ScaleDamageForDifficulty(val);
     if (!projectile)
     {
-        GameDiagnostic("Tank projectile allocation failed\n");
+        GameDiagnostic(("Tank projectile allocation failed\n"));
         abort();
     }
-    projectile->SetDamage(value);
+    projectile->SetDamage(val);
     projectile->SetBlastRadius(512);
-    return 512;
 }
 
-void Tank::FireBeam(uint32 fire)
+void Tank::FireBeam(bool fire)
 {
-    uint32 yaw, joint_yaw, pitch;
-    Vector3 position;
+    Vector3 pos;
     ShortVector3 angles;
     FUNCTION_MARKER(0x80056A6C, "SLUS_003.73");
     if (!weapon)
         return;
-    yaw = this->model.angles.words[1];
-    joint_yaw = GetModelJointAngles(3).rotation.words[1];
-    pitch = joints[1].angles.words[0];
-    angles.words[0] = (uint16)pitch;
-    angles.words[2] = 0;
-    angles.words[1] = (uint16)((yaw + joint_yaw) & 0xFFFu);
-    GetModelAttachment(position.words, *this, 3u);
+    angles.x = joints[1].angles.x;
+    angles.z = 0;
+    angles.y = ((uint16)model.angles.y + (uint16)GetModelJointAngles(3).rotation.y) & 0xFFF;
+    GetModelAttachment(pos, *this, 3);
     if (fire)
-        weapon->Fire(position.words, angles.components);
+        weapon->Fire(pos, angles);
     else
-        weapon->Update(0, 0);
+        weapon->Update(0);
 }
 
-uint32 Tank::FireDebris()
+void Tank::SpawnItem()
 {
     ObjectBorrow object_borrow;
     GameHeapBlock *child;
-    uint32 damage;
-    uint32 arm_radius;
-    uint32 blast_radius;
-    uint32 fuse_ticks;
-    uint32 life_ticks;
-    uint32 hover_height;
+    uint16 damage;
+    uint16 arm_radius;
+    uint16 blast_radius;
+    uint16 fuse_ticks;
+    uint16 life_ticks;
+    uint16 hover_height;
     FUNCTION_MARKER(0x80056B48, "SLUS_003.73");
     Items *item = 0;
     child = AllocateZeroedObject(328);
     if (child)
     {
-        damage = GetBehaviorValue(2, 1) & 65535;
-        arm_radius = GetBehaviorValue(2, 3) & 65535;
-        blast_radius = GetBehaviorValue(2, 6) & 65535;
-        fuse_ticks = GetBehaviorValue(2, 4) & 65535;
-        life_ticks = GetBehaviorValue(2, 5) & 65535;
-        hover_height = GetBehaviorValue(2, 7) & 65535;
-        item = new (child) Items(model.pos.words, damage, arm_radius, blast_radius, fuse_ticks, life_ticks, hover_height);
+        damage = GetBehaviorVal(2, 1);
+        arm_radius = GetBehaviorVal(2, 3);
+        blast_radius = GetBehaviorVal(2, 6);
+        fuse_ticks = GetBehaviorVal(2, 4);
+        life_ticks = GetBehaviorVal(2, 5);
+        hover_height = GetBehaviorVal(2, 7);
+        item = new (child) Items(&model.pos, damage, arm_radius, blast_radius, fuse_ticks, life_ticks, hover_height);
     }
     if (!item)
     {
-        GameDiagnostic("Tank debris allocation failed\n");
+        GameDiagnostic(("Tank debris allocation failed\n"));
         abort();
     }
-    item->motion.velocity.words[1] = 0xFFF80000;
-    return 0xFFF80000;
+    item->motion.velocity.y = -524288;
 }
 
-uint32 Tank::Damage(uint32 damage, const sint32 *, uint32)
+uint32 Tank::Damage(uint32 damage, const Vector3 *, uint32)
 {
-    uint32 remaining, flags, state;
+    uint32 state;
     ModelInstance *hero;
-    sint32 health;
+    sint16 health;
     FUNCTION_MARKER(0x80056C50, "SLUS_003.73");
-    this->control.damage_phase = (uint32)this->control.damage_phase + 1;
+    ++control.damage_phase;
     health = this->health;
-    remaining = (uint16)this->health - damage;
     if (health <= 0)
         return 1;
-    this->health = (sint16)(uint16)(remaining);
-    if ((sint32)(remaining << 16) > 0)
+    this->health = health - damage;
+    if (this->health > 0)
         SetColor(3, 255, 255, 255);
     else
     {
         hero = visual_lists.players;
         if (hero)
-            TryPlayPlayerKillQuote(hero->pos.words);
-        flags = this->lifecycle_flags;
-        state = this->control.flags;
-        this->lifecycle_flags = flags & 0xFFEF;
+            static_cast<Player *>(hero->owner)->TryPlayKillQuote();
+        state = control.flags;
+        lifecycle_flags &= 0xFFEF;
         if (state & 32)
         {
-            ClearTrackedObjectHealth();
-            state = this->control.flags;
-            this->control.flags = state & 0xFFFFFFDF;
+            VisualObject::ClearTrackedHealth();
+            control.flags &= 0xFFFFFFDF;
         }
-        this->control.script_active = 0;
+        control.script_active = 0;
         ai.state = 10;
         ai.phase = 0;
     }
@@ -474,22 +437,22 @@ uint32 Tank::Damage(uint32 damage, const sint32 *, uint32)
 
 void Tank::ClearVelocity()
 {
-    motion.velocity.words[2] = 0;
-    motion.velocity.words[1] = 0;
-    motion.velocity.words[0] = 0;
+    motion.velocity.z = 0;
+    motion.velocity.y = 0;
+    motion.velocity.x = 0;
 }
 
 void Tank::ClearAngularVelocity()
 {
-    motion.angular_velocity.words[2] = 0;
-    motion.angular_velocity.words[1] = 0;
-    motion.angular_velocity.words[0] = 0;
-    motion.angular_acceleration.words[2] = 0;
-    motion.angular_acceleration.words[1] = 0;
-    motion.angular_acceleration.words[0] = 0;
+    motion.angular_velocity.z = 0;
+    motion.angular_velocity.y = 0;
+    motion.angular_velocity.x = 0;
+    motion.angular_acceleration.z = 0;
+    motion.angular_acceleration.y = 0;
+    motion.angular_acceleration.x = 0;
 }
 
-void Tank::SetState(uint32 state)
+void Tank::SetState(uint16 state)
 {
     ai.state = state;
     ai.phase = 0;
@@ -497,190 +460,187 @@ void Tank::SetState(uint32 state)
 
 void Tank::UpdateState()
 {
-    uint32 state, step, flags, value, ground, height, x, z, sound;
+    uint16 state, step, random;
+    sint16 offset;
+    uint32 flags, val, ground, height, sound;
     ModelInstance *hero;
     GameHeapBlock *child;
-    Vector3 position, acceleration;
-    uint32 scale;
+    Vector3 pos, velocity;
+    uint16 scale;
     ShortVector3 angles;
     FUNCTION_MARKER(0x80056D1C, "SLUS_003.73");
-    /* The selected parent 563B4 discards this register-carried return */
+    // Update discards the original register-carried return
     state = ai.state;
-    if (state > 10u || (state >= 7u && state <= 9u))
+    if (state > 10 || (state >= 7 && state <= 9))
         return;
     step = ai.phase;
     switch (state)
     {
         case 0:
-            if (step == 0u)
+            if (step == 0)
             {
                 hero = visual_lists.players;
                 if (hero)
                 {
-                    z = hero->pos.words[2];
-                    value = this->model.pos.words[2];
-                    x = hero->pos.words[0];
-                    height = this->model.pos.words[0];
-                    value = (uint32)ratan2((sint32)(z - value), (sint32)(x - height));
-                    this->model.angles.words[1] = 3072u - value;
+                    model.angles.y = 3072 - ratan2((sint32)((uint32)hero->pos.z - model.pos.z), (sint32)((uint32)hero->pos.x - model.pos.x));
                 }
-                ground = FindGroundHeight(model.pos.words, 0, 4096);
+                ground = CollisionRay::FindGroundHeight(model.pos, 0, 4096);
                 if (ground == 0xFFFFFFFF)
                 {
                     Finish();
                     return;
                 }
-                value = this->model.pos.words[1];
-                height = (uint32)(sint32)(sint16)(uint32)this->ground_offset;
-                if ((sint32)(ground - value) >> 12 < (sint32)(height << 1))
+                val = (uint32)model.pos.y;
+                offset = ground_offset;
+                if (((sint32)(ground - val) >> 12) < offset * 2)
                 {
-                    this->model.pos.words[1] = ground - (height << 12);
+                    model.pos.y = ground - offset * ONE;
                     ai.state = 1;
-                    this->control.gravity_enabled = 0;
+                    control.gravity_enabled = 0;
                     ClearVelocity();
                 }
                 else
                 {
-                    ai.work[0] = (uint32)((sint32)ground >> 13);
-                    flags = this->lifecycle_flags;
+                    ai.work[0] = (sint32)ground >> 13;
+                    flags = lifecycle_flags;
                     ai.phase = 1;
-                    this->control.gravity_enabled = 1;
-                    this->lifecycle_flags = flags & 0xFFEFu;
+                    control.gravity_enabled = 1;
+                    lifecycle_flags = flags & 0xFFEF;
                 }
             }
-            else if (step == 1u)
+            else if (step == 1)
             {
-                flags = this->control.flags;
-                if (flags & 2u)
+                flags = control.flags;
+                if (flags & 2)
                 {
-                    if (!(this->contact_flags & 2u))
+                    if (!(contact_flags & 2))
                         return;
                     static_cast<Camera *>(visual_lists.cameras->owner)->ApplyExplosionShake(2);
-                    PlayPositionedSound(1, model.pos.words, 0);
-                    this->control.gravity_enabled = 0;
+                    PlayPositionedSound(1, &model.pos, 0);
+                    control.gravity_enabled = 0;
                     ai.phase = 2;
                 }
                 else
                 {
-                    ground = (uint32)(sint32)(sint16)ai.work[0] << 13;
-                    height = (uint32)(sint32)(sint16)(uint32)this->ground_offset << 12;
-                    value = this->model.pos.words[1];
-                    if ((sint32)ground >= (sint32)(value + height))
+                    ground = (sint16)ai.work[0] * (1 << 13);
+                    height = ground_offset * ONE;
+                    val = (uint32)model.pos.y;
+                    if ((sint32)ground >= (sint32)(val + height))
                         return;
                     static_cast<Camera *>(visual_lists.cameras->owner)->ApplyExplosionShake(2);
-                    PlayPositionedSound(1, model.pos.words, 0);
-                    height = (uint32)(sint32)(sint16)(uint32)this->ground_offset << 12;
-                    this->control.gravity_enabled = 0;
-                    this->model.pos.words[1] = ground - height;
+                    PlayPositionedSound(1, &model.pos, 0);
+                    height = ground_offset * ONE;
+                    control.gravity_enabled = 0;
+                    model.pos.y = ground - height;
                     ClearVelocity();
                     ai.phase = 2;
                 }
             }
-            else if (step == 2u && this->playback.complete)
+            else if (step == 2 && playback.complete)
             {
-                flags = this->lifecycle_flags;
-                SetState(1u);
-                this->lifecycle_flags = flags | 16u;
+                flags = lifecycle_flags;
+                SetState(1);
+                lifecycle_flags = flags | 16;
             }
             return;
         case 1:
             if (!step)
             {
-                this->control.gravity_enabled = 0;
+                control.gravity_enabled = 0;
                 ClearVelocity();
                 ClearAngularVelocity();
-                value = RandomRange(4);
-                SetState(value + 2u);
+                random = RandomRange(4);
+                SetState(random + 2);
             }
             return;
         case 2:
             if (step)
                 return;
             ClearTarget();
-            value = player_distance;
-            if (value - 1025u < 2047u)
+            val = player_distance;
+            if (val - 1025 < 2047)
             {
                 if (visual_lists.players)
                 {
-                    SetBehaviorValue(0, 0, 1);
+                    SetBehaviorVal(0, 0, 1);
                     hero = visual_lists.players;
                     SetTargetObject(visual_lists.players);
                 }
             }
             else
-                SetBehaviorValue(0, 0, 0);
-            if (player_distance < 2048u)
+                SetBehaviorVal(0, 0, 0);
+            if (player_distance < 2048)
             {
                 if (visual_lists.players)
                 {
-                    SetBehaviorValue(1, 0, 1);
+                    SetBehaviorVal(1, 0, 1);
                     hero = visual_lists.players;
                     SetTargetObject(visual_lists.players);
                 }
             }
             else
-                SetBehaviorValue(1, 0, 0);
-            SetState(1u);
+                SetBehaviorVal(1, 0, 0);
+            SetState(1);
             return;
         case 3:
         case 5:
             if (!step)
             {
-                if (state == 3u)
+                if (state == 3)
                 {
-                    height = (uint32)this->control.height_limit;
+                    height = control.height_limit;
                     hero = visual_lists.players;
-                    value = ChoosePosition(this->destination.words, visual_lists.players->pos.words, 128u, 192u, height, 1024u, 1u, 1u);
+                    val = ChoosePos(&dst, &visual_lists.players->pos, 128, 192, height, 1024, 1, 1);
                 }
                 else
                 {
-                    height = (uint32)this->control.height_limit;
-                    value = ChoosePosition(this->destination.words, model.pos.words, 1024u, 2048u, height, 4096u, 1u, 1u);
+                    height = control.height_limit;
+                    val = ChoosePos(&dst, &model.pos, 1024, 2048, height, 4096, 1, 1);
                 }
-                if (value)
+                if (val)
                 {
-                    SetDestination(this->destination.words);
+                    SetDst(&dst);
                     ai.phase = 1;
                 }
                 else
-                    SetState(1u);
+                    SetState(1);
             }
-            else if (step == 1u)
+            else if (step == 1)
             {
-                if (!(this->control.flags & 1u))
+                if (!(control.flags & 1))
                     SetState(step);
-                else if (state == 3u && visual_lists.players && player_distance < 1024u)
-                    SetState(2u);
+                else if (state == 3 && visual_lists.players && player_distance < 1024)
+                    SetState(2);
             }
             return;
         case 4:
             if (!step)
             {
-                this->control.script_delay = 32;
-                SetState(1u);
+                control.script_delay = 32;
+                SetState(1);
             }
             return;
         case 6:
             if (step)
                 return;
-            flags = this->control.flags;
+            flags = control.flags;
             hero = visual_lists.players;
-            this->control.flags = flags & 0xFFFFFFFE;
+            control.flags = flags & 0xFFFFFFFE;
             ClearAngularVelocity();
             SetTargetObject(visual_lists.players);
-            motion.velocity.words[2] = 0;
-            motion.velocity.words[1] = 0;
-            value = player_distance;
-            motion.velocity.words[0] = 0;
-            if (value < 2049u)
+            motion.velocity.z = 0;
+            motion.velocity.y = 0;
+            val = player_distance;
+            motion.velocity.x = 0;
+            if (val < 2049)
             {
-                SetBehaviorValue(1, 0, 1);
-                SetBehaviorValue(0, 0, 0);
+                SetBehaviorVal(1, 0, 1);
+                SetBehaviorVal(0, 0, 0);
             }
             else
             {
-                SetBehaviorValue(0, 0, 1);
-                SetBehaviorValue(1, 0, 0);
+                SetBehaviorVal(0, 0, 1);
+                SetBehaviorVal(1, 0, 0);
             }
             return;
         case 10:
@@ -688,87 +648,81 @@ void Tank::UpdateState()
             {
                 ai.work[0] = 96;
                 ClearVelocity();
-                motion.angular_velocity.words[2] = 0;
-                motion.angular_velocity.words[1] = 0;
-                motion.angular_velocity.words[0] = 0;
-                motion.angular_acceleration.words[2] = 0;
-                motion.angular_acceleration.words[1] = 0;
-                flags = this->control.flags;
-                motion.angular_acceleration.words[0] = 0;
-                this->control.flags = flags & 0xFFFFFFFE;
-                SetBehaviorValue(0, 0, 0);
-                SetBehaviorValue(1, 0, 0);
-                SetBehaviorValue(2, 0, 0);
-                step = ai.phase;
-                ai.phase = step + 1u;
+                motion.angular_velocity.z = 0;
+                motion.angular_velocity.y = 0;
+                motion.angular_velocity.x = 0;
+                motion.angular_acceleration.z = 0;
+                motion.angular_acceleration.y = 0;
+                flags = control.flags;
+                motion.angular_acceleration.x = 0;
+                control.flags = flags & 0xFFFFFFFE;
+                SetBehaviorVal(0, 0, 0);
+                SetBehaviorVal(1, 0, 0);
+                SetBehaviorVal(2, 0, 0);
+                ++ai.phase;
             }
-            else if (step == 1u)
+            else if (step == 1)
             {
                 if (!RandomRange(4) && !IsGameHeapUnderPressure())
                 {
-                    scale = (sint16)this->model.scale.words[0] == 2048 ? 370u : 768u;
-                    value = RandomRange(1024);
-                    angles.words[0] = (uint16)(0u - value);
-                    angles.words[1] = (uint16)RandomRange(4096);
-                    angles.words[2] = 0;
-                    BuildDirectionVector(position.words, scale, angles.words);
-                    AddVectors(position.words, model.pos.words);
-                    value = RandomRange(60);
-                    SpawnFireCycle(position.words, value + 60u, 0u, 2u);
+                    scale = model.scale.x == 2048 ? 370 : 768;
+                    random = RandomRange(1024);
+                    angles.x = -random;
+                    angles.y = RandomRange(4096);
+                    angles.z = 0;
+                    pos.SetDir(scale, angles);
+                    pos.Add(model.pos);
+                    val = RandomRange(60);
+                    FireCycle::Spawn(&pos, val + 60, 0, 2);
                     sound = RandomRange(2);
-                    PlayPositionedSound(sound + 1, model.pos.words, 0);
+                    PlayPositionedSound(sound + 1, &model.pos, 0);
                 }
-                value = (uint32)(sint32)(sint16)ai.work[0] - 1u;
-                ai.work[0] = value;
-                if (!(value << 16))
-                {
-                    step = ai.phase;
-                    ai.phase = step + 1u;
-                }
+                --ai.work[0];
+                if (!ai.work[0])
+                    ++ai.phase;
             }
-            else if (step == 2u)
+            else if (step == 2)
             {
-                SpawnExplosionRing(model.pos.words, 800, 240, 160, 40, 5, 0, 100);
-                child = AllocateEffectStorage(120);
+                RingBurstEffect::SpawnExplosion(&model.pos, 800, 240, 160, 40, 5, 0, 100);
+                child = EffectObject::AllocateStorage(120);
                 if (child)
                 {
-                    acceleration = zero_vector;
-                    ImpactRing *ring = new (child) ImpactRing(acceleration.words);
-                    ring->SetGeometry(model.pos.words, 0, 0);
+                    velocity = zero_vector;
+                    ImpactRing *ring = new (child) ImpactRing(velocity);
+                    ring->SetGeometry(&model.pos, 0, 0);
                     ring->lifetime = 32;
                     ring->radius_step = 32;
                     ring->width_step = 16;
                 }
-                position.words[0] = 0;
-                position.words[1] = 0xFFFEC000;
-                position.words[2] = 0;
-                child = AllocateEffectStorage(120);
+                pos.x = 0;
+                pos.y = 0xFFFEC000;
+                pos.z = 0;
+                child = EffectObject::AllocateStorage(120);
                 if (child)
                 {
-                    ImpactRing *ring = new (child) ImpactRing(position.words);
-                    ring->SetGeometry(model.pos.words, 0, 0);
+                    ImpactRing *ring = new (child) ImpactRing(pos);
+                    ring->SetGeometry(&model.pos, 0, 0);
                     ring->lifetime = 32;
                     ring->radius_step = 32;
                     ring->width_step = 16;
                 }
                 if (ai.script_data)
                 {
-                    flags = this->lifecycle_flags;
-                    this->collision_radius = 0u;
-                    this->lifecycle_flags = flags & 0xFFEFu;
+                    flags = lifecycle_flags;
+                    col_radius = 0;
+                    lifecycle_flags = flags & 0xFFEF;
                     ReleaseResources();
-                    ActivateLinkedRecords();
-                    step = ai.phase;
-                    ai.phase = step + 1u;
-                    SetModelBank(GetRecordModelBankName());
-                    value = ai.script_data;
-                    height = GetRecordModelBankSlot();
-                    value = ::FindModelResourceIndex(value, height);
-                    flags = this->model.flags;
-                    this->model.model_idx = value;
-                    this->model.animation = 0u;
-                    this->model.frame = 0u;
-                    this->model.flags = flags & 0xFFF9u;
+                    ActivateLinkedRecs();
+                    ++ai.phase;
+                    SetModelBank(GetRecModelBankName());
+                    val = ai.script_data;
+                    height = GetRecModelBankSlot();
+                    val = ModelBank::FindResourceIdx(val, height);
+                    flags = model.flags;
+                    model.model_idx = val;
+                    model.animation = 0;
+                    model.frame = 0;
+                    model.flags = flags & 0xFFF9;
                 }
                 else
                     FragmentAndFinish();
@@ -777,162 +731,152 @@ void Tank::UpdateState()
     }
 }
 
-uint32 Tank::SetMode(uint32 mode)
+uint32 Tank::SetMode(uint16 mode)
 {
     uint32 flags, result;
     FUNCTION_MARKER(0x800576B0, "SLUS_003.73");
-    mode &= 0xFFFFu;
-    this->control.variant = mode;
-    if (mode != 0u && mode != 1u && mode != 16u)
+    control.variant = mode;
+    if (mode != 0 && mode != 1 && mode != 16)
         return 16;
     SetModelBank("tank");
-    this->ground_offset = 0u;
-    this->health = (sint16)(uint16)(mode == 0u ? 320u : (mode == 1u ? 400u : 1000u));
-    SetModelBoneTable(this->model.bank, TankAttachments);
+    ground_offset = 0;
+    health = mode == 0 ? 320 : (mode == 1 ? 400 : 1000);
+    this->model.SetAttachmentTable(TankAttachments);
     InitializeModelAnimation(TankHierarchy);
-    if (mode == 0u)
+    if (mode == 0)
     {
         flags = this->model.flags;
-        this->model.scale.words[0] = 2048;
-        this->model.flags = flags | 0x200u;
-        this->model.scale.words[1] = 2048;
-        this->model.scale.words[2] = 2048;
+        this->model.scale.x = 2048;
+        this->model.flags = flags | 0x200;
+        this->model.scale.y = 2048;
+        this->model.scale.z = 2048;
         ai.parameters[0] = 32;
-        result = 64u;
+        result = 64;
     }
     else
     {
         ai.parameters[0] = 16;
-        result = 128u;
+        result = 128;
     }
     ai.parameters[1] = result;
     ai.parameters[2] = result;
-    if (mode == 16u)
+    if (mode == 16)
     {
-        ::TrackObjectHealth(*this, 64u, 32u, 2048u);
-        flags = this->control.flags;
+        TrackHealth(64, 32, 2048);
+        flags = control.flags;
         camera_subject.SetObject(&model);
-        result = flags | 32u;
-        this->control.flags = result;
+        result = flags | 32;
+        control.flags = result;
     }
     return result;
 }
 
-uint32 Tank::ExecuteCommand(uint32 command)
+uint32 Tank::ExecuteCommand(uint16 command)
 {
-    RecordDataBorrow record_borrow;
-    uint32 value, shift;
-    Vector3 position;
+    RecordDataBorrow rec_borrow;
+    uint16 val;
+    Vector3 pos;
     RecordCursor cursor;
     FUNCTION_MARKER(0x80057840, "SLUS_003.73");
-    command &= 0xFFFFu;
     switch (command)
     {
         case 0x4206:
             cursor = script_cursor;
-            value = cursor.Read16();
-            script_cursor = cursor + 2u;
-            SetMode(value);
+            val = cursor.Read16();
+            script_cursor = cursor + 2;
+            SetMode(val);
             return 1;
         case 0x4406:
             cursor = script_cursor;
-            value = cursor.Read16();
-            script_cursor = cursor + 2u;
-            if (value)
+            val = cursor.Read16();
+            script_cursor = cursor + 2;
+            if (val)
                 SetTargetObject(visual_lists.players);
             else
                 ClearTarget();
             return 1;
         case 0x4407:
             cursor = script_cursor;
-            value = cursor.Read16();
-            script_cursor = cursor + 2u;
-            if (!value)
+            val = cursor.Read16();
+            script_cursor = cursor + 2;
+            if (!val)
             {
                 ClearTarget();
                 return 1;
             }
-            if (value & 0x2000u)
+            if (val & 0x2000)
             {
-                value = ResolveParameter(value);
+                val = ResolveParameter(val);
             }
-            SetTargetRecord(value & 0xFFFFu);
+            SetTargetRec(val);
             return 1;
         case 0x4220:
         case 0x4222:
-            cursor = AlignScriptCursor(script_cursor);
-            position.words[0] = cursor.Read32();
-            position.words[1] = (cursor + 4u).Read32();
-            position.words[2] = (cursor + 8u).Read32();
-            shift = 12;
-            ShiftVectorLeft(position.words, shift);
-            if (command == 0x4222u)
-                AddVectors(position.words, this->model.pos.words);
-            script_cursor = cursor + 12u;
-            SetDestination(position.words);
+            cursor = script_cursor.Aligned(4);
+            pos.x = cursor.Read32();
+            pos.y = (cursor + 4).Read32();
+            pos.z = (cursor + 8).Read32();
+            pos.ShiftLeft(12);
+            if (command == 0x4222)
+                pos.Add(model.pos);
+            script_cursor = cursor + 12;
+            SetDst(&pos);
             return 1;
         case 0x4221:
             cursor = script_cursor;
-            value = cursor.Read16();
-            script_cursor = cursor + 2u;
-            if (value & 0x2000u)
+            val = cursor.Read16();
+            script_cursor = cursor + 2;
+            if (val & 0x2000)
             {
-                value = ResolveParameter(value);
+                val = ResolveParameter(val);
             }
-            ReadRecordPosition(position.words, value & 0xFFFF);
-            SetDestination(position.words);
+            ReadRecPos(&pos, val);
+            SetDst(&pos);
             return 1;
         case 0x4262:
             cursor = script_cursor;
-            script_cursor = cursor + 2u;
+            script_cursor = cursor + 2;
             return 1;
         default:
             return Enemy::ExecuteCommand(command);
     }
 }
 
-uint32 Tank::SetDestination(const uint32 *position)
+uint32 Tank::SetDst(const Vector3 *pos)
 {
     FUNCTION_MARKER(0x80057AE0, "SLUS_003.73");
-    const uint32 x = position[0];
-    const uint32 y = position[1];
-    const uint32 z = position[2];
-    destination.words[0] = x;
-    destination.words[1] = y;
-    destination.words[2] = z;
+    dst = *pos;
     control.flags |= 1;
     return control.flags;
 }
 
-uint32 Tank::Aim(uint32 enabled)
+void Tank::Aim(uint8 enabled)
 {
     FUNCTION_MARKER(0x80057B48, "SLUS_003.73");
-    uint32 result = 0;
     for (uint32 axis = 0; axis < 2; ++axis)
     {
         Vector3 origin;
         ShortVector3 desired = {0};
-        GetModelAttachment(origin.words, *this, axis);
+        GetModelAttachment(origin, *this, axis);
         if (enabled & (1 << axis))
         {
-            CalculateDirectionAngles(desired.words, origin.words, aim_pos.words);
-            desired.words[1] = (desired.words[1] - model.angles.words[1]) & 4095;
+            desired.SetDir(origin, aim_pos);
+            desired.y = ((uint16)desired.y - (uint16)model.angles.y) & 4095;
         }
         AngleMotion *joint = joints + axis;
-        uint32 scale = ai.parameters[1 + axis];
-        result = UpdateAngleAcceleration(joint->angles, joint->velocity, joint->acceleration, desired, scale);
+        uint16 scale = ai.parameters[1 + axis];
+        UpdateAngularAcceleration(joint->angles, joint->velocity, joint->acceleration, desired, scale);
     }
-    return result;
 }
 
-uint32 Tank::SetTargetRecord(uint32 index)
+uint32 Tank::SetTargetRec(uint16 idx)
 {
-    RecordDataBorrow record_borrow;
+    RecordDataBorrow rec_borrow;
     uint32 flags;
     FUNCTION_MARKER(0x80057CCC, "SLUS_003.73");
-    ReadRecordPosition(this->aim_pos.words, index & 0xFFFFu);
-    flags = this->control.flags | 4u;
-    this->control.flags = flags;
+    ReadRecPos(&aim_pos, idx);
+    flags = control.flags | 4;
+    control.flags = flags;
     return flags;
 }
 
@@ -952,70 +896,59 @@ uint32 Tank::ClearTarget()
 {
     uint32 flags;
     FUNCTION_MARKER(0x80057D84, "SLUS_003.73");
-    flags = this->control.flags & 0xFFFFFFE3;
-    this->control.flags = flags;
+    flags = control.flags & 0xFFFFFFE3;
+    control.flags = flags;
     return flags;
 }
 
 uint32 Tank::FragmentAndFinish()
 {
-    uint32 trig_angle;
+    uint16 trig_angle;
     ObjectBorrow object_borrow;
     ModelInstance *camera;
-    uint32 angle;
-    uint32 index;
-    uint32 random;
+    uint16 angle;
+    uint32 idx;
+    uint16 random;
     uint32 divisor;
     GameHeapBlock *child;
-    uint32 kind;
+    uint8 model_idx;
     uint32 height;
-    Vector3 position, velocity;
+    Vector3 pos, velocity;
     FUNCTION_MARKER(0x80057D98, "SLUS_003.73");
     angle = RandomRange(1024);
-    for (index = 0; index < 12u; ++index)
+    for (idx = 0; idx < 12; ++idx)
     {
         camera = visual_lists.cameras;
         if (camera && !RandomRange(8))
         {
             camera = visual_lists.cameras;
-            position.words[0] = camera->pos.words[0];
-            position.words[1] = camera->pos.words[1];
-            position.words[2] = camera->pos.words[2];
-            position.words[1] += 0x80000u;
-            divisor = MeasurePositionDistance(model.pos.words, position.words) >> 7;
-            velocity.words[0] = TraceDivide(position.words[0] - this->model.pos.words[0], divisor);
-            velocity.words[2] = TraceDivide(position.words[2] - this->model.pos.words[2], divisor);
-            velocity.words[1] = TraceDivide(position.words[1] - this->model.pos.words[1], divisor) - (divisor << 13);
+            pos = camera->pos;
+            pos.y = (uint32)pos.y + (0x80000);
+            divisor = model.pos.Distance(pos) >> 7;
+            velocity.x = DivideSignedWord((uint32)pos.x - model.pos.x, divisor);
+            velocity.z = DivideSignedWord((uint32)pos.z - model.pos.z, divisor);
+            velocity.y = DivideSignedWord((uint32)pos.y - model.pos.y, divisor) - (divisor << 13);
         }
         else
         {
             random = RandomRange(16);
-            trig_angle = angle & 0xFFFu;
-            velocity.words[0] = (uint32)rsin(trig_angle) * (random + 24u);
+            trig_angle = angle & 0xFFF;
+            velocity.x = rsin(trig_angle) * (random + 24);
             random = RandomRange(32);
-            velocity.words[1] = (0u - 48u - random) << 12;
+            velocity.y = -(48 + random) * ONE;
             random = RandomRange(16);
-            velocity.words[2] = (uint32)rcos(trig_angle) * (random + 24u);
+            velocity.z = rcos(trig_angle) * (random + 24);
         }
         child = AllocateZeroedObject(320);
         if (child)
         {
-            random = RandomRange((uint32)this->debris_count);
-            kind = (uint32)this->debris_first;
-            height = (uint32)(sint32)(sint16)(uint32)this->ground_offset << 12;
-            height += this->model.pos.words[1];
-            new (child) Debris(model.pos.words, velocity.words, (kind + random) & 65535, height, 5, 36, GetRecordModelBankName());
+            random = RandomRange(debris_count);
+            model_idx = debris_first;
+            height = ground_offset * ONE;
+            height += (uint32)model.pos.y;
+            new (child) Debris(&model.pos, &velocity, model_idx + random, height, 5, 36, GetRecModelBankName());
         }
-        angle += 682u;
+        angle += 682;
     }
     return Finish();
-}
-
-uint32 Tank::TraceDivide(uint32 numerator, uint32 denominator)
-{
-    if (!denominator)
-        return (sint32)numerator < 0 ? 1u : 0xFFFFFFFF;
-    if (numerator == 0x80000000 && denominator == 0xFFFFFFFF)
-        return numerator;
-    return (uint32)((sint32)numerator / (sint32)denominator);
 }

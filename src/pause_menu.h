@@ -40,7 +40,7 @@ struct MenuRuntime
     uint32 shake_amplitude;
     uint32 shake_phase;
     uint32 navigation_ticks;
-    uint32 voice_previewed;
+    bool voice_previewed;
     MenuWindow *confirm;
     MenuWindow *save;
     uint32 card_poll_delay;
@@ -49,15 +49,15 @@ struct MenuRuntime
     uint32 screen;
     MenuWindow *pause;
     MenuWindow *restart;
-    uint32 exit_hold;
+    bool exit_hold;
     uint32 exit_frame;
     uint32 operation_delay;
-    uint32 retries_left;
-    uint32 retained_fire_buffers;
+    sint32 retries_left;
+    bool retained_fire_buffers;
 };
 
 extern MenuRuntime menu_runtime;
 void ResetMenuRuntime();
-void UpdatePauseMenu(void);
+void UpdatePauseMenu();
 
 #endif

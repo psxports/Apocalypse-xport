@@ -19,12 +19,12 @@ struct CheatOptions
     uint32 level_skip;
     uint32 debug_panel;
     uint32 suspend_resource_loading;
-    uint32 war_record_spawn;
+    uint32 war_rec_spawn;
     uint32 build_date;
 };
 
 CheatOptions &GetCheatOptions();
 void ClearCheatInputBuffer();
-uint32 UpdateCheatInput();
+bool UpdateCheatInput();
 
 #endif

@@ -1,18 +1,13 @@
 #ifndef MODEL_ANIMATION_DATA_H
 #define MODEL_ANIMATION_DATA_H
 
+#include "model_pose.h"
 #include "vector3.h"
 
 extern "C"
 {
 #include "psx.h"
 }
-
-struct ModelPose
-{
-    ShortVector3 rotation[3];
-    ShortVector3 translation;
-};
 
 struct ModelJointAngles
 {
@@ -37,7 +32,7 @@ struct ModelAnimationSet
 
 void ReleaseModelAnimations(ModelAnimationSet &set);
 void LoadModelAnimations(ModelAnimationSet &set, const uint8 *data, uint32 bytes, uint32 bones);
-const ModelAnimation &GetModelAnimation(const ModelAnimationSet &set, uint32 index);
+const ModelAnimation &GetModelAnimation(const ModelAnimationSet &set, uint32 idx);
 const ModelPose *GetModelAnimationPoses(const ModelAnimation &animation, uint32 first, uint32 count);
 void ResetModelPoseWorkspace();
 ModelPose *GetModelPoseWorkspace(uint32 count);

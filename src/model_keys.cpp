@@ -1,7 +1,9 @@
+#include <string.h>
 #include <stdlib.h>
 
 #include "game_diagnostics.h"
 #include "model_keys.h"
+#include "resource_file_layouts.h"
 
 void ReleaseModelKeys(ModelKeys &keys)
 {
@@ -16,14 +18,15 @@ bool DecodeModelFileLayout(ModelFileLayout &layout, const uint8 *data, uint32 by
     if (!data || bytes < 16)
         return false;
     ModelFileLayout decoded;
-    decoded.scene_count = xport_load_le32(data + 8);
+    const ModelFileHeader &header = *(const ModelFileHeader *)data;
+    decoded.scene_count = header.scene_count;
     if (decoded.scene_count > (bytes - 16) / 36)
         return false;
     decoded.model_table_offset = 16 + decoded.scene_count * 36;
-    decoded.model_count = xport_load_le32(data + decoded.model_table_offset - 4);
+    decoded.model_count = ((const uint32 *)data)[decoded.model_table_offset / 4 - 1];
     if (decoded.model_count > (bytes - decoded.model_table_offset) / 4)
         return false;
-    decoded.blocks_offset = xport_load_le32(data + 4);
+    decoded.blocks_offset = header.blocks_offset;
     uint32 offset = decoded.blocks_offset;
     if (offset < decoded.model_table_offset + decoded.model_count * 4 || offset > bytes)
         return false;
@@ -31,14 +34,15 @@ bool DecodeModelFileLayout(ModelFileLayout &layout, const uint8 *data, uint32 by
     {
         if (bytes - offset < 4)
             return false;
-        if (xport_load_le32(data + offset) == 0xFFFFFFFF)
+        if (*(const uint32 *)(data + offset) == 0xFFFFFFFF)
         {
             offset += 4;
             break;
         }
         if (bytes - offset < 8)
             return false;
-        const uint32 size = xport_load_le32(data + offset + 4);
+        const ResourceBlockFile &block = *(const ResourceBlockFile *)(data + offset);
+        const uint32 size = block.bytes;
         if (size > bytes - offset - 8)
             return false;
         offset += 8 + size;
@@ -56,11 +60,11 @@ static bool DecodeModelKeys(ModelKeys &keys, ModelFileLayout &layout, const uint
     if (!DecodeModelFileLayout(decoded, data, bytes))
         return false;
     const uint32 count = decoded.model_count;
-    uint32 *values = count ? (uint32 *)malloc(count * sizeof(uint32)) : 0;
+    uint32 *values = count ? (uint32 *)malloc(count * sizeof(*values)) : 0;
     if (count && !values)
         return false;
-    for (uint32 i = 0; i < count; ++i)
-        values[i] = xport_load_le32(data + decoded.keys_offset + i * 4);
+    if (count)
+        memcpy(values, data + decoded.keys_offset, count * sizeof(*values));
     keys.count = count;
     keys.values = values;
     layout = decoded;
@@ -74,7 +78,7 @@ ModelFileLayout LoadModelKeys(ModelKeys &keys, const uint8 *data, uint32 bytes)
     if (!DecodeModelKeys(decoded, layout, data, bytes))
     {
         ReleaseModelKeys(decoded);
-        GameDiagnostic("Invalid model key table or allocation failure\n");
+        GameDiagnostic(("Invalid model key table or allocation failure\n"));
         abort();
     }
     ReleaseModelKeys(keys);
@@ -82,12 +86,12 @@ ModelFileLayout LoadModelKeys(ModelKeys &keys, const uint8 *data, uint32 bytes)
     return layout;
 }
 
-uint32 ReadModelKey(const ModelKeys &keys, uint32 index)
+uint32 ReadModelKey(const ModelKeys &keys, uint32 idx)
 {
-    if (!keys.values || index >= keys.count)
+    if (!keys.values || idx >= keys.count)
     {
-        GameDiagnostic("Invalid model/script key index %u\n", index);
+        GameDiagnostic(("Invalid model/script key index %u\n", idx));
         abort();
     }
-    return keys.values[index];
+    return keys.values[idx];
 }
