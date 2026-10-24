@@ -322,6 +322,7 @@ ModelInstance *VisualObject::RemoveFromList(ModelInstance *&head)
 RecordCursor VisualObject::ReadPos(RecordCursor data)
 {
     FUNCTION_MARKER(0x80062B0C, "SLUS_003.73");
+    model.ResetHdHistory();
     for (uint32 axis = 0; axis < 3; ++axis)
     {
         uint32 val = (data + axis * 4).Read32() << 12;
@@ -334,6 +335,7 @@ RecordCursor VisualObject::ReadPos(RecordCursor data)
 RecordCursor VisualObject::ReadAngles(RecordCursor data)
 {
     FUNCTION_MARKER(0x80062B50, "SLUS_003.73");
+    model.ResetHdHistory();
     for (uint32 axis = 0; axis < 3; ++axis)
     {
         model.angles.comp[axis] = (data + axis * 2).Read16();

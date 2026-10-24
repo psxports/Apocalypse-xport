@@ -5,6 +5,8 @@
 #include "effect_object.h"
 #include "texture_resources.h"
 
+struct HD_POLYGON_CHAIN;
+
 class TexturedQuad : public EffectObject
 {
 public:
@@ -15,12 +17,11 @@ private:
     Vector3 saved_corners[3];
 
 public:
+    mutable HD_POLYGON_CHAIN *hd_history;
     uint32 color;
     uint8 flags;
 
-    virtual ~TexturedQuad()
-    {
-    }
+    virtual ~TexturedQuad();
 
 private:
     const TextureResource *tex;

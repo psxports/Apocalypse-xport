@@ -19,6 +19,7 @@ protected:
 public:
     virtual uint32 Destroy(uint32 reason);
     virtual uint32 Render();
+    virtual bool CaptureHdTick();
 };
 
 #endif

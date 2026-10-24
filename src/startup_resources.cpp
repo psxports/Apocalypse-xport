@@ -72,7 +72,9 @@ uint32 InitializeGameRuntime()
     DISPENV *startup_disp = &startup_display.disp;
     PSX_RECT rect = {0, 0, 1024, 512};
 
+#if !defined(AP_WEB)
     uint32 start_tick;
+#endif
     uint32 resource;
     uint32 result;
     FUNCTION_MARKER(0x800713E8, "SLUS_003.73");
@@ -135,10 +137,12 @@ uint32 InitializeGameRuntime()
     SetProjScrParameters(0x100, 0x78, 0x100);
     ConfigureProjDepth(10, 0x1770, 0x800);
     PutDispEnv(&scene_render.buffers[1].disp);
+#if !defined(AP_WEB)
     PlayMovie(3);
     if (game_pads[0].buttons[14].down == 0)
         LoadStartupImage(true, "legal.rle", 240);
     start_tick = game_clock.vblank_frame;
+#endif
     SetResourceReadOption(0x7D0);
     ReloadGameCfg();
     InitializeAudioSession("sfx.vab");
@@ -155,6 +159,7 @@ uint32 InitializeGameRuntime()
     ModelBank::Get(resource).protected_bank = true;
     ModelBank::WaitForLoads();
     SetResourceReadOption(4);
+#if !defined(AP_WEB)
     if (game_clock.vblank_frame - start_tick < 0x12C && (game_pads[0].buttons[4].down == 0 || game_pads[0].buttons[6].down == 0))
     {
         do
@@ -168,6 +173,7 @@ uint32 InitializeGameRuntime()
                 break;
         } while (game_pads[0].buttons[4].down == 0 || game_pads[0].buttons[6].down == 0);
     }
+#endif
     game_progress.lives = GetGameTuning().initial_lives;
     LoadPanelResource();
     InitializeHudFonts();

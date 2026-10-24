@@ -8,6 +8,8 @@ struct ShortVector3;
 struct CollisionVertex;
 struct CollisionRay;
 struct ModelInstance;
+struct HD_BANK;
+struct ModelPalette;
 
 struct ModelBounds
 {
@@ -27,6 +29,7 @@ struct ModelPolygon
     uint16 clut;
     uint16 tpage;
     uint32 window;
+    TextureRegion texture_region;
     // Short reflection polygons borrow the following polygon color word
     const uint32 *window_alias;
     uint16 src_stride;
@@ -70,6 +73,10 @@ struct ModelGeometrySet
 {
     uint32 count;
     ModelGeometry *models;
+    HD_BANK *hd;
+
+    HD_BANK *GetHdCache();
+    void CaptureHdMaterials(const ModelPalette &palette);
 };
 
 bool DecodeModelGeometrySet(ModelGeometrySet &owner, const uint8 *data, uint32 bytes, const TextureReferences &refs);

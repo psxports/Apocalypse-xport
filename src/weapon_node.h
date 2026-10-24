@@ -7,6 +7,7 @@
 #include "model_instance.h"
 #include "weapon_type.h"
 #include "weapon_node_base.h"
+#include "model_reference.h"
 
 class EffectObject;
 class RingEffect;
@@ -16,6 +17,7 @@ class WeaponNode : public WeaponNodeBase
 {
 public:
     uint32 type;
+    ModelReference hd_attachment_owner;
 
 protected:
     uint32 fire_active;

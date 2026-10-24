@@ -171,3 +171,14 @@ void ModelPose::SetRelative(const ModelPose &left, const ModelPose &right)
     }
     translation = relative_translation;
 }
+
+void ModelPose::CaptureHd(MATRIXF &matrix) const
+{
+    IdentityMatrixf(&matrix);
+    for (uint32 row = 0; row < 3; ++row)
+    {
+        for (uint32 column = 0; column < 3; ++column)
+            matrix.m[row][column] = rotation[row].comp[column] / 4096.0f;
+        matrix.t[row] = translation.comp[row];
+    }
+}

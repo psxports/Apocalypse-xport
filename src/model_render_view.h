@@ -9,6 +9,7 @@ extern "C"
 }
 
 struct ModelViewport;
+struct HD_CAMERA;
 
 struct ModelRenderView
 {
@@ -22,6 +23,7 @@ struct ModelRenderView
 public:
     uint32 Configure(ModelViewport &bounds, uint32 *ordering_table);
     MATRIX *SetTranslation();
+    void CaptureHd(HD_CAMERA &camera, const ModelViewport &bounds) const;
 };
 
 ModelRenderView &GetModelRenderView();

@@ -6,16 +6,17 @@
 #include "object.h"
 #include "effect_object.h"
 
+struct HD_LINE_HISTORY;
+
 // TODO: Recover the original name of the line-effect base at 800A1B08
 class LineEffect : public EffectObject
 {
 public:
     uint32 color[2];
     Vector3 endpoint[2];
+    mutable HD_LINE_HISTORY *hd_history;
 
-    virtual ~LineEffect()
-    {
-    }
+    virtual ~LineEffect();
 
 protected:
     LineEffect();

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "game_heap.h"
+#include "game_tick.h"
 #include "game_diagnostics.h"
 #include "smoke_emitter.h"
 #include "effect_lifecycle.h"
@@ -49,6 +50,10 @@ void SmokeEmitter::Update()
         spr->depth_bias = 100;
         spr->angle = RandomRange(4096);
         spr->SetColors(rgb[0], rgb[1], rgb[2]);
+            spr->hd_attachment_owner = hd_attachment_owner;
+            spr->hd_attachment_origin = pos;
+            spr->hd_attachment_tick = game_clock.tick;
+            spr->hd_attachment_birth_only = true;
     }
     ++age;
     if (age == duration && age != -1)

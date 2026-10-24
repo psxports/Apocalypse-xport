@@ -40,7 +40,7 @@ static void FailDataRead(const char *path)
     abort();
 }
 
-static bool ResolveDataPath(char *path, const char *name)
+bool ResolveDataPath(char *path, const char *name)
 {
     strcpy(path, "DATA/");
     while (*name == '/' || *name == '\\')
@@ -168,6 +168,11 @@ static void RebaseDataCdResponse(uint8 *response)
         CdIntToPos(sector + data_cd_active->sector, &location);
         memcpy(response + 5, &location, 3);
     }
+}
+
+void InvalidateDataCdStream()
+{
+    data_cd_active = 0;
 }
 
 bool InitializeDataCd()

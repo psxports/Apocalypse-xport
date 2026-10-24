@@ -118,6 +118,7 @@ PaletteResource *PaletteResource::Allocate(uint32 key)
     pal->clut = 0;
     pal->slot = 0;
     pal->flags = 0;
+    pal->texel_classes = 0;
     pal->refs = 0;
     return pal;
 }
@@ -210,6 +211,11 @@ PaletteResource *PaletteResource::Load(uint32 key, uint16 *colors, uint32 flags)
         for (uint32 idx = 0; idx < count; ++idx, ++cursor)
             *cursor |= 0x8000;
     }
+    // Classify the completed immutable palette once, including nonzero black STP
+    pal->texel_classes = 0;
+    for (uint32 idx = 0; idx < count; ++idx)
+        if (colors[idx])
+            pal->texel_classes |= colors[idx] & 0x8000 ? 2 : 1;
     pal->slot = count == 16 ? PaletteResource::AllocateSmallSlot() : PaletteResource::AllocateLargeSlot();
     const PalettePosition &pos = count == 16 ? small_pal_slots.pos : large_pal_slots.pos;
     const uint16 y = pos.y;

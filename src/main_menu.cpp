@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "hd.h"
+#include "psx_gpu.h"
 #include "credits_player.h"
 #include "model_instance.h"
 #include "texture_resources.h"
@@ -107,6 +109,52 @@ enum MainMenuPage
     MAIN_MENU_CARD_MISSING = 18
 };
 
+static uint64 menu_hd_clock_field;
+static float menu_hd_clock_fraction;
+
+static float MenuRenderPhase()
+{
+    uint64 field;
+    float fraction = xport_frame_fract(&field);
+    if (field < menu_hd_clock_field || field - menu_hd_clock_field > 2)
+        return 1;
+    // The original menu loop waits across two physical fields
+    float phase = ((float)(field - menu_hd_clock_field) + fraction - menu_hd_clock_fraction) / 2;
+    return phase < 0 ? 0 : (phase > 1 ? 1 : phase);
+}
+
+static void PresentTitleFrame(HD_FRAME &frame, bool prompt)
+{
+    if (!frame.selected)
+    {
+        PSX_RECT source = {0, 256, 512, 240};
+        MoveImage(&source, 0, 0);
+        scene_render.cur = &scene_render.buffers[1];
+        BeginSceneFrame();
+        UpdateScenePacketLimit();
+    }
+    if (prompt)
+    {
+        SetHudTextScale(256);
+        SetHudTextAlignment(0);
+        SetHudTextColor(128, 128, 128, 0);
+        DrawStyledHudText(256, 120, MenuText::press_start, 0, 0, 256);
+    }
+    if (!frame.selected)
+    {
+        uint8 background = scene_render.buffers[0].draw.isbg;
+        scene_render.buffers[0].draw.isbg = 0;
+        SubmitSceneFrame();
+        scene_render.buffers[0].draw.isbg = background;
+        PutDispEnv(prompt ? &scene_render.buffers[1].disp : &scene_render.buffers[0].disp);
+    }
+    if (!hd_frame_image(&frame, 0, 256, 512, 240, false))
+    {
+        GameDiagnostic(("Cannot present title frame\n"));
+        abort();
+    }
+}
+
 uint32 RunMainMenu()
 {
     sint32 prompt_visible_frames;
@@ -122,13 +170,9 @@ uint32 RunMainMenu()
     uint32 heading_y;
     const char *heading;
     MenuWindow *submenu;
-    POLY_FT4 *cancel_spr;
-    POLY_FT4 *accept_spr;
     bool preview_sel;
     const char *audio_action_label;
-    POLY_FT4 *audio_select_spr;
     bool binding_sel;
-    POLY_FT4 *go_back_spr;
     const char *binding_label;
     const char *message;
     uint32 message_y;
@@ -168,6 +212,10 @@ uint32 RunMainMenu()
     uint32 music_preview_idx;
     uint32 last_activity_frame;
     uint32 frame_start;
+    HD_FRAME graphics_frame = {0};
+    HD_FRAME title_frame = {0};
+    bool title_prompt;
+    bool hd_presented_early;
 
     struct CalibrationRange
     {
@@ -206,6 +254,8 @@ uint32 RunMainMenu()
     start_released = game_pads[0].buttons[14].down == 0;
     do
     {
+        hd_frame_begin(&title_frame);
+        title_prompt = false;
         GamePadInput::Poll();
         if (menu_runtime.prompt_delay)
         {
@@ -222,6 +272,7 @@ uint32 RunMainMenu()
             }
             if (prompt_visible_frames)
             {
+                title_prompt = true;
                 PutDispEnv(&scene_render.buffers[1].disp);
                 if (!(--prompt_visible_frames))
                     prompt_hidden_frames = 24;
@@ -238,11 +289,13 @@ uint32 RunMainMenu()
         }
         ProcessResourceRead();
         ModelBank::ProcessLoadQueue();
+        PresentTitleFrame(title_frame, title_prompt);
         WaitForGameFrames(1);
     } while ((sint32)pad_polling.idle_ticks < 1801);
     result_state = 3;
     finished = true;
 OpenMainMenu:
+    hd_frame_abandon(&title_frame);
     game_pads[0].buttons[14].pressed = 0;
 
     game_pads[0].buttons[3].pressed = 0;
@@ -324,6 +377,9 @@ OpenMainMenu:
     last_activity_frame = game_clock.vblank_frame;
     while (!finished)
     {
+        menu_hd_clock_fraction = xport_frame_fract(&menu_hd_clock_field);
+        hd_presented_early = false;
+        hd_frame_begin(&graphics_frame);
         BeginSceneFrame();
         UpdateScenePacketLimit();
         frame_start = game_clock.vblank_frame;
@@ -343,7 +399,17 @@ OpenMainMenu:
         view.angles.BuildRotationMatrix(view.rotation);
         view.SetTranslation();
         view.Configure(model_viewport, scene_render.cur->ot);
+        if (graphics_frame.selected)
+        {
+            view.CaptureHd(graphics_frame.camera, model_viewport);
+            hd_scene_capture_begin(&graphics_frame.camera);
+        }
         ModelInstance::RenderVisibleList(ModelBank::GetSceneObjects());
+        if (graphics_frame.selected)
+        {
+            hd_scene_capture_end();
+            ModelBank::CaptureHdMaterials();
+        }
         AdvanceModelRenderCounter();
         SetHudTextScale(256);
         SetHudTextAlignment(0);
@@ -393,12 +459,8 @@ OpenMainMenu:
                 MenuWindow::SetDarkRedText();
                 DrawStyledHudText(104, 210, MenuText::cancel, 0, 0, 256);
                 DrawStyledHudText(328, 210, MenuText::accept, 0, 0, 256);
-                cancel_spr = AllocateHudSpr(TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 1));
-                if (cancel_spr)
-                    PlaceScaledHudSpr(76, 211, cancel_spr, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 1));
-                accept_spr = AllocateHudSpr(TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0));
-                if (accept_spr)
-                    PlaceScaledHudSpr(300, 211, accept_spr, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0));
+                DrawHudSprite(76, 211, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 1), true, 0x808080);
+                DrawHudSprite(300, 211, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0), true, 0x808080);
                 AllocateHudRect(0, 0, 512, 5, 0, 0, 255, 0);
                 AllocateHudRect(0, 235, 512, 5, 0, 0, 255, 0);
                 AllocateHudRect(0, 0, 7, 240, 0, 0, 255, 0);
@@ -429,9 +491,7 @@ OpenMainMenu:
                 }
                 DrawStyledHudText(348, 210, audio_action_label, 0, 0, 256);
                 SetHudTextAlignment(0);
-                audio_select_spr = AllocateHudSpr(TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0));
-                if (audio_select_spr)
-                    PlaceScaledHudSpr(320, 211, audio_select_spr, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0));
+                DrawHudSprite(320, 211, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0), true, 0x808080);
                 audio_window->DrawVolumeSlider();
                 audio_window->Draw();
                 break;
@@ -445,9 +505,7 @@ OpenMainMenu:
                     SetHudTextScale(256);
                     MenuWindow::SetDarkRedText();
                     DrawStyledHudText(211, 210, MenuText::go_back, 0, 0, 256);
-                    go_back_spr = AllocateHudSpr(TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 1));
-                    if (go_back_spr)
-                        PlaceScaledHudSpr(183, 211, go_back_spr, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 1));
+                    DrawHudSprite(183, 211, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 1), true, 0x808080);
                 }
                 else
                 {
@@ -709,12 +767,14 @@ OpenMainMenu:
                     {
                         PlaySoundEffect(action_sound, 0x2000, 0);
                         action_sound = -1;
+                        hd_frame_abandon(&graphics_frame);
                         CreditsPlayer::Run();
                     }
                     if (extras_window->IsSel(MenuText::music_credits))
                     {
                         PlaySoundEffect(action_sound, 0x2000, 0);
                         action_sound = -1;
+                        hd_frame_abandon(&graphics_frame);
                         ReleaseLevelLoadResources();
                         PlayMovie(33);
                         QueueSelLevelResources();
@@ -722,6 +782,7 @@ OpenMainMenu:
                     }
                     if (extras_window->IsSel(MenuText::view_intro))
                     {
+                        hd_frame_abandon(&graphics_frame);
                         ReleaseLevelLoadResources();
                         PlayMovie(28);
                         QueueSelLevelResources();
@@ -1116,18 +1177,36 @@ OpenMainMenu:
                 PlaySoundEffect(frame_sound, 0x2000, 0);
 
                 background_camera->Advance();
+                if (graphics_frame.selected && graphics_frame.open)
+                {
+                    if (!hd_frame_present_phase(&graphics_frame, MenuRenderPhase()))
+                    {
+                        GameDiagnostic(("Cannot draw main-menu frame\n"));
+                        abort();
+                    }
+                    hd_presented_early = true;
+                    VSync(-1);
+                }
                 if (game_clock.vblank_frame == frame_start)
-                    WaitForGameFrames(1);
+                    WaitForRenderFrames(1, hd_presented_early ? &graphics_frame : 0, MenuRenderPhase);
                 scene_frame.service_enabled = false;
                 while (1)
                 {
-                    WaitForGameFrames(1);
+                    WaitForRenderFrames(1, hd_presented_early ? &graphics_frame : 0, MenuRenderPhase);
                     if (!DrawSync(1))
                         break;
                     ServiceGameFrame();
                 }
 
-                SubmitSceneFrame();
+                if (graphics_frame.open || hd_presented_early)
+                {
+                    SubmitSceneFrame();
+                    if (!hd_frame_present(&graphics_frame))
+                    {
+                        GameDiagnostic(("Cannot draw main-menu frame\n"));
+                        abort();
+                    }
+                }
                 if (!scene_frame.service_enabled)
                 {
                     ServiceGameFrame();
@@ -1195,10 +1274,12 @@ OpenMainMenu:
         }
     }
 
+    hd_frame_abandon(&graphics_frame);
     ReleaseMenuBuffers();
     WaitForGameFrames(1);
     DrawSync(0);
-    SubmitSceneFrame();
+    if (!graphics_frame.selected)
+        SubmitSceneFrame();
     ClearStartupImageArea();
     if (main_window)
         DestroyMenuObject(main_window);

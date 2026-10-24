@@ -16,6 +16,18 @@ struct GameClock
 };
 
 extern GameClock game_clock;
+#if defined(_DEBUG)
+struct SceneTimingCounters
+{
+    bool active;
+    uint64 started_us, sampled_us;
+    uint32 logic_calls, logic_ticks, pad_polls;
+    uint32 vblank_callbacks, music_callbacks, service_calls;
+    uint32 source_frames, hd_frames, hd_redraws;
+    uint64 source_prepare_us;
+};
+extern SceneTimingCounters scene_timing;
+#endif
 void ResetGameClock();
 uint32 AdvanceGameTick();
 

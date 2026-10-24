@@ -5,6 +5,8 @@
 #include "effect_object.h"
 #include "textured_effect.h"
 
+struct HD_SPRITE_HISTORY;
+
 class Sprite : public TexturedEffect
 {
 public:
@@ -17,10 +19,9 @@ public:
     uint8 forced_depth;
     uint8 blend_mode;
     uint16 clut;
+    mutable HD_SPRITE_HISTORY *hd_history;
 
-    virtual ~Sprite()
-    {
-    }
+    virtual ~Sprite();
 
 public:
     Sprite();

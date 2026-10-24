@@ -91,7 +91,9 @@ uint32 MachineGun::Fire(const Vector3 &input_pos, const ShortVector3 &input_angl
             sint16 odd_min = (sint32)(14 * flash_scale) / 256;
             sint16 even_min = (sint32)(10 * flash_scale) / 256;
             sint16 even_range = (sint32)(20 * flash_scale) / 256;
-            new (flash_allocation) RingBurstEffect(&muzzle_pos, 5, 255, 235, 0, 2, 90, 10, 0, 20, extent, 0, 0, odd_min, 0, even_min, even_range, 0, 1);
+            RingBurstEffect *flash = new (flash_allocation) RingBurstEffect(&muzzle_pos, 5, 255, 235, 0, 2, 90, 10, 0, 20, extent, 0, 0, odd_min, 0, even_min, even_range, 0, 1);
+            flash->hd_attachment_owner = hd_attachment_owner;
+            flash->hd_attachment_origin = muzzle_pos;
         }
     }
     if (fire_active)
@@ -262,6 +264,7 @@ uint32 MachineGun::Update(const Vector3 *pos)
     if (effect)
     {
         effect->SetPos(pos);
+        effect->hd_attachment_origin = *pos;
         uint32 now = game_clock.tick;
         uint32 created_at = child_tick;
         if (now - created_at >= 31)
@@ -284,6 +287,8 @@ uint32 MachineGun::Update(const Vector3 *pos)
             if (allocation)
             {
                 smoke = new (allocation) SmokeEmitter(pos, -1, 1, 100, 100, 100, 3, 8, 188, 188);
+                smoke->hd_attachment_owner = hd_attachment_owner;
+                smoke->hd_attachment_origin = *pos;
             }
             child = smoke;
             if (!child)

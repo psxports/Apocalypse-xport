@@ -11,6 +11,7 @@ struct ModelPose
 public:
     void Compose(const ModelPose &left, const ModelPose &right);
     void SetRelative(const ModelPose &left, const ModelPose &right);
+    void CaptureHd(MATRIXF &matrix) const;
 };
 
 #endif

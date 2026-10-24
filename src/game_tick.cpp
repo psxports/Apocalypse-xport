@@ -22,6 +22,9 @@
 #include "effect_object.h"
 
 GameClock game_clock = {0, 0, 0, 0, 0};
+#if defined(_DEBUG)
+SceneTimingCounters scene_timing = {0};
+#endif
 
 void ResetGameClock()
 {
@@ -41,12 +44,23 @@ uint32 AdvanceGameTick()
         game_session.exit_reason = 7;
         // Original 8002FF88 is an empty handler
     }
+#if defined(_DEBUG)
+    if (scene_timing.active)
+    {
+        ++scene_timing.logic_calls;
+        scene_timing.sampled_us = xport_timer_get();
+    }
+#endif
     uint32 step = game_clock.step;
     ++game_clock.elapsed;
     game_clock.step = step + 1;
     if (step & 1)
         return game_clock.step;
     ++game_clock.tick;
+#if defined(_DEBUG)
+    if (scene_timing.active)
+        ++scene_timing.logic_ticks;
+#endif
     ModelInstance::UpdateFlashes();
     ResetHudTextQueue();
     GamePadInput::Poll();
@@ -76,10 +90,12 @@ uint32 AdvanceGameTick()
     UpdatePauseMenu();
     AnimatedHudText::UpdateAll();
     uint32 loading_suspended = GetCheatOptions().suspend_resource_loading;
+    uint32 result = loading_suspended;
     if (!loading_suspended)
     {
         ModelBank::ProcessLoadQueue();
-        return ProcessResourceRead();
+        result = ProcessResourceRead();
     }
-    return loading_suspended;
+    CaptureHdLogicState();
+    return result;
 }

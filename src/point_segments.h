@@ -4,6 +4,8 @@
 #include "vector3.h"
 #include "effect_object.h"
 
+struct HD_LINE_CHAIN;
+
 struct EffectPoint
 {
     Vector3 pos;
@@ -17,6 +19,7 @@ public:
     sint32 point_count;
     EffectPoint *points;
     Vector3 origin;
+    mutable HD_LINE_CHAIN *hd_history;
 
 private:
     PointSegments &operator=(const PointSegments &);

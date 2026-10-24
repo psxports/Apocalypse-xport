@@ -5,6 +5,8 @@
 #include "effect_object.h"
 #include "point_segments.h"
 
+struct HD_LINE_CHAIN;
+
 class SegmentEffect : public EffectObject
 {
 public:
@@ -13,6 +15,7 @@ public:
     Vector3 origin;
     RGBC rgbc;
     uint8 forced_depth;
+    mutable HD_LINE_CHAIN *hd_history;
 
 private:
     SegmentEffect &operator=(const SegmentEffect &);

@@ -3,11 +3,13 @@
 
 #include "audio_session.h"
 #include "credits_player.h"
+#include "hd.h"
 #include "global.h"
 #include "model_attachment.h"
 #include "weapon_type.h"
 #include "player.h"
 #include "model_instance.h"
+#include "model_bank.h"
 #include "game_pad_input.h"
 #include "game_heap.h"
 #include "game_lighting.h"
@@ -36,6 +38,20 @@ struct CreditsRow
 };
 
 static bool DecodeRows(const char *data, uint32 bytes, CreditsRow *rows, uint32 &count);
+
+static uint64 credits_hd_clock_field;
+static float credits_hd_clock_fraction;
+
+static float CreditsRenderPhase()
+{
+    uint64 field;
+    float fraction = xport_frame_fract(&field);
+    if (field < credits_hd_clock_field || field - credits_hd_clock_field > 2)
+        return 1;
+    // The original credits loop waits across two physical fields
+    float phase = ((float)(field - credits_hd_clock_field) + fraction - credits_hd_clock_fraction) / 2;
+    return phase < 0 ? 0 : (phase > 1 ? 1 : phase);
+}
 
 CreditsPlayer::CreditsPlayer() : Player(), pose_ticks(0)
 {
@@ -202,9 +218,14 @@ uint32 CreditsPlayer::Run()
     SetHudTextScale(256);
     SetHudTextColor(64, 64, 64, 0);
     uint32 first_row = 0;
+    HD_FRAME graphics_frame = {0};
     while (first_row < count)
     {
+        credits_hd_clock_fraction = xport_frame_fract(&credits_hd_clock_field);
+        bool hd_presented_early = false;
+        bool interpolate_scroll = xport_hd && hd_frame_can_redraw(&graphics_frame);
         uint32 frame = game_clock.vblank_frame;
+        hd_frame_begin(&graphics_frame);
         BeginSceneFrame();
         UpdateScenePacketLimit();
         GamePadInput::Poll();
@@ -238,56 +259,97 @@ uint32 CreditsPlayer::Run()
         player->Update();
         EffectObject::UpdateAll();
         EffectObject::DestroyFinished();
+        if (graphics_frame.selected)
+        {
+            hd_model_tick_begin(game_clock.tick);
+            if (!player->model.CaptureHdTick() || !CaptureHdEffectLogic())
+            {
+                GameDiagnostic(("Cannot sample credits HD logic state\n"));
+                abort();
+            }
+        }
         BlurMenuBuffers();
         BlurMenuBuffers();
         AnimatedHudText::DrawAll();
+        hd_ui_set_scroll(interpolate_scroll ? 1 : 0);
         while (y < 240 && row < rows + count)
         {
             uint32 glow = 0;
             // The signed multiply-high sequence divides this bounded value by sixty
             if (y > 60 && y < 121)
                 glow = (y - 60) * 128 / 60;
+            uint32 previous_glow = glow;
+            if (interpolate_scroll)
+                previous_glow = y + 1 > 60 && y + 1 < 121 ? (y + 1 - 60) * 128 / 60 : 0;
             if (row->text[1][0])
             {
                 SetHudTextAlignment(2);
-                DrawStyledHudText(231, y, row->text[0], 0, glow, 256);
+                DrawStyledHudTextPair(231, y, row->text[0], 0, glow, 256, previous_glow, 256);
                 SetHudTextAlignment(1);
-                DrawStyledHudText(281, y, row->text[1], 0, glow, 256);
+                DrawStyledHudTextPair(281, y, row->text[1], 0, glow, 256, previous_glow, 256);
             }
             else
             {
                 SetHudTextAlignment(0);
-                DrawStyledHudText(256, y, row->text[0], 0, glow, 256);
+                DrawStyledHudTextPair(256, y, row->text[0], 0, glow, 256, previous_glow, 256);
             }
             y += 26;
             ++row;
         }
+        hd_ui_set_scroll(0);
         view.angles.BuildRotationMatrix(view.rotation);
         view.SetTranslation();
         view.Configure(model_viewport, scene_render.cur->ot);
+        if (graphics_frame.selected)
+        {
+            view.CaptureHd(graphics_frame.camera, model_viewport);
+            hd_scene_capture_begin(&graphics_frame.camera);
+        }
         ModelInstance::RenderVisibleList(player ? &player->model : 0);
+        if (graphics_frame.selected)
+        {
+            hd_scene_capture_end();
+            ModelBank::CaptureHdMaterials();
+        }
         AdvanceModelRenderCounter();
         BuildSceneEffectPackets();
+        if (graphics_frame.selected && graphics_frame.open)
+        {
+            if (!hd_frame_present_phase(&graphics_frame, CreditsRenderPhase()))
+            {
+                GameDiagnostic(("Cannot draw credits frame\n"));
+                abort();
+            }
+            hd_presented_early = true;
+            VSync(-1);
+        }
         if (game_clock.vblank_frame == frame)
-            WaitForGameFrames(1);
+            WaitForRenderFrames(1, hd_presented_early ? &graphics_frame : 0, CreditsRenderPhase);
         scene_frame.service_enabled = false;
         for (;;)
         {
-            WaitForGameFrames(1);
+            WaitForRenderFrames(1, hd_presented_early ? &graphics_frame : 0, CreditsRenderPhase);
             if (!DrawSync(1))
                 break;
             ServiceGameFrame();
         }
         SubmitSceneFrame();
+        if (!hd_frame_present(&graphics_frame))
+        {
+            GameDiagnostic(("Cannot draw credits frame\n"));
+            abort();
+        }
         if (!scene_frame.service_enabled)
         {
             ServiceGameFrame();
             scene_frame.service_enabled = true;
         }
     }
+    hd_frame_abandon(&graphics_frame);
     WaitForGameFrames(1);
     DrawSync(0);
-    SubmitSceneFrame();
+    if (!graphics_frame.selected)
+        SubmitSceneFrame();
     free(rows);
     if (player)
     {

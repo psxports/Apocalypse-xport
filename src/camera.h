@@ -4,6 +4,8 @@
 struct CameraTransition;
 struct CollisionRay;
 struct PadButton;
+struct HD_CAMERA;
+struct ModelViewport;
 
 #include "vector3.h"
 #include "visual_object.h"
@@ -114,6 +116,7 @@ public:
     void SetTargetForwardOffsetTransition(sint16 target, uint16 frames);
     void SetProjDistanceTransition(uint16 target, uint16 frames);
     uint32 GetProjDistance();
+    void CaptureHd(HD_CAMERA &camera, const ModelViewport &bounds) const;
     virtual uint32 Update();
 
 private:

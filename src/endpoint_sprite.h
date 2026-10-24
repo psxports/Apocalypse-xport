@@ -5,11 +5,14 @@
 #include "effect_object.h"
 #include "textured_effect.h"
 
+class SpriteTrail;
+
 // Sprites with two independently positioned endpoints
 class EndpointSprite : public TexturedEffect
 {
 public:
     Vector3 endpoint[2];
+    SpriteTrail *hd_trail;
 
     virtual ~EndpointSprite()
     {

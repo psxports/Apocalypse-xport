@@ -4,6 +4,10 @@
 #include "model_hierarchy.h"
 #include "model_animation_data.h"
 
+struct HD_OBJECT_STATE;
+struct HD_MODEL_EFFECT_CHAIN;
+struct HD_POSE_WORKSPACE;
+
 class Character : public VisualObject
 {
 public:
@@ -49,6 +53,8 @@ private:
     ModelJointAngles *model_angles;
     ModelPose *model_poses;
     uint32 model_pose_count;
+    mutable HD_MODEL_EFFECT_CHAIN *hd_effect_history;
+    mutable HD_POSE_WORKSPACE *hd_pose_workspace;
 
 public:
     uint32 GetAttachment(Vector3 &output, uint8 requested);
@@ -75,6 +81,10 @@ public:
     ModelPose *GetModelPoses(uint32 first, uint32 count);
     ModelJointAngles &GetModelJointAngles(uint32 idx);
     void ReleaseModelAnimation();
+    uint32 CaptureHdPoses(MATRIXF *output, uint32 count) const;
+    void CaptureHdHierarchy(HD_OBJECT_STATE &state) const;
+    bool CaptureHdModel(HD_OBJECT_STATE &state, const MATRIXF *poses, uint32 count, bool update_effects, bool logic) const;
+    void ResetHdEffects();
 
 private:
     uint8 ReadAnimationFrameCount(uint8 animation);

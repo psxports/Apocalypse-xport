@@ -2,6 +2,7 @@
 #define TEXTURE_RESOURCE_H
 
 #include "palette_resource.h"
+#include "texture_region.h"
 
 struct TextureReferences;
 
@@ -12,6 +13,7 @@ public:
     uint16 clut;
     uint16 tpage;
     uint32 window;
+    TextureRegion region;
     uint16 refs;
     bool loaded;
     uint32 key;
@@ -40,6 +42,7 @@ public:
     static TextureResource &Get(uint32 key);
     static void ResetAll();
     uint32 PackUv(uint32 word) const;
+    uint32 HdTexelFlags(uint16 selected_clut) const;
 };
 
 #endif

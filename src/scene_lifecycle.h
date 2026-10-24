@@ -2,6 +2,7 @@
 #define SCENE_LIFECYCLE_H
 
 struct ModelInstance;
+struct HD_FRAME;
 
 extern "C"
 {
@@ -46,7 +47,10 @@ uint32 AdvanceSceneVBlank();
 void ResetSceneDispOffsets();
 uint32 InitializeSceneDisp();
 bool WaitForGameFrames(uint32 frames);
+bool WaitForRenderFrames(uint32 frames, HD_FRAME *frame, float (*phase)());
 uint32 RunLevelLoop();
+void CaptureHdLogicState();
+void ResetHdCamera(const ModelInstance *model);
 void BeginSceneFrame();
 void UpdateScenePacketLimit();
 void SubmitSceneFrame();

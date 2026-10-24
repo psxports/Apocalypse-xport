@@ -7,6 +7,7 @@ extern "C"
 }
 
 struct ShortVector3;
+struct HD_LIGHTING;
 
 struct LightColor
 {
@@ -22,6 +23,7 @@ struct GameLighting
 
 public:
     GameLighting();
+    void CaptureHd(HD_LIGHTING &lighting, const MATRIXF &model_rotation, uint32 draw_mask, const VECTORF &constant, float fog_start, sint32 fog_shift) const;
 };
 
 extern GameLighting game_lighting;

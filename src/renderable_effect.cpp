@@ -23,3 +23,8 @@ uint32 RenderableEffect::Render()
     // Original no-op has no defined return carrier
     return 0;
 }
+
+bool RenderableEffect::CaptureHdTick()
+{
+    return true;
+}

@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "hd.h"
 #include "model_bank_grid.h"
 #include "model_instance.h"
 #include "psx.h"
@@ -37,9 +38,28 @@
 #include "record_commands.h"
 #include "audio_session.h"
 #include "model_bank.h"
+#include "model_reference.h"
 #include "effect_object.h"
 
 SceneRenderState scene_render = {0};
+
+static bool scene_hd_frame;
+static HD_FRAME scene_hd_state;
+static ModelReference scene_hd_camera;
+static bool scene_hd_wait;
+static uint64 scene_hd_clock_field;
+static float scene_hd_clock_fraction;
+
+static float SceneRenderPhase()
+{
+    uint64 field;
+    float fraction = xport_frame_fract(&field);
+    if (field < scene_hd_clock_field || field - scene_hd_clock_field > 2)
+        return 1;
+    // One source update spans two physical fields
+    float phase = ((float)(field - scene_hd_clock_field) + fraction - scene_hd_clock_fraction) / 2;
+    return phase < 0 ? 0 : (phase > 1 ? 1 : phase);
+}
 
 // The self-copy omits the cache-clear prefix emitted by SetDrawMove
 static DR_MOVE ordering_copy;
@@ -164,6 +184,52 @@ sint32 ResetScene(bool retain_resources)
     return -20;
 }
 
+void ResetHdCamera(const ModelInstance *model)
+{
+    if (scene_hd_camera.GetObject() == model)
+        hd_frame_camera_reset(&scene_hd_state);
+}
+
+static void BindHdCamera(ModelInstance *model)
+{
+    if (scene_hd_camera.GetObject() != model)
+    {
+        scene_hd_camera.SetObject(model);
+        hd_frame_camera_reset(&scene_hd_state);
+    }
+}
+
+void CaptureHdLogicState()
+{
+    if (!scene_hd_frame)
+        return;
+    hd_model_tick_begin(game_clock.tick);
+    ModelInstance *camera_model = visual_lists.cameras;
+    BindHdCamera(camera_model);
+    if (camera_model && camera_model->owner)
+    {
+        const Camera *camera = static_cast<const Camera *>(camera_model->owner);
+        ModelViewport bounds = model_viewport;
+        bounds.distance = camera->proj_distance;
+        HD_CAMERA snapshot;
+        camera->CaptureHd(snapshot, bounds);
+        hd_frame_camera_tick(&scene_hd_state, &snapshot, game_clock.tick);
+    }
+    ModelInstance *lists[5] = {visual_lists.players, visual_lists.actors, visual_lists.solids, visual_lists.pickups, visual_lists.projectiles};
+    for (uint32 list = 0; list < 5; ++list)
+        for (ModelInstance *model = lists[list]; model; model = model->next)
+            if (!model->CaptureHdTick())
+            {
+                GameDiagnostic(("Cannot sample HD model logic state\n"));
+                abort();
+            }
+    if (!CaptureHdEffectLogic())
+    {
+        GameDiagnostic(("Cannot sample HD effect logic state\n"));
+        abort();
+    }
+}
+
 static void DrawSceneFrame()
 {
     FUNCTION_MARKER(0x800307F0, "SLUS_003.73");
@@ -209,6 +275,12 @@ static void DrawSceneFrame()
     scene_smoothing.prev_tick = game_clock.tick;
     VisualObject::UpdateList(visual_lists.cameras);
     GetModelRenderView().Configure(model_viewport, scene_render.cur->ot);
+    if (scene_hd_frame)
+    {
+        BindHdCamera(visual_lists.cameras);
+        static_cast<Camera *>(visual_lists.cameras->owner)->CaptureHd(scene_hd_state.camera, model_viewport);
+        hd_scene_capture_begin(&scene_hd_state.camera);
+    }
     ModelInstance::RenderVisibleList(ModelBank::GetSceneObjects());
     ModelInstance::RenderVisibleList(visual_lists.solids);
     object = visual_lists.players;
@@ -223,13 +295,22 @@ static void DrawSceneFrame()
     ModelInstance::RenderVisibleList(visual_lists.pickups);
     ModelInstance::RenderVisibleList(visual_lists.projectiles);
     ModelInstance::RenderList(visual_lists.registry);
+    if (scene_hd_frame)
+    {
+        hd_scene_capture_end();
+        ModelBank::CaptureHdMaterials();
+    }
     AdvanceModelRenderCounter();
     BuildSceneEffectPackets();
     DrawHudTextQueue();
+    hd_ui_set_anchor(HD_UI_EDGES);
     DrawGamePanel();
+    hd_ui_set_anchor(HD_UI_CENTER);
     DrawPauseMenuDisp();
     AnimatedHudText::DrawAll();
     DrawScrFlash();
+    if (scene_hd_frame)
+        hd_ui_end();
     scene_render.used = scene_render.cursor - (uint8 *)scene_render.cur->packets;
     if (smoothed)
     {
@@ -244,6 +325,11 @@ uint32 RunLevelLoop()
 {
     uint32 frame_start;
     sint32 elapsed;
+    scene_hd_state.open = 0;
+    scene_hd_camera.Reset();
+    hd_frame_camera_reset(&scene_hd_state);
+    scene_hd_wait = false;
+    bool was_paused = scene_frame.paused || scene_frame.camera_paused;
     PSX_RECT rect;
     FUNCTION_MARKER(0x80030AD4, "SLUS_003.73");
     Player::SaveTransform();
@@ -260,9 +346,17 @@ uint32 RunLevelLoop()
     DebugRestoreFinishMenu();
 #endif
     WaitForGameFrames(1);
+#if defined(_DEBUG)
+    memset(&scene_timing, 0, sizeof(scene_timing));
+    scene_timing.started_us = scene_timing.sampled_us = xport_timer_get();
+    scene_timing.active = true;
+#endif
     while (!game_session.exit_reason)
     {
         frame_start = game_clock.vblank_frame;
+        scene_hd_clock_fraction = xport_frame_fract(&scene_hd_clock_field);
+        hd_frame_begin(&scene_hd_state);
+        scene_hd_frame = scene_hd_state.selected != 0;
         BeginSceneFrame();
         UpdateScenePacketLimit();
         ::AdvanceGameTick();
@@ -271,8 +365,37 @@ uint32 RunLevelLoop()
         ::AdvanceGameTick();
         if (game_session.exit_reason)
             break;
+        bool paused = scene_frame.paused || scene_frame.camera_paused;
+        if (paused != was_paused)
+            hd_frame_abandon(&scene_hd_state);
+        was_paused = paused;
+        if (!scene_hd_state.open)
+        {
+            hd_frame_begin(&scene_hd_state);
+            scene_hd_frame = scene_hd_state.selected != 0;
+        }
+#if defined(_DEBUG)
+        uint64 source_start = xport_timer_get();
+#endif
         DrawSceneFrame();
+#if defined(_DEBUG)
+        scene_timing.source_prepare_us += xport_timer_get() - source_start;
+        ++scene_timing.source_frames;
+#endif
         UpdateMoviePlayback();
+        if (scene_hd_frame && scene_hd_state.open)
+        {
+            if (!hd_frame_present_phase(&scene_hd_state, SceneRenderPhase()))
+            {
+                GameDiagnostic(("Cannot draw interpolated game frame\n"));
+                abort();
+            }
+#if defined(_DEBUG)
+            ++scene_timing.hd_frames;
+#endif
+            VSync(-1);
+            scene_hd_wait = hd_frame_can_redraw(&scene_hd_state) != 0;
+        }
         if (game_clock.vblank_frame == frame_start)
             WaitForGameFrames(1);
         scene_frame.service_enabled = false;
@@ -284,7 +407,13 @@ uint32 RunLevelLoop()
             ServiceGameFrame();
         }
 
+        scene_hd_wait = false;
         SubmitSceneFrame();
+        if (!hd_frame_present(&scene_hd_state))
+        {
+            GameDiagnostic(("Cannot draw game frame\n"));
+            abort();
+        }
         if (!scene_frame.service_enabled)
         {
             ServiceGameFrame();
@@ -307,6 +436,14 @@ uint32 RunLevelLoop()
             game_session.exit_reason = 2;
     }
 
+#if defined(_DEBUG)
+    scene_timing.sampled_us = xport_timer_get();
+    scene_timing.active = false;
+#endif
+    scene_hd_wait = false;
+    hd_frame_abandon(&scene_hd_state);
+    scene_hd_frame = false;
+    scene_hd_camera.Reset();
     ModelBank::WaitForLoads();
     model_render_state.depth_bias[0] = 1;
     ::ReleaseMenuBuffers();
@@ -324,9 +461,8 @@ uint32 RunLevelLoop()
     return ClearImage(&clear_rect, 0, 0, 0);
 }
 
-bool WaitForGameFrames(uint32 frames)
+bool WaitForRenderFrames(uint32 frames, HD_FRAME *frame, float (*phase)())
 {
-    FUNCTION_MARKER(0x800664E4, "SLUS_003.73");
     uint32 target = game_clock.vblank_frame + frames;
     uint32 cur = game_clock.vblank_frame;
     bool waiting = cur < target;
@@ -336,13 +472,38 @@ bool WaitForGameFrames(uint32 frames)
         VSync(-1);
         cur = game_clock.vblank_frame;
         waiting = cur < target;
+        if (waiting && frame && phase && hd_frame_can_redraw(frame))
+        {
+            if (!hd_frame_redraw(frame, phase()))
+            {
+                GameDiagnostic(("Cannot redraw interpolated game frame\n"));
+                abort();
+            }
+#if defined(_DEBUG)
+            if (frame == &scene_hd_state)
+            {
+                ++scene_timing.hd_frames;
+                ++scene_timing.hd_redraws;
+            }
+#endif
+        }
     }
     return waiting;
+}
+
+bool WaitForGameFrames(uint32 frames)
+{
+    FUNCTION_MARKER(0x800664E4, "SLUS_003.73");
+    return WaitForRenderFrames(frames, scene_hd_wait ? &scene_hd_state : 0, SceneRenderPhase);
 }
 
 uint32 ServiceGameFrame()
 {
     FUNCTION_MARKER(0x800662A0, "SLUS_003.73");
+#if defined(_DEBUG)
+    if (scene_timing.active)
+        ++scene_timing.service_calls;
+#endif
     CdlLOC location;
     if (cd_voice.active)
     {
@@ -424,6 +585,14 @@ void SubmitSceneFrame()
     PutDispEnv(&scene_render.cur->disp);
     PutDrawEnv(&scene_render.cur->draw);
     DrawOTag(scene_render.cur->ot + 4095);
+    if (hd_frame_restoring_og())
+    {
+        // The other display page still contains the last software frame
+        DISPENV display = scene_render.cur->disp;
+        display.disp.x = scene_render.cur->draw.clip.x;
+        display.disp.y = scene_render.cur->draw.clip.y;
+        PutDispEnv(&display);
+    }
 }
 
 void UpdateScenePacketLimit()
@@ -435,6 +604,10 @@ void UpdateScenePacketLimit()
 uint32 AdvanceSceneVBlank()
 {
     FUNCTION_MARKER(0x80066458, "SLUS_003.73");
+#if defined(_DEBUG)
+    if (scene_timing.active)
+        ++scene_timing.vblank_callbacks;
+#endif
     uint32 frames = game_clock.vblank_frame;
     bool paused = scene_frame.paused;
     game_clock.vblank_frame = frames + 1;

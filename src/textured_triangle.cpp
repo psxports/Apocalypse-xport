@@ -11,14 +11,17 @@
 #include "global.h"
 #include "effect_lifecycle.h"
 #include "sprite_trail.h"
+#include "hd.h"
 
-TexturedTriangle::TexturedTriangle(const ShortVector3 &v0, const ShortVector3 &v1, const ShortVector3 &v2) : EffectObject(), uv_clut(0), uv_tpage(0), uv_tail(0), texture_window(0)
+TexturedTriangle::TexturedTriangle(const ShortVector3 &v0, const ShortVector3 &v1, const ShortVector3 &v2) : EffectObject(), hd_history(0), uv_clut(0), uv_tpage(0), uv_tail(0), texture_window(0)
 {
     const ShortVector3 *inputs[3] = {&v0, &v1, &v2};
     Vector3 edge[2];
     uint32 axis, idx, factor;
     Vector3 cross, unit_n;
     FUNCTION_MARKER(0x800340A4, "SLUS_003.73");
+    texture_region.x = texture_region.y = 0;
+    texture_region.width = texture_region.height = 0;
     angles.x = angles.y = angles.z = 0;
     base_color.rgbc = 0;
     for (idx = 0; idx < 3; ++idx)
@@ -45,6 +48,11 @@ TexturedTriangle::TexturedTriangle(const ShortVector3 &v0, const ShortVector3 &v
         n.comp[axis] = product >> 12;
     }
     AddToList(effect_lists.textured_triangles);
+}
+
+TexturedTriangle::~TexturedTriangle()
+{
+    hd_polygon_chain_free(hd_history);
 }
 
 uint32 TexturedTriangle::Destroy(uint32 reason)

@@ -7,6 +7,9 @@ uint32 ControlDataCd(uint32 command, const void *parameter, void *output);
 uint32 FastControlDataCd(uint32 command, const void *parameter);
 uint32 SyncDataCd(sint32 mode, uint8 *response);
 
+// The caller supplies a 256-byte path buffer
+bool ResolveDataPath(char *path, const char *name);
+void InvalidateDataCdStream();
 bool InitializeDataCd();
 bool FindDataCdFile(CdlFILE *result, const char *name);
 bool ReadDataResource(void *dst, uint32 offset, uint32 bytes);

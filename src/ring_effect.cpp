@@ -7,6 +7,7 @@
 #include "effect_lifecycle.h"
 #include "game_diagnostics.h"
 #include "ring_effect.h"
+#include "hd.h"
 
 RingEffect *RingEffect::SpawnProjectileTrail(const Vector3 *pos, uint8 r, uint8 g, uint8 b)
 {
@@ -32,7 +33,7 @@ RingEffect *RingEffect::SpawnProjectileTrail(const Vector3 *pos, uint8 r, uint8 
     return effect;
 }
 
-RingEffect::RingEffect(uint32 segs, uint32 rows) : EffectObject(), ring_points(0), row_points(0), point_count(segs << 1), row_count(rows), center_color(0x32000000), angle_step(0), hide_center(false), angle(0), seg_mask(0xFFFFFFFF)
+RingEffect::RingEffect(uint32 segs, uint32 rows) : EffectObject(), hd_history(0), ring_points(0), row_points(0), point_count(segs << 1), row_count(rows), center_color(0x32000000), angle_step(0), hide_center(false), angle(0), seg_mask(0xFFFFFFFF)
 {
     FUNCTION_MARKER(0x80034598, "SLUS_003.73");
     uint64 count = (uint64)point_count * ((uint64)rows + 1);
@@ -64,7 +65,7 @@ RingEffect::RingEffect(uint32 segs, uint32 rows) : EffectObject(), ring_points(0
     AddToList(effect_lists.rings);
 }
 
-RingEffect::RingEffect(const Vector3 *src_pos, uint32 radius, uint32 extent, uint8 r, uint8 g, uint8 b, uint8 tail_r, uint8 tail_g, uint8 tail_b) : EffectObject(), ring_points(0), row_points(0), point_count(8), row_count(1), center_color(0), angle_step(512), hide_center(false), angle(0), seg_mask(0xFFFFFFFF)
+RingEffect::RingEffect(const Vector3 *src_pos, uint32 radius, uint32 extent, uint8 r, uint8 g, uint8 b, uint8 tail_r, uint8 tail_g, uint8 tail_b) : EffectObject(), hd_history(0), ring_points(0), row_points(0), point_count(8), row_count(1), center_color(0), angle_step(512), hide_center(false), angle(0), seg_mask(0xFFFFFFFF)
 {
     FUNCTION_MARKER(0x800346A8, "SLUS_003.73");
     ring_points = (RingPoint *)malloc(16 * sizeof(*ring_points) + 4 * sizeof(XY));
@@ -218,5 +219,6 @@ void RingEffect::Update()
 
 RingEffect::~RingEffect()
 {
+    hd_ring_free(hd_history);
     free(ring_points);
 }

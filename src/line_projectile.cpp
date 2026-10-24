@@ -22,8 +22,9 @@
 #include "vector3.h"
 #include "smoke_emitter.h"
 #include "effect_lifecycle.h"
+#include "hd.h"
 
-LineProjectile::LineProjectile(const Vector3 *input_pos, const ShortVector3 *input_angles, uint32 speed, uint16 damage, ModelInstance **owner_list, uint8 r, uint8 g, uint8 b, uint8 mode) : RenderableEffect(), age(0), lifetime(0), owner_list(0), damage(0), speed(0), ring(), mode(false)
+LineProjectile::LineProjectile(const Vector3 *input_pos, const ShortVector3 *input_angles, uint32 speed, uint16 damage, ModelInstance **owner_list, uint8 r, uint8 g, uint8 b, uint8 mode) : RenderableEffect(), age(0), lifetime(0), owner_list(0), damage(0), speed(0), ring(), mode(false), hd_history(0)
 {
     ShortVector3 rotation;
     Vector3 vector, scaled;
@@ -104,6 +105,32 @@ uint32 LineProjectile::InitializeTrace()
     return result;
 }
 
+bool LineProjectile::CaptureHd(bool logic)
+{
+    const ModelProjectionConfig &proj_cfg = GetModelProjConfig();
+    HD_LINE_SAMPLE line = {0};
+    line.page = EffectObject::GetDrawMode().code[0] & 0x1FF;
+    line.flags = HD_SEMITRANSPARENT;
+    line.sort_endpoint = 2;
+    line.points[0].vx = tail_pos.x / 4096.0f;
+    line.points[0].vy = tail_pos.y / 4096.0f;
+    line.points[0].vz = tail_pos.z / 4096.0f;
+    line.points[1].vx = pos.x / 4096.0f;
+    line.points[1].vy = pos.y / 4096.0f;
+    line.points[1].vz = pos.z / 4096.0f;
+    line.colors[0] = ((197 * rgb.r) >> 8) | (((197 * rgb.g) >> 8) << 8) | (((197 * rgb.b) >> 8) << 16);
+    line.colors[1] = ((49 * rgb.r) >> 7) | (((49 * rgb.g) >> 7) << 8) | (((49 * rgb.b) >> 7) << 16);
+    line.near_depth = proj_cfg.near_depth;
+    line.far_depth = proj_cfg.max_distance;
+    line.clip = 1;
+    return (logic ? hd_line_tick(&hd_history, &line) : hd_line_capture(&hd_history, &line)) != 0;
+}
+
+bool LineProjectile::CaptureHdTick()
+{
+    return CaptureHd(true);
+}
+
 uint32 LineProjectile::Render()
 {
     const ModelProjectionConfig &proj_cfg = GetModelProjConfig();
@@ -113,6 +140,15 @@ uint32 LineProjectile::Render()
     const sint32 packet_size = sizeof(LINE_G2) + sizeof(DR_TPAGE);
     XY scr;
     FUNCTION_MARKER(0x80025BEC, "SLUS_003.73");
+    if (hd_ui_collecting())
+    {
+        if (!CaptureHd(false))
+        {
+            GameDiagnostic(("Cannot capture HD line projectile\n"));
+            abort();
+        }
+        return 0;
+    }
     packet = scene_render.cursor;
     limit = scene_render.limit;
     rejected = limit - packet < packet_size;
@@ -229,6 +265,7 @@ CheckLifetime:
 
 LineProjectile::~LineProjectile()
 {
+    hd_line_free(hd_history);
     if (ring)
         ring->Destroy(3);
 }

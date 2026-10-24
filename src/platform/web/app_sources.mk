@@ -1,4 +1,5 @@
 APP_SOURCES := \
+	../../hd.cpp \
 	../../explosion_ring.cpp \
 	../../checkpoint_names.cpp \
 	../../record_cursor.cpp \

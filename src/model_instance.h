@@ -3,6 +3,7 @@
 
 #include "model_reference.h"
 #include "vector3.h"
+#include "game_lighting.h"
 
 extern "C"
 {
@@ -41,6 +42,9 @@ struct ModelInstance;
 struct ModelPolygon;
 struct ObjectFlash;
 struct ModelAttachmentTable;
+struct HD_OBJECT_STATE;
+struct HD_MODEL_HISTORY;
+struct GameLighting;
 
 // Common model values follow original offsets; list identity has a separate lifetime
 struct ModelInstance
@@ -65,8 +69,11 @@ public:
     uint32 render_mode;
     ScaledObject *owner;
     bool active;
+    GameLighting hd_lighting;
+    bool hd_lighting_valid;
+    mutable HD_MODEL_HISTORY *hd_history;
 
-    ModelInstance() : flags(0), generation(0), model_idx(0), frame(0), flash(0), animation(0), bank(0), color(0), next(0), prev(0), render_mode(0), owner(0), active(true), references(0)
+    ModelInstance() : flags(0), generation(0), model_idx(0), frame(0), flash(0), animation(0), bank(0), color(0), next(0), prev(0), render_mode(0), owner(0), active(true), hd_lighting_valid(false), hd_history(0), references(0)
     {
         for (uint32 axis = 0; axis < 3; ++axis)
         {
@@ -119,6 +126,12 @@ public:
     void InvalidateReferences();
     static void ResetDestruction();
     static void ForgetFlashes(const ModelInstance *objects, uint32 count);
+    void PrepareVisibleDraw(bool update_lighting);
+    bool CaptureHdPrepared(bool update_effects) const;
+    bool CaptureHdTick() const;
+    bool CaptureHdRegistry() const;
+    bool CaptureHdState(HD_OBJECT_STATE &state, const GameLighting &lighting, uint32 mask, const VECTORF &constant) const;
+    void ResetHdHistory();
 };
 
 #endif

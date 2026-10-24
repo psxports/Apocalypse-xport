@@ -59,6 +59,7 @@ struct ModelRenderState
     uint32 reflection_clut;
     uint32 reflection_tpage;
     uint32 reflection_uv;
+    TextureRegion reflection_region;
     uint32 scratch_cache_idx;
     uint32 cache_index;
     uint32 generated_vertex_idx;

@@ -2,5 +2,6 @@
 #define SCENE_EFFECT_PACKETS_H
 
 void BuildSceneEffectPackets();
+bool CaptureHdEffectLogic();
 
 #endif

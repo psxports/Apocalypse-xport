@@ -6,6 +6,8 @@
 #include "renderable_effect.h"
 #include "texture_resources.h"
 
+struct HD_RIBBON_HISTORY;
+
 struct RibbonPoint
 {
     Vector3 pos;
@@ -19,6 +21,7 @@ class RibbonSegments : public RenderableEffect
 {
 private:
     uint8 mode;
+    mutable HD_RIBBON_HISTORY *hd_history;
 
 protected:
     bool hidden;
@@ -39,6 +42,7 @@ private:
 
 private:
     static sint32 CalculateNormal(XY xy0, XY xy1, sint32 *x_ret, sint32 *y_ret, sint32 min_len);
+    uint32 CaptureHd(bool logic) const;
 
 public:
     RibbonSegments(uint32 segs, uint8 mode);
@@ -47,6 +51,7 @@ public:
     uint32 SetColors(uint8 r, uint8 g, uint8 b, uint8 tail_r, uint8 tail_g, uint8 tail_b);
     uint32 SetSize(uint16 width, uint16 height);
     virtual uint32 Render();
+    virtual bool CaptureHdTick();
 
 private:
     RibbonSegments(const RibbonSegments &);

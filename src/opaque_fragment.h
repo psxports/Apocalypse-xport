@@ -4,6 +4,8 @@
 #include "effect_object.h"
 #include "vector3.h"
 
+struct HD_POLYGON_CHAIN;
+
 // Untextured triangle fragments with independent bounce and color fade
 class OpaqueFragment : public EffectObject
 {
@@ -12,6 +14,7 @@ private:
     uint16 lifetime;
 
 public:
+    mutable HD_POLYGON_CHAIN *hd_history;
     Vector3 vertices[3];
 
 private:
@@ -25,9 +28,7 @@ private:
     uint8 fade_step;
 
 public:
-    virtual ~OpaqueFragment()
-    {
-    }
+    virtual ~OpaqueFragment();
 
 public:
     OpaqueFragment(const Vector3 &pos, const Vector3 &velocity, sint32 floor, uint8 r, uint8 g, uint8 b, uint32 extent_x, uint32 extent_y, uint32 extent_z);

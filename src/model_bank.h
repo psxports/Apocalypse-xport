@@ -90,6 +90,9 @@ public:
     static uint32 GetActive(uint32 slot);
     static void ResetActive();
     static void ResetAll();
+    static void ReleaseHdCaches();
+    static HD_BANK *GetHdCache(uint32 bank);
+    static void CaptureHdMaterials();
 };
 
 extern uint8 items_bank;

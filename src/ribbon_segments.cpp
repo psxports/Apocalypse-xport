@@ -10,6 +10,7 @@
 #include "effect_object.h"
 #include "renderable_effect.h"
 #include "texture_resources.h"
+#include "hd.h"
 
 sint32 RibbonSegments::CalculateNormal(XY xy0, XY xy1, sint32 *x_ret, sint32 *y_ret, sint32 min_len)
 {
@@ -38,7 +39,7 @@ sint32 RibbonSegments::CalculateNormal(XY xy0, XY xy1, sint32 *x_ret, sint32 *y_
     return *x_ret;
 }
 
-RibbonSegments::RibbonSegments(uint32 segs, uint8 mode) : RenderableEffect(), mode(mode), hidden(false), u_scroll(0), v_scroll(0), v_step(8), waving(false), point_count(segs), points(0), tex(0)
+RibbonSegments::RibbonSegments(uint32 segs, uint8 mode) : RenderableEffect(), mode(mode), hd_history(0), hidden(false), u_scroll(0), v_scroll(0), v_step(8), waving(false), point_count(segs), points(0), tex(0)
 {
     FUNCTION_MARKER(0x80026A44, "SLUS_003.73");
     if (segs < 2 || segs > 0x7FFFFFFF || segs > 0xFFFFFFFF / 36 || segs > (size_t)-1 / sizeof(*points))
@@ -65,6 +66,7 @@ RibbonSegments::RibbonSegments(uint32 segs, uint8 mode) : RenderableEffect(), mo
 
 RibbonSegments::~RibbonSegments()
 {
+    hd_ribbon_free(hd_history);
     free(points);
 }
 
@@ -155,6 +157,64 @@ static uint32 InsertPacket(uint8 *packet, uint32 *ordering_table)
     return LinkPacket(packet, ordering_table, tag, prev);
 }
 
+uint32 RibbonSegments::CaptureHd(bool logic) const
+{
+    if (hidden)
+    {
+        hd_ribbon_reset(hd_history);
+        return 1;
+    }
+    if (!tex)
+    {
+        GameDiagnostic(("Ribbon texture is not selected\n"));
+        abort();
+    }
+    HD_RIBBON_POINT *draw_points = hd_effect_ribbon_points(point_count);
+    if (!draw_points)
+    {
+        GameDiagnostic(("Cannot capture HD ribbon points\n"));
+        abort();
+    }
+    for (sint32 index = 0; index < point_count; ++index)
+    {
+        const RibbonPoint &point = points[index];
+        HD_RIBBON_POINT &draw = draw_points[index];
+        draw.point.vx = point.pos.x / 4096.0f;
+        draw.point.vy = point.pos.y / 4096.0f;
+        draw.point.vz = point.pos.z / 4096.0f;
+        draw.center = point.center.rgbc;
+        draw.edge = point.edge.rgbc;
+        draw.width = point.width;
+        draw.height = point.height;
+    }
+    HD_RIBBON ribbon = {0};
+    ribbon.points = draw_points;
+    ribbon.count = point_count;
+    ribbon.page = tex->tpage;
+    ribbon.clut = tex->clut;
+    ribbon.texture_region = tex->region;
+    ribbon.u = tex->uv[0].u;
+    ribbon.v = tex->uv[0].v;
+    ribbon.u_scroll = u_scroll;
+    ribbon.v_scroll = v_scroll;
+    ribbon.v_step = v_step;
+    ribbon.tick = game_clock.tick;
+    ribbon.waving = waving;
+    const ModelProjectionConfig &cfg = GetModelProjConfig();
+    if (!(logic ? hd_ribbon_tick(&hd_history, &ribbon, cfg.near_depth, cfg.max_distance) : hd_ribbon_capture(&hd_history, &ribbon, cfg.near_depth, cfg.max_distance)))
+    {
+        GameDiagnostic(("Cannot capture HD ribbon segments\n"));
+        abort();
+    }
+    return 0;
+}
+
+bool RibbonSegments::CaptureHdTick()
+{
+    CaptureHd(true);
+    return true;
+}
+
 uint32 RibbonSegments::Render()
 {
     Vector3 line_start, line_end;
@@ -176,6 +236,9 @@ uint32 RibbonSegments::Render()
     DR_TPAGE *draw_state;
     uint8 *apply_packet, *reset_packet, *state_packet;
     FUNCTION_MARKER(0x80026C68, "SLUS_003.73");
+    if (hd_ui_collecting())
+        return CaptureHd(false);
+    hd_ribbon_reset(hd_history);
     result = hidden;
     if (result)
         return result;

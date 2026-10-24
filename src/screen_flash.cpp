@@ -1,5 +1,6 @@
 #include "scene_lifecycle.h"
 #include "global.h"
+#include "hd.h"
 #include "screen_flash.h"
 
 struct FlashColor
@@ -123,6 +124,16 @@ uint32 DrawScrFlash()
     FUNCTION_MARKER(0x8001C004, "SLUS_003.73");
     if (!scr_flash.flash_ticks && !scr_flash.fading)
         return 0;
+    if (hd_ui_collecting())
+    {
+        HD_UI_QUAD quad;
+        uint32 color = (scr_flash.color.r >> 16) | ((scr_flash.color.g >> 16) << 8) | ((scr_flash.color.b >> 16) << 16);
+        hd_ui_image(&quad, 0, color, HD_SEMITRANSPARENT, scr_flash.depth + 1, HD_UI_STRETCH);
+        quad.page = scr_flash.fading ? 0x640 : 0x620;
+        hd_ui_rect(&quad, 0, 0, 512, 240);
+        hd_ui_add(&quad);
+        return 0;
+    }
     uint32 *entry = scene_render.cur->ot + scr_flash.depth + 1;
     uint8 *packet = scene_render.cursor;
     if (scene_render.limit - packet < (sint32)(sizeof(POLY_F4) + sizeof(DR_TPAGE)))

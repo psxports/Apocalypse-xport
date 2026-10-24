@@ -3,7 +3,7 @@
 #include "global.h"
 #include "textured_effect.h"
 
-EndpointSprite::EndpointSprite() : TexturedEffect()
+EndpointSprite::EndpointSprite() : TexturedEffect(), hd_trail(0)
 {
     for (uint32 end = 0; end < 2; ++end)
         for (uint32 axis = 0; axis < 3; ++axis)

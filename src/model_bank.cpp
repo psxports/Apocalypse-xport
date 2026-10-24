@@ -6,6 +6,7 @@
 #include "model_instance.h"
 #include "game_diagnostics.h"
 #include "model_bank.h"
+#include "hd.h"
 #include "model_clipping.h"
 #include "global.h"
 #include "resource_io.h"
@@ -280,6 +281,35 @@ void ModelBank::SelectReplacement(uint32 slot)
 {
     CheckActiveModelSlot(slot);
     active_model_state.replacement_slot = slot;
+}
+
+void ModelBank::ReleaseHdCaches()
+{
+    for (uint32 i = 0; i < 40; ++i)
+    {
+        hd_bank_free(model_banks[i].geometry.hd);
+        model_banks[i].geometry.hd = 0;
+    }
+}
+
+HD_BANK *ModelBank::GetHdCache(uint32 bank)
+{
+    ModelBank &owner = Get(bank);
+    bool initial = !owner.geometry.hd;
+    HD_BANK *cache = owner.geometry.GetHdCache();
+    if (initial)
+        owner.geometry.CaptureHdMaterials(owner.colors);
+    return cache;
+}
+
+void ModelBank::CaptureHdMaterials()
+{
+    for (uint32 i = 0; i < 40; ++i)
+    {
+        ModelBank &owner = model_banks[i];
+        if (owner.loaded && owner.geometry.hd)
+            owner.geometry.CaptureHdMaterials(owner.colors);
+    }
 }
 
 void ModelBank::ResetAll()
@@ -578,6 +608,10 @@ uint32 ModelBank::LoadResourceData(uint32 bank)
         tex->uv[1].u = right;
         tex->uv[3].u = right;
         tex->uv[0].v = y;
+        tex->region.x = u;
+        tex->region.y = y;
+        tex->region.width = width;
+        tex->region.height = height;
         bottom = height + y - 1;
         x = tex->uv[0].u;
         tex->uv[2].v = bottom;

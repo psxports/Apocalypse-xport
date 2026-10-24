@@ -33,6 +33,7 @@
 #include "collision.h"
 #include "player.h"
 #include "collision_ray_internal.h"
+#include "hd.h"
 
 struct ModelGeometryFile
 {
@@ -93,6 +94,8 @@ static bool CheckGeometrySpan(uint32 bytes, uint32 pos, uint32 count, uint32 str
 
 void ReleaseModelGeometrySet(ModelGeometrySet &owner)
 {
+    hd_bank_free(owner.hd);
+    owner.hd = 0;
     for (uint32 i = 0; i < owner.count; ++i)
     {
         RetireModelMemory(const_cast<SVECTOR *>(owner.models[i].vertices));
@@ -104,9 +107,107 @@ void ReleaseModelGeometrySet(ModelGeometrySet &owner)
     owner.count = 0;
 }
 
+HD_BANK *ModelGeometrySet::GetHdCache()
+{
+    if (hd)
+        return hd;
+    uint64 face_count = 0, vertex_count = 0, index_count = 0;
+    uint32 max_faces = 0;
+    for (uint32 model = 0; model < count; ++model)
+    {
+        const ModelGeometry &geometry = models[model];
+        if (geometry.poly_count > max_faces)
+            max_faces = geometry.poly_count;
+        face_count += geometry.poly_count;
+        for (uint32 face = 0; face < geometry.poly_count; ++face)
+        {
+            bool triangle = (geometry.polys[face].flags & 16) != 0;
+            vertex_count += triangle ? 3 : 4;
+            index_count += triangle ? 3 : 6;
+        }
+    }
+    if (!face_count)
+        return 0;
+    if (face_count > 0xFFFFFFFF || vertex_count > 0xFFFFFFFF || index_count > 0xFFFFFFFF || max_faces > (size_t)-1 / sizeof(HD_SOURCE_FACE))
+    {
+        GameDiagnostic(("HD model geometry exceeds native cache capacity\n"));
+        abort();
+    }
+    HD_SOURCE_FACE *faces = (HD_SOURCE_FACE *)malloc(max_faces * sizeof(HD_SOURCE_FACE));
+    HD_BANK *cache = hd_bank_create(count, (uint32)face_count, (uint32)vertex_count, (uint32)index_count);
+    if (!faces || !cache)
+    {
+        free(faces);
+        hd_bank_free(cache);
+        GameDiagnostic(("Cannot allocate HD model geometry\n"));
+        abort();
+    }
+    for (uint32 model = 0; model < count; ++model)
+    {
+        const ModelGeometry &geometry = models[model];
+        for (uint32 face = 0; face < geometry.poly_count; ++face)
+        {
+            const ModelPolygon &src = geometry.polys[face];
+            HD_SOURCE_FACE &dst = faces[face];
+            dst.flags = src.flags;
+            dst.normal = src.n;
+            dst.color = src.color;
+            dst.clut = src.clut;
+            dst.tpage = src.tpage;
+            dst.window = GetModelPolygonWindow(src);
+            dst.texture_region = src.texture_region;
+            for (uint32 corner = 0; corner < 4; ++corner)
+            {
+                dst.vertex[corner] = src.v[corner];
+                dst.uv[corner] = src.uv[corner].uv;
+            }
+        }
+        HD_SOURCE_MODEL source = {geometry.vertices, geometry.normals, faces, geometry.vertex_count, geometry.n_count, geometry.poly_count, geometry.flags};
+        if (!hd_bank_write_model(cache, model, &source))
+        {
+            free(faces);
+            hd_bank_free(cache);
+            GameDiagnostic(("Invalid HD model geometry source\n"));
+            abort();
+        }
+    }
+    free(faces);
+    if (!hd_bank_seal(cache))
+    {
+        hd_bank_free(cache);
+        GameDiagnostic(("Incomplete HD model geometry cache\n"));
+        abort();
+    }
+    hd = cache;
+    return hd;
+}
+
 uint32 GetModelPolygonWindow(const ModelPolygon &poly)
 {
     return poly.window_alias ? *poly.window_alias : poly.window;
+}
+
+void ModelGeometrySet::CaptureHdMaterials(const ModelPalette &palette)
+{
+    if (!hd)
+        return;
+    uint32 index = 0;
+    for (uint32 model = 0; model < count; ++model)
+    {
+        const ModelGeometry &geometry = models[model];
+        for (uint32 face = 0; face < geometry.poly_count; ++face, ++index)
+        {
+            const ModelPolygon &poly = geometry.polys[face];
+            uint16 uv[4];
+            for (uint32 corner = 0; corner < 4; ++corner)
+                uv[corner] = poly.uv[corner].uv;
+            hd_bank_set_face(hd, index, uv, poly.tpage, poly.clut, poly.flags & 32 ? GetModelPolygonWindow(poly) : 0);
+            hd_bank_set_flags(hd, index, poly.flags);
+            hd_bank_set_region(hd, index, &poly.texture_region);
+        }
+    }
+    hd_bank_set_palette(hd, palette.words, palette.count);
+    hd_bank_commit_materials(hd);
 }
 
 uint32 PackModelPolygonUv(const ModelPolygon &poly, uint32 word)
@@ -199,9 +300,9 @@ static bool CheckModelGeometryInput(const uint8 *data, uint32 bytes, const Textu
 bool DecodeModelGeometrySet(ModelGeometrySet &owner, const uint8 *data, uint32 bytes, const TextureReferences &refs)
 {
     uint32 table, count;
-    if (owner.count || owner.models || !CheckModelGeometryInput(data, bytes, refs, table, count))
+    if (owner.count || owner.models || owner.hd || !CheckModelGeometryInput(data, bytes, refs, table, count))
         return false;
-    ModelGeometrySet decoded = {0, 0};
+    ModelGeometrySet decoded = {0, 0, 0};
     decoded.models = count ? (ModelGeometry *)calloc(count, sizeof(ModelGeometry)) : 0;
     if (count && !decoded.models)
         return false;
@@ -281,6 +382,7 @@ bool DecodeModelGeometrySet(ModelGeometrySet &owner, const uint8 *data, uint32 b
                 }
                 poly.clut = tex.clut;
                 poly.tpage = tex.tpage;
+                poly.texture_region = tex.region;
                 if (poly.flags & 32)
                     poly.window = tex.window;
             }

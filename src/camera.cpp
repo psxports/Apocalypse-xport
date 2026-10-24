@@ -7,6 +7,8 @@
 #include "game_pad_input.h"
 #include "game_tick.h"
 #include "model_render_view.h"
+#include "model_render.h"
+#include "hd.h"
 #include "visual_object.h"
 #include "player.h"
 #include "game_diagnostics.h"
@@ -349,6 +351,19 @@ MATRIX *Camera::PrepareView()
     }
     rotation.ToMatrix(view.rotation);
     return view.SetTranslation();
+}
+
+void Camera::CaptureHd(HD_CAMERA &camera, const ModelViewport &bounds) const
+{
+    QUATF quaternion = {{rotation.x / 4096.0f, rotation.y / 4096.0f, rotation.z / 4096.0f, rotation.w / 4096.0f}};
+    VECTORF position;
+    // The original Quaternion::ToMatrix is transposed relative to QuatMatrixf
+    position.vx = (sint32)((uint32)model.pos.x + (uint32)camera_tuning.view_offset.x) / 4096.0f;
+    position.vy = (sint32)((uint32)model.pos.y + (uint32)camera_tuning.view_offset.y) / 4096.0f;
+    position.vz = (sint32)((uint32)model.pos.z + (uint32)camera_tuning.view_offset.z) / 4096.0f;
+    hd_camera_set_view(&camera, &quaternion, &position);
+    hd_projection(&camera, bounds.distance, bounds.right - bounds.left, bounds.bottom - bounds.top, bounds.center_x - bounds.left, bounds.center_y - bounds.top, bounds.near_depth, bounds.far_depth);
+    camera.mode = mode;
 }
 
 void Camera::ResolveCollisions()

@@ -41,6 +41,7 @@ public:
     ShortVector3 &Scale(const uint32 &scalar, const ShortVector3 &vector);
     ShortVector3 &ShiftRight(const ShortVector3 &vector, const uint32 &shift);
     void BuildRotationMatrix(MATRIX &matrix) const;
+    void BuildRotationMatrixf(MATRIXF &matrix) const;
 };
 
 #endif

@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "game_lighting.h"
+#include "hd.h"
 #include "vector3.h"
 
 GameLighting game_lighting;
@@ -47,4 +48,31 @@ void SetLightingColors(const LightColor &v0, const LightColor &v1, const LightCo
     game_lighting.colors.m[2][0] = v0.b;
     game_lighting.colors.m[2][1] = v1.b;
     game_lighting.colors.m[2][2] = v2.b;
+}
+
+void GameLighting::CaptureHd(HD_LIGHTING &lighting, const MATRIXF &model_rotation, uint32 draw_mask, const VECTORF &constant, float fog_start, sint32 fog_shift) const
+{
+    MATRIXF light;
+    IdentityMatrixf(&light);
+    IdentityMatrixf(&lighting.directions);
+    IdentityMatrixf(&lighting.colors);
+    for (uint32 row = 0; row < 3; ++row)
+        for (uint32 column = 0; column < 3; ++column)
+        {
+            light.m[row][column] = directions.m[row][column] / 4096.0f;
+            lighting.colors.m[row][column] = colors.m[row][column] / 4096.0f;
+        }
+    MulMatrix0f(&light, &model_rotation, &lighting.directions);
+    lighting.world_directions = light;
+    lighting.world_directions_valid = 1;
+    lighting.background.vx = background_color.r;
+    lighting.background.vy = background_color.g;
+    lighting.background.vz = background_color.b;
+    lighting.far_color.vx = far_color.r;
+    lighting.far_color.vy = far_color.g;
+    lighting.far_color.vz = far_color.b;
+    lighting.constant = constant;
+    lighting.draw_mask = draw_mask;
+    lighting.fog_start = fog_start;
+    lighting.fog_shift = fog_shift;
 }

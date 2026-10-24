@@ -14,6 +14,7 @@
 #include "effect_object.h"
 #include "renderable_effect.h"
 #include "texture_resources.h"
+#include "hd.h"
 
 struct MeshRingEffect::Projection
 {
@@ -36,7 +37,7 @@ static uint32 LinkPacket(void *packet, uint32 *ot_entry)
     return result;
 }
 
-MeshRingEffect::MeshRingEffect(sint32 count, uint32 resource) : RenderableEffect(), radius(0), expansion(0), u_scroll(0), v_scroll(0), seg_mask(0xFFFFFFFF), forced_depth(0), seg_count(count), segs(0), proj(0), tex(0)
+MeshRingEffect::MeshRingEffect(sint32 count, uint32 resource) : RenderableEffect(), radius(0), expansion(0), u_scroll(0), v_scroll(0), seg_mask(0xFFFFFFFF), forced_depth(0), seg_count(count), segs(0), proj(0), tex(0), hd_history(0)
 {
     FUNCTION_MARKER(0x80028FB8, "SLUS_003.73");
     angles.x = angles.y = angles.z = 0;
@@ -149,9 +150,81 @@ uint32 MeshRingEffect::SetColors(sint32 r, sint32 g, sint32 b)
     return 0;
 }
 
+uint32 MeshRingEffect::CaptureHd(bool logic) const
+{
+    const uint32 window = 0x318 | ((tex->uv[0].u >> 3) << 10) | ((tex->uv[0].v >> 3) << 15);
+    HD_POLYGON_SAMPLE *samples = hd_polygon_samples(seg_count * 2);
+    if (!samples)
+    {
+        GameDiagnostic(("Cannot stage HD mesh ring\n"));
+        abort();
+    }
+    for (sint32 index = 1; index <= seg_count; ++index)
+    {
+        const Segment &previous = segs[index - 1], &next = segs[index == seg_count ? 0 : index];
+        VECTORF points[2][3];
+        for (uint32 ray = 0; ray < 2; ++ray)
+            for (uint32 corner = 0; corner < 3; ++corner)
+            {
+                const Vector3 &source = ray ? next.v[2 - corner] : previous.v[2 - corner];
+                VECTORF &point = points[ray][corner];
+                point.vx = source.x / 4096.0f;
+                point.vy = source.y / 4096.0f;
+                point.vz = source.z / 4096.0f;
+            }
+        for (uint32 layer = 0; layer < 2; ++layer)
+        {
+            // The original renderer uses the first segment's material templates
+            const POLY_GT4 &material = segs[0].poly[layer];
+            HD_POLYGON_SAMPLE &sample = samples[(index - 1) * 2 + layer];
+            sample = HD_POLYGON_SAMPLE();
+            HD_EFFECT &effect = sample.effect;
+            sample.bias = depth_bias;
+            sample.uv_period = 64;
+            sample.present = (seg_mask >> (index & 31)) & 1;
+            sample.reject_zero_depth = 1;
+            effect.count = 4;
+            effect.space = HD_EFFECT_WORLD;
+            effect.forced_depth = forced_depth;
+            effect.flags = HD_TEXTURED | HD_SEMITRANSPARENT;
+            effect.clut = material.p[0].attr;
+            effect.page = material.p[1].attr;
+            effect.window = window;
+            effect.flags |= HD_FILTERED;
+            effect.texture_region = tex->region;
+            for (uint32 corner = 0; corner < 4; ++corner)
+            {
+                HD_EFFECT_VERTEX &vertex = effect.vertices[corner];
+                vertex.pos = points[corner & 1][layer + (corner >> 1)];
+                vertex.color = material.p[corner].rgbc.rgbc;
+                vertex.u = material.p[corner].uv.u;
+                vertex.v = material.p[corner].uv.v;
+            }
+            memcpy(effect.depth.points, points, sizeof(points));
+            effect.depth.count = 6;
+            effect.depth.rule = HD_DEPTH_MIN;
+        }
+    }
+    if (!(logic ? hd_polygon_chain_tick(&hd_history, samples, seg_count * 2) : hd_polygon_chain_capture(&hd_history, samples, seg_count * 2)))
+    {
+        GameDiagnostic(("Cannot capture HD mesh ring\n"));
+        abort();
+    }
+    return 1;
+}
+
+bool MeshRingEffect::CaptureHdTick()
+{
+    CaptureHd(true);
+    return true;
+}
+
 uint32 MeshRingEffect::Render()
 {
     FUNCTION_MARKER(0x8002948C, "SLUS_003.73");
+    if (hd_ui_collecting())
+        return CaptureHd(false);
+    hd_polygon_chain_reset(hd_history);
     for (sint32 i = 0; i < seg_count; ++i)
     {
         Projection *p = proj + i;
@@ -262,6 +335,7 @@ uint32 MeshRingEffect::Render()
 
 MeshRingEffect::~MeshRingEffect()
 {
+    hd_polygon_chain_free(hd_history);
     free(proj);
     free(segs);
 }

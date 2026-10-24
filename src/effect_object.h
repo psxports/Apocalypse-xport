@@ -10,6 +10,7 @@ extern "C"
 
 #include "texture_resources.h"
 #include "object.h"
+#include "model_reference.h"
 
 // Original texture slots initialized from the table at 800A67CC
 enum EffectResource
@@ -44,6 +45,12 @@ public:
     uint16 depth_bias;
     bool persistent;
     uint8 kind;
+    ModelReference hd_attachment_owner;
+    Vector3 hd_attachment_origin;
+    uint32 hd_attachment_tick;
+    bool hd_attachment_birth_only;
+    mutable VECTORF hd_release_offset;
+    mutable bool hd_release_ready;
 
 private:
     EffectObject **list_head;

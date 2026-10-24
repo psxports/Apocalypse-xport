@@ -934,6 +934,9 @@ uint32 Player::UpdateWeapons(const ShortVector3 &rotation, bool enabled)
     ShortVector3 aim_angles;
     if (!HasModelJointAngles())
         return 0;
+    for (uint32 weapon = 0; weapon < 8; ++weapon)
+        if (weapons[weapon])
+            weapons[weapon]->hd_attachment_owner.SetObject(&model);
     weapon_activity = false;
     if (pad->buttons[18].down && movement_state != 0x40000 && !active_ring_attack && !disable_timer && smartbombs)
     {

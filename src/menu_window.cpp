@@ -389,6 +389,8 @@ uint32 MenuWindow::ResetSelection(uint8 sel)
         row->glow = 0;
         row->brightness = 128;
         row->scale = scale;
+        row->hd_text.initialized = 0;
+        row->hd_arrows.initialized = 0;
     }
     return 0;
 }
@@ -426,6 +428,8 @@ uint32 MenuWindow::AddItem(const char *label)
         abort();
     }
     MenuItem *row = items + count;
+    row->hd_text.initialized = 0;
+    row->hd_arrows.initialized = 0;
     row->label = label;
     row->enabled = true;
     row->height = 0;
@@ -628,44 +632,51 @@ uint32 MenuWindow::Draw(void)
             SetHudTextScale(text_scale);
             draw_color = row->pulse;
             draw_glow = row->glow;
-            width = DrawStyledHudText(scr_pos.x, y, text, 0, draw_color, draw_glow);
+            width = DrawStyledHudTextHistory(row->hd_text, scr_pos.x, y, text, 0, draw_color, draw_glow, hud_text_style.scale);
             if ((has_arrows && (idx == arrow_item)) && !alignment)
             {
                 cur_scale = row->scale;
                 sint32 width_product = (uint32)width * cur_scale;
                 arrow_offset = width_product / 512 + cur_scale * 14 / 256;
-                left_poly = (POLY_F3 *)scene_render.cursor;
-                if (scene_render.limit - scene_render.cursor >= (sint32)(2 * sizeof(*left_poly)))
+                if (hd_ui_collecting())
                 {
-                    right_poly = left_poly + 1;
-                    scene_render.cursor = (uint8 *)(left_poly + 2);
-                    setPolyF3(left_poly);
-                    setPolyF3(right_poly);
-                    setRGB0(left_poly, 255, 0, 0);
-                    left_center = scr_pos.x;
-                    left_poly->p[0].y = y;
-                    left_poly->p[0].x = left_center - arrow_offset;
-                    left_poly->p[1].y = y - 6;
-                    left_edge = left_poly->p[0].x;
-                    left_poly->p[2].y = y + 6;
-                    left_edge -= 20;
-                    left_poly->p[1].x = left_edge;
-                    left_poly->p[2].x = left_edge;
-                    setRGB0(right_poly, 255, 0, 0);
-                    right_center = scr_pos.x;
-                    right_poly->p[0].y = y;
-                    right_poly->p[0].x = right_center + arrow_offset;
-                    right_poly->p[1].y = y - 6;
-                    right_edge = right_poly->p[0].x;
-                    ordering_table = scene_render.cur->ot;
-                    right_poly->p[2].y = y + 6;
-                    right_edge += 20;
-                    right_poly->p[1].x = right_edge;
-                    right_poly->p[2].x = right_edge;
-                    setaddr(left_poly, getaddr(ordering_table));
-                    setaddr(ordering_table, gpu_packet_link((uintptr_t)left_poly));
-                    setaddr(right_poly, getaddr(ordering_table));
-                    setaddr(ordering_table, gpu_packet_link((uintptr_t)right_poly));
+                    hd_ui_arrows(&row->hd_arrows, scr_pos.x, y, arrow_offset);
+                }
+                else
+                {
+                    left_poly = (POLY_F3 *)scene_render.cursor;
+                    if (scene_render.limit - scene_render.cursor >= (sint32)(2 * sizeof(*left_poly)))
+                    {
+                        right_poly = left_poly + 1;
+                        scene_render.cursor = (uint8 *)(left_poly + 2);
+                        setPolyF3(left_poly);
+                        setPolyF3(right_poly);
+                        setRGB0(left_poly, 255, 0, 0);
+                        left_center = scr_pos.x;
+                        left_poly->p[0].y = y;
+                        left_poly->p[0].x = left_center - arrow_offset;
+                        left_poly->p[1].y = y - 6;
+                        left_edge = left_poly->p[0].x;
+                        left_poly->p[2].y = y + 6;
+                        left_edge -= 20;
+                        left_poly->p[1].x = left_edge;
+                        left_poly->p[2].x = left_edge;
+                        setRGB0(right_poly, 255, 0, 0);
+                        right_center = scr_pos.x;
+                        right_poly->p[0].y = y;
+                        right_poly->p[0].x = right_center + arrow_offset;
+                        right_poly->p[1].y = y - 6;
+                        right_edge = right_poly->p[0].x;
+                        ordering_table = scene_render.cur->ot;
+                        right_poly->p[2].y = y + 6;
+                        right_edge += 20;
+                        right_poly->p[1].x = right_edge;
+                        right_poly->p[2].x = right_edge;
+                        setaddr(left_poly, getaddr(ordering_table));
+                        setaddr(ordering_table, gpu_packet_link((uintptr_t)left_poly));
+                        setaddr(right_poly, getaddr(ordering_table));
+                        setaddr(ordering_table, gpu_packet_link((uintptr_t)right_poly));
+                    }
                 }
             }
         }

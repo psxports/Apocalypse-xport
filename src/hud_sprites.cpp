@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "scene_lifecycle.h"
 #include "hud_sprites.h"
 #include "texture_resources.h"
@@ -74,6 +76,14 @@ POLY_F4 *AllocateHudRect(uint32 x, uint32 y, uint32 width, uint32 height, uint8 
     uint8 *packet;
     uint32 bottom, right;
     FUNCTION_MARKER(0x8006D1C0, "SLUS_003.73");
+    if (hd_ui_collecting())
+    {
+        HD_UI_QUAD quad;
+        hd_ui_image(&quad, 0, r | ((uint32)g << 8) | ((uint32)b << 16), 0, depth, hd_ui_anchor((float)(sint32)x));
+        hd_ui_rect(&quad, (float)(sint32)x, (float)(sint32)y, (float)(sint32)(x + width), (float)(sint32)(y + height));
+        hd_ui_add(&quad);
+        return 0;
+    }
     packet = scene_render.cursor;
     if (scene_render.limit - packet < (sint32)sizeof(POLY_F4))
         return 0;
@@ -103,6 +113,15 @@ uint32 QueueHudGradientRect(uint32 x, uint32 y, uint32 width, uint32 height, uin
     uint8 *packet;
     uint32 right, bottom;
     FUNCTION_MARKER(0x8006D294, "SLUS_003.73");
+    if (hd_ui_collecting())
+    {
+        HD_UI_QUAD quad;
+        hd_ui_image(&quad, 0, left_r | ((uint32)left_g << 8) | ((uint32)left_b << 16), 0, depth, hd_ui_anchor((float)(sint32)x));
+        hd_ui_rect(&quad, (float)(sint32)x, (float)(sint32)y, (float)(sint32)(x + width), (float)(sint32)(y + height));
+        quad.color[1] = quad.color[3] = right_r | ((uint32)right_g << 8) | ((uint32)right_b << 16);
+        hd_ui_add(&quad);
+        return 0;
+    }
     packet = scene_render.cursor;
     if (scene_render.limit - packet < (sint32)sizeof(POLY_G4))
         return 1;
@@ -135,4 +154,48 @@ uint32 QueueHudGradientRect(uint32 x, uint32 y, uint32 width, uint32 height, uin
     setaddr(poly, getaddr(ot_entry));
     setaddr(ot_entry, gpu_packet_link((uintptr_t)poly));
     return *ot_entry;
+}
+
+void CaptureHudTexture(const TextureResource &texture, HD_UI_IMAGE &image)
+{
+    memset(&image, 0, sizeof(image));
+    for (uint32 corner = 0; corner < 4; ++corner)
+        image.uv[corner] = texture.uv[corner].uv;
+    image.page = texture.tpage;
+    image.clut = texture.clut;
+    image.region = texture.region;
+}
+
+void CaptureHudImage(const TextureFrame &frame, HD_UI_IMAGE &image)
+{
+    CaptureHudTexture(*frame.tex, image);
+    image.width = frame.w;
+    image.height = frame.h;
+    image.offset_x = frame.ox;
+    image.offset_y = frame.oy;
+}
+
+uint32 DrawHudSprite(uint32 x, uint32 y, const TextureFrame &frame, bool scaled, uint32 color)
+{
+    if (hd_ui_collecting())
+    {
+        HD_UI_IMAGE image;
+        HD_UI_QUAD quad;
+        CaptureHudImage(frame, image);
+        sint32 left = (sint32)x + (scaled ? frame.ox * 8 / 5 : frame.ox);
+        sint32 top = (sint32)y + frame.oy;
+        sint32 width = scaled ? frame.w * 8 / 5 : frame.w;
+        hd_ui_image(&quad, &image, color, HD_TEXTURED, 0, hd_ui_anchor((float)(sint32)x));
+        hd_ui_rect(&quad, (float)(sint16)left, (float)(sint16)top, (float)(sint16)(left + width), (float)(sint16)(top + frame.h));
+        hd_ui_add(&quad);
+        return scaled ? top + frame.h : top;
+    }
+    POLY_FT4 *poly = AllocateHudSpr(frame);
+    if (!poly)
+        return 0;
+    uint32 result = scaled ? PlaceScaledHudSpr(x, y, poly, frame) : PlaceHudSpr(x, y, poly, frame);
+    poly->rgbc.r = color;
+    poly->rgbc.g = color >> 8;
+    poly->rgbc.b = color >> 16;
+    return result;
 }

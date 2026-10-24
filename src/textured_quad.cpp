@@ -4,6 +4,7 @@
 #include "effect_lifecycle.h"
 #include "effect_object.h"
 #include "texture_resources.h"
+#include "hd.h"
 
 void TexturedQuad::SmoothPos(Vector3 &pos, Vector3 &history)
 {
@@ -60,7 +61,7 @@ uint32 TexturedQuad::RestoreListPos(void)
     return 0;
 }
 
-TexturedQuad::TexturedQuad() : EffectObject(), color(0), flags(0), tex(0)
+TexturedQuad::TexturedQuad() : EffectObject(), hd_history(0), color(0), flags(0), tex(0)
 {
     for (uint32 axis = 0; axis < 3; ++axis)
     {
@@ -74,6 +75,11 @@ TexturedQuad::TexturedQuad() : EffectObject(), color(0), flags(0), tex(0)
     FUNCTION_MARKER(0x80033688, "SLUS_003.73");
     color = 0x2C808080;
     AddToList(effect_lists.quads);
+}
+
+TexturedQuad::~TexturedQuad()
+{
+    hd_polygon_chain_free(hd_history);
 }
 
 uint32 TexturedQuad::Destroy(uint32 reason)

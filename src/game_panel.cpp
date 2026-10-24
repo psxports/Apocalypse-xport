@@ -144,6 +144,16 @@ static void DrawWeaponAmmoIndicator(uint32 slot)
         return;
     x = positions[slot].x;
     y = positions[slot].y;
+    if (hd_ui_collecting())
+    {
+        extent = weapon->ammo / 125;
+        if (extent)
+            AllocateHudRect(x, y, extent, 1, 0, 255, 0, 0);
+        AllocateHudRect(x, y, 8, 1, 0, 64, 0, 0);
+        if (hero->sel_weapon == slot)
+            AllocateHudRect(x - 3, y - 1, 13, 4, 128, 128, 128, 0);
+        return;
+    }
     packet = scene_render.cursor;
     limit = scene_render.limit;
     if (limit - packet < (sint32)(2 * sizeof(LINE_F2)))
@@ -191,7 +201,6 @@ void DrawGamePanel()
     uint32 idx, g;
     sint32 x, y, percentage, width, product, height;
     sint32 count, maximum, numerator, sine;
-    POLY_FT4 *packet;
     const TextureFrame *tex;
     FUNCTION_MARKER(0x8006D91C, "SLUS_003.73");
     timer = panel_text.lives_timer;
@@ -199,9 +208,7 @@ void DrawGamePanel()
     {
         tex = &TextureGroup::GetFrame(panel_grp, 1);
         panel_text.lives_timer = timer - 1;
-        packet = AllocateHudSpr(*tex);
-        if (packet)
-            PlaceHudSpr(40, 27, packet, TextureGroup::GetFrame(panel_grp, 1));
+        DrawHudSprite(40, 27, TextureGroup::GetFrame(panel_grp, 1), false, 0x808080);
         if (panel_text.lives_timer)
         {
             if (GetCheatOptions().unlimited_lives)
@@ -243,9 +250,7 @@ void DrawGamePanel()
     x = 412;
     for (sint32 item = 0; item < count && item < 8; ++item)
     {
-        packet = AllocateHudSpr(TextureGroup::GetFrame(panel_grp, 10));
-        if (packet)
-            PlaceScaledHudSpr(x, 25, packet, TextureGroup::GetFrame(panel_grp, 10));
+        DrawHudSprite(x, 25, TextureGroup::GetFrame(panel_grp, 10), true, 0x808080);
         x += 8;
     }
     if (count >= 9)
@@ -255,9 +260,7 @@ void DrawGamePanel()
         count -= 8;
         for (sint32 item = 0; item < count; ++item)
         {
-            packet = AllocateHudSpr(TextureGroup::GetFrame(panel_grp, 10));
-            if (packet)
-                PlaceScaledHudSpr(x, y, packet, TextureGroup::GetFrame(panel_grp, 10));
+            DrawHudSprite(x, y, TextureGroup::GetFrame(panel_grp, 10), true, 0x808080);
             y += 5;
         }
     }
@@ -268,14 +271,7 @@ void DrawGamePanel()
     DrawWeaponAmmoIndicator(5);
     DrawWeaponAmmoIndicator(6);
     DrawWeaponAmmoIndicator(7);
-    packet = AllocateHudSpr(TextureGroup::GetFrame(panel_grp, 0));
-    if (packet)
-    {
-        PlaceScaledHudSpr(436, 46, packet, TextureGroup::GetFrame(panel_grp, 0));
-        packet->rgbc.b = 90;
-        packet->rgbc.g = 90;
-        packet->rgbc.r = 90;
-    }
+    DrawHudSprite(436, 46, TextureGroup::GetFrame(panel_grp, 0), true, 0x5A5A5A);
     hero = visual_lists.players ? static_cast<Player *>(visual_lists.players->owner) : 0;
     if (hero)
     {
@@ -317,9 +313,7 @@ void DrawGamePanel()
         }
         if (tex)
         {
-            packet = AllocateHudSpr(*tex);
-            if (packet)
-                PlaceScaledHudSpr(436, 46, packet, *tex);
+            DrawHudSprite(436, 46, *tex, true, 0x808080);
         }
     }
     if (!hero)
@@ -703,10 +697,8 @@ uint32 DrawMenuLeftHint(void)
     SetHudTextColor(149, 20, 20, 0);
     DrawStyledHudText(92, 210, MenuText::go_back, 0, 0, 256);
     SetHudTextAlignment(0);
-    POLY_FT4 *poly = AllocateHudSpr(TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 1));
     uint32 result = 0;
-    if (poly)
-        result = PlaceScaledHudSpr(64, 211, poly, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 1));
+    result = DrawHudSprite(64, 211, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 1), true, 0x808080);
     SetHudTextScale(256);
     return result;
 }
@@ -719,10 +711,8 @@ static uint32 DrawMenuRightHint(void)
     SetHudTextColor(149, 20, 20, 0);
     DrawStyledHudText(348, 210, MenuText::select, 0, 0, 256);
     SetHudTextAlignment(0);
-    POLY_FT4 *poly = AllocateHudSpr(TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0));
     uint32 result = 0;
-    if (poly)
-        result = PlaceScaledHudSpr(320, 211, poly, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0));
+    result = DrawHudSprite(320, 211, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0), true, 0x808080);
     SetHudTextScale(256);
     return result;
 }
@@ -741,10 +731,7 @@ uint32 DrawMenuCenteredHint(void)
     SetHudTextScale(256);
     SetHudTextColor(149, 20, 20, 0);
     DrawStyledHudText(227, 213, MenuText::select, 0, 0, 256);
-    POLY_FT4 *poly = AllocateHudSpr(TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0));
-    if (poly)
-        return PlaceScaledHudSpr(199, 214, poly, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0));
-    return 0;
+    return DrawHudSprite(199, 214, TextureGroup::GetFrame(EffectObject::GetButtonResourceGrp(), 0), true, 0x808080);
 }
 
 uint32 HasMenuBuffers()

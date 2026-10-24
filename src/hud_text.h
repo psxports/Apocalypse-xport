@@ -10,6 +10,8 @@ extern "C"
 
 #include "texture_resources.h"
 
+struct HD_UI_TEXT_HISTORY;
+
 struct HudTextAnimation
 {
     uint16 duration;
@@ -87,6 +89,8 @@ void SetHudTextDepth(uint16 depth);
 uint32 SetHudTextColor(uint8 r, uint8 g, uint8 b, bool semi_transparent);
 
 uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, uint32 color, uint32 scale);
+uint32 DrawStyledHudTextPair(uint32 x, uint32 y, const char *text, uint32 filter, uint32 color, uint32 scale, uint32 previous_color, uint32 previous_scale);
+uint32 DrawStyledHudTextHistory(HD_UI_TEXT_HISTORY &history, uint32 x, uint32 y, const char *text, uint32 filter, uint32 color, uint32 scale, float text_scale);
 
 void LoadHudTextGlowResource();
 uint32 InitializeHudTextGlowCurve();

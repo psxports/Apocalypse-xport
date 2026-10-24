@@ -91,6 +91,7 @@ static void CopyClippedPolygonMetadata(const ModelPolygon &src, ModelPolygon &ds
     dst.clut = src.clut;
     dst.tpage = src.tpage;
     dst.window = GetModelPolygonWindow(src);
+    dst.texture_region = src.texture_region;
     dst.window_alias = 0;
     if (dst.src_stride == 20 && (dst.flags & 32))
     {

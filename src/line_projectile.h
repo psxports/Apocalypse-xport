@@ -9,6 +9,7 @@
 #include "projectile_line.h"
 
 class RingEffect;
+struct HD_LINE_HISTORY;
 
 class LineProjectile : public RenderableEffect
 {
@@ -24,6 +25,7 @@ private:
     ObjectReference<RingEffect> ring;
     CollisionRay trace;
     bool mode;
+    HD_LINE_HISTORY *hd_history;
 
 public:
     RGBC rgb;
@@ -35,9 +37,11 @@ public:
 private:
     uint32 Finish();
     uint32 InitializeTrace();
+    bool CaptureHd(bool logic);
 
 public:
     virtual uint32 Render();
+    virtual bool CaptureHdTick();
     virtual void Update();
     virtual ~LineProjectile();
 };

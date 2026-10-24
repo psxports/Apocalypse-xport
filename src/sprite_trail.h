@@ -8,6 +8,7 @@
 #include "looping_endpoint_sprite.h"
 
 class LoopingEndpointSprite;
+struct HD_TRAIL_HISTORY;
 
 // Owns sampled positions and their linked endpoint sprites
 class SpriteTrail : public EffectController
@@ -20,6 +21,8 @@ private:
     sint32 sample_count;
     sint32 cur_sample;
     Vector3 *history;
+    uint64 hd_insertions;
+    mutable HD_TRAIL_HISTORY *hd_history;
 
 protected:
     typedef ObjectReference<LoopingEndpointSprite> ChildReference;
@@ -31,6 +34,7 @@ public:
     uint32 SetColors(uint8 r, uint8 g, uint8 b);
     uint32 SetWidth(uint16 width);
     void SetPos(const Vector3 *pos);
+    bool CaptureHd(float near_depth, float far_depth, bool logic) const;
     virtual ~SpriteTrail();
 };
 

@@ -15,6 +15,8 @@ struct ModelJointAngles
     ShortVector3 translation;
 };
 
+struct ModelHierarchyTable;
+
 struct ModelAnimation
 {
     uint16 frame_count;
@@ -22,6 +24,12 @@ struct ModelAnimation
     uint32 bone_count;
     uint32 pose_count;
     ModelPose *poses;
+
+    void CaptureHd(float frame, bool loop, MATRIXF *output, uint32 count) const;
+    void CaptureHdHierarchy(float frame, bool loop, MATRIXF *output, uint32 count, const ModelHierarchyTable &hierarchy) const;
+
+private:
+    void GetHdFramePair(float frame, bool loop, const ModelPose *&a, const ModelPose *&b, float &factor) const;
 };
 
 struct ModelAnimationSet

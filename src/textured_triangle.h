@@ -4,8 +4,10 @@
 #include "effect_object.h"
 #include "vector3.h"
 #include "textured_fragment.h"
+#include "texture_region.h"
 
 class RibbonTrail;
+struct HD_POLYGON_CHAIN;
 
 // TODO Recover the original names for the triangle and fragment owners
 class TexturedTriangle : public EffectObject
@@ -15,6 +17,7 @@ private:
     ShortVector3 n;
 
 public:
+    mutable HD_POLYGON_CHAIN *hd_history;
     Vector3 transformed[4];
 
 protected:
@@ -27,10 +30,9 @@ public:
     RGBC base_color;
     RGBC colors[3];
     uint32 texture_window;
+    TextureRegion texture_region;
 
-    virtual ~TexturedTriangle()
-    {
-    }
+    virtual ~TexturedTriangle();
 
 public:
     TexturedTriangle(const ShortVector3 &v0, const ShortVector3 &v1, const ShortVector3 &v2);

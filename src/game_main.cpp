@@ -53,9 +53,18 @@ extern "C"
 #include "debug_finish_repro.h"
 #include "enemy.h"
 #include "visual_object.h"
+#include "hd.h"
+
+static void FreeHdResources()
+{
+    hd_reset();
+    ModelBank::ReleaseHdCaches();
+    hd_free();
+}
 
 extern "C" void xport_main(void)
 {
+    xport_set_cleanup(FreeHdResources);
     if (!InitializeDataCd())
     {
         xport_message_error("Apocalypse", "Cannot initialize game DATA streams");

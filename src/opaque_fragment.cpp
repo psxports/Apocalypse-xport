@@ -2,8 +2,9 @@
 #include "global.h"
 #include "effect_lifecycle.h"
 #include "effect_object.h"
+#include "hd.h"
 
-OpaqueFragment::OpaqueFragment(const Vector3 &pos, const Vector3 &velocity, sint32 floor, uint8 r, uint8 g, uint8 b, uint32 extent_x, uint32 extent_y, uint32 extent_z) : EffectObject(), bounce_count(0), lifetime(0), floor_y(0), fade_step(0)
+OpaqueFragment::OpaqueFragment(const Vector3 &pos, const Vector3 &velocity, sint32 floor, uint8 r, uint8 g, uint8 b, uint32 extent_x, uint32 extent_y, uint32 extent_z) : EffectObject(), bounce_count(0), lifetime(0), hd_history(0), floor_y(0), fade_step(0)
 {
     uint32 extents[3] = {extent_x, extent_y, extent_z};
     base_color.rgbc = 0;
@@ -31,6 +32,11 @@ OpaqueFragment::OpaqueFragment(const Vector3 &pos, const Vector3 &velocity, sint
     draw_color.b = b;
     lifetime = RandomRange(30) + 30;
     fade_step = 4;
+}
+
+OpaqueFragment::~OpaqueFragment()
+{
+    hd_polygon_chain_free(hd_history);
 }
 
 uint32 OpaqueFragment::Destroy(uint32 reason)

@@ -4,6 +4,7 @@
 #include "model_render_view.h"
 #include "model_instance.h"
 #include "psx.h"
+#include "hd.h"
 #include "global.h"
 #include "scene_lifecycle.h"
 #include "level_session.h"
@@ -201,6 +202,7 @@ uint32 ModelRenderView::Configure(ModelViewport &bounds, uint32 *ordering_table)
     model_render_state.previous_frame = model_render_state.frame;
     model_render_state.frame = next_tick;
     model_render_state.reflection_uv = tex.uv[0].uv;
+    model_render_state.reflection_region = tex.region;
     ModelBank::UpdateColors(animation_bank);
     ModelBank::UpdateColors(ModelBank::GetActive(1));
     ModelBank::UpdateColors(GetRecModelBankSlot());
@@ -232,4 +234,17 @@ void LoadModelLineClipMatrices()
     xport_gte_write_control(18, PackClipPlaneHalves(p[6].n.y, p[6].n.z));
     xport_gte_write_control(19, PackClipPlaneHalves(p[7].n.x, p[7].n.y));
     xport_gte_write_control(20, (uint16)p[7].n.z);
+}
+
+void ModelRenderView::CaptureHd(HD_CAMERA &camera, const ModelViewport &bounds) const
+{
+    MATRIXF world;
+    angles.BuildRotationMatrixf(world);
+    IdentityMatrixf(&camera.view);
+    TransposeMatrixf(&world, &camera.view);
+    VECTORF negative = {-(float)pos.x, -(float)pos.y, -(float)pos.z};
+    VECTORF translated;
+    ApplyMatrixf(&camera.view, &negative, &translated);
+    TransMatrixf(&camera.view, &translated);
+    hd_projection(&camera, bounds.distance, bounds.right - bounds.left, bounds.bottom - bounds.top, bounds.center_x - bounds.left, bounds.center_y - bounds.top, bounds.near_depth, bounds.far_depth);
 }

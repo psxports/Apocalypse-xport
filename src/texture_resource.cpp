@@ -5,6 +5,18 @@
 #include "texture_group_block.h"
 #include "model_vram.h"
 #include "game_diagnostics.h"
+#include "hd.h"
+
+uint32 TextureResource::HdTexelFlags(uint16 selected_clut) const
+{
+    if (!pal || pal->clut != selected_clut || (tpage & 0x180) >= 0x100)
+        return 0;
+    if (pal->texel_classes == 1)
+        return HD_OPAQUE_TEXELS_ONLY;
+    if (pal->texel_classes == 2)
+        return HD_STP_TEXELS_ONLY;
+    return 0;
+}
 
 static TextureResource *tex_buckets[512];
 static uint32 tex_bucket;
@@ -27,6 +39,8 @@ TextureResource *TextureResource::Allocate(uint32 key)
         tex->next->prev = tex;
     tex->key = key;
     tex->loaded = false;
+    tex->region.x = tex->region.y = 0;
+    tex->region.width = tex->region.height = 0;
     tex->refs = 0;
     return tex;
 }

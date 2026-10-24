@@ -3,14 +3,20 @@
 #include "primitive_particle.h"
 #include "effect_lifecycle.h"
 #include "global.h"
+#include "hd.h"
 
 static ParticleSettings particle_settings;
 
-PrimitiveParticle::PrimitiveParticle() : EffectObject()
+PrimitiveParticle::PrimitiveParticle() : EffectObject(), hd_history(0)
 {
     FUNCTION_MARKER(0x80034EF4, "SLUS_003.73");
     memset(&primitive, 0, sizeof(primitive));
     AddToList(effect_lists.particles);
+}
+
+PrimitiveParticle::~PrimitiveParticle()
+{
+    hd_sprite_free(hd_history);
 }
 
 uint32 PrimitiveParticle::Destroy(uint32 reason)

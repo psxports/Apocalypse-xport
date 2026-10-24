@@ -4,6 +4,8 @@
 #include "vector3.h"
 #include "effect_object.h"
 
+struct HD_RING_HISTORY;
+
 struct RingPoint
 {
     uint32 distance;
@@ -13,6 +15,7 @@ struct RingPoint
 class RingEffect : public EffectObject
 {
 public:
+    mutable HD_RING_HISTORY *hd_history;
     RingPoint *ring_points;
     RingPoint *row_points;
     uint32 point_count;

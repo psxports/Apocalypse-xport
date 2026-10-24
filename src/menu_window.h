@@ -7,6 +7,7 @@ extern "C"
 }
 
 #include "object.h"
+#include "hd.h"
 
 namespace MenuText
 {
@@ -143,6 +144,8 @@ struct MenuItem
     uint8 brightness;
     sint16 pulse;
     sint16 glow;
+    HD_UI_TEXT_HISTORY hd_text;
+    HD_UI_ARROW_HISTORY hd_arrows;
 };
 
 class MenuWindow : public Object

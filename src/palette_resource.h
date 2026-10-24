@@ -18,6 +18,7 @@ public:
     uint16 clut;
     uint8 slot;
     uint8 flags;
+    uint8 texel_classes;
     uint16 refs;
     uint32 key;
     PaletteResource *next;

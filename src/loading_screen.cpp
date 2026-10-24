@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "scene_lifecycle.h"
+#include "hd.h"
 #include "loading_screen.h"
 #include "startup_resources.h"
 #include "resource_io.h"
@@ -108,6 +109,37 @@ void InitializeLevelLoadEstimates()
     }
 }
 
+static void PresentLoadingImage(bool initial)
+{
+    if (hd_frame_active())
+        return;
+    HD_FRAME frame = {0};
+    hd_frame_begin(&frame);
+    if (frame.selected)
+    {
+        HD_UI_QUAD quad;
+        if (!initial)
+        {
+            bool estimated = level_loading.expected_bytes && level_loading.expected_bytes >= level_loading.completed_bytes;
+            uint32 width = estimated ? 296 * level_loading.completed_bytes / level_loading.expected_bytes : 296;
+            hd_ui_image(&quad, 0, estimated ? 150 : 0xFF0000, 0, 0, HD_UI_CENTER);
+            hd_ui_rect(&quad, 108, 201, (float)(108 + width), 211);
+            hd_ui_add(&quad);
+        }
+        hd_ui_image(&quad, 0, 0, 0, 0, HD_UI_CENTER);
+        hd_ui_rect(&quad, 108, 201, 404, 211);
+        hd_ui_add(&quad);
+        hd_ui_image(&quad, 0, 100, 0, 0, HD_UI_CENTER);
+        hd_ui_rect(&quad, 106, 200, 406, 212);
+        hd_ui_add(&quad);
+    }
+    if (!hd_frame_image(&frame, 0, 256, 512, 240, false))
+    {
+        GameDiagnostic(("Cannot present loading image\n"));
+        abort();
+    }
+}
+
 uint32 PrepareLevelLoadingScr(const char *name, const char *image)
 {
     FUNCTION_MARKER(0x80016354, "SLUS_003.73");
@@ -125,6 +157,7 @@ uint32 PrepareLevelLoadingScr(const char *name, const char *image)
     rect.w = 296;
     rect.h = 10;
     ClearImage(&rect, 0, 0, 0);
+    PresentLoadingImage(true);
     level_loading.active = true;
     level_loading.expected_bytes = 0;
     level_loading.completed_bytes = 0;
@@ -172,5 +205,6 @@ uint32 DrawLevelLoadProgress()
         result = ClearImage(&rect, 0, 0, 255);
     }
     level_loading.read_pending = false;
+    PresentLoadingImage(false);
     return result;
 }

@@ -2,6 +2,7 @@
 #define ANIMATED_HUD_TEXT_H
 
 #include "psx.h"
+#include "hd.h"
 
 struct HudTextAnimation;
 
@@ -12,6 +13,8 @@ struct AnimatedHudText
     const HudTextAnimation *animation;
     AnimatedHudText *next;
     AnimatedHudText *prev;
+    HD_UI_TEXT_HISTORY hd_text;
+    float hd_previous_scale;
 
 private:
     static AnimatedHudText *Allocate();
@@ -25,6 +28,7 @@ public:
 
 private:
     static uint32 Interpolate(sint32 first, sint32 last, uint16 age, uint16 duration);
+    static float GetHdScale(const HudTextAnimation &animation, uint16 age);
 };
 
 #endif

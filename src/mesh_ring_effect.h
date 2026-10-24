@@ -8,6 +8,7 @@
 
 // TODO Recover the original name for the 0x800A1398 ring mesh family
 class RingAttack;
+struct HD_POLYGON_CHAIN;
 
 class MeshRingEffect : public RenderableEffect
 {
@@ -33,6 +34,7 @@ private:
     Segment *segs;
     Projection *proj;
     const TextureResource *tex;
+    mutable HD_POLYGON_CHAIN *hd_history;
     MeshRingEffect &operator=(const MeshRingEffect &);
 
 public:
@@ -42,10 +44,12 @@ public:
     uint32 SetTexOffsets(uint32 u, uint32 v, uint32 repeats);
     uint32 SetColors(sint32 r, sint32 g, sint32 b);
     virtual uint32 Render();
+    virtual bool CaptureHdTick();
 
 private:
     MeshRingEffect(const MeshRingEffect &);
     static sint32 ReadCameraOffset(sint32 pos, uint32 axis);
+    uint32 CaptureHd(bool logic) const;
 
 public:
     virtual ~MeshRingEffect();

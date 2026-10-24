@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "sequence_transport.h"
+#include "game_tick.h"
 #include "game_diagnostics.h"
 
 static SpuSequenceSchedulerTrack *track_storage;
@@ -236,6 +237,10 @@ static const SpuSequencePumpOps pump_ops = {spu_sequence_vm_flush, TickSequenceT
 extern "C" void TickMusicSequences(void)
 {
     FUNCTION_MARKER(0x8008CFFC, "SLUS_003.73");
+#if defined(_DEBUG)
+    if (scene_timing.active)
+        ++scene_timing.music_callbacks;
+#endif
     if (track_storage)
         spu_sequence_scheduler_pump(&spu_sequence_scheduler, &pump_ops);
 }

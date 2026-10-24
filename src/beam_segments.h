@@ -13,6 +13,9 @@ struct BeamPoint
     XY history[2];
 };
 
+struct HD_BEAM_POINT;
+struct HD_BEAM_HISTORY;
+
 class BeamSegments : public RenderableEffect
 {
 public:
@@ -23,6 +26,9 @@ private:
     uint32 mode;
     struct Projection;
     Projection *proj;
+    HD_BEAM_POINT *hd_points;
+    bool hd_history_valid;
+    HD_BEAM_HISTORY *hd_history;
     BeamSegments &operator=(const BeamSegments &);
 
 public:
@@ -33,9 +39,11 @@ public:
 
 private:
     static void CalculateNormal(const Projection *p, sint32 *x, sint32 *y, sint32 min_len);
+    bool CaptureHd(bool logic);
 
 public:
     virtual uint32 Render();
+    virtual bool CaptureHdTick();
     virtual ~BeamSegments();
 
 private:

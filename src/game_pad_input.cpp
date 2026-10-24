@@ -289,6 +289,10 @@ sint32 GamePadInput::ScaleAxis(sint32 raw, sint32 minimum, sint32 maximum, sint3
 uint32 GamePadInput::Poll(void)
 {
     FUNCTION_MARKER(0x80070748, "SLUS_003.73");
+#if defined(_DEBUG)
+    if (scene_timing.active)
+        ++scene_timing.pad_polls;
+#endif
     /* Service native elapsed VBlank time while the game polls hardware input */
     VSync(-1);
     static const uint32 masks[16] = {16, 128, 32, 64, 4, 1, 8, 2, 32768, 8192, 4096, 16384, 512, 1024, 2048, 256};

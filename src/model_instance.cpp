@@ -5,6 +5,7 @@
 
 #include "model_instance.h"
 #include "psx.h"
+#include "hd.h"
 #include "global.h"
 #include "scene_lifecycle.h"
 #include "level_session.h"
@@ -104,6 +105,7 @@ struct FragmentState
     RGBC color;
     ShortVector3 normal;
     Vector3 origin;
+    TextureRegion texture_region;
 };
 
 static FragmentState fragment_state;
@@ -297,6 +299,15 @@ void ModelInstance::InvalidateReferences()
 ModelInstance::~ModelInstance()
 {
     InvalidateReferences();
+    hd_model_history_free(hd_history);
+}
+
+void ModelInstance::ResetHdHistory()
+{
+    ResetHdCamera(this);
+    hd_model_history_reset(hd_history);
+    if (owner && (flags & 2))
+        static_cast<Character *>(owner)->ResetHdEffects();
 }
 
 void ModelInstance::ResetDestruction()
@@ -520,6 +531,7 @@ uint32 ModelInstance::FragmentPolygon(ModelPolygon *polygon, uint32 subdiv, bool
     {
         fragment_state.clut = polygon->clut;
         fragment_state.tpage = polygon->tpage;
+        fragment_state.texture_region = polygon->texture_region;
     }
     const SVECTOR &src_normal = geometry.normals[polygon->n];
     fragment_state.normal.x = src_normal.vx;
@@ -734,10 +746,54 @@ void ModelInstance::SetAttachmentTable(const ModelAttachmentTable &table) const
     ModelBank::Get(bank).attachments = &table;
 }
 
+void ModelInstance::PrepareVisibleDraw(bool update_lighting)
+{
+    const ModelProjectionConfig &proj_cfg = GetModelProjConfig();
+    uint16 flags = this->flags;
+    uint32 mode;
+    mode = polygon_material_mask;
+    model_render_state.draw.fog_start = proj_cfg.fog_start;
+    model_render_state.draw.fog_shift = proj_cfg.fog_shift;
+    model_render_state.draw.clut = model_render_state.reflection_clut;
+    model_render_state.draw.tpage = model_render_state.reflection_tpage;
+    model_render_state.draw.near_bias = model_render_state.depth_bias[0];
+    model_render_state.draw.far_bias = model_render_state.depth_bias[1];
+    if (flags & 0x80)
+    {
+        mode = (flags & 0x1000) ? (mode & 0xFFF70000) : (mode | 12);
+        if (this->flags & 0x400)
+        {
+            RGBC color;
+            color.rgbc = this->color;
+            game_lighting.background_color.g = color.g << 6;
+            game_lighting.background_color.b = color.b << 6;
+            game_lighting.background_color.r = color.r << 6;
+        }
+    }
+    else if (flags & 0x400)
+    {
+        RGBC color;
+        color.rgbc = this->color;
+        mode = (mode & 0xFFFB0000) | 8;
+        model_render_state.draw.light.x = color.r << 6;
+        model_render_state.draw.light.y = color.g << 6;
+        model_render_state.draw.light.z = color.b << 6;
+    }
+    if (this->flags & 0x800)
+        mode = (mode & 0xFFFFFE7F) | (this->render_mode & 0x180) | 0x40;
+    model_render_state.draw.mode = mode;
+    if (update_lighting)
+    {
+        if (this->flags & 0x80)
+            static_cast<VisualObject *>(this->owner)->UpdateLighting();
+        hd_lighting = game_lighting;
+        hd_lighting_valid = true;
+    }
+}
+
 void ModelInstance::RenderVisibleList(ModelInstance *owner)
 {
     ModelBorrow borrow;
-    const ModelProjectionConfig &proj_cfg = GetModelProjConfig();
     FUNCTION_MARKER(0x8007EBDC, "SLUS_003.73");
     if (!owner)
         return;
@@ -758,51 +814,47 @@ void ModelInstance::RenderVisibleList(ModelInstance *owner)
     {
         const ModelRenderView *camera;
         uint16 flags = owner->flags;
-        uint32 mode, axis;
+        uint32 axis;
         const ModelGeometry *geometry;
         Vector3 pos, t;
         XY vertex;
         MATRIX matrix, combined;
         uint32 normal_count;
         bool transform_matrix;
-        if (flags & 0x8001)
+        if (flags & 1)
             goto NextObject;
         if (!ModelBank::Get(owner->bank).loaded)
             goto NextObject;
-        mode = polygon_material_mask;
-        flags = owner->flags;
-        model_render_state.draw.fog_start = proj_cfg.fog_start;
-        model_render_state.draw.fog_shift = proj_cfg.fog_shift;
-        model_render_state.draw.clut = model_render_state.reflection_clut;
-        model_render_state.draw.tpage = model_render_state.reflection_tpage;
-        model_render_state.draw.near_bias = model_render_state.depth_bias[0];
-        model_render_state.draw.far_bias = model_render_state.depth_bias[1];
-        if (flags & 0x80)
+        if (flags & 0x8000)
         {
-            mode = (flags & 0x1000) ? (mode & 0xFFF70000) : (mode | 12);
-            if (owner->flags & 0x400)
+            if (hd_scene_collecting())
             {
-                RGBC color;
-                color.rgbc = owner->color;
-                game_lighting.background_color.g = color.g << 6;
-                game_lighting.background_color.b = color.b << 6;
-                game_lighting.background_color.r = color.r << 6;
+                GameLighting saved_lighting = game_lighting;
+                ModelDrawContext saved_draw = model_render_state.draw;
+                if (owner->hd_lighting_valid)
+                    game_lighting = owner->hd_lighting;
+                owner->PrepareVisibleDraw(false);
+                bool captured = owner->CaptureHdPrepared(false);
+                game_lighting = saved_lighting;
+                model_render_state.draw = saved_draw;
+                if (!captured)
+                {
+                    GameDiagnostic(("Cannot capture HD model outside the OG frustum\n"));
+                    abort();
+                }
             }
+            goto NextObject;
         }
-        else if (flags & 0x400)
+        owner->PrepareVisibleDraw(true);
+        if (hd_scene_collecting())
         {
-            RGBC color;
-            color.rgbc = owner->color;
-            mode = (mode & 0xFFFB0000) | 8;
-            model_render_state.draw.light.x = color.r << 6;
-            model_render_state.draw.light.y = color.g << 6;
-            model_render_state.draw.light.z = color.b << 6;
+            if (!owner->CaptureHdPrepared(true))
+            {
+                GameDiagnostic(("Cannot capture HD model state\n"));
+                abort();
+            }
+            goto NextObject;
         }
-        if (owner->flags & 0x800)
-            mode = (mode & 0xFFFFFE7F) | (owner->render_mode & 0x180) | 0x40;
-        model_render_state.draw.mode = mode;
-        if (owner->flags & 0x80)
-            static_cast<VisualObject *>(owner->owner)->UpdateLighting();
         flags = owner->flags;
         model_render_state.water_clip_enabled = (flags & 8) != 0;
         if (flags & 2)
@@ -873,6 +925,8 @@ void ResetFragmentState()
     fragment_state.color.rgbc = 0;
     fragment_state.normal.x = fragment_state.normal.y = fragment_state.normal.z = 0;
     fragment_state.origin.x = fragment_state.origin.y = fragment_state.origin.z = 0;
+    fragment_state.texture_region.x = fragment_state.texture_region.y = 0;
+    fragment_state.texture_region.width = fragment_state.texture_region.height = 0;
 }
 
 const Vector3 &GetFragmentOrigin()
@@ -1040,6 +1094,7 @@ static uint32 SpawnTexturedFragments(const Vector3 &vertex0, const Vector3 &vert
     uint16 tpage = fragment_state.tpage;
     result = fragment->SetTexCoords(clut, tpage, u0, v0, u1, v1, u2, v2);
     fragment->texture_window = tex;
+    fragment->texture_region = fragment_state.texture_region;
     return result;
 }
 
@@ -1152,6 +1207,16 @@ void ModelInstance::RenderList(ModelInstance *object)
                 render_flags = (render_flags & 0xFFFFFE7F) | (object->render_mode & 0x180) | 0x40;
             ModelRenderView &view = GetConfiguredModelRenderView();
             model_render_state.draw.mode = render_flags;
+            if (hd_scene_collecting())
+            {
+                if (!object->CaptureHdRegistry())
+                {
+                    GameDiagnostic(("Cannot capture HD camera-relative model\n"));
+                    abort();
+                }
+                object = object->next;
+                continue;
+            }
             SetRotMatrix(&view.projection);
             if (object->angles.x || object->angles.y || object->angles.z)
             {
@@ -1335,4 +1400,127 @@ void ModelInstance::ScaleRotationMatrix(MATRIX &matrix) const
     matrix.m[0][2] = prev_x;
     matrix.m[1][2] = prev_y;
     matrix.m[2][2] = prev_z;
+}
+
+bool ModelInstance::CaptureHdState(HD_OBJECT_STATE &state, const GameLighting &lighting, uint32 mask, const VECTORF &constant) const
+{
+    state.history = 0;
+    state.pose_links = 0;
+    state.pose_link_count = 0;
+    const ModelBank &source = ModelBank::Get(bank);
+    if ((flags & 1) || !source.loaded)
+        return false;
+    state.bank = ModelBank::GetHdCache(bank);
+    if (!state.bank)
+        return false;
+    state.flags = flags;
+    state.near_bias = model_render_state.draw.near_bias;
+    state.far_bias = model_render_state.draw.far_bias;
+    state.water_y = level_environment.water_y / 4096.0f;
+    state.water_clip = flags & 8;
+    state.reflection = source.geometry.models[model_idx].flags & 1;
+    state.reflection_page = model_render_state.reflection_tpage >> 16;
+    state.reflection_clut = model_render_state.reflection_clut >> 16;
+    state.reflection_uv = model_render_state.reflection_uv;
+    state.reflection_region = model_render_state.reflection_region;
+    state.model = model_idx;
+    state.part_count = flags & 2 ? source.geometry.count : 0;
+    state.hidden_parts = 0;
+    if (flags & 2)
+    {
+        const Character &character = *static_cast<const Character *>(owner);
+        state.hidden_parts = character.hidden_models;
+        character.CaptureHdHierarchy(state);
+    }
+    angles.BuildRotationMatrixf(state.transform);
+    if (flags & 512)
+    {
+        VECTORF factors = {scale.x / 4096.0f, scale.y / 4096.0f, scale.z / 4096.0f};
+        ScaleMatrixf(&state.transform, &factors);
+    }
+    state.transform.t[0] = pos.x / 4096.0f;
+    state.transform.t[1] = pos.y / 4096.0f;
+    state.transform.t[2] = pos.z / 4096.0f;
+    const ModelProjectionConfig &projection = GetModelProjConfig();
+    lighting.CaptureHd(state.lighting, state.transform, mask, constant, (float)projection.fog_start, (sint32)projection.fog_shift);
+    state.radius = ModelBank::GetGeometry(bank, model_idx).radius / 4096.0f;
+    if (flags & 512)
+    {
+        float largest = scale.x < 0 ? -(float)scale.x : (float)scale.x;
+        float y = scale.y < 0 ? -(float)scale.y : (float)scale.y;
+        float z = scale.z < 0 ? -(float)scale.z : (float)scale.z;
+        if (y > largest)
+            largest = y;
+        if (z > largest)
+            largest = z;
+        state.radius *= largest / 4096;
+    }
+    return true;
+}
+
+bool ModelInstance::CaptureHdTick() const
+{
+    if (!owner || (flags & 1) || !ModelBank::Get(bank).loaded)
+        return true;
+    HD_OBJECT_STATE state;
+    VECTORF constant = {0, 0, 0};
+    if (!CaptureHdState(state, game_lighting, model_render_state.draw.mode, constant))
+        return false;
+    if (!(flags & 2))
+        return hd_model_history_tick(&hd_history, &state, 0, 0) != 0;
+    uint32 count = ModelBank::Get(bank).geometry.count;
+    MATRIXF *poses = hd_scene_pose_buffer(count);
+    const Character &character = *static_cast<const Character *>(owner);
+    return poses && character.CaptureHdPoses(poses, count) == count && hd_model_history_tick(&hd_history, &state, poses, count) && character.CaptureHdModel(state, poses, count, false, true);
+}
+
+bool ModelInstance::CaptureHdPrepared(bool update_effects) const
+{
+    HD_OBJECT_STATE state;
+    VECTORF constant = {(float)model_render_state.draw.light.x, (float)model_render_state.draw.light.y, (float)model_render_state.draw.light.z};
+    if (!CaptureHdState(state, game_lighting, model_render_state.draw.mode, constant))
+        return false;
+    const ModelBank &source = ModelBank::Get(bank);
+    if (!(flags & 2))
+    {
+        if (source.geometry.models[model_idx].flags & 0x20)
+            return true;
+        if (owner && !hd_model_history_capture(&hd_history, &state, 0, 0))
+            return false;
+        return hd_scene_add(&state, 0, 0) != 0;
+    }
+    const Character &character = *static_cast<const Character *>(owner);
+    uint32 count = source.geometry.count;
+    MATRIXF *poses = hd_scene_pose_buffer(count);
+    if (!poses || character.CaptureHdPoses(poses, count) != count)
+        return false;
+    if (!hd_model_history_capture(&hd_history, &state, poses, count))
+        return false;
+    if (!hd_model_history_copy_poses(hd_history, poses, count))
+        return false;
+    return character.CaptureHdModel(state, poses, count, update_effects, false);
+}
+
+bool ModelInstance::CaptureHdRegistry() const
+{
+    HD_OBJECT_STATE state;
+    memset(&state, 0, sizeof(state));
+    state.bank = ModelBank::GetHdCache(bank);
+    if (!state.bank)
+        return false;
+    state.model = model_idx;
+    state.flags = flags;
+    state.near_bias = model_render_state.draw.near_bias;
+    state.far_bias = model_render_state.draw.far_bias;
+    angles.BuildRotationMatrixf(state.transform);
+    const ModelRenderView &view = GetConfiguredModelRenderView();
+    // Registry geometry rotates around the camera and ignores model position and scale
+    state.transform.t[0] = (float)view.pos.x;
+    state.transform.t[1] = (float)view.pos.y;
+    state.transform.t[2] = (float)view.pos.z;
+    VECTORF constant = {(float)model_render_state.draw.light.x, (float)model_render_state.draw.light.y, (float)model_render_state.draw.light.z};
+    game_lighting.CaptureHd(state.lighting, state.transform, model_render_state.draw.mode, constant, (float)model_render_state.draw.fog_start, (sint32)model_render_state.draw.fog_shift);
+    if (!hd_model_history_capture(&hd_history, &state, 0, 0))
+        return false;
+    return hd_scene_add(&state, 0, 0) != 0;
 }

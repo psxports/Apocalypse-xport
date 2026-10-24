@@ -240,6 +240,14 @@ uint32 Flamethrower::Fire(const Vector3 &input_pos, const ShortVector3 &input_an
     }
     if (object_hit || geometry_hit)
     {
+        // Sphere centres can lie beyond the last visible ribbon point
+        sint32 impact_distance = (sint32)distance;
+        sint32 ribbon_distance = (beam->point_count - 1) * seg_len;
+        if (impact_distance < 0)
+            impact_distance = 0;
+        if (impact_distance > ribbon_distance)
+            impact_distance = ribbon_distance;
+        distance = impact_distance;
         scale = seg_len;
         idx = DivideSignedWord(distance, scale);
         if (idx < 0 || idx >= 20)

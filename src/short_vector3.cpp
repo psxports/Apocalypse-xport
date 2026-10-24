@@ -198,3 +198,13 @@ void ShortVector3::BuildRotationMatrix(MATRIX &matrix) const
     matrix.m[0][2] = ir_x;
     matrix.m[2][2] = ir_z;
 }
+
+void ShortVector3::BuildRotationMatrixf(MATRIXF &matrix) const
+{
+    VECTORF angles;
+    angles.vx = (x & 4095) * RAD12;
+    angles.vy = (y & 4095) * RAD12;
+    angles.vz = (z & 4095) * RAD12;
+    IdentityMatrixf(&matrix);
+    RotMatrixYXZf(&angles, &matrix);
+}

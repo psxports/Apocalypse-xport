@@ -1,4 +1,7 @@
+#include <stdlib.h>
+#include <string.h>
 #include "texture_resources.h"
+#include "game_diagnostics.h"
 #include "psx.h"
 #include "model_render.h"
 #include "scene_lifecycle.h"
@@ -14,12 +17,369 @@
 #include "effect_lifecycle.h"
 #include "sprite.h"
 #include "endpoint_sprite.h"
+#include "sprite_trail.h"
 #include "textured_quad.h"
 #include "ring_effect.h"
 #include "point_segments.h"
 #include "segment_effect.h"
 #include "model_projection.h"
 #include "global.h"
+#include "hd.h"
+#include "model_bank.h"
+#include "model_attachment_data.h"
+#include "game_tick.h"
+
+static void CaptureHdEffectAttachment(HD_ATTACHMENT &attachment, const EffectObject &source)
+{
+    const ModelInstance *model = source.hd_attachment_owner.GetObject();
+    if (!model || !model->hd_history || (source.hd_attachment_birth_only && source.hd_attachment_tick != game_clock.tick))
+        return;
+    const ModelAttachmentTable *table = ModelBank::Get(model->bank).attachments;
+    if (!table || !table->count)
+        return;
+    const ModelAttachmentPoint &point = table->points[0];
+    attachment.owner = model->hd_history;
+    attachment.part = point.bone;
+    attachment.point.vx = point.x;
+    attachment.point.vy = point.y;
+    attachment.point.vz = point.z;
+    attachment.reference.vx = source.hd_attachment_origin.x / 4096.0f;
+    attachment.reference.vy = source.hd_attachment_origin.y / 4096.0f;
+    attachment.reference.vz = source.hd_attachment_origin.z / 4096.0f;
+    if (source.hd_attachment_birth_only)
+    {
+        if (!source.hd_release_ready)
+        {
+            VECTORF socket;
+            if (!hd_model_history_point(model->hd_history, point.bone, &attachment.point, &socket))
+            {
+                attachment.owner = 0;
+                return;
+            }
+            source.hd_release_offset.vx = socket.vx - attachment.reference.vx;
+            source.hd_release_offset.vy = socket.vy - attachment.reference.vy;
+            source.hd_release_offset.vz = socket.vz - attachment.reference.vz;
+            source.hd_release_ready = true;
+        }
+        attachment.reference.vx += source.hd_release_offset.vx;
+        attachment.reference.vy += source.hd_release_offset.vy;
+        attachment.reference.vz += source.hd_release_offset.vz;
+    }
+}
+
+static uint32 CaptureHdEffectFlags(uint32 color)
+{
+    return ((color & 0x1000000) ? HD_RAW_TEXTURE : 0) | ((color & 0x2000000) ? HD_SEMITRANSPARENT : 0);
+}
+
+static void CaptureHdEffectPoint(HD_EFFECT_VERTEX &vertex, const Vector3 &pos, uint32 color, float scale)
+{
+    hd_effect_point(&vertex.pos, pos.x * scale, pos.y * scale, pos.z * scale);
+    vertex.color = color;
+}
+
+static void CaptureHdEffectTexture(HD_EFFECT &effect, const TextureResource &tex)
+{
+    effect.page = tex.tpage;
+    effect.clut = tex.clut;
+    effect.flags |= HD_TEXTURED | HD_FILTERED | tex.HdTexelFlags(tex.clut);
+    effect.texture_region = tex.region;
+    for (uint32 corner = 0; corner < 4; ++corner)
+    {
+        effect.vertices[corner].u = tex.uv[corner].u;
+        effect.vertices[corner].v = tex.uv[corner].v;
+    }
+}
+
+static void CaptureHdLinePoint(VECTORF &point, const Vector3 &source)
+{
+    point.vx = source.x / 4096.0f;
+    point.vy = source.y / 4096.0f;
+    point.vz = source.z / 4096.0f;
+}
+
+static bool CaptureHdSceneEffects(bool logic)
+{
+    const ModelProjectionConfig &cfg = GetModelProjConfig();
+    uint16 page = EffectObject::GetDrawMode().code[0] & 0x1FF;
+    for (EffectObject *node = effect_lists.rings; node; node = node->next)
+    {
+        const RingEffect *source = static_cast<const RingEffect *>(node);
+        uint32 count = source->point_count * (source->row_count + 1);
+        HD_RING_POINT *points = hd_effect_ring_points(count);
+        if (!points)
+            return false;
+        for (uint32 index = 0; index < count; ++index)
+        {
+            const RingPoint &point = index < source->point_count ? source->ring_points[index] : source->row_points[index - source->point_count];
+            points[index].distance = point.distance;
+            points[index].color = point.color;
+        }
+        HD_RING ring = {0};
+        CaptureHdEffectAttachment(ring.attachment, *source);
+        CaptureHdLinePoint(ring.center, source->pos);
+        ring.points = points;
+        ring.count = source->point_count;
+        ring.rows = source->row_count;
+        ring.mask = source->seg_mask;
+        ring.color = source->center_color;
+        ring.angle = RAD12 * (source->angle & 4095);
+        ring.step = RAD12 * (sint16)source->angle_step;
+        ring.page = page;
+        ring.hide_center = source->hide_center;
+        if (!(logic ? hd_ring_tick(&source->hd_history, &ring) : hd_ring_capture(&source->hd_history, &ring)))
+            return false;
+    }
+    for (EffectObject *node = effect_lists.segments; node; node = node->next)
+    {
+        const SegmentEffect *segments = static_cast<const SegmentEffect *>(node);
+        HD_LINE_SAMPLE *lines = hd_line_samples(segments->point_count);
+        if (segments->point_count && !lines)
+            return false;
+        for (sint32 index = 0; index < segments->point_count; ++index)
+        {
+            HD_LINE_SAMPLE &line = lines[index];
+            line = HD_LINE_SAMPLE();
+            line.page = page;
+            CaptureHdLinePoint(line.points[0], index ? segments->points[index - 1].pos : segments->origin);
+            CaptureHdLinePoint(line.points[1], segments->points[index].pos);
+            line.colors[0] = index ? segments->points[index - 1].rgbc.rgbc : segments->rgbc.rgbc;
+            line.colors[1] = segments->points[index].rgbc.rgbc;
+            line.flags = CaptureHdEffectFlags(line.colors[0]);
+            line.clip = 1;
+            line.forced = segments->forced_depth;
+            line.near_depth = cfg.near_depth;
+            line.far_depth = cfg.max_distance;
+        }
+        if (!(logic ? hd_line_chain_tick(&segments->hd_history, lines, segments->point_count) : hd_line_chain_capture(&segments->hd_history, lines, segments->point_count)))
+            return false;
+    }
+    for (EffectObject *node = effect_lists.points; node; node = node->next)
+    {
+        const PointSegments *points = static_cast<const PointSegments *>(node);
+        HD_LINE_SAMPLE *lines = hd_line_samples(points->point_count);
+        if (points->point_count && !lines)
+            return false;
+        for (sint32 index = 0; index < points->point_count; ++index)
+        {
+            uint32 color = points->points[index].rgbc.rgbc;
+            HD_LINE_SAMPLE &line = lines[index];
+            line = HD_LINE_SAMPLE();
+            line.page = page;
+            CaptureHdLinePoint(line.points[0], index ? points->points[index - 1].pos : points->origin);
+            CaptureHdLinePoint(line.points[1], points->points[index].pos);
+            line.colors[0] = line.colors[1] = color;
+            line.flags = CaptureHdEffectFlags(color);
+            line.clip = 1;
+            line.forced = points->forced_depth;
+            line.near_depth = cfg.near_depth;
+            line.far_depth = cfg.max_distance;
+        }
+        if (!(logic ? hd_line_chain_tick(&points->hd_history, lines, points->point_count) : hd_line_chain_capture(&points->hd_history, lines, points->point_count)))
+            return false;
+    }
+    for (EffectObject *node = effect_lists.sprs; node; node = node->next)
+    {
+        const Sprite *sprite = static_cast<const Sprite *>(node);
+        const TextureFrame &frame = sprite->GetTexFrame();
+        const TextureResource &tex = *frame.tex;
+        HD_UI_IMAGE image = {0};
+        VECTORF world = {sprite->pos.x / 4096.0f, sprite->pos.y / 4096.0f, sprite->pos.z / 4096.0f};
+        image.page = (tex.tpage & ~0x60) | sprite->blend_mode;
+        image.clut = sprite->clut ? sprite->clut : tex.clut;
+        image.region = tex.region;
+        image.width = frame.w;
+        image.height = frame.h;
+        image.offset_x = frame.ox;
+        image.offset_y = frame.oy;
+        for (uint32 corner = 0; corner < 4; ++corner)
+            image.uv[corner] = tex.uv[corner].uv;
+        HD_SPRITE_SAMPLE sample = {0};
+        CaptureHdEffectAttachment(sample.attachment, *sprite);
+        sample.pos = world;
+        sample.pos.vx += sprite->hd_release_offset.vx;
+        sample.pos.vy += sprite->hd_release_offset.vy;
+        sample.pos.vz += sprite->hd_release_offset.vz;
+        sample.image = image;
+        sample.color = sprite->color;
+        sample.flags = CaptureHdEffectFlags(sprite->color) | HD_FILTERED | tex.HdTexelFlags(image.clut);
+        sample.size = (sint16)sprite->size;
+        sample.scale_x = sprite->scale[0] / 4096.0f;
+        sample.scale_y = sprite->scale[1] / 4096.0f;
+        sample.angle = RAD12 * (sprite->angle & 4095);
+        sample.flip = sprite->flags & 1;
+        sample.bias = sprite->depth_bias;
+        sample.forced = sprite->forced_depth;
+        sample.near_depth = (logic ? model_viewport.distance : model_render_state.viewport->distance) / 2.0f;
+        sample.far_depth = cfg.max_distance;
+        sample.large = sprite->flags & 8;
+        if (!(logic ? hd_sprite_tick(&sprite->hd_history, &sample) : hd_sprite_capture(&sprite->hd_history, &sample)))
+            return false;
+    }
+    for (EffectObject *node = effect_lists.opaque_fragments; node; node = node->next)
+    {
+        const OpaqueFragment *fragment = static_cast<const OpaqueFragment *>(node);
+        HD_POLYGON_SAMPLE sample = {0};
+        HD_EFFECT &effect = sample.effect;
+        sample.present = 1;
+        effect.count = 3;
+        effect.space = HD_EFFECT_WORLD;
+        effect.page = page;
+        effect.flags = HD_SEMITRANSPARENT;
+        for (uint32 corner = 0; corner < 3; ++corner)
+        {
+            CaptureHdLinePoint(effect.vertices[corner].pos, fragment->vertices[corner]);
+            effect.vertices[corner].color = fragment->draw_color.rgbc;
+        }
+        effect.depth.points[0] = effect.vertices[2].pos;
+        effect.depth.count = 1;
+        effect.depth.rule = HD_DEPTH_MIN;
+        if (!(logic ? hd_polygon_chain_tick(&fragment->hd_history, &sample, 1) : hd_polygon_chain_capture(&fragment->hd_history, &sample, 1)))
+            return false;
+    }
+    for (EffectObject *node = effect_lists.lines; node; node = node->next)
+    {
+        const LineEffect *source = static_cast<const LineEffect *>(node);
+        HD_LINE_SAMPLE line = {0};
+        line.page = page;
+        line.flags = CaptureHdEffectFlags(source->color[0]);
+        for (uint32 corner = 0; corner < 2; ++corner)
+        {
+            line.points[corner].vx = source->endpoint[corner].x / 4096.0f;
+            line.points[corner].vy = source->endpoint[corner].y / 4096.0f;
+            line.points[corner].vz = source->endpoint[corner].z / 4096.0f;
+            line.colors[corner] = source->color[corner];
+        }
+        line.near_depth = cfg.near_depth;
+        line.far_depth = cfg.max_distance;
+        if (!(logic ? hd_line_tick(&source->hd_history, &line) : hd_line_capture(&source->hd_history, &line)))
+            return false;
+    }
+    for (EffectObject *node = effect_lists.quads; node; node = node->next)
+    {
+        const TexturedQuad *source = static_cast<const TexturedQuad *>(node);
+        if (!source->GetTex())
+        {
+            hd_polygon_chain_reset(source->hd_history);
+            continue;
+        }
+        HD_POLYGON_SAMPLE sample = {0};
+        HD_EFFECT &effect = sample.effect;
+        sample.present = 1;
+        sample.bias = source->depth_bias;
+        effect.count = 4;
+        effect.space = HD_EFFECT_WORLD;
+        effect.flags = CaptureHdEffectFlags(source->color);
+        CaptureHdEffectTexture(effect, *source->GetTex());
+        if (source->flags & 4)
+            effect.page = (effect.page & ~0x60) | 0x40;
+        for (uint32 corner = 0; corner < 4; ++corner)
+        {
+            CaptureHdLinePoint(effect.vertices[corner].pos, corner ? source->corners[corner - 1] : source->pos);
+            effect.vertices[corner].color = source->color;
+            effect.depth.points[corner] = effect.vertices[corner].pos;
+        }
+        effect.depth.count = 4;
+        effect.depth.rule = HD_DEPTH_MAX;
+        if (!(logic ? hd_polygon_chain_tick(&source->hd_history, &sample, 1) : hd_polygon_chain_capture(&source->hd_history, &sample, 1)))
+            return false;
+    }
+    for (EffectObject *node = effect_lists.textured_triangles; node; node = node->next)
+    {
+        static const uint8 faces[4][3] = {{0, 1, 2}, {0, 3, 1}, {1, 3, 2}, {2, 3, 0}};
+        const TexturedTriangle *source = static_cast<const TexturedTriangle *>(node);
+        VECTORF points[4];
+        HD_POLYGON_SAMPLE samples[4] = {{0}};
+        for (uint32 corner = 0; corner < 4; ++corner)
+        {
+            points[corner].vx = (float)source->transformed[corner].x;
+            points[corner].vy = (float)source->transformed[corner].y;
+            points[corner].vz = (float)source->transformed[corner].z;
+        }
+        for (uint32 face = 0; face < 4; ++face)
+        {
+            HD_EFFECT &effect = samples[face].effect;
+            samples[face].present = 1;
+            uint32 color = face ? source->colors[face - 1].rgbc : source->base_color.rgbc;
+            const uint16 uv[3] = {(uint16)source->uv_clut, (uint16)source->uv_tpage, source->uv_tail};
+            effect.count = 3;
+            effect.space = HD_EFFECT_WORLD;
+            effect.flags = HD_TEXTURED | CaptureHdEffectFlags(color);
+            effect.clut = source->uv_clut >> 16;
+            effect.page = source->uv_tpage >> 16;
+            effect.window = source->texture_window;
+            effect.texture_region = source->texture_region;
+            effect.flags |= HD_FILTERED;
+            effect.cull_positive = 1;
+            for (uint32 corner = 0; corner < 3; ++corner)
+            {
+                HD_EFFECT_VERTEX &vertex = effect.vertices[corner];
+                vertex.pos = points[faces[face][corner]];
+                vertex.color = color;
+                vertex.u = uv[corner] & 255;
+                vertex.v = uv[corner] >> 8;
+            }
+            memcpy(effect.depth.points, points, sizeof(points));
+            effect.depth.count = 4;
+            effect.depth.rule = HD_DEPTH_MAX;
+        }
+        if (!(logic ? hd_polygon_chain_tick(&source->hd_history, samples, 4) : hd_polygon_chain_capture(&source->hd_history, samples, 4)))
+            return false;
+    }
+    for (EffectObject *node = effect_lists.particles; node; node = node->next)
+    {
+        const PrimitiveParticle *source = static_cast<const PrimitiveParticle *>(node);
+        const TILE &tile = source->primitive;
+        HD_SPRITE_SAMPLE sample = {0};
+        sample.pos.vx = source->pos.x / 4096.0f;
+        sample.pos.vy = source->pos.y / 4096.0f;
+        sample.pos.vz = source->pos.z / 4096.0f;
+        sample.flags = CaptureHdEffectFlags(tile.rgbc.rgbc);
+        sample.image.page = page;
+        sample.color = tile.rgbc.rgbc;
+        bool single = (tile.w & 15) == 1;
+        sample.scale_x = single ? 1 : tile.w;
+        sample.scale_y = single ? 1 : tile.h;
+        sample.pixels = 1;
+        sample.bias = source->depth_bias;
+        sample.near_depth = cfg.near_depth;
+        sample.far_depth = cfg.max_distance;
+        if (!(logic ? hd_sprite_tick(&source->hd_history, &sample) : hd_sprite_capture(&source->hd_history, &sample)))
+            return false;
+    }
+    HD_STRIP strip = {0};
+    for (EffectObject *node = effect_lists.endpoint_sprs; node; node = node->next)
+    {
+        const EndpointSprite *source = static_cast<const EndpointSprite *>(node);
+        if (source->hd_trail)
+        {
+            if (!source->hd_trail->CaptureHd(cfg.near_depth, cfg.max_distance, logic))
+                return false;
+            continue;
+        }
+        if (logic)
+            continue;
+        const TextureFrame &frame = source->GetTexFrame();
+        HD_EFFECT effect = {0};
+        effect.flags = CaptureHdEffectFlags(source->color);
+        CaptureHdEffectTexture(effect, *frame.tex);
+        for (uint32 corner = 0; corner < 4; ++corner)
+            effect.vertices[corner].color = source->color;
+        for (uint32 end = 0; end < 2; ++end)
+            CaptureHdEffectPoint(effect.vertices[end], source->endpoint[end], source->color, 1.0f / 4096);
+        if (!hd_effect_strip(&strip, &effect, (sint16)source->size, frame.w, source->flags, source->depth_bias, cfg.near_depth, cfg.max_distance))
+            return false;
+    }
+    return true;
+}
+
+bool CaptureHdEffectLogic()
+{
+    for (EffectObject *node = effect_lists.renderables; node; node = node->next)
+        if (node->IsAlive() && !static_cast<RenderableEffect *>(node)->CaptureHdTick())
+            return false;
+    return CaptureHdSceneEffects(true);
+}
 
 // Ribbon joins retain full signed32 coordinates until GPU packet publication
 struct RibbonScreenPoint
@@ -137,6 +497,16 @@ void BuildSceneEffectPackets()
             static_cast<RenderableEffect *>(render_node)->Render();
     }
 
+    if (hd_ui_collecting())
+    {
+        if (!CaptureHdSceneEffects(false))
+        {
+            GameDiagnostic(("Cannot capture HD scene effects\n"));
+            abort();
+        }
+        return;
+    }
+
     for (EffectObject *ring_node = effect_lists.rings; ring_node; ring_node = ring_node->next)
     {
         sint16 ring_vertex_x;
@@ -192,6 +562,7 @@ void BuildSceneEffectPackets()
         const sint32 state_size = sizeof(DR_TPAGE);
         const sint32 tri_size = sizeof(POLY_G3);
         const sint32 quad_size = sizeof(POLY_G4);
+        hd_ring_reset(ring->hd_history);
         ring_world_pos.ShiftRight(ring->pos, world_shift);
         ring_relative_pos.Subtract(ring_world_pos, view_pos);
         packed_vertex_xy = ((uint32)ring_relative_pos.x & 0xFFFF) | (((uint32)ring_relative_pos.y & 0xFFFF) << 16);
@@ -727,6 +1098,7 @@ void BuildSceneEffectPackets()
     for (EffectObject *fragment_node = effect_lists.opaque_fragments; fragment_node; fragment_node = fragment_node->next)
     {
         const OpaqueFragment *fragment = static_cast<const OpaqueFragment *>(fragment_node);
+        hd_polygon_chain_reset(fragment->hd_history);
         LoadEffectTriangleVertex(fragment->vertices[0], view_pos, 0);
         LoadEffectTriangleVertex(fragment->vertices[1], view_pos, 2);
         LoadEffectTriangleVertex(fragment->vertices[2], view_pos, 4);
@@ -806,6 +1178,7 @@ void BuildSceneEffectPackets()
     for (EffectObject *quad_node = effect_lists.quads; quad_node; quad_node = quad_node->next)
     {
         const TexturedQuad *quad = static_cast<TexturedQuad *>(quad_node);
+        hd_polygon_chain_reset(quad->hd_history);
         if (!quad->GetTex())
             continue;
         const uint32 world_shift = 12;
@@ -899,6 +1272,7 @@ void BuildSceneEffectPackets()
     for (EffectObject *triangle_node = effect_lists.textured_triangles; triangle_node; triangle_node = triangle_node->next)
     {
         const TexturedTriangle *triangle = static_cast<const TexturedTriangle *>(triangle_node);
+        hd_polygon_chain_reset(triangle->hd_history);
         const sint32 packet_size = sizeof(POLY_FT3);
         const sint32 max_packet_bytes = 2 * sizeof(DR_TWIN) + 4 * sizeof(POLY_FT3);
         const uint8 face_vertices[4][3] = {{0, 1, 2}, {0, 3, 1}, {1, 3, 2}, {2, 3, 0}};

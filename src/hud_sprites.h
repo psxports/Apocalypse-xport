@@ -1,6 +1,8 @@
 #ifndef HUD_SPRITES_H
 #define HUD_SPRITES_H
 
+#include "hd.h"
+
 extern "C"
 {
 #include "psx.h"
@@ -9,6 +11,10 @@ extern "C"
 uint32 QueueHudGradientRect(uint32 x, uint32 y, uint32 width, uint32 height, uint8 right_r, uint8 right_g, uint8 right_b, uint8 left_r, uint8 left_g, uint8 left_b, uint32 depth);
 POLY_F4 *AllocateHudRect(uint32 x, uint32 y, uint32 width, uint32 height, uint8 r, uint8 g, uint8 b, uint32 depth);
 struct TextureFrame;
+struct TextureResource;
+void CaptureHudTexture(const TextureResource &texture, HD_UI_IMAGE &image);
+void CaptureHudImage(const TextureFrame &frame, HD_UI_IMAGE &image);
+uint32 DrawHudSprite(uint32 x, uint32 y, const TextureFrame &frame, bool scaled, uint32 color);
 POLY_FT4 *AllocateHudSpr(const TextureFrame &frame);
 uint32 PlaceScaledHudSpr(uint32 x, uint32 y, POLY_FT4 *poly, const TextureFrame &frame);
 uint32 PlaceHudSpr(uint32 x, uint32 y, POLY_FT4 *poly, const TextureFrame &frame);

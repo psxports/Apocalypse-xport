@@ -1,8 +1,9 @@
 #include "line_effect.h"
 #include "effect_lifecycle.h"
 #include "object_initializers.h"
+#include "hd.h"
 
-LineEffect::LineEffect() : EffectObject()
+LineEffect::LineEffect() : EffectObject(), hd_history(0)
 {
     FUNCTION_MARKER(0x80032824, "SLUS_003.73");
     color[0] = 0x50808080;
@@ -10,6 +11,11 @@ LineEffect::LineEffect() : EffectObject()
     endpoint[0] = zero_vector;
     endpoint[1] = zero_vector;
     AddToList(effect_lists.lines);
+}
+
+LineEffect::~LineEffect()
+{
+    hd_line_free(hd_history);
 }
 
 uint32 LineEffect::Destroy(uint32 reason)

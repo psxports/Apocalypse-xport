@@ -114,7 +114,7 @@
 
       <SDLCheck>true</SDLCheck>
 
-      <PreprocessorDefinitions>GAPI_OGL;XPORT_ENABLE_AUDIT;XPORT_MEMORY_DIAGNOSTICS;_CRT_SECURE_NO_WARNINGS;FULL_NAME="Apocalypse";WND_TITLE="Apocalypse (xport)";WND_WIDTH=960;WND_HEIGHT=720;FIELD_RATE=50;XPORT_AUDIO_VBLANK_QUEUE=1;MDEC_CUSTOM=1;XPORT_NATIVE_VAB=1;XPORT_NATIVE_SEQUENCE=1;XPORT_NATIVE_VM=1;XPORT_NATIVE_CD=1;XPORT_NATIVE_CALLBACK_BOOTSTRAP=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>GAPI_OGL;XPORT_ENABLE_AUDIT;XPORT_MEMORY_DIAGNOSTICS;_CRT_SECURE_NO_WARNINGS;FULL_NAME="Apocalypse";WND_TITLE="Apocalypse (xport)";WND_WIDTH=960;WND_HEIGHT=720;FIELD_RATE=60;XPORT_AUDIO_VBLANK_QUEUE=1;MDEC_CUSTOM=1;XPORT_NATIVE_VAB=1;XPORT_NATIVE_SEQUENCE=1;XPORT_NATIVE_VM=1;XPORT_NATIVE_CD=1;XPORT_NATIVE_CALLBACK_BOOTSTRAP=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
 
       <AdditionalIncludeDirectories>$(ProjectDir)..\..;$(ProjectDir)..\..\..\..\xport\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
 
@@ -161,7 +161,7 @@
 
       <SDLCheck>false</SDLCheck>
 
-      <PreprocessorDefinitions>GAPI_OGL;_CRT_SECURE_NO_WARNINGS;FULL_NAME="Apocalypse";WND_TITLE="Apocalypse (xport)";WND_WIDTH=960;WND_HEIGHT=720;FIELD_RATE=50;XPORT_AUDIO_VBLANK_QUEUE=1;MDEC_CUSTOM=1;XPORT_NATIVE_VAB=1;XPORT_NATIVE_SEQUENCE=1;XPORT_NATIVE_VM=1;XPORT_NATIVE_CD=1;XPORT_NATIVE_CALLBACK_BOOTSTRAP=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>GAPI_OGL;_CRT_SECURE_NO_WARNINGS;FULL_NAME="Apocalypse";WND_TITLE="Apocalypse (xport)";WND_WIDTH=960;WND_HEIGHT=720;FIELD_RATE=60;XPORT_AUDIO_VBLANK_QUEUE=1;MDEC_CUSTOM=1;XPORT_NATIVE_VAB=1;XPORT_NATIVE_SEQUENCE=1;XPORT_NATIVE_VM=1;XPORT_NATIVE_CD=1;XPORT_NATIVE_CALLBACK_BOOTSTRAP=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
 
       <AdditionalIncludeDirectories>$(ProjectDir)..\..;$(ProjectDir)..\..\..\..\xport\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
 
@@ -609,6 +609,7 @@
 
   <ItemGroup>
     <ClCompile Include="..\..\global.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
+    <ClCompile Include="..\..\hd.cpp"><CompileAs>CompileAsCpp</CompileAs></ClCompile>
     <ClCompile Include="..\..\game_main.cpp">
 
       <CompileAs>CompileAsCpp</CompileAs>
@@ -714,6 +715,7 @@
     <ClCompile Include="..\..\..\..\xport\src\psx_mdec.c" />
 
     <ClCompile Include="..\..\..\..\xport\src\psx_press.c" />
+    <ClCompile Include="..\..\..\..\xport\src\xport_fmv.c" />
 
     <ClCompile Include="..\..\..\..\xport\src\psx_vlc.c" />
 

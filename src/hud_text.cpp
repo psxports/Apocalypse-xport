@@ -8,6 +8,7 @@
 #include "model_projection.h"
 #include "global.h"
 #include "hud_text.h"
+#include "hud_sprites.h"
 #include "model_bank.h"
 #include "game_diagnostics.h"
 #include "texture_resources.h"
@@ -288,6 +289,33 @@ uint32 DrawHudTextQueue()
             const TextureResource &tex = *frame.tex;
             if (frame.w < 4)
                 ++x;
+            if (hd_ui_collecting())
+            {
+                HD_UI_IMAGE image;
+                HD_UI_QUAD quad;
+                CaptureHudImage(frame, image);
+                width = tex.uv[1].u - tex.uv[0].u;
+                height = tex.uv[2].v - tex.uv[0].v;
+                uint32 flags = HD_TEXTURED | (command & 0x1000000 ? HD_RAW_TEXTURE : 0) | (command & 0x2000000 ? HD_SEMITRANSPARENT : 0);
+                uint32 anchor = row->projected || x == 256 ? HD_UI_CENTER : (x < 256 ? HD_UI_LEFT : HD_UI_RIGHT);
+                hd_ui_image(&quad, &image, command & 0xFFFFFF, flags, row->projected ? (depth & 0x3FFC) >> 2 : 0, anchor);
+                if (row->enlarged)
+                {
+                    width = (width * 55) >> 5;
+                    height = (height * 55) >> 5;
+                    quad.u[1] = (float)(uint8)((sint32)quad.u[1] - 1);
+                    quad.u[3] = (float)(uint8)((sint32)quad.u[3] - 1);
+                    quad.v[2] = (float)(uint8)((sint32)quad.v[2] - 1);
+                    quad.v[3] = (float)(uint8)((sint32)quad.v[3] - 1);
+                }
+                top = y + (glyph == 30 ? (character == 95 ? 5 : 2) : 0);
+                hd_ui_rect(&quad, (float)(sint16)x, (float)(sint16)top, (float)(sint16)(x + width), (float)(sint16)(top + height));
+                hd_ui_add(&quad);
+                x += 3 + width;
+                if (width < 4)
+                    ++x;
+                continue;
+            }
             packet = scene_render.cursor;
             if (scene_render.limit - packet < (sint32)sizeof(POLY_FT4))
                 return 0x09000000;

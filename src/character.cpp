@@ -27,6 +27,7 @@
 #include "model_clipping.h"
 #include "effect_object.h"
 #include "texture_resources.h"
+#include "hd.h"
 
 struct PoseParent
 {
@@ -68,6 +69,93 @@ private:
     PoseParent *values;
 };
 
+struct HD_POSE_WORKSPACE
+{
+    struct Parent
+    {
+        MATRIXF pose;
+        uint32 ordinal;
+    };
+
+    MATRIXF *base;
+    Parent *parents;
+    HD_POSE_LINK *links;
+    uint32 bone_capacity;
+    uint32 parent_capacity;
+
+    HD_POSE_WORKSPACE() : base(0), parents(0), links(0), bone_capacity(0), parent_capacity(0)
+    {
+    }
+
+    ~HD_POSE_WORKSPACE()
+    {
+        free(base);
+        free(parents);
+        free(links);
+    }
+
+    void Reserve(uint32 bones, uint32 links)
+    {
+        if (bones > bone_capacity)
+        {
+            free(base);
+            base = (MATRIXF *)malloc(bones * sizeof(MATRIXF));
+            bone_capacity = bones;
+        }
+        if (links > parent_capacity)
+        {
+            free(parents);
+            parents = (Parent *)malloc(links * sizeof(Parent));
+            free(this->links);
+            this->links = (HD_POSE_LINK *)malloc(links * sizeof(HD_POSE_LINK));
+            parent_capacity = links;
+        }
+        if (!base || !parents || !this->links)
+        {
+            GameDiagnostic(("Cannot allocate HD pose hierarchy workspace\n"));
+            abort();
+        }
+    }
+
+    void Apply(const ModelHierarchyTable &hierarchy, const ModelJointAngles *angles, MATRIXF *output)
+    {
+        sint32 top = -1;
+        for (uint32 ordinal = 0; ordinal < hierarchy.count; ++ordinal)
+        {
+            const ModelHierarchyLink &link = hierarchy.links[ordinal];
+            while (top >= 0 && link.parent < parents[top].ordinal)
+                --top;
+            const MATRIXF &source = base[link.bone];
+            const ShortVector3 &rotation = angles[ordinal].rotation;
+            MATRIXF &pose = output[link.bone];
+            if (rotation.x || rotation.y || rotation.z)
+            {
+                MATRIXF correction, inverse;
+                rotation.BuildRotationMatrixf(correction);
+                CompMatrixf(&source, &correction, &pose);
+                if (top >= 0)
+                    CompMatrixf(&parents[top].pose, &pose, &pose);
+                ++top;
+                // Source poses are model-space; descendants inherit the relative correction
+                IdentityMatrixf(&inverse);
+                TransposeMatrixf(&source, &inverse);
+                MulMatrix0f(&pose, &inverse, &parents[top].pose);
+                for (uint32 row = 0; row < 3; ++row)
+                {
+                    parents[top].pose.t[row] = pose.t[row];
+                    for (uint32 column = 0; column < 3; ++column)
+                        parents[top].pose.t[row] -= parents[top].pose.m[row][column] * source.t[column];
+                }
+                parents[top].ordinal = ordinal;
+            }
+            else if (top >= 0)
+                CompMatrixf(&parents[top].pose, &source, &pose);
+            else
+                pose = source;
+        }
+    }
+};
+
 static void MultiplyPosedModelMatrix(const MATRIX &left, const MATRIX &right, MATRIX &output);
 static void MultiplyPosedModelMatrix(const MATRIX &left, const ModelPose &right, MATRIX &output);
 
@@ -84,7 +172,7 @@ uint32 Character::GetAttachment(Vector3 &output, uint8 requested)
     return GetModelAttachment(output, *this, requested);
 }
 
-Character::Character() : VisualObject(), hidden_models(0), model_hierarchy(0), model_angles(0), model_poses(0), model_pose_count(0)
+Character::Character() : VisualObject(), hidden_models(0), model_hierarchy(0), model_angles(0), model_poses(0), model_pose_count(0), hd_effect_history(0), hd_pose_workspace(0)
 {
     FUNCTION_MARKER(0x80062F64, "SLUS_003.73");
     projection.enabled = false;
@@ -252,6 +340,10 @@ ModelJointAngles &Character::GetModelJointAngles(uint32 idx)
 
 void Character::ReleaseModelAnimation()
 {
+    delete hd_pose_workspace;
+    hd_pose_workspace = 0;
+    hd_model_effect_free(hd_effect_history);
+    hd_effect_history = 0;
     free(model_poses);
     model_poses = 0;
     model_pose_count = 0;
@@ -419,6 +511,7 @@ uint32 Character::RenderModel()
 {
     ModelBorrow borrow;
     FUNCTION_MARKER(0x8007F340, "SLUS_003.73");
+    hd_model_effect_reset(hd_effect_history);
     ModelRenderView *camera;
     uint16 flags = model.flags;
     uint32 count;
@@ -579,4 +672,177 @@ uint32 Character::UpdateWorldTransform()
     world_transform.t[2] = model.pos.z >> 12;
     world_transform.t[1] = model.pos.y >> 12;
     return world_transform.t[1];
+}
+
+void Character::CaptureHdHierarchy(HD_OBJECT_STATE &state) const
+{
+    state.pose_links = 0;
+    state.pose_link_count = 0;
+    if (!model_hierarchy || !model_pose_count)
+        return;
+    if (!hd_pose_workspace)
+        hd_pose_workspace = new HD_POSE_WORKSPACE;
+    hd_pose_workspace->Reserve(model_pose_count, model_hierarchy->count);
+    for (uint32 index = 0; index < model_hierarchy->count; ++index)
+    {
+        const ModelHierarchyLink &link = model_hierarchy->links[index];
+        hd_pose_workspace->links[index].part = link.bone;
+        hd_pose_workspace->links[index].parent = link.parent == 65535 ? 0xFFFFFFFF : model_hierarchy->links[link.parent].bone;
+    }
+    state.pose_links = hd_pose_workspace->links;
+    state.pose_link_count = model_hierarchy->count;
+}
+
+uint32 Character::CaptureHdPoses(MATRIXF *output, uint32 count) const
+{
+    const ModelBank &bank = ModelBank::Get(model.bank);
+    if (count != bank.geometry.count || !output)
+        return 0;
+    const ModelAnimation &animation = GetModelAnimation(bank.animations, model.animation);
+    float frame = model.frame;
+    if (playback.dir && !playback.complete)
+        frame += playback.phase / 65536.0f;
+    if (model_hierarchy && model_pose_count == count)
+        animation.CaptureHdHierarchy(frame, playback.loop_mode == 1, output, count, *model_hierarchy);
+    else
+        animation.CaptureHd(frame, playback.loop_mode == 1, output, count);
+    if (model.flags & 4)
+    {
+        if (!model_poses || !model_angles || !model_hierarchy || count != model_pose_count)
+            return 0;
+        if (!hd_pose_workspace)
+            hd_pose_workspace = new HD_POSE_WORKSPACE;
+        hd_pose_workspace->Reserve(count, model_hierarchy->count);
+        memcpy(hd_pose_workspace->base, output, count * sizeof(MATRIXF));
+        hd_pose_workspace->Apply(*model_hierarchy, model_angles, output);
+    }
+    MATRIXF world;
+    model.angles.BuildRotationMatrixf(world);
+    if (model.flags & 0x200)
+    {
+        VECTORF scale = {model.scale.x / 4096.0f, model.scale.y / 4096.0f, model.scale.z / 4096.0f};
+        ScaleMatrixf(&world, &scale);
+    }
+    world.t[0] = model.pos.x / 4096.0f;
+    world.t[1] = model.pos.y / 4096.0f;
+    world.t[2] = model.pos.z / 4096.0f;
+    for (uint32 part = 0; part < count; ++part)
+        CompMatrixf(&world, output + part, output + part);
+    return count;
+}
+
+bool Character::CaptureHdModel(HD_OBJECT_STATE &state, const MATRIXF *poses, uint32 count, bool update_effects, bool logic) const
+{
+    const ModelGeometrySet &models = ModelBank::Get(model.bank).geometry;
+    uint32 mode = model_effect.color_mode >> 24;
+    const TextureGroup *animation = 0;
+    sint32 animation_frame = 0;
+    if (mode & 127)
+    {
+        uint32 index = (mode - 1) & 127;
+        animation = EffectObject::GetResourceGrp(index < 15 ? index : 14);
+        if (!animation)
+        {
+            GameDiagnostic(("Missing model effect texture group\n"));
+            abort();
+        }
+        uint32 pass = model_render_state.effect_frame == game_clock.active_frame ? model_render_state.effect_pass : model_render_state.pass_count;
+        if (!logic && update_effects && model_render_state.effect_frame != game_clock.active_frame)
+        {
+            model_render_state.effect_pass = pass;
+            model_render_state.effect_frame = game_clock.active_frame;
+        }
+        sint32 dividend = (sint32)pass, divisor = (sint32)animation->count;
+        animation_frame = divisor == 0 ? dividend : (dividend == (-2147483647 - 1) && divisor == -1 ? 0 : dividend % divisor);
+    }
+    GameLighting lighting = game_lighting;
+    if (!(model.flags & 128))
+        memset(&lighting.directions, 0, sizeof(lighting.directions));
+    const ModelProjectionConfig &config = GetModelProjConfig();
+    VECTORF constant = {(float)model_render_state.draw.light.x, (float)model_render_state.draw.light.y, (float)model_render_state.draw.light.z};
+    for (uint32 part = 0; part < count; ++part)
+    {
+        if (hidden_models & ((uint32)1 << (part & 31)))
+        {
+            if (logic)
+                for (uint32 pass = 0; pass < 2; ++pass)
+                    if (!hd_model_effect_tick(&hd_effect_history, part * 2 + pass, count * 2, model.bank, 0))
+                        return false;
+            continue;
+        }
+        const ModelGeometry &geometry = models.models[part];
+        state.model = part;
+        state.reflection = geometry.flags & 1;
+        if (!logic && !(mode & 128))
+        {
+            lighting.CaptureHd(state.lighting, poses[part], model_render_state.draw.mode, constant, (float)config.fog_start, (sint32)config.fog_shift);
+            if (!hd_scene_add(&state, poses, count))
+                return false;
+        }
+        HD_MODEL_EFFECT effect = {0};
+        effect.matrix = poses[part];
+        effect.minimum.vx = (float)geometry.bounds[0].min;
+        effect.minimum.vy = (float)geometry.bounds[1].min;
+        effect.minimum.vz = (float)geometry.bounds[2].min;
+        effect.maximum.vx = (float)(uint16)geometry.bounds[0].max;
+        effect.maximum.vy = (float)(uint16)geometry.bounds[1].max;
+        effect.maximum.vz = (float)(uint16)geometry.bounds[2].max;
+        for (uint32 pass = 0; pass < 2; ++pass)
+        {
+            const TextureResource *texture;
+            if (!pass)
+            {
+                if (!animation || (state.water_clip && poses[part].t[1] >= state.water_y - 40))
+                {
+                    if (logic && !hd_model_effect_tick(&hd_effect_history, part * 2 + pass, count * 2, model.bank, 0))
+                        return false;
+                    continue;
+                }
+                texture = TextureGroup::GetFrame(animation, animation_frame).tex;
+                effect.color = model_effect.color_mode & 0xFFFFFF;
+                effect.scale = model_effect.scale / 4096.0f;
+                effect.depth_bias = model_effect.depth_bias;
+            }
+            else
+            {
+                if (!projection.enabled)
+                {
+                    if (logic && !hd_model_effect_tick(&hd_effect_history, part * 2 + pass, count * 2, model.bank, 0))
+                        return false;
+                    continue;
+                }
+                texture = EffectObject::GetShadowTex();
+                effect.projection = 1;
+                effect.color = projection.color;
+                effect.normal.vx = surface.n.vx / 4096.0f;
+                effect.normal.vy = surface.n.vy / 4096.0f;
+                effect.normal.vz = surface.n.vz / 4096.0f;
+                effect.plane.vx = surface.pos.x / 4096.0f;
+                effect.plane.vy = surface.pos.y / 4096.0f;
+                effect.plane.vz = surface.pos.z / 4096.0f;
+                effect.direction.vx = projection.dir.x / 4096.0f;
+                effect.direction.vy = projection.dir.y / 4096.0f;
+                effect.direction.vz = projection.dir.z / 4096.0f;
+            }
+            if (!texture)
+            {
+                GameDiagnostic(("Missing projection shadow texture\n"));
+                abort();
+            }
+            effect.image.page = texture->tpage;
+            effect.image.clut = texture->clut;
+            effect.image.region = texture->region;
+            effect.image.texel_flags = texture->HdTexelFlags(effect.image.clut);
+            for (uint32 corner = 0; corner < 4; ++corner)
+                effect.image.uv[corner] = texture->uv[corner].uv;
+            if (!(logic ? hd_model_effect_tick(&hd_effect_history, part * 2 + pass, count * 2, model.bank, &effect) : hd_model_effect_capture(&hd_effect_history, part * 2 + pass, count * 2, model.bank, &effect)))
+                return false;
+        }
+    }
+    return true;
+}
+
+void Character::ResetHdEffects()
+{
+    hd_model_effect_reset(hd_effect_history);
 }

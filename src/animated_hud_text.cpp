@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 
 #include "animated_hud_text.h"
 #include "hud_text.h"
@@ -17,6 +18,7 @@ AnimatedHudText *AnimatedHudText::Allocate()
         abort();
     }
     AnimatedHudText *prev = animated_hud_text;
+    memset(&node->hd_text, 0, sizeof(node->hd_text));
     node->prev = 0;
     animated_hud_text = node;
     node->next = prev;
@@ -59,6 +61,7 @@ void AnimatedHudText::Add(const char *text, const HudTextAnimation *animation)
     node->text = text;
     node->animation = animation;
     node->age = 0;
+    node->hd_previous_scale = GetHdScale(*animation, 0);
 }
 
 uint32 AnimatedHudText::UpdateAll()
@@ -70,6 +73,7 @@ uint32 AnimatedHudText::UpdateAll()
         AnimatedHudText *next = node->next;
         const HudTextAnimation *animation = node->animation;
         uint16 age = node->age;
+        node->hd_previous_scale = GetHdScale(*animation, age);
         if (age < animation->duration)
             node->age = age + 1;
         else
@@ -107,6 +111,11 @@ uint32 AnimatedHudText::Interpolate(sint32 first, sint32 last, uint16 age, uint1
     return (uint32)first + DivideSignedWord(product, duration);
 }
 
+float AnimatedHudText::GetHdScale(const HudTextAnimation &animation, uint16 age)
+{
+    return animation.duration ? animation.scale[0] + ((float)animation.scale[1] - animation.scale[0]) * age / animation.duration : animation.scale[0];
+}
+
 void AnimatedHudText::DrawAll()
 {
     FUNCTION_MARKER(0x8001B8BC, "SLUS_003.73");
@@ -130,7 +139,10 @@ void AnimatedHudText::DrawAll()
         uint32 x = AnimatedHudText::Interpolate(animation->scr_pos[0][0], animation->scr_pos[1][0], node->age, duration);
         uint32 y = AnimatedHudText::Interpolate(animation->scr_pos[0][1], animation->scr_pos[1][1], node->age, duration);
         uint32 filter = AnimatedHudText::Interpolate(animation->filter[0], animation->filter[1], node->age, duration);
-        DrawStyledHudText(x, y, node->text, filter, 0, 256);
+        float text_scale = duration ? GetHdScale(*animation, node->age) : hud_text_style.scale;
+        if (node->hd_text.initialized)
+            node->hd_text.style.scale = node->hd_previous_scale;
+        DrawStyledHudTextHistory(node->hd_text, x, y, node->text, filter, 0, 256, text_scale);
         node = node->next;
     }
 }

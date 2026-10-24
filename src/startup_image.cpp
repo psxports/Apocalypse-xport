@@ -1,6 +1,8 @@
 #include <stdlib.h>
 
 #include "startup_resources.h"
+#include "hd.h"
+#include "psx_gpu.h"
 #include "resource_io.h"
 #include "game_diagnostics.h"
 
@@ -123,6 +125,8 @@ static void DrawStartupImage(uint32 height)
         return;
     if (height > 512 || height * 512 * 2 > startup_image.bytes)
         FailStartupImage();
+    HD_FRAME graphics_frame = {0};
+    hd_frame_begin(&graphics_frame);
     ClearStartupImageArea();
     sint16 rect_height = height;
     sint16 top = (240 - rect_height) / 2;
@@ -131,6 +135,13 @@ static void DrawStartupImage(uint32 height)
     LoadImagePSX(&rect, (uint32 *)startup_image.pix);
     MoveImage(&rect, 0, top + 256);
     DrawSync(0);
+    if (!hd_frame_image(&graphics_frame, 0, 0, 512, 240, false))
+    {
+        GameDiagnostic(("Cannot present startup image\n"));
+        abort();
+    }
+    // Keep complete software pages available for OG title and loading transitions
+    hd_frame_abandon(&graphics_frame);
 }
 
 void LoadStartupImage(bool compressed, const char *name, uint32 height)

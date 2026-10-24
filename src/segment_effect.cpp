@@ -4,8 +4,9 @@
 #include "effect_lifecycle.h"
 #include "game_diagnostics.h"
 #include "effect_object.h"
+#include "hd.h"
 
-SegmentEffect::SegmentEffect(uint32 count) : EffectObject(), point_count(count), points(0), forced_depth(0)
+SegmentEffect::SegmentEffect(uint32 count) : EffectObject(), point_count(count), points(0), forced_depth(0), hd_history(0)
 {
     FUNCTION_MARKER(0x800322F4, "SLUS_003.73");
     if (count > 0x7FFFFFFF || count > 0xFFFFFFFF / 16 || count > (size_t)-1 / sizeof(*points))
@@ -36,6 +37,7 @@ SegmentEffect::SegmentEffect(uint32 count) : EffectObject(), point_count(count),
 
 SegmentEffect::~SegmentEffect()
 {
+    hd_line_chain_free(hd_history);
     free(points);
 }
 

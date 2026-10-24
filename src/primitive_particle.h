@@ -6,6 +6,8 @@
 #include "object.h"
 #include "effect_object.h"
 
+struct HD_SPRITE_HISTORY;
+
 // Shared defaults for primitive particles
 struct ParticleSettings
 {
@@ -21,11 +23,10 @@ struct ParticleSettings
 class PrimitiveParticle : public EffectObject
 {
 public:
-    virtual ~PrimitiveParticle()
-    {
-    }
+    virtual ~PrimitiveParticle();
 
     TILE primitive;
+    mutable HD_SPRITE_HISTORY *hd_history;
 
 protected:
     PrimitiveParticle();

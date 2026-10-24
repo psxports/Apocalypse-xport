@@ -185,7 +185,7 @@ uint32 EffectObject::SetPos(const Vector3 *src_pos)
     return position.x;
 }
 
-EffectObject::EffectObject() : prev(0), next(0), finished(false), depth_bias(0), persistent(false), kind(0), list_head(0)
+EffectObject::EffectObject() : prev(0), next(0), finished(false), depth_bias(0), persistent(false), kind(0), hd_attachment_tick(0), hd_attachment_birth_only(false), hd_release_offset(), hd_release_ready(false), list_head(0)
 {
     pos = zero_vector;
     velocity = zero_vector;

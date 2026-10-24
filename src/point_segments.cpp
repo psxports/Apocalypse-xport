@@ -4,8 +4,9 @@
 #include "point_segments.h"
 #include "effect_lifecycle.h"
 #include "effect_object.h"
+#include "hd.h"
 
-PointSegments::PointSegments(uint32 count) : EffectObject(), forced_depth(0), point_count(count), points(0)
+PointSegments::PointSegments(uint32 count) : EffectObject(), forced_depth(0), point_count(count), points(0), hd_history(0)
 {
     FUNCTION_MARKER(0x80032068, "SLUS_003.73");
     if (count > 0x7FFFFFFF || count > 0xFFFFFFFF / 16 || count > (size_t)-1 / sizeof(*points))
@@ -36,6 +37,7 @@ PointSegments::PointSegments(uint32 count) : EffectObject(), forced_depth(0), po
 
 PointSegments::~PointSegments()
 {
+    hd_line_chain_free(hd_history);
     free(points);
 }
 

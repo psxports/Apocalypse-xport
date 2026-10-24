@@ -5,6 +5,21 @@
 #include "global.h"
 #include "game_diagnostics.h"
 #include "hud_text.h"
+#include "hud_sprites.h"
+
+static bool hd_text_pair;
+static HD_UI_TEXT_HISTORY *hd_text_history;
+static uint32 hd_text_previous_color, hd_text_previous_scale;
+static float hd_text_layout_scale;
+
+static int CaptureHudGlyph(uint8 character, HD_UI_IMAGE *image)
+{
+    sint32 index = GetHudGlyphIdx(character);
+    if (index < 0)
+        return 0;
+    CaptureHudImage(TextureGroup::GetFrame(GetHudFont(), index), *image);
+    return 1;
+}
 
 uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, uint32 color, uint32 scale)
 {
@@ -74,6 +89,31 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
     uint32 packet_word, head_word;
     uint32 *head_address;
     FUNCTION_MARKER(0x8001AA28, "SLUS_003.73");
+    if (hd_ui_collecting())
+    {
+        if (hud_text_style.align > 2)
+        {
+            GameDiagnostic(("Undefined original text alignment\n"));
+            abort();
+        }
+        HD_UI_TEXT_STYLE style;
+        HD_UI_IMAGE glow_image;
+        style.color = hud_text_style.color.rgbc & 0xFFFFFF;
+        style.shadow = hud_text_style.shadow.rgbc & 0xFFFFFF;
+        style.scale = hd_text_history ? hd_text_layout_scale : hud_text_style.scale;
+        style.depth = hud_text_style.depth;
+        style.alignment = hud_text_style.align;
+        style.flags = (hud_text_style.color.code & 1 ? HD_RAW_TEXTURE : 0) | (hud_text_style.color.code & 2 ? HD_SEMITRANSPARENT : 0);
+        style.curve = hud_text_glow.curve;
+        style.alternate = hud_text_glow.alternate != 0;
+        if (glow)
+            CaptureHudTexture(*glow, glow_image);
+        if (hd_text_history)
+            return hd_ui_text_history(hd_text_history, (sint32)x, (sint32)y, text, &style, filter != 0, color, scale, glow ? &glow_image : 0, CaptureHudGlyph, RandomRange);
+        if (hd_text_pair)
+            return hd_ui_text_pair((sint32)x, (sint32)y, text, &style, &style, filter != 0, color, scale, hd_text_previous_color, hd_text_previous_scale, glow ? &glow_image : 0, CaptureHudGlyph, RandomRange);
+        return hd_ui_text((sint32)x, (sint32)y, text, &style, filter != 0, color, scale, glow ? &glow_image : 0, CaptureHudGlyph, RandomRange);
+    }
     // Packet links retain the original ordered header and ordering-table accesses
     if (glow)
         glow_color = color | (color << 16) | (color << 8);
@@ -409,4 +449,27 @@ uint32 DrawStyledHudText(uint32 x, uint32 y, const char *text, uint32 filter, ui
             pen_x += 3 + (((glyph_width + glyph_offset) * glyph_scale) >> 8);
         }
     }
+}
+
+uint32 DrawStyledHudTextPair(uint32 x, uint32 y, const char *text, uint32 filter, uint32 color, uint32 scale, uint32 previous_color, uint32 previous_scale)
+{
+    if (hd_text_pair || hd_text_history)
+        abort();
+    hd_text_pair = true;
+    hd_text_previous_color = previous_color;
+    hd_text_previous_scale = previous_scale;
+    uint32 width = DrawStyledHudText(x, y, text, filter, color, scale);
+    hd_text_pair = false;
+    return width;
+}
+
+uint32 DrawStyledHudTextHistory(HD_UI_TEXT_HISTORY &history, uint32 x, uint32 y, const char *text, uint32 filter, uint32 color, uint32 scale, float text_scale)
+{
+    if (hd_text_pair || hd_text_history)
+        abort();
+    hd_text_history = &history;
+    hd_text_layout_scale = text_scale;
+    uint32 width = DrawStyledHudText(x, y, text, filter, color, scale);
+    hd_text_history = 0;
+    return width;
 }
