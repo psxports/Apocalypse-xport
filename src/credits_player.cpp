@@ -39,17 +39,17 @@ struct CreditsRow
 
 static bool DecodeRows(const char *data, uint32 bytes, CreditsRow *rows, uint32 &count);
 
-static uint64 credits_hd_clock_field;
-static float credits_hd_clock_fraction;
+static uint64 credits_hd_sample_frame;
+static float credits_hd_sample_fraction;
 
 static float CreditsRenderPhase()
 {
     uint64 field;
     float fraction = xport_frame_fract(&field);
-    if (field < credits_hd_clock_field || field - credits_hd_clock_field > 2)
+    if (field < credits_hd_sample_frame || field - credits_hd_sample_frame > 2)
         return 1;
     // The original credits loop waits across two physical fields
-    float phase = ((float)(field - credits_hd_clock_field) + fraction - credits_hd_clock_fraction) / 2;
+    float phase = ((float)(field - credits_hd_sample_frame) + fraction - credits_hd_sample_fraction) / 2;
     return phase < 0 ? 0 : (phase > 1 ? 1 : phase);
 }
 
@@ -221,7 +221,7 @@ uint32 CreditsPlayer::Run()
     HD_FRAME graphics_frame = {0};
     while (first_row < count)
     {
-        credits_hd_clock_fraction = xport_frame_fract(&credits_hd_clock_field);
+        credits_hd_sample_fraction = xport_frame_fract(&credits_hd_sample_frame);
         bool hd_presented_early = false;
         bool interpolate_scroll = xport_hd && hd_frame_can_redraw(&graphics_frame);
         uint32 frame = game_clock.vblank_frame;

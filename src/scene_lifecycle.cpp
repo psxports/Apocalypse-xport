@@ -47,17 +47,48 @@ static bool scene_hd_frame;
 static HD_FRAME scene_hd_state;
 static ModelReference scene_hd_camera;
 static bool scene_hd_wait;
-static uint64 scene_hd_clock_field;
-static float scene_hd_clock_fraction;
+static uint64 scene_hd_sample_frame;
+static bool scene_hd_sample_valid;
+static uint64 scene_logic_frame;
+static bool scene_logic_scheduled;
+
+static uint32 SceneLogicSteps(uint64 frame, uint32 max_steps)
+{
+    if (!scene_logic_scheduled)
+    {
+        scene_logic_frame = frame;
+        scene_logic_scheduled = true;
+        return 1;
+    }
+    uint64 steps = (frame - scene_logic_frame) / 2;
+    // Retain the original maximum of two world updates per source frame
+    if (steps > max_steps)
+    {
+        scene_logic_frame += (steps - max_steps) * 2;
+        steps = max_steps;
+    }
+    return (uint32)steps;
+}
+
+static void CaptureSceneRenderFrame()
+{
+    // Render the sample at its scheduled physical field
+    scene_hd_sample_frame = scene_logic_frame;
+    scene_hd_sample_valid = true;
+}
 
 static float SceneRenderPhase()
 {
     uint64 field;
     float fraction = xport_frame_fract(&field);
-    if (field < scene_hd_clock_field || field - scene_hd_clock_field > 2)
+    if (!scene_hd_sample_valid)
+        return 1;
+    if (field < scene_hd_sample_frame)
+        return 0;
+    if (field - scene_hd_sample_frame > 2)
         return 1;
     // One source update spans two physical fields
-    float phase = ((float)(field - scene_hd_clock_field) + fraction - scene_hd_clock_fraction) / 2;
+    float phase = ((float)(field - scene_hd_sample_frame) + fraction) / 2;
     return phase < 0 ? 0 : (phase > 1 ? 1 : phase);
 }
 
@@ -199,10 +230,17 @@ static void BindHdCamera(ModelInstance *model)
     }
 }
 
-void CaptureHdLogicState()
+void CaptureHdLogicState(bool camera_updated)
 {
     if (!scene_hd_frame)
+    {
+        scene_hd_sample_valid = false;
         return;
+    }
+    // Camera and actors must belong to the same completed logic step
+    if (!camera_updated)
+        VisualObject::UpdateList(visual_lists.cameras);
+    CaptureSceneRenderFrame();
     hd_model_tick_begin(game_clock.tick);
     ModelInstance *camera_model = visual_lists.cameras;
     BindHdCamera(camera_model);
@@ -245,35 +283,40 @@ static void DrawSceneFrame()
     ModelInstance *object = visual_lists.cameras;
     model_viewport.distance = static_cast<Camera *>(object->owner)->GetProjDistance();
     BlurMenuBuffers();
-    if (!scene_smoothing.initialized)
-    {
-        uint32 frame = game_clock.tick;
-        scene_smoothing.initialized = true;
-        scene_smoothing.prev_tick = frame;
-    }
-    uint32 cur_frame = game_clock.tick;
-    uint32 prev_frame = scene_smoothing.prev_tick;
-    if ((sint32)(cur_frame - prev_frame) >= 2 && scene_smoothing.saved)
-    {
-        object = visual_lists.players;
-        scene_smoothing.saved = false;
-        smoothed = true;
-        VisualObject::SmoothListPos(object);
-        VisualObject::SmoothListPos(visual_lists.actors);
-        VisualObject::SmoothListPos(visual_lists.solids);
-        TexturedQuad::SmoothListPos();
-    }
+    if (scene_hd_frame)
+        ResetSceneSmoothing();
     else
     {
-        object = visual_lists.players;
-        scene_smoothing.saved = true;
-        VisualObject::SaveListPos(object);
-        VisualObject::SaveListPos(visual_lists.actors);
-        VisualObject::SaveListPos(visual_lists.solids);
-        TexturedQuad::SaveListPos();
+        if (!scene_smoothing.initialized)
+        {
+            uint32 frame = game_clock.tick;
+            scene_smoothing.initialized = true;
+            scene_smoothing.prev_tick = frame;
+        }
+        uint32 cur_frame = game_clock.tick;
+        uint32 prev_frame = scene_smoothing.prev_tick;
+        if ((sint32)(cur_frame - prev_frame) >= 2 && scene_smoothing.saved)
+        {
+            object = visual_lists.players;
+            scene_smoothing.saved = false;
+            smoothed = true;
+            VisualObject::SmoothListPos(object);
+            VisualObject::SmoothListPos(visual_lists.actors);
+            VisualObject::SmoothListPos(visual_lists.solids);
+            TexturedQuad::SmoothListPos();
+        }
+        else
+        {
+            object = visual_lists.players;
+            scene_smoothing.saved = true;
+            VisualObject::SaveListPos(object);
+            VisualObject::SaveListPos(visual_lists.actors);
+            VisualObject::SaveListPos(visual_lists.solids);
+            TexturedQuad::SaveListPos();
+        }
+        scene_smoothing.prev_tick = game_clock.tick;
+        VisualObject::UpdateList(visual_lists.cameras);
     }
-    scene_smoothing.prev_tick = game_clock.tick;
-    VisualObject::UpdateList(visual_lists.cameras);
     GetModelRenderView().Configure(model_viewport, scene_render.cur->ot);
     if (scene_hd_frame)
     {
@@ -329,6 +372,8 @@ uint32 RunLevelLoop()
     scene_hd_camera.Reset();
     hd_frame_camera_reset(&scene_hd_state);
     scene_hd_wait = false;
+    scene_hd_sample_valid = false;
+    scene_logic_scheduled = false;
     bool was_paused = scene_frame.paused || scene_frame.camera_paused;
     PSX_RECT rect;
     FUNCTION_MARKER(0x80030AD4, "SLUS_003.73");
@@ -353,16 +398,47 @@ uint32 RunLevelLoop()
 #endif
     while (!game_session.exit_reason)
     {
+        while (xport_hd && scene_logic_scheduled && hd_frame_can_redraw(&scene_hd_state) && xport_frame() - scene_logic_frame < 2)
+        {
+            VSync(-1);
+            if (!xport_hd || xport_frame() - scene_logic_frame >= 2)
+                break;
+            if (!hd_frame_redraw(&scene_hd_state, SceneRenderPhase()))
+            {
+                GameDiagnostic(("Cannot redraw scheduled game frame\n"));
+                abort();
+            }
+#if defined(_DEBUG)
+            ++scene_timing.hd_frames;
+            ++scene_timing.hd_redraws;
+#endif
+        }
         frame_start = game_clock.vblank_frame;
-        scene_hd_clock_fraction = xport_frame_fract(&scene_hd_clock_field);
         hd_frame_begin(&scene_hd_state);
         scene_hd_frame = scene_hd_state.selected != 0;
         BeginSceneFrame();
         UpdateScenePacketLimit();
-        ::AdvanceGameTick();
-        if (game_session.exit_reason)
-            break;
-        ::AdvanceGameTick();
+        uint32 logic_steps = 1;
+        bool advance_frame = scene_logic_scheduled;
+        if (scene_hd_frame)
+        {
+            uint32 max_steps = !game_session.demo_mode && input_recording.GetMode() != InputRecording::Recording && !game_session.catchup_blocked ? 2 : 1;
+            logic_steps = SceneLogicSteps(xport_frame(), max_steps);
+        }
+        else
+            scene_logic_scheduled = false;
+        for (uint32 step = 0; step < logic_steps; ++step)
+        {
+            if (scene_hd_frame && advance_frame)
+                scene_logic_frame += 2;
+            advance_frame = true;
+            ::AdvanceGameTick();
+            if (game_session.exit_reason)
+                break;
+            ::AdvanceGameTick();
+            if (game_session.exit_reason)
+                break;
+        }
         if (game_session.exit_reason)
             break;
         bool paused = scene_frame.paused || scene_frame.camera_paused;
@@ -396,15 +472,18 @@ uint32 RunLevelLoop()
             VSync(-1);
             scene_hd_wait = hd_frame_can_redraw(&scene_hd_state) != 0;
         }
-        if (game_clock.vblank_frame == frame_start)
-            WaitForGameFrames(1);
         scene_frame.service_enabled = false;
-        while (1)
+        if (!scene_hd_frame)
         {
-            WaitForGameFrames(1);
-            if (!DrawSync(1))
-                break;
-            ServiceGameFrame();
+            if (game_clock.vblank_frame == frame_start)
+                WaitForGameFrames(1);
+            while (1)
+            {
+                WaitForGameFrames(1);
+                if (!DrawSync(1))
+                    break;
+                ServiceGameFrame();
+            }
         }
 
         scene_hd_wait = false;
@@ -420,7 +499,7 @@ uint32 RunLevelLoop()
             scene_frame.service_enabled = true;
         }
         elapsed = (sint32)(game_clock.vblank_frame - 2 - frame_start);
-        if (!game_session.demo_mode && input_recording.GetMode() != InputRecording::Recording && elapsed > 0 && !game_session.catchup_blocked)
+        if (!scene_hd_frame && !game_session.demo_mode && input_recording.GetMode() != InputRecording::Recording && elapsed > 0 && !game_session.catchup_blocked)
         {
             ::AdvanceGameTick();
             if (game_session.exit_reason)

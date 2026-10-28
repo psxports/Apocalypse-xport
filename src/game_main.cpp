@@ -131,6 +131,5 @@ extern "C" void xport_main(void)
         return;
     }
     // Game frame producers do not provide complete frame-skip recovery scopes
-    gpu_set_frame_skip(0);
     RunGameSession();
 }

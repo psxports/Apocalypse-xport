@@ -49,7 +49,7 @@ uint32 InitializeSceneDisp();
 bool WaitForGameFrames(uint32 frames);
 bool WaitForRenderFrames(uint32 frames, HD_FRAME *frame, float (*phase)());
 uint32 RunLevelLoop();
-void CaptureHdLogicState();
+void CaptureHdLogicState(bool camera_updated);
 void ResetHdCamera(const ModelInstance *model);
 void BeginSceneFrame();
 void UpdateScenePacketLimit();

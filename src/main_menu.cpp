@@ -109,17 +109,17 @@ enum MainMenuPage
     MAIN_MENU_CARD_MISSING = 18
 };
 
-static uint64 menu_hd_clock_field;
-static float menu_hd_clock_fraction;
+static uint64 menu_hd_sample_frame;
+static float menu_hd_sample_fraction;
 
 static float MenuRenderPhase()
 {
     uint64 field;
     float fraction = xport_frame_fract(&field);
-    if (field < menu_hd_clock_field || field - menu_hd_clock_field > 2)
+    if (field < menu_hd_sample_frame || field - menu_hd_sample_frame > 2)
         return 1;
     // The original menu loop waits across two physical fields
-    float phase = ((float)(field - menu_hd_clock_field) + fraction - menu_hd_clock_fraction) / 2;
+    float phase = ((float)(field - menu_hd_sample_frame) + fraction - menu_hd_sample_fraction) / 2;
     return phase < 0 ? 0 : (phase > 1 ? 1 : phase);
 }
 
@@ -377,7 +377,7 @@ OpenMainMenu:
     last_activity_frame = game_clock.vblank_frame;
     while (!finished)
     {
-        menu_hd_clock_fraction = xport_frame_fract(&menu_hd_clock_field);
+        menu_hd_sample_fraction = xport_frame_fract(&menu_hd_sample_frame);
         hd_presented_early = false;
         hd_frame_begin(&graphics_frame);
         BeginSceneFrame();

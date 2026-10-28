@@ -64,7 +64,8 @@ uint32 AdvanceGameTick()
     ModelInstance::UpdateFlashes();
     ResetHudTextQueue();
     GamePadInput::Poll();
-    if (scene_frame.paused || scene_frame.camera_paused)
+    bool camera_updated = scene_frame.paused || scene_frame.camera_paused;
+    if (camera_updated)
         VisualObject::UpdateList(visual_lists.cameras);
     else
     {
@@ -96,6 +97,6 @@ uint32 AdvanceGameTick()
         ModelBank::ProcessLoadQueue();
         result = ProcessResourceRead();
     }
-    CaptureHdLogicState();
+    CaptureHdLogicState(camera_updated);
     return result;
 }

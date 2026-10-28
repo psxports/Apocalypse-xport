@@ -4339,13 +4339,8 @@ void hd_scene_capture_begin(const HD_CAMERA *camera)
         int reset = frame->camera_epoch != hd_history_epoch || frame->camera_serial + 1 != hd_capture_serial;
         if (frame->camera_logic_valid && frame->camera_logic_epoch == hd_history_epoch && hd_logic_tick_valid && frame->camera_logic_tick == hd_logic_tick)
         {
-            HD_CAMERA_HISTORY history = frame->camera_logic_history;
-            // Replace this tick's source view without advancing its previous logic endpoint
-            history.current = history.previous;
-            history.pose.current = history.pose.previous;
-            hd_camera_capture(&history, camera, frame->camera_logic_seeded);
-            frame->camera_logic_history = history;
-            frame->camera_history = history;
+            // Replay the same immutable logic samples as the animated objects
+            frame->camera_history = frame->camera_logic_history;
         }
         else
             hd_camera_capture(&frame->camera_history, camera, reset);
